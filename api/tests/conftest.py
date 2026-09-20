@@ -184,7 +184,7 @@ def _ensure_runsc() -> None:
 # ---------------------------------------------------------------------------
 
 def _find_test_pg_ctl() -> str:
-    configured = os.environ.get("SKEINIX_TEST_PG_CTL", "").strip()
+    configured = os.environ.get("FLOWORK_TEST_PG_CTL", "").strip()
     candidates = [Path(configured)] if configured else []
     on_path = shutil.which("pg_ctl")
     if on_path:
@@ -197,19 +197,19 @@ def _find_test_pg_ctl() -> str:
             return str(candidate)
     raise RuntimeError(
         "PostgreSQL server binaries are required for API tests. Install the "
-        "distribution postgresql package or set SKEINIX_TEST_PG_CTL."
+        "distribution postgresql package or set FLOWORK_TEST_PG_CTL."
     )
 
 
 # port=None lets pytest-postgresql choose an available local port. WSL hosts
 # with a mirrored Windows/VPN network can make port-for's localhost probe hang;
 # CI or a developer may pin an isolated port without changing the fixture.
-_TEST_POSTGRESQL_PORT = os.environ.get("SKEINIX_TEST_PG_PORT", "").strip()
-if os.environ.get("SKEINIX_TEST_PG_URL", "").strip():
+_TEST_POSTGRESQL_PORT = os.environ.get("FLOWORK_TEST_PG_PORT", "").strip()
+if os.environ.get("FLOWORK_TEST_PG_URL", "").strip():
     @pytest.fixture(scope="session")
     def postgresql_proc():
         raise RuntimeError(
-            "postgresql_proc is unavailable when SKEINIX_TEST_PG_URL is set"
+            "postgresql_proc is unavailable when FLOWORK_TEST_PG_URL is set"
         )
 else:
     postgresql_proc = factories.postgresql_proc(
@@ -217,12 +217,12 @@ else:
         # 127.0.0.1 may be intercepted by a mirrored Windows VPN and leave a
         # closed-port probe in SYN_SENT until timeout. Another loopback address
         # is still local-only but fails/accepts immediately on Linux and WSL.
-        host=os.environ.get("SKEINIX_TEST_PG_HOST", "127.0.0.2"),
+        host=os.environ.get("FLOWORK_TEST_PG_HOST", "127.0.0.2"),
         port=int(_TEST_POSTGRESQL_PORT) if _TEST_POSTGRESQL_PORT else None,
-        unixsocketdir=os.environ.get("SKEINIX_TEST_PG_SOCKET_DIR", "/tmp"),
+        unixsocketdir=os.environ.get("FLOWORK_TEST_PG_SOCKET_DIR", "/tmp"),
         postgres_options=(
             "-c listen_addresses="
-            + os.environ.get("SKEINIX_TEST_PG_HOST", "127.0.0.2")
+            + os.environ.get("FLOWORK_TEST_PG_HOST", "127.0.0.2")
         ),
     )
 
@@ -241,25 +241,25 @@ def pg_url(request) -> str:
     """Return a superuser URL for an isolated, disposable test database.
 
     The default starts a local ``pytest-postgresql`` process. A host which
-    intentionally keeps PostgreSQL in Docker may set ``SKEINIX_TEST_PG_URL``
+    intentionally keeps PostgreSQL in Docker may set ``FLOWORK_TEST_PG_URL``
     to an existing cluster's administrative database. That mode creates and
-    later drops only ``SKEINIX_TEST_PG_DATABASE``; the database named by the
+    later drops only ``FLOWORK_TEST_PG_DATABASE``; the database named by the
     administrative URL is never migrated or truncated.
     """
-    external_url = os.environ.get("SKEINIX_TEST_PG_URL", "").strip()
+    external_url = os.environ.get("FLOWORK_TEST_PG_URL", "").strip()
     dbname = os.environ.get(
-        "SKEINIX_TEST_PG_DATABASE", "vibecanvas_test"
+        "FLOWORK_TEST_PG_DATABASE", "vibecanvas_test"
     ).strip()
     if not dbname or not dbname.replace("_", "").isalnum():
         raise RuntimeError(
-            "SKEINIX_TEST_PG_DATABASE must contain only letters, digits, "
+            "FLOWORK_TEST_PG_DATABASE must contain only letters, digits, "
             "and underscores"
         )
 
     if external_url:
         admin_url = make_url(external_url)
         if not admin_url.database:
-            raise RuntimeError("SKEINIX_TEST_PG_URL must name an admin database")
+            raise RuntimeError("FLOWORK_TEST_PG_URL must name an admin database")
         sync_admin_url = admin_url.set(drivername="postgresql").render_as_string(
             hide_password=False
         )
@@ -322,15 +322,15 @@ def _migrate(pg_url, monkeypatch_session):
     """
     su_url = make_url(pg_url)
     dbname = su_url.database
-    external_cluster = bool(os.environ.get("SKEINIX_TEST_PG_URL", "").strip())
+    external_cluster = bool(os.environ.get("FLOWORK_TEST_PG_URL", "").strip())
     app_password = (
-        os.environ.get("SKEINIX_TEST_APP_PASSWORD", "").strip()
+        os.environ.get("FLOWORK_TEST_APP_PASSWORD", "").strip()
         if external_cluster
         else "vibecanvas_app"
     )
     if external_cluster and not app_password:
         raise RuntimeError(
-            "SKEINIX_TEST_APP_PASSWORD is required with SKEINIX_TEST_PG_URL"
+            "FLOWORK_TEST_APP_PASSWORD is required with FLOWORK_TEST_PG_URL"
         )
 
     # 1. Local ephemeral clusters get a fresh app role. External-cluster mode

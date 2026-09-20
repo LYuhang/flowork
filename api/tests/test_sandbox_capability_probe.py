@@ -41,7 +41,7 @@ class _ProbeProvider:
         assert bus_socket.endswith("/bus/probe.sock")
         if self.write_marker:
             Path(run_dir, ".capability-probe").write_text(
-                "skeinix-gvisor-ready",
+                "flowork-gvisor-ready",
                 encoding="utf-8",
             )
         return SandboxResult(exit_code=0, stdout="", stderr="", duration_s=0.01)

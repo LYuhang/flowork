@@ -108,7 +108,7 @@ class ResourceProvenanceBuilder:
 def platform_provenance(
     *,
     origin_type: ResourceOrigin = "system",
-    display_name: str = "Skeinix",
+    display_name: str = "Flowork",
 ) -> ResourceProvenanceOut:
     """Return provenance for a platform-owned catalog or built-in resource."""
     return ResourceProvenanceOut(

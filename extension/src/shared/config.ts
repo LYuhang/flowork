@@ -1,7 +1,7 @@
 /**
  * Bundle-local extension config.
  *
- * WEB_BASE is the origin of the Skeinix web app the side panel embeds via an
+ * WEB_BASE is the origin of the Flowork web app the side panel embeds via an
  * <iframe> (`<WEB_BASE>/embed/chat?...`). It is NOT a secret — it is a public
  * origin baked into the extension bundle.
  *

@@ -1,6 +1,6 @@
-# Contributing to Skeinix
+# Contributing to Flowork
 
-Skeinix welcomes focused bug fixes, documentation improvements, tests,
+Flowork welcomes focused bug fixes, documentation improvements, tests,
 security hardening, and features that fit the project's architecture. This
 guide defines the contribution and review requirements; environment setup and
 detailed commands are maintained separately in the

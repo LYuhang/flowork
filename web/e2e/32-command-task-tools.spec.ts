@@ -181,13 +181,13 @@ for (const runtime of ['langchain', 'codex'] as const satisfies readonly RealRun
         '        )',
         'asyncio.run(main())',
       ].join('\n');
-      const dockerSandboxContainer = process.env.SKEINIX_E2E_DOCKER_ACCOUNT_CONTAINER;
+      const dockerSandboxContainer = process.env.FLOWORK_E2E_DOCKER_ACCOUNT_CONTAINER;
       if (dockerSandboxContainer) {
-        const dockerApiContainer = process.env.SKEINIX_E2E_DOCKER_API_CONTAINER
+        const dockerApiContainer = process.env.FLOWORK_E2E_DOCKER_API_CONTAINER
           ?? dockerSandboxContainer.replace(/-sandboxd(-\d+)?$/, '-api$1');
         if (dockerApiContainer === dockerSandboxContainer) {
           throw new Error(
-            'set SKEINIX_E2E_DOCKER_API_CONTAINER when the sandbox container name '
+            'set FLOWORK_E2E_DOCKER_API_CONTAINER when the sandbox container name '
               + 'does not follow the <project>-sandboxd-<index> convention',
           );
         }

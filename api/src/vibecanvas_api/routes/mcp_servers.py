@@ -1059,7 +1059,7 @@ def _oauth_callback_page(*, origin: str, server_id: str, ok: bool, message: str)
     target_origin = json.dumps(origin, ensure_ascii=True)
     title = "Account connected" if ok else "Connection failed"
     body = (
-        "You can close this window and return to Skeinix."
+        "You can close this window and return to Flowork."
         if ok else message
     )
     return HTMLResponse(
@@ -1088,7 +1088,7 @@ async def mcp_oauth_client_metadata():
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {
         "client_id": client_id,
-        "client_name": "Skeinix",
+        "client_name": "Flowork",
         "redirect_uris": [callback_url],
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],

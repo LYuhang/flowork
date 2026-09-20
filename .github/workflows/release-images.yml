@@ -51,7 +51,7 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"
 
       - name: Install pinned Syft and Grype
-        run: scripts/security/install_sbom_tools.sh "$RUNNER_TEMP/skeinix-tools"
+        run: scripts/security/install_sbom_tools.sh "$RUNNER_TEMP/flowork-tools"
 
       - name: Log in to GitHub Container Registry
         env:
@@ -84,11 +84,11 @@ jobs:
         run: |
           output="$RUNNER_TEMP/release-security/$IMAGE_LABEL"
           mkdir -p "$output"
-          "$RUNNER_TEMP/skeinix-tools/syft" "docker:$IMAGE_REF" \
+          "$RUNNER_TEMP/flowork-tools/syft" "docker:$IMAGE_REF" \
             --output "syft-json=$output/sbom.syft.json" \
             --output "spdx-json=$output/sbom.spdx.json"
           set +e
-          "$RUNNER_TEMP/skeinix-tools/grype" "sbom:$output/sbom.syft.json" \
+          "$RUNNER_TEMP/flowork-tools/grype" "sbom:$output/sbom.syft.json" \
             --fail-on high \
             --output "table=$output/vulnerabilities.txt" \
             --output "json=$output/vulnerabilities.json"
@@ -223,7 +223,7 @@ jobs:
       - name: Create a source-bound extension ZIP
         id: package
         run: |
-          archive="$RUNNER_TEMP/skeinix-extension-${GITHUB_REF_NAME}.zip"
+          archive="$RUNNER_TEMP/flowork-extension-${GITHUB_REF_NAME}.zip"
           source_epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
           find extension/dist -exec touch -h -d "@$source_epoch" {} +
           (
@@ -294,11 +294,11 @@ jobs:
           EXTENSION_DIR: ${{ runner.temp }}/release/extension
         run: |
           mkdir -p "$RELEASE_DIR"
-          extension_archive="$EXTENSION_DIR/skeinix-extension-${GITHUB_REF_NAME}.zip"
+          extension_archive="$EXTENSION_DIR/flowork-extension-${GITHUB_REF_NAME}.zip"
           test -f "$extension_archive"
           cp "$extension_archive" "$RELEASE_DIR/"
 
-          python3 - "$RELEASE_DIR/skeinix-release-manifest-${GITHUB_REF_NAME}.json" <<'PY'
+          python3 - "$RELEASE_DIR/flowork-release-manifest-${GITHUB_REF_NAME}.json" <<'PY'
           import glob
           import hashlib
           import json
@@ -321,7 +321,7 @@ jobs:
               raise SystemExit(f"incomplete image manifest: {sorted(images)}")
 
           extension = pathlib.Path(os.environ["EXTENSION_DIR"]) / (
-              f"skeinix-extension-{os.environ['GITHUB_REF_NAME']}.zip"
+              f"flowork-extension-{os.environ['GITHUB_REF_NAME']}.zip"
           )
           payload = {
               "commit_sha": os.environ["GITHUB_SHA"],
@@ -340,15 +340,15 @@ jobs:
           PY
 
           tar --sort=name --mtime="@0" --owner=0 --group=0 \
-            --numeric-owner -czf "$RELEASE_DIR/skeinix-security-reports-${GITHUB_REF_NAME}.tar.gz" \
+            --numeric-owner -czf "$RELEASE_DIR/flowork-security-reports-${GITHUB_REF_NAME}.tar.gz" \
             -C "$SECURITY_DIR" .
           (
             cd "$RELEASE_DIR"
             sha256sum \
-              "skeinix-extension-${GITHUB_REF_NAME}.zip" \
-              "skeinix-release-manifest-${GITHUB_REF_NAME}.json" \
-              "skeinix-security-reports-${GITHUB_REF_NAME}.tar.gz" \
-              > "skeinix-release-checksums-${GITHUB_REF_NAME}.txt"
+              "flowork-extension-${GITHUB_REF_NAME}.zip" \
+              "flowork-release-manifest-${GITHUB_REF_NAME}.json" \
+              "flowork-security-reports-${GITHUB_REF_NAME}.tar.gz" \
+              > "flowork-release-checksums-${GITHUB_REF_NAME}.txt"
           )
 
       - name: Create the draft release when needed and attach resources
@@ -361,7 +361,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --draft \
-              --title "Skeinix $GITHUB_REF_NAME" \
+              --title "Flowork $GITHUB_REF_NAME" \
               --generate-notes
           fi
           if [[ "$(gh release view "$GITHUB_REF_NAME" \

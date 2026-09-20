@@ -7,14 +7,14 @@
 # the export finishes.
 set -eu
 
-export_timeout_seconds="${SKEINIX_DRAWIO_EXPORT_TIMEOUT_SECONDS:-45}"
+export_timeout_seconds="${FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS:-45}"
 case "${export_timeout_seconds}" in
   ''|*[!0-9]*)
-    echo "SKEINIX_DRAWIO_EXPORT_TIMEOUT_SECONDS must be a positive integer" >&2
+    echo "FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS must be a positive integer" >&2
     exit 2
     ;;
   0)
-    echo "SKEINIX_DRAWIO_EXPORT_TIMEOUT_SECONDS must be greater than zero" >&2
+    echo "FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS must be greater than zero" >&2
     exit 2
     ;;
 esac
@@ -22,8 +22,8 @@ esac
 # Let Xvfb allocate a free display instead of deriving one from the wrapper PID.
 # A PID-derived display can collide with a socket left by a previously killed
 # Electron process and make every later feedback render in the Chat fail.
-display_file="$(mktemp /tmp/skeinix-drawio-display.XXXXXX)"
-xvfb_log="$(mktemp /tmp/skeinix-drawio-xvfb.XXXXXX.log)"
+display_file="$(mktemp /tmp/flowork-drawio-display.XXXXXX)"
+xvfb_log="$(mktemp /tmp/flowork-drawio-xvfb.XXXXXX.log)"
 
 Xvfb -displayfd 3 -screen 0 1920x1080x24 -ac -nolisten tcp \
   3>"${display_file}" >"${xvfb_log}" 2>&1 &

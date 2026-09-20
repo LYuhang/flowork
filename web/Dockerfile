@@ -1,7 +1,7 @@
-# Skeinix Web application: Vite/React SPA served by nginx
+# Flowork Web application: Vite/React SPA served by nginx
 #
 # Build:
-#   cd /path/to/Skeinix
+#   cd /path/to/flowork
 #   docker build -f web/Dockerfile -t vibecanvas-web:dev .
 #
 # Run (standalone — nginx proxies /api/ to a host/service named `api` on :8000):
@@ -63,20 +63,22 @@ FROM python:3.11.16-slim-trixie@sha256:9c900dea9e8fb7e16277c179b555cc72d29a352db
 COPY --from=extension-build /app/extension/dist /extension
 RUN mkdir -p /out && \
     cd /extension && \
-    python -m zipfile -c /out/vibecanvas-extension.zip * && \
-    python -m zipfile -t /out/vibecanvas-extension.zip
+    python -m zipfile -c /out/flowork-extension.zip * && \
+    python -m zipfile -t /out/flowork-extension.zip
 
 # ---------- Stage 2: serve via nginx ----------
 FROM nginx:1.30.4-alpine3.24@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
 
 # Vite emits the bundle to /app/dist in the build stage.
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY --from=extension-package /out/vibecanvas-extension.zip \
-  /usr/share/nginx/html/downloads/vibecanvas-extension.zip
-RUN mkdir -p /etc/skeinix && \
+COPY --from=extension-package /out/flowork-extension.zip \
+  /usr/share/nginx/html/downloads/flowork-extension.zip
+# Preserve old bookmarked download URLs during the product rename.
+RUN ln -sf flowork-extension.zip /usr/share/nginx/html/downloads/vibecanvas-extension.zip
+RUN mkdir -p /etc/flowork && \
     mv /usr/share/nginx/html/csp-script-hashes.txt \
-      /etc/skeinix/csp-script-hashes.txt && \
-    chmod 0444 /etc/skeinix/csp-script-hashes.txt
+      /etc/flowork/csp-script-hashes.txt && \
+    chmod 0444 /etc/flowork/csp-script-hashes.txt
 
 # SPA + /api/ reverse-proxy config (SSE-safe: proxy_buffering off). The nginx
 # image's standard entrypoint renders templates at container startup. Restrict

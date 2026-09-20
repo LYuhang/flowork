@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 function parseRows(entry: VfsReadOut): Record<string, unknown>[] {
   const ct = entry.content_type.toLowerCase();
   if (ct === 'table/jsonl') {
-    return entry.content
+    return (entry.content ?? '')
       .split('\n')
       .filter((l) => l.trim())
       .map((l) => {
@@ -16,7 +16,7 @@ function parseRows(entry: VfsReadOut): Record<string, unknown>[] {
         }
       });
   }
-  return parseDelimitedTable(entry.content, ct === 'table/tsv' ? '\t' : ',').rows;
+  return parseDelimitedTable(entry.content ?? '', ct === 'table/tsv' ? '\t' : ',').rows;
 }
 
 export function TableRenderer({ entry }: { entry: VfsReadOut }) {

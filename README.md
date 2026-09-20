@@ -2,11 +2,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="web/public/branding/icon-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="web/public/branding/icon-light.png">
-    <img src="web/public/branding/icon-light.png" alt="Skeinix" width="168" height="168">
+    <img src="web/public/branding/icon-light.png" alt="Flowork" width="168" height="168">
   </picture>
 </p>
 
-<h1 align="center">Skeinix</h1>
+<h1 align="center">Flowork</h1>
 
 <p align="center">
   <strong>Build, preview, automate, and deploy with AI agents, visual workflows, tasks, and your browser—all in one platform.</strong>
@@ -18,8 +18,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/LYuhang/Skeinix/actions/workflows/ci.yml"><img src="https://github.com/LYuhang/Skeinix/actions/workflows/ci.yml/badge.svg" alt="Continuous integration"></a>
-  <a href="https://github.com/LYuhang/Skeinix/actions/workflows/security.yml"><img src="https://github.com/LYuhang/Skeinix/actions/workflows/security.yml/badge.svg" alt="Security gates"></a>
+  <a href="https://github.com/LYuhang/flowork/actions/workflows/ci.yml"><img src="https://github.com/LYuhang/flowork/actions/workflows/ci.yml/badge.svg" alt="Continuous integration"></a>
+  <a href="https://github.com/LYuhang/flowork/actions/workflows/security.yml"><img src="https://github.com/LYuhang/flowork/actions/workflows/security.yml/badge.svg" alt="Security gates"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache License 2.0"></a>
   <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Project status: alpha">
   <img src="https://img.shields.io/badge/Python-3.11.16-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11.16">
@@ -41,19 +41,19 @@
 </p>
 
 > [!IMPORTANT]
-> Skeinix is in alpha. Its core agent, workflow, storage, authorization,
+> Flowork is in alpha. Its core agent, workflow, storage, authorization,
 > deployment, and sandbox services are implemented, but APIs and data models may
 > change before the first stable release. Browser automation remains
 > experimental.
 
 > [!NOTE]
-> **Live Demo:** [Try Skeinix](https://20-55-50-206.sslip.io/). This public
+> **Live Demo:** [Try Flowork](https://20-55-50-206.sslip.io/). This public
 > instance is provided for testing only; service availability and stability
 > are not guaranteed.
 
 ## Overview
 
-Skeinix is an open-source platform for turning an agent conversation into a
+Flowork is an open-source platform for turning an agent conversation into a
 runnable workflow. Start with a goal in Chat. The agent builds or modifies the
 same workflow graph that appears on the visual canvas, so the structure,
 versions, runs, outputs, and failures remain visible throughout the process.
@@ -62,7 +62,7 @@ Once the workflow behaves as intended, run it on demand, in a batch, or on a
 schedule, or publish it as an API or webhook. Agent and workflow execution is
 isolated from the control plane through the sandbox service.
 
-### How Skeinix works
+### How Flowork works
 
 ```text
 Describe a goal
@@ -76,7 +76,7 @@ Run and verify it in an isolated sandbox
 Reuse it or publish it as an automated service
 ```
 
-What makes Skeinix different:
+What makes Flowork different:
 
 - 🪄 **Agent-built workflows** — The agent edits and validates the real workflow
   graph rather than returning a separate suggestion or diagram.
@@ -99,8 +99,8 @@ Install Docker Engine or Docker Desktop with Compose v2, then start the local
 stack:
 
 ```bash
-git clone https://github.com/LYuhang/Skeinix.git
-cd Skeinix
+git clone https://github.com/LYuhang/flowork.git
+cd flowork
 ./scripts/deploy/local_server.sh up
 ```
 
@@ -190,7 +190,7 @@ inspect and refine on the canvas. The Workflow can then run directly, through a
 batch or scheduled Task, or as an API or webhook Deployment that external
 systems can call.
 
-![Skeinix usage flow](docs/assets/usage-flow.svg)
+![Flowork usage flow](docs/assets/usage-flow.svg)
 
 The diagram shows a common path, not a set of mandatory dependencies. A Workflow
 can be tested directly on the canvas or handed to a Task for batch or scheduled
@@ -227,7 +227,7 @@ platform-built-in resources are not shareable objects.
 
 #### Chat Slash Commands
 
-Slash Commands tell Skeinix which specialized capabilities the current
+Slash Commands tell Flowork which specialized capabilities the current
 conversation needs. Activating a command gives the agent the corresponding
 tools and operating guidance for the rest of that Chat. Commands can be
 combined when a task spans more than one area.
@@ -252,7 +252,7 @@ click, type, select options, and take screenshots.
 Download the extension package that matches the current deployment from
 **Settings → Extensions → Download extension**. Extract the ZIP to a permanent
 folder, open `chrome://extensions`, enable **Developer mode**, and choose
-**Load unpacked**. Select the extracted folder, then pin Skeinix and open its
+**Load unpacked**. Select the extracted folder, then pin Flowork and open its
 side panel.
 
 Developers can also build the extension from source:
@@ -273,7 +273,7 @@ control requires the extension's scoped connection to the active tab.
 
 ### System at a glance
 
-Skeinix separates platform management from task execution. The Web application
+Flowork separates platform management from task execution. The Web application
 provides Chat, the visual canvas, and management pages. The FastAPI control
 plane handles identity, authorization, persistence, orchestration, and live
 event delivery. `sandboxd` places Agent and Workflow execution in isolated
@@ -337,7 +337,7 @@ an issue or pull request.
 
 ## License
 
-Skeinix is licensed under the [Apache License 2.0](LICENSE). Dependencies retain
+Flowork is licensed under the [Apache License 2.0](LICENSE). Dependencies retain
 their respective licenses; see [Third-party notices](THIRD_PARTY_NOTICES.md).
 
 

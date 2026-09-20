@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
-output_dir="${1:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/skeinix-container-security}"
+output_dir="${1:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/flowork-container-security}"
 syft_bin="${SYFT_BIN:-$(command -v syft || true)}"
 grype_bin="${GRYPE_BIN:-$(command -v grype || true)}"
 docker_bin="${DOCKER_BIN:-$(command -v docker || true)}"
@@ -35,7 +35,7 @@ build_image() {
   local label="$1"
   local dockerfile="$2"
   local context="$3"
-  local tag="skeinix-${label}:security-scan"
+  local tag="flowork-${label}:security-scan"
   "$docker_bin" build --pull --file "$dockerfile" --tag "$tag" "$context"
 }
 
@@ -109,9 +109,9 @@ for entry in "${pinned_images[@]}"; do
 done
 
 for entry in \
-  'api|skeinix-api:security-scan' \
-  'web|skeinix-web:security-scan' \
-  'engine|skeinix-engine:security-scan'; do
+  'api|flowork-api:security-scan' \
+  'web|flowork-web:security-scan' \
+  'engine|flowork-engine:security-scan'; do
   label="${entry%%|*}"
   source="${entry#*|}"
   if ! scan_image "$label" "$source"; then

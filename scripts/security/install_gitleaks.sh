@@ -4,7 +4,7 @@ set -euo pipefail
 # Pinned release + digest: updating either value is a reviewed supply-chain
 # change. The destination is explicit so CI never needs root.
 version="8.30.1"
-destination="${1:-${TMPDIR:-/tmp}/skeinix-tools/gitleaks}"
+destination="${1:-${TMPDIR:-/tmp}/flowork-tools/gitleaks}"
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64)

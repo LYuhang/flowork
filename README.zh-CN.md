@@ -2,11 +2,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="web/public/branding/icon-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="web/public/branding/icon-light.png">
-    <img src="web/public/branding/icon-light.png" alt="Skeinix" width="168" height="168">
+    <img src="web/public/branding/icon-light.png" alt="Flowork" width="168" height="168">
   </picture>
 </p>
 
-<h1 align="center">Skeinix</h1>
+<h1 align="center">Flowork</h1>
 
 <p align="center">
   <strong>用 AI Agent、可视化工作流、任务和浏览器，在一个平台完成构建、预览、自动化与部署。</strong>
@@ -17,8 +17,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/LYuhang/Skeinix/actions/workflows/ci.yml"><img src="https://github.com/LYuhang/Skeinix/actions/workflows/ci.yml/badge.svg" alt="持续集成状态"></a>
-  <a href="https://github.com/LYuhang/Skeinix/actions/workflows/security.yml"><img src="https://github.com/LYuhang/Skeinix/actions/workflows/security.yml/badge.svg" alt="安全检查状态"></a>
+  <a href="https://github.com/LYuhang/flowork/actions/workflows/ci.yml"><img src="https://github.com/LYuhang/flowork/actions/workflows/ci.yml/badge.svg" alt="持续集成状态"></a>
+  <a href="https://github.com/LYuhang/flowork/actions/workflows/security.yml"><img src="https://github.com/LYuhang/flowork/actions/workflows/security.yml/badge.svg" alt="安全检查状态"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache License 2.0"></a>
   <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="项目状态：Alpha">
   <img src="https://img.shields.io/badge/Python-3.11.16-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11.16">
@@ -40,18 +40,18 @@
 </p>
 
 > [!IMPORTANT]
-> Skeinix 目前处于 Alpha 阶段。Agent、工作流、存储、权限控制、部署和沙盒等核心服务已经实现，但 API 与数据模型在首个稳定版本发布前仍可能调整。浏览器自动化功能尚处于实验阶段。
+> Flowork 目前处于 Alpha 阶段。Agent、工作流、存储、权限控制、部署和沙盒等核心服务已经实现，但 API 与数据模型在首个稳定版本发布前仍可能调整。浏览器自动化功能尚处于实验阶段。
 
 > [!NOTE]
-> **在线体验：**[访问 Skeinix Demo](https://20-55-50-206.sslip.io/)。该公开实例仅供测试使用，服务的可用性与稳定性无法保证。
+> **在线体验：**[访问 Flowork Demo](https://20-55-50-206.sslip.io/)。该公开实例仅供测试使用，服务的可用性与稳定性无法保证。
 
 ## 项目简介
 
-Skeinix 是一个将 Agent 对话转化为可执行工作流的开源平台。只需在 Chat 中描述目标，Agent 就会直接构建或修改可视化画布中的工作流图，而不是另外生成一份与实际执行脱节的建议或示意图。工作流的结构、版本、运行记录、输出和异常信息在整个过程中始终可见。
+Flowork 是一个将 Agent 对话转化为可执行工作流的开源平台。只需在 Chat 中描述目标，Agent 就会直接构建或修改可视化画布中的工作流图，而不是另外生成一份与实际执行脱节的建议或示意图。工作流的结构、版本、运行记录、输出和异常信息在整个过程中始终可见。
 
 工作流通过验证后，可以按需运行、批量执行或设置定时任务，也可以发布为 API 或 Webhook，供外部系统调用。周期性执行由 Task 负责；Agent 与工作流的执行环境通过沙盒服务与控制平面隔离。
 
-### Skeinix 的工作方式
+### Flowork 的工作方式
 
 ```text
 描述目标
@@ -65,7 +65,7 @@ Skeinix 是一个将 Agent 对话转化为可执行工作流的开源平台。�
 复用工作流，或将其发布为自动化服务
 ```
 
-Skeinix 的核心特点：
+Flowork 的核心特点：
 
 - 🪄 **由 Agent 直接构建工作流**：Agent 编辑并验证真实的工作流图，避免方案描述与实际执行逻辑相互脱节。
 - 🔎 **从目标到结果全程可见**：计划、节点、版本、运行记录、输出和异常均可在 Chat 与画布中检查。
@@ -82,8 +82,8 @@ Skeinix 的核心特点：
 安装 Docker Engine，或安装包含 Compose v2 的 Docker Desktop，然后启动本地服务：
 
 ```bash
-git clone https://github.com/LYuhang/Skeinix.git
-cd Skeinix
+git clone https://github.com/LYuhang/flowork.git
+cd flowork
 ./scripts/deploy/local_server.sh up
 ```
 
@@ -135,7 +135,7 @@ cd Skeinix
 
 用户通常从 Chat 开始，通过对话说明需求；需要操作已登录的网页时，也可以从浏览器扩展发起对话。Agent 会根据目标调用工具并构建 Workflow，用户可以在画布上继续检查和调整。Workflow 随后可以直接运行，也可以通过 Task 执行批处理或定时任务；验证通过后，再通过 Deployment 发布给外部系统调用。
 
-![Skeinix 使用流程](docs/assets/usage-flow.zh-CN.svg)
+![Flowork 使用流程](docs/assets/usage-flow.zh-CN.svg)
 
 图中展示的是一条典型使用路径，而不是模块之间的强制依赖关系。Workflow 可以在画布中直接试运行，也可以交给 Task 执行批量或定时任务；发布后，API 和 Webhook 调用能够继续触发新的 Run，无需重复最初的构建对话，而周期性执行仍由 Task 负责。
 
@@ -176,7 +176,7 @@ cd Skeinix
 
 实验性的 Chrome MV3 扩展可以将 Chat 与当前浏览器会话连接起来，适合需要沿用当前网页登录状态的场景。Agent 可以在授权范围内读取页面内容、切换标签页，并执行点击、输入、选择和截图等操作。
 
-进入主应用的 **Settings → Extensions → Download extension**，下载与当前部署版本匹配的扩展包。将 ZIP 解压到固定目录后，打开 `chrome://extensions`，启用**开发者模式**并选择**加载已解压的扩展程序**。选择刚才解压的目录，然后固定 Skeinix 扩展并打开侧边栏。
+进入主应用的 **Settings → Extensions → Download extension**，下载与当前部署版本匹配的扩展包。将 ZIP 解压到固定目录后，打开 `chrome://extensions`，启用**开发者模式**并选择**加载已解压的扩展程序**。选择刚才解压的目录，然后固定 Flowork 扩展并打开侧边栏。
 
 开发者也可以从源码构建扩展：
 
@@ -194,7 +194,7 @@ pnpm build
 
 ### 整体架构
 
-Skeinix 将平台管理与任务执行分为两层。Web 应用提供 Chat、可视化画布和管理页面；FastAPI 控制平面负责身份认证、权限控制、数据持久化、任务编排和实时事件传输。Agent 与 Workflow 的实际执行由 `sandboxd` 放入隔离沙盒，Worker 则处理后台任务、定时运行、知识索引和批量执行。
+Flowork 将平台管理与任务执行分为两层。Web 应用提供 Chat、可视化画布和管理页面；FastAPI 控制平面负责身份认证、权限控制、数据持久化、任务编排和实时事件传输。Agent 与 Workflow 的实际执行由 `sandboxd` 放入隔离沙盒，Worker 则处理后台任务、定时运行、知识索引和批量执行。
 
 ```text
 浏览器 / Chrome 扩展
@@ -241,8 +241,8 @@ scripts/    环境初始化、部署、诊断和安全检查脚本
 
 ## 参与贡献
 
-欢迎参与 Skeinix 的开发和文档建设。提交 Issue 或 Pull Request 前，请先阅读[贡献指南](CONTRIBUTING.md)。
+欢迎参与 Flowork 的开发和文档建设。提交 Issue 或 Pull Request 前，请先阅读[贡献指南](CONTRIBUTING.md)。
 
 ## 许可证
 
-Skeinix 基于 [Apache License 2.0](LICENSE) 发布。各项依赖仍适用其各自的许可证，详情参阅[第三方软件声明](THIRD_PARTY_NOTICES.md)。
+Flowork 基于 [Apache License 2.0](LICENSE) 发布。各项依赖仍适用其各自的许可证，详情参阅[第三方软件声明](THIRD_PARTY_NOTICES.md)。

@@ -1,10 +1,10 @@
 {
-  "name": "skeinix-drawio-runtime",
+  "name": "flowork-drawio-runtime",
   "private": true,
   "version": "0.3.0",
   "type": "module",
   "bin": {
-    "skeinix-diagram-mcp": "./launch.mjs"
+    "flowork-diagram-mcp": "./launch.mjs"
   },
   "dependencies": {
     "@drawio/mcp": "1.5.0"

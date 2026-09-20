@@ -4,7 +4,7 @@ set -euo pipefail
 # Native-development/test fallback for hosts without a container runtime.
 # Production uses the independently pinned container image in docker-compose.
 version="1.18.1"
-destination="${1:-${TMPDIR:-/tmp}/skeinix-tools/openfga}"
+destination="${1:-${TMPDIR:-/tmp}/flowork-tools/openfga}"
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64)

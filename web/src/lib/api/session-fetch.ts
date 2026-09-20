@@ -48,7 +48,7 @@ function isPlatformRequest(url: URL): boolean {
 }
 
 /**
- * Fetch only adds ambient browser credentials to Skeinix API requests.
+ * Fetch only adds ambient browser credentials to Flowork API requests.
  * Third-party URLs retain native fetch semantics and never receive CSRF data.
  */
 export async function sessionFetch(

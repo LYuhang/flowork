@@ -23,7 +23,7 @@ CatalogSource = Literal["official", "smithery"]
 _OFFICIAL_URL = "https://registry.modelcontextprotocol.io/v0.1/servers"
 _SMITHERY_URL = "https://api.smithery.ai/servers"
 _CACHE_TTL_S = 300.0
-_CATALOG_USER_AGENT = "Skeinix/1.0 MCP catalog client"
+_CATALOG_USER_AGENT = "flowork/1.0 MCP catalog client"
 _CATALOG_REQUEST_TIMEOUT_S = 18.0
 _REMOTE_AUTH_DISCOVERY_TIMEOUT_S = 3.0
 

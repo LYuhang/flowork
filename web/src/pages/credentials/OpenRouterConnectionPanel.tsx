@@ -74,7 +74,7 @@ export function OpenRouterConnectionPanel() {
         const message = code === 'openrouter_unreachable'
           ? t(
             'credentials.openrouter.callbackUnreachable',
-            'Skeinix could not reach OpenRouter. Check the deployment network or proxy, then start again.',
+            'Flowork could not reach OpenRouter. Check the deployment network or proxy, then start again.',
           )
           : code === 'openrouter_authorization_rejected'
             ? t(
@@ -145,7 +145,7 @@ export function OpenRouterConnectionPanel() {
             <p className="mt-1 max-w-[62ch] text-sm leading-6 text-muted-foreground">
               {t(
                 'credentials.openrouter.description',
-                'Connect your OpenRouter account to use the models allowed by your provider preferences and privacy settings. This does not sign you in to Skeinix.',
+                'Connect your OpenRouter account to use the models allowed by your provider preferences and privacy settings. This does not sign you in to Flowork.',
               )}
             </p>
           </div>
@@ -223,7 +223,7 @@ export function OpenRouterConnectionPanel() {
             </p>
           ) : null}
           <p className="mt-3 text-xs leading-5 text-muted-foreground">
-            {t('credentials.openrouter.boundary', 'Models and prices come from OpenRouter and may change. Skeinix does not control billing or availability. Compatible models are available to the Runtime selected in Settings, including Codex through OpenRouter Responses API.')}
+            {t('credentials.openrouter.boundary', 'Models and prices come from OpenRouter and may change. Flowork does not control billing or availability. Compatible models are available to the Runtime selected in Settings, including Codex through OpenRouter Responses API.')}
           </p>
         </div>
       ) : null}

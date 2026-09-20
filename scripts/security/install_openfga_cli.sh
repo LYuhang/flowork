@@ -4,7 +4,7 @@ set -euo pipefail
 # Pinned official release and per-architecture SHA-256. Updating these values is
 # a reviewed authorization supply-chain change.
 version="0.7.19"
-destination="${1:-${TMPDIR:-/tmp}/skeinix-tools/fga}"
+destination="${1:-${TMPDIR:-/tmp}/flowork-tools/fga}"
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64)

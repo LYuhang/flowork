@@ -9,6 +9,7 @@ import { FallbackRenderer } from './FallbackRenderer';
 import { resolveFileCapability } from '@/lib/files/capabilities';
 
 export function renderVfsContent(entry: VfsReadOut): JSX.Element {
+  if (typeof entry.content !== 'string') return <FallbackRenderer entry={entry} />;
   const kind = resolveFileCapability(entry.path, entry.content_type).kind;
   const C = kind === 'json'
     ? JsonRenderer

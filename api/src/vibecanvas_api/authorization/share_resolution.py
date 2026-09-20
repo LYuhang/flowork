@@ -19,7 +19,7 @@ from .types import (
 )
 
 
-_AUDIENCE = "skeinix:share-resolution:v1"
+_AUDIENCE = "flowork:share-resolution:v1"
 _TTL_SECONDS = 300
 
 

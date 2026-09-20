@@ -23,7 +23,7 @@ SUPPORTED_OFFICE_PREVIEW_SUFFIXES = {".docx", ".pptx"}
 OFFICE_PREVIEW_PDF_MAX_BYTES = 100 * 1024 * 1024
 _CACHE_MAX_BYTES = 256 * 1024 * 1024
 _CACHE_MAX_FILES = 64
-_CACHE_ROOT = Path(tempfile.gettempdir()) / "skeinix-office-preview"
+_CACHE_ROOT = Path(tempfile.gettempdir()) / "flowork-office-preview"
 _CACHE_LOCK = threading.RLock()
 _CONVERSION_SLOTS = threading.BoundedSemaphore(2)
 
@@ -98,7 +98,7 @@ def render_office_preview_pdf(data: bytes, suffix: str) -> bytes:
             return cached
 
     with _CONVERSION_SLOTS, tempfile.TemporaryDirectory(
-        prefix="skeinix-office-preview-",
+        prefix="flowork-office-preview-",
     ) as temporary:
         temporary_path = Path(temporary)
         source = temporary_path / f"source{normalized_suffix}"

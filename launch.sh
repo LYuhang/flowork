@@ -51,7 +51,7 @@ configure_debug_stack() {
   local local_lookup_key_file="${CONTENT_LOOKUP_HMAC_KEY_FILE:-$local_secret_dir/content-lookup-hmac.key}"
 
   # Cloud IDEs commonly reserve 8080. Keep the local authorization control
-  # plane on dedicated loopback-only ports so starting Skeinix never
+  # plane on dedicated loopback-only ports so starting Flowork never
   # requires stopping the IDE or exposing OpenFGA to the network.
   export OPENFGA_HTTP_PORT="${OPENFGA_HTTP_PORT:-18080}"
   export OPENFGA_GRPC_PORT="${OPENFGA_GRPC_PORT:-18081}"
@@ -219,7 +219,7 @@ start_stack() {
   publish_extension_archive
   bash "$NATIVE_LAUNCHER" status
   echo
-  echo "Skeinix is ready:"
+  echo "Flowork is ready:"
   echo "  $VIBECANVAS_PUBLIC_URL"
   echo "Chrome extension:"
   echo "  unpacked: $REPO_ROOT/extension/dist"

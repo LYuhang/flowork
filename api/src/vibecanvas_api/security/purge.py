@@ -469,7 +469,7 @@ async def _purge_openfga_change_history(
     OpenFGA's public API removes live tuples but deliberately retains their
     write/delete history for ``ReadChanges``.  A deployment that promises
     irreversible account erasure therefore provisions a database role that
-    can execute only ``skeinix_erase_changelog``; it cannot read or mutate
+    can execute only ``flowork_erase_changelog``; it cannot read or mutate
     live relationship tuples.
     """
 
@@ -484,7 +484,7 @@ async def _purge_openfga_change_history(
     )
     try:
         removed = await connection.fetchval(
-            "SELECT public.skeinix_erase_changelog($1, $2::text[], $3::text[])",
+            "SELECT public.flowork_erase_changelog($1, $2::text[], $3::text[])",
             config.openfga_store_id,
             sorted(subjects),
             sorted(object_ids),

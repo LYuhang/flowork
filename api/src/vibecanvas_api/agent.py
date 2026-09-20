@@ -1,9 +1,9 @@
-"""LangGraph-based agent for Skeinix workflow editing.
+"""LangGraph-based agent for Flowork workflow editing.
 
 Provides ``run_agent_turn`` — the single entry point called by
 ``handle_agent_chat`` in ``app.py``.  Internally manages an agent
 singleton (rebuilt when config changes) and streams signals back to
-the frontend via the Skeinix signal protocol.
+the frontend via the Flowork signal protocol.
 
 Tools live in ``demo/tools/`` (one file per tool).  Cross-tool state
 is passed via ``context_schema`` (AgentContext) so tools can read the
@@ -1072,7 +1072,7 @@ def _tool_name_from_message(msg: Any) -> str | None:
 def _normalized_tool_artifact(msg: Any) -> dict | None:
     """Unwrap the official LangChain MCP structured-content carrier.
 
-    Native tools place the Skeinix envelope directly in
+    Native tools place the Flowork envelope directly in
     ``ToolMessage.artifact``. ``langchain-mcp-adapters`` correctly preserves an
     MCP server's ``structuredContent`` under ``structured_content``. Platform
     MCP returns the same envelope there, so normalize once at the streaming

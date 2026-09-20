@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "vibecanvas-engine"
 version = "0.3.0"
-description = "Skeinix workflow execution engine — pure Python, no web framework."
+description = "Flowork workflow execution engine — pure Python, no web framework."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [
-    { name = "Skeinix contributors" },
+    { name = "Flowork contributors" },
 ]
 keywords = ["workflow", "dag", "agent", "engine"]
 classifiers = [
@@ -42,7 +42,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/LYuhang/Skeinix"
+Repository = "https://github.com/LYuhang/flowork"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vibecanvas_engine"]

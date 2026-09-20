@@ -777,7 +777,7 @@ export function SettingsPage() {
 
                 <SectionBlock
                   title={t('settings_interface', 'Interface')}
-                  description={t('settings_interface_desc', 'Choose how Skeinix looks and formats information for you.')}
+                  description={t('settings_interface_desc', 'Choose how Flowork looks and formats information for you.')}
                   contentClassName="divide-y divide-edge-subtle p-0"
                 >
                 {/* Language */}
@@ -872,7 +872,7 @@ export function SettingsPage() {
                   <p className="mt-0.5 max-w-[65ch] text-sm text-muted-foreground">
                     {t(
                       'settings_extensions_subtitle',
-                      'Download and configure companion apps built for this Skeinix deployment.',
+                      'Download and configure companion apps built for this Flowork deployment.',
                     )}
                   </p>
                 </header>

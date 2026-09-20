@@ -138,9 +138,9 @@ class CodexMcpHubGateway:
         if self._server_task is not None:
             return
         mcp = FastMCP(
-            "skeinix-sandbox-mcp-hub",
+            "flowork-sandbox-mcp-hub",
             instructions=(
-                "Skeinix MCP Hub. Tools are scoped to the current Chat and "
+                "Flowork MCP Hub. Tools are scoped to the current Chat and "
                 "active Agent Turn."
             ),
             streamable_http_path="/",

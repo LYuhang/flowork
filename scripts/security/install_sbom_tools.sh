@@ -5,7 +5,7 @@ set -euo pipefail
 # value is a reviewed supply-chain change; CI never executes a remote installer.
 syft_version="1.44.0"
 grype_version="0.112.0"
-destination_dir="${1:-${TMPDIR:-/tmp}/skeinix-tools}"
+destination_dir="${1:-${TMPDIR:-/tmp}/flowork-tools}"
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64)

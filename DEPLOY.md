@@ -1,6 +1,6 @@
 # Production Deployment
 
-This guide defines the production release and deployment boundary for Skeinix.
+This guide defines the production release and deployment boundary for Flowork.
 For local evaluation or development, use the
 [installation guide](docs/installation.md).
 
@@ -10,7 +10,7 @@ For local evaluation or development, use the
 
 ## Current deployment status
 
-Skeinix is alpha software. The repository implements a verifiable release
+Flowork is alpha software. The repository implements a verifiable release
 pipeline, a production evidence gate, a digest-only release overlay in
 [`docker-compose.release.yml`](docker-compose.release.yml), and a fail-closed
 runtime security profile. It does not yet provide a turnkey production
@@ -205,8 +205,8 @@ export VIBECANVAS_WEB_IMAGE='ghcr.io/owner/repository-web@sha256:...'
 export RELEASE_REPOSITORY='owner/repository'
 export RELEASE_SHA='0123456789abcdef0123456789abcdef01234567'
 export RELEASE_REF='refs/tags/v1.0.0'
-export PRODUCTION_EVIDENCE_MANIFEST='/secure/skeinix/production-evidence.json'
-export VIBECANVAS_ENV_FILE='/secure/skeinix/production.env'
+export PRODUCTION_EVIDENCE_MANIFEST='/secure/flowork/production-evidence.json'
+export VIBECANVAS_ENV_FILE='/secure/flowork/production.env'
 ```
 
 `RELEASE_SHA` must be the full lowercase 40-character commit SHA.

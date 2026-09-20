@@ -143,7 +143,7 @@ def download_public_bytes(
                     headers={
                         "Accept": "image/*, application/octet-stream;q=0.8",
                         "Host": _host_header(target),
-                        "User-Agent": "Skeinix/1.0 remote media fetcher",
+                        "User-Agent": "flowork/1.0 remote media fetcher",
                     },
                     redirect=False,
                     preload_content=False,

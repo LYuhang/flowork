@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bring up the complete Skeinix stack as native unprivileged processes.
+# Bring up the complete Flowork stack as native unprivileged processes.
 # stack as NATIVE unprivileged processes (no Docker).
 #
 # Use this when the host cannot run Docker (e.g. a k8s pod where CLONE_NEWNS
@@ -441,7 +441,7 @@ start_openfga() {
     --set=erasure_database="$datastore" \
     --set=erasure_password="$(cat "$erasure_password_file")" \
     --file="$REPO_ROOT/scripts/security/openfga_erasure.sql"
-  export OPENFGA_ERASURE_DATABASE_URL="postgresql://skeinix_openfga_erasure:$(cat "$erasure_password_file")@127.0.0.1:${PGPORT}/${datastore}?sslmode=disable"
+  export OPENFGA_ERASURE_DATABASE_URL="postgresql://flowork_openfga_erasure:$(cat "$erasure_password_file")@127.0.0.1:${PGPORT}/${datastore}?sslmode=disable"
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/openfga.pid" \
     --log-file "$RUNDIR/openfga.log" -- \

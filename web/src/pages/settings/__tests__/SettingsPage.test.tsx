@@ -178,8 +178,8 @@ describe('<SettingsPage> tab shell', () => {
 
     expect(screen.getByTestId('settings-extension-panel')).toBeInTheDocument();
     const download = screen.getByRole('link', { name: /download extension/i });
-    expect(download).toHaveAttribute('href', '/downloads/vibecanvas-extension.zip');
-    expect(download).toHaveAttribute('download', 'vibecanvas-extension.zip');
+    expect(download).toHaveAttribute('href', '/downloads/flowork-extension.zip');
+    expect(download).toHaveAttribute('download', 'flowork-extension.zip');
     expect(screen.getAllByText(/chrome:\/\/extensions/i)).not.toHaveLength(0);
     expect(screen.getByText(/cannot load the zip directly/i)).toBeInTheDocument();
   });

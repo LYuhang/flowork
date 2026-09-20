@@ -15,23 +15,23 @@ if (!isMetadataCommand) {
   // root, but `/root` intentionally does not exist. Pin every Playwright cache
   // and socket lookup to the sandbox-local tmpfs before loading Playwright so
   // upstream os.homedir()/XDG defaults cannot escape that contract.
-  const runtimeHome = "/tmp/skeinix-playwright-mcp";
+  const runtimeHome = "/tmp/flowork-playwright-mcp";
   const runtimeCache = path.join(runtimeHome, "cache");
   fs.mkdirSync(runtimeCache, { recursive: true, mode: 0o700 });
   process.env.HOME = runtimeHome;
   process.env.XDG_CACHE_HOME = runtimeCache;
   process.env.TMPDIR = "/tmp";
 
-  const endpoint = String(process.env.SKEINIX_PLAYWRIGHT_CDP_ENDPOINT || "").trim();
-  const bearer = String(process.env.SKEINIX_PLAYWRIGHT_CDP_BEARER || "").trim();
-  delete process.env.SKEINIX_PLAYWRIGHT_CDP_ENDPOINT;
-  delete process.env.SKEINIX_PLAYWRIGHT_CDP_BEARER;
+  const endpoint = String(process.env.FLOWORK_PLAYWRIGHT_CDP_ENDPOINT || "").trim();
+  const bearer = String(process.env.FLOWORK_PLAYWRIGHT_CDP_BEARER || "").trim();
+  delete process.env.FLOWORK_PLAYWRIGHT_CDP_ENDPOINT;
+  delete process.env.FLOWORK_PLAYWRIGHT_CDP_BEARER;
   if (!/^wss?:\/\//i.test(endpoint)) {
-    console.error("SKEINIX_PLAYWRIGHT_CDP_ENDPOINT must be an absolute ws(s) URL");
+    console.error("FLOWORK_PLAYWRIGHT_CDP_ENDPOINT must be an absolute ws(s) URL");
     process.exit(2);
   }
   if (!bearer || /[\r\n]/.test(bearer)) {
-    console.error("SKEINIX_PLAYWRIGHT_CDP_BEARER is missing or invalid");
+    console.error("FLOWORK_PLAYWRIGHT_CDP_BEARER is missing or invalid");
     process.exit(2);
   }
   process.argv.push(

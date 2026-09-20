@@ -284,8 +284,8 @@ async def handle_mcp_gateway_request(
             result_payload = {
                 "server": server,
                 "environment": {
-                    "SKEINIX_PLAYWRIGHT_CDP_ENDPOINT": _playwright_cdp_url(),
-                    "SKEINIX_PLAYWRIGHT_CDP_BEARER": (
+                    "FLOWORK_PLAYWRIGHT_CDP_ENDPOINT": _playwright_cdp_url(),
+                    "FLOWORK_PLAYWRIGHT_CDP_BEARER": (
                         _platform_capability_token(request, server)
                     ),
                 },

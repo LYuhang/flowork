@@ -9,4 +9,4 @@ psql "$OPENFGA_ADMIN_DATABASE_URL" \
   --set=ON_ERROR_STOP=1 \
   --set=erasure_database="$OPENFGA_ERASURE_DATABASE_NAME" \
   --set=erasure_password="$OPENFGA_ERASURE_PASSWORD" \
-  --file=/opt/skeinix/openfga_erasure.sql
+  --file=/opt/flowork/openfga_erasure.sql

@@ -1,7 +1,7 @@
 /** Presentation for the reviewed official Playwright MCP `browser_*` surface.
  *
  * The upstream server returns standard MCP content. This component deliberately
- * knows nothing about Skeinix's retired Browser MCP envelope or old custom tool
+ * knows nothing about Flowork's retired Browser MCP envelope or old custom tool
  * vocabulary. A historical envelope falls back to the generic envelope renderer
  * in `ToolCallBlock`; it cannot select this presenter or execute anything.
  */

@@ -1,6 +1,6 @@
 /**
  * Copyright (c) Microsoft Corporation.
- * Copyright (c) Skeinix contributors.
+ * Copyright (c) Flowork contributors.
  *
  * Licensed under the Apache License, Version 2.0.
  */
@@ -68,8 +68,8 @@ export class PlaywrightCdpBridge {
         case "Browser.getVersion":
           result = {
             protocolVersion: "1.3",
-            product: "Chrome/Skeinix-Extension-Bridge",
-            userAgent: "Skeinix-Playwright-CDP-Bridge/1.0",
+            product: "Chrome/flowork-Extension-Bridge",
+            userAgent: "flowork-Playwright-CDP-Bridge/1.0",
           };
           break;
         case "Browser.setDownloadBehavior":

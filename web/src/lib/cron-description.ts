@@ -68,7 +68,7 @@ function formatWeekdays(days: number[], locale: ScheduleLocale): string | null {
 }
 
 /**
- * Converts the common five-field Cron forms used by Skeinix into copy that a
+ * Converts the common five-field Cron forms used by Flowork into copy that a
  * non-technical user can scan. The raw expression remains available beside
  * this description, so unsupported advanced syntax is never misrepresented.
  */

@@ -148,7 +148,7 @@ def _control_plane_http_proxy(value: Any) -> str:
         port = parts.port
     except ValueError as exc:
         raise ValueError(
-            "SKEINIX_CONTROL_PLANE_HTTP_PROXY must be an HTTP(S) proxy URL"
+            "FLOWORK_CONTROL_PLANE_HTTP_PROXY must be an HTTP(S) proxy URL"
         ) from exc
     if (
         parts.scheme.lower() not in {"http", "https"}
@@ -159,7 +159,7 @@ def _control_plane_http_proxy(value: Any) -> str:
         or port is None
     ):
         raise ValueError(
-            "SKEINIX_CONTROL_PLANE_HTTP_PROXY must be an HTTP(S) proxy URL "
+            "FLOWORK_CONTROL_PLANE_HTTP_PROXY must be an HTTP(S) proxy URL "
             "with an explicit port"
         )
     return rendered.rstrip("/")
@@ -1301,7 +1301,7 @@ class AppConfig:
         self.webauthn_rp_name: str = str(
             os.environ.get("WEBAUTHN_RP_NAME")
             or raw.get("webauthn_rp_name")
-            or "Skeinix"
+            or "Flowork"
         ).strip()
         rp_parts = urlsplit(self.webauthn_origin)
         if (
@@ -1700,7 +1700,7 @@ class AppConfig:
         # explicit operator setting keeps proxy behavior deterministic and
         # prevents process environment changes from weakening SSRF controls.
         self.control_plane_http_proxy: str = _control_plane_http_proxy(
-            os.environ.get("SKEINIX_CONTROL_PLANE_HTTP_PROXY")
+            os.environ.get("FLOWORK_CONTROL_PLANE_HTTP_PROXY", "")
             or raw.get("control_plane_http_proxy")
         )
         if (

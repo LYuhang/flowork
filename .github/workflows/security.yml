@@ -81,11 +81,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pinned Syft and Grype
-        run: scripts/security/install_sbom_tools.sh "$RUNNER_TEMP/skeinix-tools"
+        run: scripts/security/install_sbom_tools.sh "$RUNNER_TEMP/flowork-tools"
       - name: Build, inventory, and scan every production image
         env:
-          SYFT_BIN: ${{ runner.temp }}/skeinix-tools/syft
-          GRYPE_BIN: ${{ runner.temp }}/skeinix-tools/grype
+          SYFT_BIN: ${{ runner.temp }}/flowork-tools/syft
+          GRYPE_BIN: ${{ runner.temp }}/flowork-tools/grype
           GRYPE_DB_CACHE_DIR: ${{ runner.temp }}/grype-db
         run: scripts/security/scan_container_images.sh "$RUNNER_TEMP/container-security"
       - name: Upload immutable-checksummed SBOM and vulnerability reports

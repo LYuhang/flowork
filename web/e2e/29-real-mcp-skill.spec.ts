@@ -18,7 +18,7 @@ const MESSAGE_PATH = /\/api\/v1\/chat-scopes\/([^/]+)\/chats\/([^/]+)\/messages$
 const MCP_SOURCE = `
 from mcp.server.fastmcp import FastMCP
 
-server = FastMCP("Skeinix real acceptance")
+server = FastMCP("Flowork real acceptance")
 
 @server.tool()
 def echo_acceptance(value: str) -> str:
@@ -67,7 +67,7 @@ for (const runtime of ['langchain', 'codex'] as const satisfies readonly RealRun
       });
       mcpId = ((await mcpResponse.json()) as { id: string }).id;
 
-      tempDir = mkdtempSync(join(tmpdir(), `skeinix-${runtime}-mcp-skill-`));
+      tempDir = mkdtempSync(join(tmpdir(), `flowork-${runtime}-mcp-skill-`));
       const skillMd = `---
 name: ${skillName}
 description: Read this playbook when asked for its private real-runtime acceptance token.

@@ -16,7 +16,8 @@ dist-ssr
 playwright-report/
 test-results/
 coverage/
-public/downloads/vibecanvas-extension.zip
+# Deployment-generated extension archives, not source artifacts.
+public/downloads/*.zip
 
 # Editor directories and files
 .vscode/*

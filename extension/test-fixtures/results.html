@@ -21,18 +21,18 @@
       <h1>Search results</h1>
       <p>Showing the best match for <span class="query" id="search-term"></span></p>
       <article>
-        <a id="primary-result" href="detail.html">Skeinix browser automation guide</a>
+        <a id="primary-result" href="detail.html">Flowork browser automation guide</a>
         <p>Learn how an Agent connects, observes, acts, and verifies a real browser page.</p>
       </article>
     </main>
     <script>
       const params = new URLSearchParams(location.search);
-      const term = params.get("q") || sessionStorage.getItem("skeinix.acceptance.search") || "";
+      const term = params.get("q") || sessionStorage.getItem("flowork.acceptance.search") || "";
       document.querySelector("#search-term").textContent = term;
       document.querySelector("#primary-result").href = `detail.html?from=${encodeURIComponent(term)}`;
-      sessionStorage.setItem("skeinix.acceptance.results", term);
+      sessionStorage.setItem("flowork.acceptance.results", term);
       document.querySelector("#primary-result").addEventListener("click", () => {
-        sessionStorage.setItem("skeinix.acceptance.resultClicked", "true");
+        sessionStorage.setItem("flowork.acceptance.resultClicked", "true");
       });
     </script>
   </body>

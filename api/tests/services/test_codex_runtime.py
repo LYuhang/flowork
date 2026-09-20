@@ -1641,8 +1641,8 @@ async def test_codex_reuses_one_aggregate_hub_endpoint_across_turns(monkeypatch)
             self.requests.append((method, params))
             if method == "thread/start":
                 servers = params["config"]["mcp_servers"]
-                assert list(servers) == ["skeinix"]
-                assert servers["skeinix"]["url"].startswith(
+                assert list(servers) == ["flowork"]
+                assert servers["flowork"]["url"].startswith(
                     "http://127.0.0.1:"
                 )
                 return {"thread": {"id": "codex-hub-thread", "turns": []}}
@@ -2363,7 +2363,7 @@ async def test_codex_request_user_input_resumes_the_same_native_turn(monkeypatch
                 (
                     74,
                     -32601,
-                    "This Codex request is not supported by Skeinix yet.",
+                    "This Codex request is not supported by Flowork yet.",
                 )
             ]
             yield {
@@ -2508,7 +2508,7 @@ async def test_codex_aggregate_hub_emits_runtime_neutral_approval(monkeypatch):
         async def request(self, method, _params, **_kwargs):
             if method == "thread/start":
                 servers = _params["config"]["mcp_servers"]
-                assert set(servers) == {"skeinix"}
+                assert set(servers) == {"flowork"}
                 assert all(
                     server["url"].startswith("http://127.0.0.1:")
                     and "http_headers" not in server

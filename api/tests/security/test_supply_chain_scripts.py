@@ -62,7 +62,7 @@ def test_actual_application_images_are_built_and_scanned() -> None:
     assert "build_image web web/Dockerfile ." in scanner
     assert "build_image engine engine/Dockerfile engine" in scanner
     for image in ("api", "web", "engine"):
-        assert f"'{image}|skeinix-{image}:security-scan'" in scanner
+        assert f"'{image}|flowork-{image}:security-scan'" in scanner
 
 
 def test_container_gate_emits_sboms_and_does_not_hide_high_vulnerabilities() -> None:
@@ -237,7 +237,7 @@ def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
         encoding="utf-8",
     )
     fake_gh.chmod(0o755)
-    repository = "Example/Skeinix"
+    repository = "Example/flowork"
     digest = "sha256:" + "a" * 64
     source_sha = "b" * 40
     env = os.environ.copy()
@@ -245,7 +245,7 @@ def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
     subprocess.run(
         [
             str(_RELEASE_ATTESTATION_GATE),
-            f"ghcr.io/example/skeinix-api@{digest}",
+            f"ghcr.io/example/flowork-api@{digest}",
             repository,
             f"{repository}/.github/workflows/release-images.yml",
             source_sha,
@@ -259,10 +259,10 @@ def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
     calls = gh_log.read_text(encoding="utf-8").splitlines()
     assert len(calls) == 2
     for call in calls:
-        assert f"oci://ghcr.io/example/skeinix-api@{digest}" in call
-        assert "--repo Example/Skeinix" in call
+        assert f"oci://ghcr.io/example/flowork-api@{digest}" in call
+        assert "--repo Example/flowork" in call
         assert (
-            "--signer-workflow Example/Skeinix/.github/workflows/release-images.yml"
+            "--signer-workflow Example/flowork/.github/workflows/release-images.yml"
         ) in call
         assert f"--source-digest {source_sha}" in call
         assert "--source-ref refs/tags/v1.2.3" in call
@@ -279,15 +279,15 @@ def test_release_attestation_gate_rejects_tags_and_unknown_images(
     env = os.environ.copy()
     env["GH_BIN"] = str(fake_gh)
     common = [
-        "Example/Skeinix",
-        "Example/Skeinix/.github/workflows/release-images.yml",
+        "Example/flowork",
+        "Example/flowork/.github/workflows/release-images.yml",
         "b" * 40,
         "refs/tags/v1.2.3",
     ]
     for invalid_image in (
-        f"ghcr.io/example/skeinix-api:latest@sha256:{'a' * 64}",
-        f"ghcr.io/example/skeinix-worker@sha256:{'a' * 64}",
-        "ghcr.io/example/skeinix-api:latest",
+        f"ghcr.io/example/flowork-api:latest@sha256:{'a' * 64}",
+        f"ghcr.io/example/flowork-worker@sha256:{'a' * 64}",
+        "ghcr.io/example/flowork-api:latest",
     ):
         result = subprocess.run(
             [str(_RELEASE_ATTESTATION_GATE), invalid_image, *common],
@@ -318,9 +318,9 @@ def test_web_image_packages_the_locked_extension_for_download() -> None:
     compose = (_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     assert "COPY extension/package.json extension/pnpm-lock.yaml ./" in dockerfile
     assert "pnpm install --frozen-lockfile" in dockerfile
-    assert "python -m zipfile -t /out/vibecanvas-extension.zip" in dockerfile
+    assert "python -m zipfile -t /out/flowork-extension.zip" in dockerfile
     assert (
-        "/usr/share/nginx/html/downloads/vibecanvas-extension.zip" in dockerfile
+        "/usr/share/nginx/html/downloads/flowork-extension.zip" in dockerfile
     )
     assert "VITE_WEB_BASE: ${VIBECANVAS_EXTENSION_WEB_BASE" in compose
     assert "VITE_EXTENSION_ALLOWED_ORIGINS:" in compose

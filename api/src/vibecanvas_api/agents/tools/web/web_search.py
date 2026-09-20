@@ -52,7 +52,7 @@ def _duckduckgo(query: str, max_results: int, timeout: int) -> list[dict]:
         headers={
             "Accept": "text/html,application/xhtml+xml",
             "Accept-Language": "en-US,en;q=0.8",
-            "User-Agent": "Mozilla/5.0 (compatible; SkeinixSearch/1.0)",
+            "User-Agent": "Mozilla/5.0 (compatible; floworkSearch/1.0)",
         },
         timeout=timeout,
     )

@@ -42,7 +42,7 @@ async def test_real_codex_app_server_starts_with_broker_provider_and_no_auth_cac
                     "model_provider": "vibecanvas_runtime_model",
                     "model_providers": {
                         "vibecanvas_runtime_model": {
-                            "name": "Skeinix Runtime Model Broker",
+                            "name": "Flowork Runtime Model Broker",
                             "base_url": "http://127.0.0.1:9/api/internal/runtime-model/v1",
                             "wire_api": "responses",
                             "namespace_tools": False,

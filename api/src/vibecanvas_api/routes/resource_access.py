@@ -188,7 +188,7 @@ def _masked_email(email: str) -> str:
 
 def _lookup_digest(target_type: str, identifier: str) -> str:
     return keyed_lookup_digest(
-        domain="skeinix:share-target-lookup:v1",
+        domain="flowork:share-target-lookup:v1",
         components=(target_type,),
         value=identifier,
         casefold=True,

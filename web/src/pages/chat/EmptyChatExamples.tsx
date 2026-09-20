@@ -29,7 +29,7 @@ const EXAMPLES: Record<ExampleCategory, readonly ExampleDefinition[]> = {
       descriptionKey: 'chat.examples.office.presentation.description',
       description: 'Research a topic and turn it into a polished slide deck.',
       promptKey: 'chat.examples.office.presentation.prompt',
-      prompt: '/document Create a polished, editable 3-slide presentation introducing Skeinix to a technical team. Do not browse the web; use only these facts: Skeinix is an open-source server-side Agent for browser automation, Workflows, Tasks and Deployments, professional office documents and diagrams, and reusable Knowledge storage. Use slide 1 for the problem and product position, slide 2 for the capability groups, and slide 3 for a concise getting-started flow from connecting a Runtime and model source to Chat and delivery.',
+      prompt: '/document Create a polished, editable 3-slide presentation introducing Flowork to a technical team. Do not browse the web; use only these facts: Flowork is an open-source server-side Agent for browser automation, Workflows, Tasks and Deployments, professional office documents and diagrams, and reusable Knowledge storage. Use slide 1 for the problem and product position, slide 2 for the capability groups, and slide 3 for a concise getting-started flow from connecting a Runtime and model source to Chat and delivery.',
     },
     {
       id: 'report',
@@ -40,7 +40,7 @@ const EXAMPLES: Record<ExampleCategory, readonly ExampleDefinition[]> = {
       descriptionKey: 'chat.examples.office.report.description',
       description: 'Structure evidence and recommendations into a professional report.',
       promptKey: 'chat.examples.office.report.prompt',
-      prompt: '/document Create a polished, editable 3-page decision brief for a mid-sized customer-support team evaluating Skeinix. Do not browse the web; use only these assumptions: the team handles 20,000 tickets per month, spends 35% of staff time on repetitive browser and reporting work, and requires human review before production actions. Cover the current problem, a proposed pilot using browser automation, Workflows, Tasks and Deployments, expected benefits and risks, and a 30-day rollout with measurable success criteria.',
+      prompt: '/document Create a polished, editable 3-page decision brief for a mid-sized customer-support team evaluating Flowork. Do not browse the web; use only these assumptions: the team handles 20,000 tickets per month, spends 35% of staff time on repetitive browser and reporting work, and requires human review before production actions. Cover the current problem, a proposed pilot using browser automation, Workflows, Tasks and Deployments, expected benefits and risks, and a 30-day rollout with measurable success criteria.',
     },
     {
       id: 'spreadsheet',

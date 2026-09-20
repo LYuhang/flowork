@@ -18,7 +18,7 @@
   <body>
     <main id="detail-content">
       <span class="badge">Verified destination</span>
-      <h1 id="detail-title">Skeinix browser automation guide</h1>
+      <h1 id="detail-title">Flowork browser automation guide</h1>
       <p id="detail-body">The Agent opened this page from a search result.</p>
       <ul id="acceptance-trail">
         <li>Search term: <strong id="trail-query"></strong></li>
@@ -28,10 +28,10 @@
     </main>
     <script>
       const params = new URLSearchParams(location.search);
-      const query = params.get("from") || sessionStorage.getItem("skeinix.acceptance.search") || "not recorded";
+      const query = params.get("from") || sessionStorage.getItem("flowork.acceptance.search") || "not recorded";
       document.querySelector("#trail-query").textContent = query;
-      document.querySelector("#trail-results").textContent = sessionStorage.getItem("skeinix.acceptance.results") === query ? "yes" : "no";
-      document.querySelector("#trail-clicked").textContent = sessionStorage.getItem("skeinix.acceptance.resultClicked") === "true" ? "yes" : "no";
+      document.querySelector("#trail-results").textContent = sessionStorage.getItem("flowork.acceptance.results") === query ? "yes" : "no";
+      document.querySelector("#trail-clicked").textContent = sessionStorage.getItem("flowork.acceptance.resultClicked") === "true" ? "yes" : "no";
     </script>
   </body>
 </html>

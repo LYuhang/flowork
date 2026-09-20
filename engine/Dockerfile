@@ -36,5 +36,5 @@ RUN python -m pip uninstall -y \
     test ! -e /usr/local/bin/pip3
 
 # A direct container run performs a dependency/import smoke check. Applications
-# consume the package through its Python API or through the Skeinix platform.
+# consume the package through its Python API or through the Flowork platform.
 CMD ["python", "-c", "import vibecanvas_engine; print('vibecanvas_engine ready')"]

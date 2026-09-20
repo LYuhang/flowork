@@ -22,7 +22,7 @@ from vibecanvas_api.services.public_url import (
 )
 from vibecanvas_api.storage.repo_mcp_servers import McpOAuthRepo, McpServersRepo
 
-_USER_AGENT = "Skeinix/1.0 MCP OAuth client"
+_USER_AGENT = "flowork/1.0 MCP OAuth client"
 _TRANSACTION_TTL = timedelta(minutes=10)
 
 _OAUTH_TRANSACTION_PURPOSE = "mcp_oauth_transaction"
@@ -267,7 +267,7 @@ async def begin_connection(
             label="client registration endpoint",
             timeout=timeout,
             json={
-                "client_name": "Skeinix",
+                "client_name": "Flowork",
                 "redirect_uris": [callback_url],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],

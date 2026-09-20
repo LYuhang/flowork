@@ -19,13 +19,14 @@
  * we already cover in E2E.
  */
 import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import i18n from 'i18next';
 import { MemoryRouter } from 'react-router';
 import { WorkspacePage } from '@/pages/workspace/WorkspacePage';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { server, fixtureWorkflow } from '@/__tests__/msw-handlers';
 
 // Minimal local i18n instance — we don't want the test to depend on the
@@ -47,7 +48,7 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(
     <QueryClientProvider client={client}>
       <I18nextProvider i18n={testI18n}>
-        <MemoryRouter>{ui}</MemoryRouter>
+        <MemoryRouter><TooltipProvider>{ui}</TooltipProvider></MemoryRouter>
       </I18nextProvider>
     </QueryClientProvider>,
   );
@@ -59,24 +60,19 @@ describe('<WorkspacePage>', () => {
     expect(await screen.findByText('Workflows')).toBeInTheDocument();
   });
 
-  // TODO(T22): the empty-state + populated-list branches flake intermittently
-  // under `isolate: false` (see vitest.config.ts) because TanStack Query's
-  // queryFn runs in a microtask scheduled after RTL's `cleanup()`, leading
-  // to a race where the page renders the `isError` fallback before the MSW
-  // response settles. Smoke test (`apiClient.GET` direct) confirms MSW
-  // interception works end-to-end; the flake is render-timing, not network.
-  // Fix lands with T22's harness-level fixture helpers — likely via
-  // `useQuery({ queryFn, suspense: true })` + a React 19 `<Suspense>`
-  // boundary in the test wrapper, or by abandoning `isolate: false` once
-  // the devbox's worker-spawn IPC is fixed.
-  it.skip('shows the empty state when the workspace has no workflows', async () => {
+  it('keeps the management table and a single create action when empty', async () => {
     renderWithProviders(<WorkspacePage />);
-    await waitFor(() =>
-      expect(screen.getByText(/No workflows yet/i)).toBeInTheDocument(),
-    );
+    expect(await screen.findByTestId('wf-empty')).toHaveTextContent('No workflows yet');
+    expect(screen.getByTestId('wf-table')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-search')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'New Workflow' })).toHaveLength(1);
+    expect(screen.queryByText('Make repeat work a workflow.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Describe your task' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'New Workflow' }));
+    expect(await screen.findByRole('dialog', { name: 'New workflow' })).toBeInTheDocument();
   });
 
-  it.skip('renders a workflow row in the table when the API returns items', async () => {
+  it('renders a workflow row in the table when the API returns items', async () => {
     server.use(
       http.get('*/api/v1/workflows', () =>
         HttpResponse.json({

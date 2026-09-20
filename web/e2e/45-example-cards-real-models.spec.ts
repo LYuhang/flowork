@@ -5,7 +5,7 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 const API_BASE = process.env.VIBECANVAS_API_BASE ?? 'http://localhost:8000';
 const APP_ORIGIN = process.env.VIBECANVAS_E2E_ORIGIN
   ?? `http://${process.env.VIBECANVAS_E2E_HOST ?? 'localhost'}:${process.env.VIBECANVAS_WEB_PORT ?? '9001'}`;
-const SESSION_FILE = process.env.SKEINIX_E2E_EXISTING_SESSION_FILE;
+const SESSION_FILE = process.env.FLOWORK_E2E_EXISTING_SESSION_FILE;
 const MESSAGE_PATH = /\/api\/v1\/chat-scopes\/([^/]+)\/chats\/([^/]+)\/messages$/;
 
 interface ExistingSession {
@@ -46,7 +46,7 @@ const EXAMPLES: readonly ExampleCase[] = [
 ];
 
 function sessionMaterial(): ExistingSession {
-  if (!SESSION_FILE) throw new Error('SKEINIX_E2E_EXISTING_SESSION_FILE is required');
+  if (!SESSION_FILE) throw new Error('FLOWORK_E2E_EXISTING_SESSION_FILE is required');
   const material = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8')) as ExistingSession;
   if (!material.session || !material.csrf) throw new Error('existing Session is incomplete');
   return material;

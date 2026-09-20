@@ -1,13 +1,13 @@
 # Development Guide
 
-This guide describes the supported source-development workflow for Skeinix.
+This guide describes the supported source-development workflow for Flowork.
 It is intended for contributors working across the workflow engine, API, Web
 application, or Browser Extension. For evaluation and day-to-day operation,
 follow the [installation guide](installation.md) instead.
 
 ## Development model
 
-Skeinix is developed as one local stack with four source packages:
+Flowork is developed as one local stack with four source packages:
 
 | Package | Responsibility | Primary entry points |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ runtime and proxy configuration is defined in
 
 ### Browser Extension
 
-`launch.sh` builds the extension with the same origin used to open Skeinix and
+`launch.sh` builds the extension with the same origin used to open Flowork and
 publishes a ZIP for the Settings download flow. For extension-only development,
 run the watched build:
 
@@ -144,16 +144,16 @@ python -m pip check
 
 Engine tests are self-contained. API tests start an isolated PostgreSQL server
 through `pytest-postgresql`; PostgreSQL server binaries, including `pg_ctl`,
-must be installed. Set `SKEINIX_TEST_PG_CTL` to an explicit executable when it
+must be installed. Set `FLOWORK_TEST_PG_CTL` to an explicit executable when it
 is not discoverable in `PATH` or `/usr/lib/postgresql/*/bin/`.
 
 When PostgreSQL intentionally runs in Docker, the API suite can use that
 cluster without installing server binaries on the host. Point
-`SKEINIX_TEST_PG_URL` at an administrative database, provide the existing
-application-role password through `SKEINIX_TEST_APP_PASSWORD`, and optionally
-set `SKEINIX_TEST_PG_DATABASE` (default: `vibecanvas_test`). The fixture creates
+`FLOWORK_TEST_PG_URL` at an administrative database, provide the existing
+application-role password through `FLOWORK_TEST_APP_PASSWORD`, and optionally
+set `FLOWORK_TEST_PG_DATABASE` (default: `vibecanvas_test`). The fixture creates
 and later removes only that disposable database. It never migrates, truncates,
-or deletes the database named by `SKEINIX_TEST_PG_URL`, and it never alters the
+or deletes the database named by `FLOWORK_TEST_PG_URL`, and it never alters the
 existing `vibecanvas_app` role.
 
 Tests that require a real gVisor environment are guarded and report a skip when

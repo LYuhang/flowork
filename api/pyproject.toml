@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "vibecanvas-api"
 version = "0.3.0"
-description = "Skeinix API, agent runtime, persistence, authorization, and sandbox control plane."
+description = "Flowork API, agent runtime, persistence, authorization, and sandbox control plane."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [
-    { name = "Skeinix contributors" },
+    { name = "Flowork contributors" },
 ]
-keywords = ["workflow", "agent", "langgraph", "skeinix"]
+keywords = ["workflow", "agent", "langgraph", "flowork"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
@@ -141,10 +141,10 @@ test = [
 [project.scripts]
 vibecanvas-api = "vibecanvas_api.cli:main"
 vibecanvas-encrypt-legacy-secrets = "vibecanvas_api.security.migrate_legacy_secrets:main"
-skeinix-document-mcp = "vibecanvas_api.document_runtime.server:main"
+flowork-document-mcp = "vibecanvas_api.document_runtime.server:main"
 
 [project.urls]
-Repository = "https://github.com/LYuhang/Skeinix"
+Repository = "https://github.com/LYuhang/flowork"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vibecanvas_api"]

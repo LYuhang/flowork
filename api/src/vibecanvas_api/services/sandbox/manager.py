@@ -1644,8 +1644,8 @@ class SandboxSession:
         # executable inside gVisor; none contains credentials or platform
         # state.
         for env_name, default_command in (
-            ("PLAYWRIGHT_MCP_COMMAND", "skeinix-playwright-mcp"),
-            ("DIAGRAM_MCP_COMMAND", "skeinix-diagram-mcp"),
+            ("PLAYWRIGHT_MCP_COMMAND", "flowork-playwright-mcp"),
+            ("DIAGRAM_MCP_COMMAND", "flowork-diagram-mcp"),
             ("DRAWIO_CLI_COMMAND", "drawio"),
         ):
             command = str(

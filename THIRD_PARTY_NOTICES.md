@@ -1,8 +1,8 @@
 # Third-party notices
 
-Skeinix's original source code is licensed under the Apache License 2.0. The
+Flowork's original source code is licensed under the Apache License 2.0. The
 project also uses third-party packages that remain governed by their own
-licenses. Nothing in Skeinix's `LICENSE` file replaces those terms.
+licenses. Nothing in Flowork's `LICENSE` file replaces those terms.
 
 The committed Python and pnpm lockfiles identify exact package versions. Release
 images additionally carry SPDX SBOM attestations produced by the release
@@ -16,20 +16,20 @@ Notable license choices in the current dependency graph include:
   distributed under Apache-2.0. The browser extension's CDP browser model and
   relay data plane are adapted from Microsoft Playwright commit
   `680e5ad5894a54bba9e4ed8a311fd2aee388137d`; the adapted source files retain
-  the Microsoft copyright and Apache-2.0 notice. Skeinix changes only the
+  the Microsoft copyright and Apache-2.0 notice. Flowork changes only the
   transport, browser-window scope, and extension integration; the official
   Playwright MCP continues to own locator, snapshot, waiting, and action
   semantics.
 - The Docker stack uses Valkey, a Redis-protocol-compatible datastore released
   under the BSD 3-Clause license, instead of Redis releases under RSALv2/SSPLv1.
-- `elkjs` is available under `EPL-2.0 OR GPL-3.0-or-later`; Skeinix uses it
+- `elkjs` is available under `EPL-2.0 OR GPL-3.0-or-later`; Flowork uses it
   under EPL-2.0.
 - `@drawio/mcp` is the official draw.io MCP published by JGraph Ltd under
-  Apache-2.0. Skeinix runs the pinned package unchanged inside each activated
+  Apache-2.0. Flowork runs the pinned package unchanged inside each activated
   Chat sandbox and adds only file, preview, and quality-feedback adapters.
   The package carries draw.io's vendored Libavoid routing assets and their
   upstream notices.
-- `jszip` is available under `MIT OR GPL-3.0-or-later`; Skeinix uses it under
+- `jszip` is available under `MIT OR GPL-3.0-or-later`; Flowork uses it under
   the MIT license.
 - `axe-core`, `lightningcss`, `certifi`, `orjson`, and `tqdm` include MPL-2.0
   terms, alone or together with permissive alternatives.

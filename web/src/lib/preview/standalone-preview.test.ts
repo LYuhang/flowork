@@ -13,7 +13,7 @@ describe('standalone Preview links', () => {
       chatId: 'chat-1',
       path: '/data/季度报告 2026.docx',
     });
-    const url = new URL(href, 'https://skeinix.test');
+    const url = new URL(href, 'https://flowork.test');
 
     expect(url.pathname).toBe('/preview');
     expect(url.search).not.toContain('token');

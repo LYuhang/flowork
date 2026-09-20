@@ -2,7 +2,7 @@
 
 All provider URLs are fixed constants. Callers receive classified errors only;
 upstream bodies, authorization codes, verifiers, and API keys are never logged
-or returned through Skeinix APIs.
+or returned through Flowork APIs.
 """
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def callback_url(state: str) -> str:
     OpenRouter guarantees that it appends an authorization ``code`` to the
     callback, but does not guarantee that a query string already present on
     ``callback_url`` survives. Keep the one-time state in the path so the
-    browser can always return both values to Skeinix.
+    browser can always return both values to Flowork.
     """
     return config.public_urls.absolute(
         f"settings/openrouter/callback/{state}"

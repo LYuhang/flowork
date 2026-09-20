@@ -57,7 +57,7 @@ function isFreeModel(model: RuntimeModelOption): boolean {
   const id = model.provider_model_id ?? '';
   // Both the `:free` suffix and catalog prices are authoritative only for an
   // OpenRouter connection. A manually entered provider may expose missing,
-  // placeholder, or zero prices that Skeinix cannot interpret as free usage.
+  // placeholder, or zero prices that Flowork cannot interpret as free usage.
   if (sourceId(model) !== 'openrouter_oauth') return false;
   if (id === 'openrouter/free' || id.endsWith(':free')) return true;
   if (model.input_price == null || model.output_price == null) return false;
@@ -226,7 +226,7 @@ export function RuntimeModelPicker({
                     setActiveSource(null);
                     setQuery('');
                   }}
-                  aria-label={t('common_back', 'Back')}
+                  aria-label={t('composer.model.backToSources', 'Back to model sources')}
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </button>

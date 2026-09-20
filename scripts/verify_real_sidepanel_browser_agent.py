@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Visible end-to-end acceptance for the real Skeinix side-panel Agent.
+"""Visible end-to-end acceptance for the real Flowork side-panel Agent.
 
 This is deliberately separate from ``verify_playwright_mcp_real_browser.py``:
 that verifier proves every reviewed official MCP tool without a model, while
@@ -26,12 +26,12 @@ from playwright.async_api import BrowserContext, Frame, Page, async_playwright
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "extension" / "dist"
 EVIDENCE = ROOT / "output" / "playwright" / "sidepanel-browser-agent"
-WEB_BASE = os.environ.get("SKEINIX_ACCEPTANCE_WEB_BASE", "http://localhost:9001")
+WEB_BASE = os.environ.get("FLOWORK_ACCEPTANCE_WEB_BASE", "http://localhost:9001")
 
 
 def _scenario_fixture_html() -> bytes:
     return b"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Skeinix User Journey Fixture</title></head><body>
+<title>Flowork User Journey Fixture</title></head><body>
 <main><h1>COMMON_BROWSER_JOURNEY</h1>
 <label>Name <input id="name" aria-label="Name"></label>
 <label>Mode <select id="mode" aria-label="Mode"><option>Basic</option><option>Advanced</option></select></label>
@@ -42,7 +42,7 @@ def _scenario_fixture_html() -> bytes:
 <script>
 const q=id=>document.getElementById(id);
 q('run').onclick=()=>q('action-result').textContent=
-  q('name').value==='Skeinix User'&&q('mode').value==='Advanced'?'FORM_OK':'FORM_BAD';
+  q('name').value==='Flowork User'&&q('mode').value==='Advanced'?'FORM_OK':'FORM_BAD';
 q('command').onkeydown=e=>{if(e.key==='Enter')q('action-result').textContent+=' KEY_OK'};
 q('dialog').onclick=()=>{if(confirm('Accept deterministic action?'))q('dialog-result').textContent='DIALOG_OK'};
 q('popup').onclick=()=>window.open('/details','_blank');
@@ -128,7 +128,7 @@ async def _run(email: str, password: str) -> None:
     if not (EXTENSION / "service-worker.js").is_file():
         raise RuntimeError("extension/dist is missing; run `pnpm --dir extension build`")
     EVIDENCE.mkdir(parents=True, exist_ok=True)
-    profile = Path(tempfile.mkdtemp(prefix="skeinix-sidepanel-agent-"))
+    profile = Path(tempfile.mkdtemp(prefix="flowork-sidepanel-agent-"))
     context: BrowserContext | None = None
     scenario_server = await asyncio.start_server(_scenario_http, "127.0.0.1", 0)
     scenario_port = int(scenario_server.sockets[0].getsockname()[1])
@@ -365,7 +365,7 @@ async def _run(email: str, password: str) -> None:
                 raise AssertionError("Agent transcript did not verify the final domain")
 
             extended_journey = False
-            if os.environ.get("SKEINIX_ACCEPTANCE_EXTENDED") == "1":
+            if os.environ.get("FLOWORK_ACCEPTANCE_EXTENDED") == "1":
                 # A second Turn on the same Chat proves the controller can be
                 # recreated after the first Turn while the browser lease and
                 # side-panel conversation remain usable. The deterministic
@@ -375,7 +375,7 @@ async def _run(email: str, password: str) -> None:
                 marker = f"COMMON_BROWSER_ACCEPTANCE_{uuid.uuid4().hex[:12]}"
                 journey_prompt = (
                     "/browser Work only on the current deterministic acceptance page. "
-                    "Observe it first. Fill Name with 'Skeinix User', choose "
+                    "Observe it first. Fill Name with 'Flowork User', choose "
                     "Advanced mode, and click Run action; verify FORM_OK. Type "
                     "'RUN' in Command and press Enter; verify KEY_OK. Click "
                     "Confirm action, accept the JavaScript dialog, and verify "

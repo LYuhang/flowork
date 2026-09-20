@@ -159,17 +159,17 @@ class SandboxMcpRuntimeAdapter:
                     browser_relay = await start_browser_cdp_relay(
                         local_bearer=local_bearer,
                     )
-                    playwright_home = "/tmp/skeinix-playwright-mcp"
+                    playwright_home = "/tmp/flowork-playwright-mcp"
                     playwright_cache = f"{playwright_home}/cache"
                     os.makedirs(playwright_cache, mode=0o700, exist_ok=True)
                     child_env = {
                         "HOME": playwright_home,
                         "XDG_CACHE_HOME": playwright_cache,
                         "TMPDIR": "/tmp",
-                        "SKEINIX_PLAYWRIGHT_CDP_ENDPOINT": (
+                        "FLOWORK_PLAYWRIGHT_CDP_ENDPOINT": (
                             browser_relay.endpoint
                         ),
-                        "SKEINIX_PLAYWRIGHT_CDP_BEARER": local_bearer,
+                        "FLOWORK_PLAYWRIGHT_CDP_BEARER": local_bearer,
                     }
                 read, write = await stack.enter_async_context(stdio_client(
                     StdioServerParameters(
@@ -369,10 +369,10 @@ class SandboxMcpRuntimeAdapter:
             )
         await local.browser_relay.activate(
             upstream_url=str(
-                environment.get("SKEINIX_PLAYWRIGHT_CDP_ENDPOINT") or ""
+                environment.get("FLOWORK_PLAYWRIGHT_CDP_ENDPOINT") or ""
             ),
             upstream_bearer=str(
-                environment.get("SKEINIX_PLAYWRIGHT_CDP_BEARER") or ""
+                environment.get("FLOWORK_PLAYWRIGHT_CDP_BEARER") or ""
             ),
         )
 

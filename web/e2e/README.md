@@ -1,6 +1,6 @@
 # Browser End-to-End Testing
 
-The Playwright suite validates Skeinix through real browser interactions and
+The Playwright suite validates Flowork through real browser interactions and
 public API contracts. It covers focused product journeys, Workflow authoring,
 accessibility, Agent Runtime integration, and the Browser Extension. Unit and
 component tests remain in Vitest and are documented in the repository
@@ -75,7 +75,7 @@ that same Runtime root. For the Docker Compose named volume, opt in to the
 shared staging helper explicitly:
 
 ```bash
-SKEINIX_E2E_DOCKER_ACCOUNT_CONTAINER=skeinix-sandboxd-1 \
+FLOWORK_E2E_DOCKER_ACCOUNT_CONTAINER=flowork-sandboxd-1 \
 pnpm --dir web exec playwright test e2e/42-codex-resilience-conformance.spec.ts
 ```
 
@@ -206,11 +206,11 @@ Store screenshots and verdicts below `output/playwright/`.
 The OpenRouter gate is intentionally opt-in because it uses an already
 authorized account and makes real model requests. It never registers a test
 user or copies the provider key into Playwright. Supply a mode-`0600` JSON file
-containing an existing Skeinix Secure Cookie Session and its CSRF value, then
+containing an existing Flowork Secure Cookie Session and its CSRF value, then
 run the gate against the complete local stack:
 
 ```bash
-SKEINIX_E2E_EXISTING_SESSION_FILE=/absolute/path/existing-session.json \
+FLOWORK_E2E_EXISTING_SESSION_FILE=/absolute/path/existing-session.json \
 VIBECANVAS_SKIP_WEB_SERVER=1 \
 VIBECANVAS_WEB_PORT=9001 \
 VIBECANVAS_API_BASE=http://localhost:8000 \
@@ -222,7 +222,7 @@ pnpm --dir web exec playwright test \
 The scenario selects Codex, OpenRouter, `stealth/ox-alpha`, and Maximum
 reasoning; completes a normal response and a local filesystem tool loop; then
 reloads the Chat and verifies the model, reasoning effort, history, and tool
-result. Revoke the temporary Skeinix Session immediately after the acceptance
+result. Revoke the temporary Flowork Session immediately after the acceptance
 run. The OpenRouter credential remains encrypted on the Host and must never be
 placed in this file, browser storage, screenshots, or test output.
 
@@ -248,7 +248,7 @@ xvfb-run -a pnpm --dir web exec playwright test \
 ```
 
 The side-panel acceptance gate connects the built extension to a running
-Skeinix application. The extension must be built for the same exact origin,
+Flowork application. The extension must be built for the same exact origin,
 and the account and Agent Runtime expected by the specification must be
 available:
 

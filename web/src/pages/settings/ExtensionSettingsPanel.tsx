@@ -5,7 +5,7 @@ import { AppIcon } from '@/app/AppIcon';
 import { Button } from '@/components/ui/button';
 import { getBasePath } from '@/lib/base-path';
 
-const ARCHIVE_NAME = 'vibecanvas-extension.zip';
+const ARCHIVE_NAME = 'flowork-extension.zip';
 
 function extensionDownloadUrl(): string {
   const configured = import.meta.env.VITE_BROWSER_EXTENSION_DOWNLOAD_URL?.trim();
@@ -23,7 +23,7 @@ export function ExtensionSettingsPanel() {
     t('settings_extension_step_download', 'Download the ZIP package, then extract it to a permanent folder.'),
     t('settings_extension_step_page', 'Open chrome://extensions and turn on Developer mode.'),
     t('settings_extension_step_load', 'Choose “Load unpacked” and select the extracted folder.'),
-    t('settings_extension_step_pin', 'Pin Skeinix in the Chrome toolbar, then open its side panel.'),
+    t('settings_extension_step_pin', 'Pin Flowork in the Chrome toolbar, then open its side panel.'),
   ];
 
   return (
@@ -37,7 +37,7 @@ export function ExtensionSettingsPanel() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold">
-                {t('settings_extension_chrome_name', 'Skeinix for Chrome')}
+                {t('settings_extension_chrome_name', 'Flowork for Chrome')}
               </h3>
               <span className="rounded-full border border-edge-subtle bg-surface-sunken px-2 py-0.5 text-xs text-muted-foreground">
                 Chrome
@@ -46,7 +46,7 @@ export function ExtensionSettingsPanel() {
             <p className="mt-1 max-w-[62ch] text-sm leading-6 text-muted-foreground">
               {t(
                 'settings_extension_chrome_desc',
-                'Use the Skeinix browser assistant beside any page. It shares your account when the main app is signed in, or lets you sign in directly from the side panel.',
+                'Use the Flowork browser assistant beside any page. It shares your account when the main app is signed in, or lets you sign in directly from the side panel.',
               )}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">

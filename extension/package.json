@@ -1,5 +1,5 @@
 {
-  "name": "skeinix-extension",
+  "name": "flowork-extension",
   "private": true,
   "packageManager": "pnpm@10.34.4",
   "type": "module",

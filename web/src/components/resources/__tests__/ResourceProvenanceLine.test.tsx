@@ -65,11 +65,11 @@ describe('ResourceProvenanceLine', () => {
     const view = renderLine({
       ownership_scope: 'platform',
       origin_type: 'system',
-      owner: { type: 'platform', display_name: 'Skeinix' },
+      owner: { type: 'platform', display_name: 'Flowork' },
       created_by: null,
     });
 
-    expect(screen.getByText('Skeinix')).toBeInTheDocument();
+    expect(screen.getByText('Flowork')).toBeInTheDocument();
     expect(view.container).not.toHaveTextContent(/tenant|user[_-]?id/i);
   });
 

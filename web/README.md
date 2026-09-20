@@ -1,6 +1,6 @@
-# Skeinix Web
+# Flowork Web
 
-The Web package is Skeinix's browser application. It presents the Chat,
+The Web package is Flowork's browser application. It presents the Chat,
 Workflow, Task, Deployment, Browser, resource-management, and administration
 experiences, and translates user interactions into typed API requests and
 real-time execution updates.
@@ -191,7 +191,7 @@ browser security headers, and publishes the deployment-specific extension ZIP.
 Build it from the repository root:
 
 ```bash
-docker build -f web/Dockerfile -t skeinix-web:dev .
+docker build -f web/Dockerfile -t flowork-web:dev .
 ```
 
 The image expects the API and extension-origin settings supplied by the full

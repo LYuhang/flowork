@@ -400,7 +400,7 @@ chrome.runtime.onConnect.addListener((port) => {
 try {
   void chrome.sidePanel
     ?.setPanelBehavior?.({ openPanelOnActionClick: true })
-    .catch((e) => console.warn("[skeinix] setPanelBehavior failed", e));
+    .catch((e) => console.warn("[flowork] setPanelBehavior failed", e));
 } catch {
   /* sidePanel API unavailable — non-fatal */
 }
@@ -600,7 +600,7 @@ async function requestAuthSyncFromOpenAppTabs(): Promise<void> {
         world: "MAIN",
         func: () => {
           document.dispatchEvent(
-            new CustomEvent("skeinix:extension-auth-refresh"),
+            new CustomEvent("flowork:extension-auth-refresh"),
           );
         },
       });
@@ -650,7 +650,7 @@ chrome.runtime.onMessage.addListener((msg: unknown) => {
         }
       })();
     }
-    console.debug("[skeinix] echo", m.echo);
+    console.debug("[flowork] echo", m.echo);
   }
   return false;
 });
@@ -899,7 +899,7 @@ chrome.runtime.onMessage.addListener(
 
         const session = currentBrowserSession;
         if (!session?.sessionId || !session.channel) {
-          sendResponse(fail("No active Skeinix browser session"));
+          sendResponse(fail("No active Flowork browser session"));
           return;
         }
         if (

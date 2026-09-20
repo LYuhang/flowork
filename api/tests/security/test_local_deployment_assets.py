@@ -166,7 +166,7 @@ def test_nginx_refreshes_compose_service_dns() -> None:
 
     assert "resolver 127.0.0.11" in nginx
     assert "server api:8000 resolve;" in nginx
-    assert nginx.count("proxy_pass http://skeinix_api;") == 3
+    assert nginx.count("proxy_pass http://flowork_api;") == 3
 
 
 def test_nginx_preserves_browser_authority_for_origin_validation() -> None:
@@ -277,7 +277,7 @@ def test_openfga_erasure_role_cannot_access_live_tuples() -> None:
     assert "openfga_erasure_bootstrap" in worker["depends_on"]
     assert "SECURITY DEFINER" in sql
     assert "REVOKE ALL ON ALL TABLES IN SCHEMA public" in sql
-    assert "GRANT EXECUTE ON FUNCTION public.skeinix_erase_changelog" in sql
+    assert "GRANT EXECUTE ON FUNCTION public.flowork_erase_changelog" in sql
     assert "GRANT SELECT" not in sql
     assert "GRANT DELETE" not in sql
 

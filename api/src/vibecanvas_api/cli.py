@@ -47,7 +47,7 @@ def cmd_dump_openapi(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="vibecanvas-api",
-        description="Skeinix data plane HTTP service.",
+        description="Flowork data plane HTTP service.",
     )
     p.add_argument("--version", action="version",
                    version=f"vibecanvas-api {__version__}")

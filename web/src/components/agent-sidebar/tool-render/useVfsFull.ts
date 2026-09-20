@@ -44,7 +44,7 @@ export function useVfsFull(
     setError(null);
     readVfs({ path, wf_id: wfId })
       .then((out: VfsReadOut) => {
-        setContent(out.content);
+        setContent(out.content ?? null);
         setTruncated(!!out.truncated);
       })
       .catch((e: unknown) => {

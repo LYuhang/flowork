@@ -1,6 +1,6 @@
 # Architecture
 
-Skeinix is a self-hosted platform for turning agent-assisted work into
+Flowork is a self-hosted platform for turning agent-assisted work into
 inspectable, reusable automation. Its architecture separates two concerns: the
 control plane handles authentication, authorization, orchestration, and
 persistent data; the execution plane runs agent and workflow code in isolated
@@ -183,7 +183,7 @@ an authenticated WebSocket connection limited to the current browser-control
 session. The official Playwright MCP owns browser semantics in the Chat
 sandbox. The extension service worker is only its remote CDP data plane: a
 fixed five-command relay allow-list attaches approved tabs, forwards CDP
-messages, and reports tab lifecycle events. It has no Skeinix-specific DOM
+messages, and reports tab lifecycle events. It has no Flowork-specific DOM
 query/action protocol and accepts no arbitrary JavaScript command.
 
 The relay allow-list and dispatch live in
@@ -389,7 +389,7 @@ Encryption and retention behavior are described in
 
 ## Authorization and execution boundaries
 
-Skeinix uses defense in depth for data access. OpenFGA provides
+Flowork uses defense in depth for data access. OpenFGA provides
 relationship-based access control (ReBAC): it determines whether the current
 user may perform an action on a specific resource. PostgreSQL row-level
 security (RLS) independently restricts database rows to the active tenant. Both

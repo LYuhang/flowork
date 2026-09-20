@@ -88,7 +88,7 @@ async def test_openfga_change_history_uses_scoped_erasure_function(monkeypatch):
     assert calls == [
         ("connect", "postgresql://erasure:secret@openfga/openfga"),
         (
-            "SELECT public.skeinix_erase_changelog($1, $2::text[], $3::text[])",
+            "SELECT public.flowork_erase_changelog($1, $2::text[], $3::text[])",
             "store-1",
             ["user:1", "user:2"],
             ["object-1", "object-2"],

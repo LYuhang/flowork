@@ -1,6 +1,6 @@
 """Short-lived, least-privilege capabilities for host-brokered model calls.
 
-The token is deliberately useful only as an API key *to the Skeinix model
+The token is deliberately useful only as an API key *to the Flowork model
 broker*.  It never contains the provider credential or a credential-bearing
 URL.  Every request is re-authorized by the host before a secret is resolved.
 """

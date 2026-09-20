@@ -430,8 +430,8 @@ export function EmbedChatPage() {
           </h1>
           <p className="mt-1 text-sm leading-5 text-muted-foreground">
             {standalone
-              ? t('embed.standalone_hint', 'This secure Chat surface is opened by the Skeinix browser extension. Open the side panel, or continue in the main app.')
-              : t('embed.session_timeout_hint', 'Open the Skeinix side panel and retry. If the extension was updated, reload it before trying again.')}
+              ? t('embed.standalone_hint', 'This secure Chat surface is opened by the Flowork browser extension. Open the side panel, or continue in the main app.')
+              : t('embed.session_timeout_hint', 'Open the Flowork side panel and retry. If the extension was updated, reload it before trying again.')}
           </p>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
             {!standalone ? <Button size="sm" onClick={retryBinding}>

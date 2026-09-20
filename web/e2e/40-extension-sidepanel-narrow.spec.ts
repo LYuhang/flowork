@@ -37,7 +37,7 @@ test.describe('real narrow extension side panel', () => {
   test.beforeAll(async () => {
     test.setTimeout(180_000);
     await mkdir(SCREENSHOT_DIR, { recursive: true });
-    const profileDir = await mkdtemp(resolve(tmpdir(), 'skeinix-sidepanel-'));
+    const profileDir = await mkdtemp(resolve(tmpdir(), 'flowork-sidepanel-'));
     context = await chromium.launchPersistentContext(profileDir, {
       headless: false,
       ignoreHTTPSErrors: true,
@@ -73,7 +73,7 @@ test.describe('real narrow extension side panel', () => {
     // extension performs the same MAIN-world event when a side panel opens
     // later or after an extension update.
     await appPage.evaluate(() => {
-      document.dispatchEvent(new CustomEvent('skeinix:extension-auth-refresh'));
+      document.dispatchEvent(new CustomEvent('flowork:extension-auth-refresh'));
     });
     await appPage.waitForTimeout(1_000);
     const meStatus = await appPage.evaluate(async () => (
@@ -174,7 +174,7 @@ test.describe('real narrow extension side panel', () => {
   });
 
   test('also supports a standalone side-panel login', async () => {
-    const profileDir = await mkdtemp(resolve(tmpdir(), 'skeinix-sidepanel-standalone-'));
+    const profileDir = await mkdtemp(resolve(tmpdir(), 'flowork-sidepanel-standalone-'));
     const standalone = await chromium.launchPersistentContext(profileDir, {
       headless: false,
       ignoreHTTPSErrors: true,

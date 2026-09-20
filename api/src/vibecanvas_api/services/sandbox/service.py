@@ -1079,7 +1079,7 @@ async def _run_daemon(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Skeinix local sandbox service")
+    parser = argparse.ArgumentParser(description="Flowork local sandbox service")
     parser.add_argument("--socket", default=config.sandbox_service_socket)
     parser.add_argument("--listen", default="")
     parser.add_argument("--tls-cert", default="")

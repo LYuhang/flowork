@@ -381,7 +381,7 @@ export function AppSidebar({
         )}
       >
         {effectiveCollapsed ? (
-          <span className="grid size-9 place-items-center" aria-label={t('ws_title', 'Skeinix')}>
+          <span className="grid size-9 place-items-center" aria-label={t('ws_title', 'Flowork')}>
             <AppIcon
               alt=""
               aria-hidden="true"

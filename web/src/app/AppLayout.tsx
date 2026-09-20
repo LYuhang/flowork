@@ -95,8 +95,8 @@ export function AppLayout() {
     const entityId = segments.length > 1 && !['workspace', 'chat', 'settings'].includes(section)
       ? segments[1]?.slice(0, 8)
       : '';
-    const page = labels[section] ?? t('ws_title', 'Skeinix');
-    document.title = entityId ? `${page} ${entityId} · Skeinix` : `${page} · Skeinix`;
+    const page = labels[section] ?? t('ws_title', 'Flowork');
+    document.title = entityId ? `${page} ${entityId} · Flowork` : `${page} · Flowork`;
   }, [location.pathname, t]);
 
   useEffect(() => {

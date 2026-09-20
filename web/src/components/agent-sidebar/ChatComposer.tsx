@@ -34,7 +34,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
 import { Blocks, BrainCircuit, FileText, Image, Loader2, Paperclip, RotateCcw, Send, SlidersHorizontal, Square, Video, X } from 'lucide-react';
-import { useLocation } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -351,6 +351,7 @@ export function ChatComposer({
   const location = useLocation();
   const readOnly = PINNED_VERSION_PATHNAME_RE.test(location.pathname);
   const streamBelongsToThisChat = !!chatId && runtime?.chatId === chatId;
+  const isStreaming = streamBelongsToThisChat && streamState === 'streaming';
   const hydratedComposerKeyRef = useRef<string | null>(null);
   // Keep the last durable draft until the backend accepts the optimistic
   // submission. This lets the textarea clear immediately without losing text
@@ -361,7 +362,7 @@ export function ChatComposer({
     inputFiles: readonly File[],
     requestedType?: ChatFileAttachmentType,
   ) => {
-    if (!chatId || !composerStateKey || inputFiles.length === 0) return;
+    if (!chatId || !composerStateKey || inputFiles.length === 0 || isStreaming || readOnly || !historyReady) return;
     const capacity = Math.max(
       0,
       MAX_ATTACHMENTS_PER_TURN -
@@ -417,7 +418,7 @@ export function ChatComposer({
         setUploads((current) => current.filter((item) => item.id !== pending.id));
       }
     }
-  }, [activeUploads.length, chatId, composerStateKey, t, wfId]);
+  }, [activeUploads.length, chatId, composerStateKey, historyReady, isStreaming, readOnly, t, wfId]);
 
   const handleFileInput = useCallback((
     event: ChangeEvent<HTMLInputElement>,
@@ -526,13 +527,17 @@ export function ChatComposer({
   useEffect(() => {
     if (draft == null) return;
     if (draft.chatId !== chatId) return;
+    let active = true;
     queueMicrotask(() => {
-      setValue((prev) => (prev ? `${prev}\n\n${draft.text}` : draft.text));
+      // Strict Mode can replay the effect before this microtask runs. Also
+      // reject stale work if a different suggestion or conversation won.
+      if (!active || useChatStreamStore.getState().draft !== draft) return;
       consumeDraft();
+      setValue((prev) => (prev ? `${prev}\n\n${draft.text}` : draft.text));
     });
+    return () => { active = false; };
   }, [chatId, draft, consumeDraft, setValue]);
 
-  const isStreaming = streamBelongsToThisChat && streamState === 'streaming';
   const runtimeUnavailableReason = showModelSelector
     && runtimeCapabilitiesQuery.isFetched
     && (
@@ -675,10 +680,22 @@ export function ChatComposer({
       () => {
         accepted = true;
         optimisticSubmissionRef.current = false;
-        // The optimistic transition already removed the durable draft. Keep
-        // this idempotent cleanup at durable acceptance so retries and callers
-        // without an empty-chat shell follow the same storage lifecycle.
-        if (composerStorageKey) localStorage.removeItem(composerStorageKey);
+        // The user can already be drafting a follow-up while acceptance is
+        // pending. Persist that newer draft instead of deleting it.
+        if (composerStorageKey && composerStateKey) {
+          const current = useChatStreamStore.getState();
+          const nextText = current.composerInputs[composerStateKey] ?? '';
+          const nextAttachments = current.pendingAttachments[composerStateKey] ?? [];
+          try {
+            if (nextText || nextAttachments.length) {
+              localStorage.setItem(composerStorageKey, JSON.stringify({ text: nextText, attachments: nextAttachments }));
+            } else {
+              localStorage.removeItem(composerStorageKey);
+            }
+          } catch {
+            // The in-memory draft remains editable when storage is unavailable.
+          }
+        }
         void runtimeCapabilitiesQuery.refetch();
         useUIStore.getState().addOptimisticChatSession({
           scopeId: wfId,
@@ -693,7 +710,7 @@ export function ChatComposer({
       // A 409 race, pre-accept disconnect, or malformed success response must
       // never eat the user's text or attachments.
       optimisticSubmissionRef.current = false;
-      setValue(content);
+      setValue((current) => current ? `${content}\n\n${current}` : content);
       if (composerStateKey) {
         useChatStreamStore.getState().setAttachments(composerStateKey, attachments);
       }
@@ -855,7 +872,8 @@ export function ChatComposer({
   // Pick exactly one action button so Retry / Send / Stop never collide.
   // Order of precedence reflects user intent: a streaming turn must be
   // stoppable; a stopped/failed turn should be retryable; otherwise send.
-  const action = isStreaming ? 'stop' : canRetry ? 'retry' : 'send';
+  const hasNewDraft = value.trim().length > 0 || pendingAttachments.length > 0;
+  const action = isStreaming ? 'stop' : canRetry && !hasNewDraft ? 'retry' : 'send';
 
   const compactButtonClass = embedded ? 'h-8 w-8 rounded-full p-0' : undefined;
   const inputTypographyClass = embedded
@@ -1052,7 +1070,7 @@ export function ChatComposer({
                 : !historyReady
                   ? t('composer.loading_history', 'Loading conversation…')
                   : isStreaming
-                    ? t('composer.running_placeholder', 'Agent is thinking…')
+                    ? t('composer.running_draft_placeholder', 'The Agent is working. Draft your next message…')
                   : chatId
                     ? t(
                         'composer.placeholder',
@@ -1060,7 +1078,7 @@ export function ChatComposer({
                       )
                     : t('composer.select_chat', 'Select or start a chat')
             }
-            disabled={!chatId || isStreaming || readOnly || !historyReady || externallyDisabled}
+            disabled={!chatId || readOnly || !historyReady || externallyDisabled}
             aria-label={t('composer.input_label', 'Message the agent')}
             className={cn(
               'resize-none rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:!bg-transparent disabled:!opacity-100 read-only:!bg-transparent',
@@ -1085,6 +1103,7 @@ export function ChatComposer({
         <p
           className="text-xs text-muted-foreground"
           data-role="agent-composer-notice"
+          role="status"
         >
           {notice}
         </p>
@@ -1095,6 +1114,11 @@ export function ChatComposer({
           data-role="agent-composer-disabled-reason"
         >
           {effectiveDisabledReason}
+          {runtimeUnavailableReason && !disabledReason ? (
+            <Link to="/settings?tab=runtime" className="ml-2 font-medium text-focus underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {t('composer.connectRuntime', 'Connect an account or API')}
+            </Link>
+          ) : null}
         </p>
       )}
       <div className="rounded-lg">

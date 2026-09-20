@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply Skeinix's reviewable policy to a complete Grype JSON report.
+"""Apply Flowork's reviewable policy to a complete Grype JSON report.
 
 Grype still records every finding. The release gate blocks fixed High/Critical
 findings unless a narrow, dated exception applies. Unfixed findings remain in

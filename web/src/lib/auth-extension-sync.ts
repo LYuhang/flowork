@@ -56,5 +56,5 @@ export function initAuthExtensionSync(): void {
   // A side panel may open long after the boot-time one-time exchange code has
   // expired. Its content script asks the already-open main app to mint a fresh
   // code only after the embedded partition confirms it has no Session.
-  document.addEventListener('skeinix:extension-auth-refresh', push);
+  document.addEventListener('flowork:extension-auth-refresh', push);
 }

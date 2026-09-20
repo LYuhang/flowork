@@ -72,7 +72,7 @@ function assertSafeContainerName(value: string) {
 function dockerExec(container: string, script: string, args: string[] = []) {
   return spawnSync(
     'docker.exe',
-    ['exec', '-u', '0', container, 'sh', '-c', script, 'skeinix-e2e', ...args],
+    ['exec', '-u', '0', container, 'sh', '-c', script, 'flowork-e2e', ...args],
     {
       encoding: 'utf8',
       maxBuffer: 1024 * 1024,
@@ -110,7 +110,7 @@ function stageDockerCodexAccountIdentity(
   }
   const source = join(homedir(), '.codex', 'auth.json');
   if (!existsSync(source)) return null;
-  const temporary = `/tmp/skeinix-e2e-codex-auth-${randomUUID()}.json`;
+  const temporary = `/tmp/flowork-e2e-codex-auth-${randomUUID()}.json`;
   const copied = spawnSync(
     'docker.exe',
     ['cp', '--', source, `${container}:${temporary}`],
@@ -205,7 +205,7 @@ export async function provisionRealRuntime(
   if (runtime === 'codex' && settings.codex_auth_methods?.includes('chatgpt')) {
     const me = await session.api('/api/v1/auth/me')
       .then((response) => response.json()) as { tenant_id: string; user_id: string };
-    const dockerContainer = process.env.SKEINIX_E2E_DOCKER_ACCOUNT_CONTAINER;
+    const dockerContainer = process.env.FLOWORK_E2E_DOCKER_ACCOUNT_CONTAINER;
     const dockerRoot = dockerContainer
       ? dockerRuntimeVolumeRoot(dockerContainer)
       : null;

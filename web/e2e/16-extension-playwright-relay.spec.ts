@@ -1,5 +1,5 @@
 /**
- * Opt-in headed-Chromium gate for Skeinix's Playwright extension relay.
+ * Opt-in headed-Chromium gate for Flowork's Playwright extension relay.
  *
  * Run after `pnpm --dir extension build`:
  *   VIBECANVAS_EXTENSION_E2E=1 xvfb-run -a pnpm exec playwright test \
@@ -88,7 +88,7 @@ test.describe('real MV3 Playwright relay', () => {
     if (!address || typeof address === 'string') throw new Error('fixture server did not bind');
     baseUrl = `http://127.0.0.1:${address.port}`;
 
-    profileDir = await mkdtemp(resolve(tmpdir(), 'skeinix-playwright-relay-'));
+    profileDir = await mkdtemp(resolve(tmpdir(), 'flowork-playwright-relay-'));
     context = await chromium.launchPersistentContext(profileDir, {
       headless: false,
       args: [
@@ -130,7 +130,7 @@ test.describe('real MV3 Playwright relay', () => {
     test.setTimeout(60_000);
     await panel.evaluate(() => {
       const scope = globalThis as unknown as {
-        __skeinixSessionEvents?: Array<Record<string, unknown>>;
+        __floworkSessionEvents?: Array<Record<string, unknown>>;
         chrome: {
           runtime: {
             onMessage: {
@@ -139,10 +139,10 @@ test.describe('real MV3 Playwright relay', () => {
           };
         };
       };
-      scope.__skeinixSessionEvents = [];
+      scope.__floworkSessionEvents = [];
       scope.chrome.runtime.onMessage.addListener((message) => {
         if (message?.type === 'BROWSER_SESSION_CHANGED') {
-          scope.__skeinixSessionEvents?.push(message);
+          scope.__floworkSessionEvents?.push(message);
         }
       });
     });
@@ -151,8 +151,8 @@ test.describe('real MV3 Playwright relay', () => {
     });
     await expect.poll(async () => panel.evaluate(() => {
       const events = (globalThis as unknown as {
-        __skeinixSessionEvents?: Array<Record<string, unknown>>;
-      }).__skeinixSessionEvents ?? [];
+        __floworkSessionEvents?: Array<Record<string, unknown>>;
+      }).__floworkSessionEvents ?? [];
       return events.some((event) => event.status === 'attached');
     })).toBe(true);
     expect(await relay(panel, 'request', {

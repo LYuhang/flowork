@@ -24,7 +24,7 @@ export function VfsRunFileModal({ runId, path, onClose }: VfsRunFileModalProps) 
       storageKey="vibecanvas:workflow-run-file-preview-width:v1"
       onClose={onClose}
     >
-      <VfsFilePreviewContent data={q.data} loading={q.isLoading} error={q.isError} onRetry={() => void q.refetch()} />
+      <VfsFilePreviewContent data={q.data} runId={runId} loading={q.isLoading} error={q.isError} onRetry={() => void q.refetch()} />
     </AuxiliaryPane>
   );
 }

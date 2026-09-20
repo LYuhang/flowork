@@ -1,4 +1,4 @@
-# Skeinix self-hosted stack
+# Flowork self-hosted stack
 # Run:  ./scripts/deploy/local_server.sh up
 # Stop: ./scripts/deploy/local_server.sh down  (keeps persistent volumes)
 
@@ -80,18 +80,18 @@ services:
       - authorization_data
 
   # OpenFGA intentionally retains relationship changes after tuple deletion.
-  # Provision a separate role that can only execute Skeinix's identity-history
+  # Provision a separate role that can only execute Flowork's identity-history
   # erasure function; runtime workers never receive OpenFGA's owner password.
   openfga_erasure_bootstrap:
     image: postgres:17.11-trixie@sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449
-    command: ["/opt/skeinix/bootstrap_openfga_erasure.sh"]
+    command: ["/opt/flowork/bootstrap_openfga_erasure.sh"]
     environment:
       OPENFGA_ADMIN_DATABASE_URL: postgresql://openfga:${OPENFGA_POSTGRES_PASSWORD:-openfga-development-only}@openfga_postgres:5432/openfga?sslmode=disable
       OPENFGA_ERASURE_DATABASE_NAME: openfga
       OPENFGA_ERASURE_PASSWORD: ${OPENFGA_ERASURE_PASSWORD:-openfga-erasure-development-only}
     volumes:
-      - ./scripts/security/bootstrap_openfga_erasure.sh:/opt/skeinix/bootstrap_openfga_erasure.sh:ro
-      - ./scripts/security/openfga_erasure.sql:/opt/skeinix/openfga_erasure.sql:ro
+      - ./scripts/security/bootstrap_openfga_erasure.sh:/opt/flowork/bootstrap_openfga_erasure.sh:ro
+      - ./scripts/security/openfga_erasure.sql:/opt/flowork/openfga_erasure.sql:ro
     depends_on:
       openfga_migrate:
         condition: service_completed_successfully
@@ -358,7 +358,7 @@ services:
       OPENFGA_BOOTSTRAP_CONFIG_FILE: /run/vibecanvas-openfga/config.json
       PLATFORM_MCP_INTERNAL_BASE_URL: ${PLATFORM_MCP_INTERNAL_BASE_URL:-http://api:8000}
       VIBECANVAS_API_CORS_ORIGINS: ${VIBECANVAS_API_CORS_ORIGINS:-http://localhost,http://localhost:5173}
-      SKEINIX_CONTROL_PLANE_HTTP_PROXY: ${SKEINIX_CONTROL_PLANE_HTTP_PROXY:-}
+      FLOWORK_CONTROL_PLANE_HTTP_PROXY: ${FLOWORK_CONTROL_PLANE_HTTP_PROXY:-}
       WEB_SESSION_COOKIE_ENABLED: ${WEB_SESSION_COOKIE_ENABLED:-true}
       EXTENSION_SCOPED_TOKEN_ENABLED: ${EXTENSION_SCOPED_TOKEN_ENABLED:-true}
       DISTRIBUTED_AUTH_RATE_LIMIT_ENABLED: ${DISTRIBUTED_AUTH_RATE_LIMIT_ENABLED:-true}
@@ -454,7 +454,7 @@ services:
       OPENFGA_API_URL: http://openfga:8080
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-vibecanvas-openfga-development-only-key}
       OPENFGA_BOOTSTRAP_CONFIG_FILE: /run/vibecanvas-openfga/config.json
-      OPENFGA_ERASURE_DATABASE_URL: postgresql://skeinix_openfga_erasure:${OPENFGA_ERASURE_PASSWORD:-openfga-erasure-development-only}@openfga_postgres:5432/openfga?sslmode=disable
+      OPENFGA_ERASURE_DATABASE_URL: postgresql://flowork_openfga_erasure:${OPENFGA_ERASURE_PASSWORD:-openfga-erasure-development-only}@openfga_postgres:5432/openfga?sslmode=disable
       PLATFORM_MCP_INTERNAL_BASE_URL: ${PLATFORM_MCP_INTERNAL_BASE_URL:-http://api:8000}
       CELERY_QUEUES: interactive,deployments,kb_indexing,maintenance
       PURGE_WORKER_ENABLED: ${PURGE_WORKER_ENABLED:-true}

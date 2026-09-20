@@ -57,7 +57,7 @@ _CACHE_TTL_S = 300.0
 _MAX_FILES = 500
 _MAX_FILE_BYTES = 2 * 1024 * 1024
 _MAX_BUNDLE_BYTES = 20 * 1024 * 1024
-_USER_AGENT = "Skeinix/1.0 Skill catalog client"
+_USER_AGENT = "flowork/1.0 Skill catalog client"
 _REQUEST_TIMEOUT_S = 15.0
 _CATALOG_OPERATION_TIMEOUT_S = 22.0
 

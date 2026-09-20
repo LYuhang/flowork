@@ -402,7 +402,7 @@ async def _notify_customer_owners(
         if row.resource_type and row.resource_id
         else "organization metadata"
     )
-    subject = f"Skeinix privileged support {event}"
+    subject = f"Flowork privileged support {event}"
     body = (
         "A time-bounded privileged support session was "
         f"{event} for your organization.\n"

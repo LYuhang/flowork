@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Real-browser acceptance for the pinned Playwright MCP + Skeinix extension.
+"""Real-browser acceptance for the pinned Playwright MCP + Flowork extension.
 
 This verifier intentionally bypasses the application database and model. It
 launches a headed Chromium with the unpacked production extension, connects the
-exact pinned official MCP through Skeinix's PLAYWRIGHT_RELAY_FRAME boundary,
+exact pinned official MCP through Flowork's PLAYWRIGHT_RELAY_FRAME boundary,
 and calls the same MCP tools exposed to LangChain and Codex.
 
 Run after building the extension:
@@ -68,7 +68,7 @@ EXPECTED_TOOLS = {
 
 def _fixture_html() -> bytes:
     return b"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Skeinix Browser MCP Fixture</title>
+<html lang="en"><head><meta charset="utf-8"><title>Flowork Browser MCP Fixture</title>
 <style>body{font:16px system-ui;max-width:880px;margin:40px auto;padding:0 20px}button,input,select{margin:6px;padding:8px}iframe{width:100%;height:120px;border:1px solid #ccc}.box{display:inline-flex;align-items:center;justify-content:center;width:150px;height:64px;margin:8px;border:2px solid #6b7280;border-radius:8px}.drop{border-style:dashed}</style></head>
 <body><h1>PLAYWRIGHT_MCP_FIXTURE</h1>
 <label>Name <input id="name" aria-label="Name"></label>
@@ -257,7 +257,7 @@ async def _run() -> None:
     async with websockets.serve(relay_ws, "127.0.0.1", 0) as relay_server:
         relay_port = relay_server.sockets[0].getsockname()[1]
         relay_url = f"ws://127.0.0.1:{relay_port}"
-        profile = Path(tempfile.mkdtemp(prefix="skeinix-browser-mcp-real-"))
+        profile = Path(tempfile.mkdtemp(prefix="flowork-browser-mcp-real-"))
         context: BrowserContext | None = None
         try:
             async with async_playwright() as playwright:
@@ -318,12 +318,12 @@ async def _run() -> None:
                         return
 
                 await panel.expose_function(
-                    "__skeinixReceiveRelayFrame", receive_extension_frame
+                    "__floworkReceiveRelayFrame", receive_extension_frame
                 )
                 await panel.evaluate(
                     """() => chrome.runtime.onMessage.addListener(message => {
                       if (message?.type === 'WS_SEND' && typeof message.raw === 'string')
-                        globalThis.__skeinixReceiveRelayFrame(message.raw);
+                        globalThis.__floworkReceiveRelayFrame(message.raw);
                     })"""
                 )
                 tabs = await worker.evaluate(
@@ -348,8 +348,8 @@ async def _run() -> None:
                 env = dict(os.environ)
                 env.update(
                     {
-                        "SKEINIX_PLAYWRIGHT_CDP_ENDPOINT": relay_url,
-                        "SKEINIX_PLAYWRIGHT_CDP_BEARER": "acceptance-only",
+                        "FLOWORK_PLAYWRIGHT_CDP_ENDPOINT": relay_url,
+                        "FLOWORK_PLAYWRIGHT_CDP_BEARER": "acceptance-only",
                     }
                 )
                 params = StdioServerParameters(
@@ -397,7 +397,7 @@ async def _run() -> None:
                                         "target": _ref(snapshot, "Name"),
                                         "name": "Name",
                                         "type": "textbox",
-                                        "value": "Skeinix User",
+                                        "value": "Flowork User",
                                     },
                                     {
                                         "target": _ref(snapshot, "Mode"),

@@ -125,7 +125,7 @@ def sandbox_mcp_catalog() -> list[dict[str, object]]:
         ),
         "document": (
             DOCUMENT_MCP_TOOL_NAMES,
-            "Provided by the sandbox-contained Skeinix document reviewer.",
+            "Provided by the sandbox-contained Flowork document reviewer.",
         ),
     }
     return [

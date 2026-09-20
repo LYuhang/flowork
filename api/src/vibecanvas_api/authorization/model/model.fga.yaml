@@ -1,4 +1,4 @@
-name: Skeinix authorization model
+name: Flowork authorization model
 model_file: ./fga.mod
 tuples:
   # Organization roles are deliberately disjoint. In particular, guests are

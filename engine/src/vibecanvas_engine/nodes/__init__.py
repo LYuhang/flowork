@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-nodes package — all built-in node types for Skeinix.
+nodes package — all built-in node types for Flowork.
 
 Importing this package:
   1. Attaches the ``trigger`` execution dispatcher to ``BaseNode``.

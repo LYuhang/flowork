@@ -74,7 +74,7 @@ export const useCommitWorkflow = (wfId: string, targetMajor?: number | null) => 
       useWorkflowEditStore.getState().markSaved();
       qc.invalidateQueries({ queryKey: ['workflow', wfId] });
       qc.invalidateQueries({ queryKey: workflowVersionsQueryKey(wfId) });
-      toast.success('Saved');
+      toast.success(i18n.t('workflow.save.success', 'Saved'));
     },
     onError: (e) => {
       if (isAuthorizationChangedError(e)) {
@@ -87,7 +87,7 @@ export const useCommitWorkflow = (wfId: string, targetMajor?: number | null) => 
         );
         return;
       }
-      toast.error(`Save failed: ${errorMessage(e)}`);
+      toast.error(i18n.t('workflow.save.failed', 'Save failed: {{message}}', { message: errorMessage(e) }));
     },
   });
 };

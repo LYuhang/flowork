@@ -457,8 +457,8 @@ mcp = FastMCP("browser-launch-test")
 def browser_snapshot() -> dict[str, object]:
     return {
         "pid": os.getpid(),
-        "endpoint": os.environ.get("SKEINIX_PLAYWRIGHT_CDP_ENDPOINT"),
-        "has_bearer": bool(os.environ.get("SKEINIX_PLAYWRIGHT_CDP_BEARER")),
+        "endpoint": os.environ.get("FLOWORK_PLAYWRIGHT_CDP_ENDPOINT"),
+        "has_bearer": bool(os.environ.get("FLOWORK_PLAYWRIGHT_CDP_BEARER")),
     }
 
 mcp.run(transport="stdio")
@@ -485,10 +485,10 @@ mcp.run(transport="stdio")
         assert operation == "launch"
         return {
             "environment": {
-                "SKEINIX_PLAYWRIGHT_CDP_ENDPOINT": (
+                "FLOWORK_PLAYWRIGHT_CDP_ENDPOINT": (
                     "wss://browser-host.invalid/cdp"
                 ),
-                "SKEINIX_PLAYWRIGHT_CDP_BEARER": "turn-browser-capability",
+                "FLOWORK_PLAYWRIGHT_CDP_BEARER": "turn-browser-capability",
             }
         }
 
@@ -771,7 +771,7 @@ def test_host_projection_removes_authority_urls_headers_and_env() -> None:
     by_name = {server.name: server for server in desired.servers}
     assert by_name["diagram"].source == "builtin_local"
     assert by_name["document"].source == "builtin_local"
-    assert by_name["document"].connection.command == "skeinix-document-mcp"
+    assert by_name["document"].connection.command == "flowork-document-mcp"
     assert "browser" not in by_name
     assert by_name["github"].source == "custom_remote"
     assert by_name["github"].connection.broker_route == (

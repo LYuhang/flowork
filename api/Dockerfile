@@ -1,7 +1,7 @@
-# Skeinix API data plane and FastAPI service container.
+# Flowork API data plane and FastAPI service container.
 #
 # Build:
-#   cd /path/to/Skeinix
+#   cd /path/to/flowork
 #   docker build -f api/Dockerfile -t vibecanvas-api:dev .
 #
 # Run:
@@ -196,16 +196,16 @@ RUN pip install --no-cache-dir --no-deps --no-build-isolation .
 # dependency layers. Updating browser automation must not invalidate apt or pip
 # caches and force those dependencies to download again.
 COPY --from=playwright-assets /opt/playwright-mcp /opt/playwright-mcp
-RUN ln -s /opt/playwright-mcp/launch.cjs /usr/local/bin/skeinix-playwright-mcp && \
-    skeinix-playwright-mcp --version | grep -q "${PLAYWRIGHT_MCP_VERSION}"
+RUN ln -s /opt/playwright-mcp/launch.cjs /usr/local/bin/flowork-playwright-mcp && \
+    flowork-playwright-mcp --version | grep -q "${PLAYWRIGHT_MCP_VERSION}"
 
-# Diagram authoring is the pinned official draw.io MCP. Skeinix supplies only
+# Diagram authoring is the pinned official draw.io MCP. Flowork supplies only
 # sandbox activation and platform file/preview adapters around this runtime.
 COPY --from=drawio-assets /opt/drawio-mcp /opt/drawio-mcp
-COPY api/drawio-runtime/export.sh /usr/local/bin/skeinix-drawio-export
-RUN chmod 0755 /usr/local/bin/skeinix-drawio-export && \
-    ln -s /opt/drawio-mcp/launch.mjs /usr/local/bin/skeinix-diagram-mcp && \
-    test "$(skeinix-diagram-mcp --version)" = "1.5.0"
+COPY api/drawio-runtime/export.sh /usr/local/bin/flowork-drawio-export
+RUN chmod 0755 /usr/local/bin/flowork-drawio-export && \
+    ln -s /opt/drawio-mcp/launch.mjs /usr/local/bin/flowork-diagram-mcp && \
+    test "$(flowork-diagram-mcp --version)" = "1.5.0"
 
 # API/worker images do not need a package installer. The dedicated sandboxd
 # image opts into pip because it owns the narrow, wheel-only, content-addressed

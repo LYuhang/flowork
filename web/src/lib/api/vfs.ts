@@ -4,6 +4,7 @@
  * apiClient after a `codegen:api` run.
  */
 import { getApiBase } from '@/lib/base-path';
+import type { components } from '@/lib/api/schema';
 
 const BASE = getApiBase();
 
@@ -47,15 +48,9 @@ export interface VfsUploadOut {
   replaced: boolean;
 }
 
-export interface VfsReadOut {
-  path: string;
-  content_type: string;
-  content: string;
-  size_bytes: number;
-  truncated: boolean;
-  wf_version: string | null;
-  stale: boolean;
-}
+// Binary files return a descriptor with no inline text. Keep the nullable
+// contract from the generated schema instead of claiming content is a string.
+export type VfsReadOut = components['schemas']['VfsReadOut'];
 
 async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const { useAuthStore } = await import('@/stores/auth');

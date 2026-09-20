@@ -31,7 +31,7 @@ export function MobileAppHeader() {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const section = location.pathname.split('/').filter(Boolean)[0] ?? 'chat';
-  const label = SECTION_LABELS[section] ?? { key: 'ws_title', fallback: 'Skeinix' };
+  const label = SECTION_LABELS[section] ?? { key: 'ws_title', fallback: 'Flowork' };
 
   return (
     <>
@@ -63,7 +63,7 @@ export function MobileAppHeader() {
           <SheetHeader className="sr-only">
             <SheetTitle>{t('nav.primary', 'Navigation')}</SheetTitle>
             <SheetDescription>
-              {t('nav.mobileDescription', 'Navigate Skeinix and manage your workspace.')}
+              {t('nav.mobileDescription', 'Navigate Flowork and manage your workspace.')}
             </SheetDescription>
           </SheetHeader>
           <AppSidebar mobile onNavigate={() => setOpen(false)} />

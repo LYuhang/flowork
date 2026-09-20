@@ -1,6 +1,6 @@
 # Security Policy
 
-Skeinix treats authentication, tenant isolation, sandbox execution, secrets,
+Flowork treats authentication, tenant isolation, sandbox execution, secrets,
 and user data as security boundaries. This policy explains which versions
 receive fixes, how to report a suspected vulnerability privately, and what to
 expect during coordinated disclosure.
@@ -8,11 +8,11 @@ expect during coordinated disclosure.
 For the implemented protection model and account-erasure behavior, see
 [Security and Data Lifecycle](docs/security-and-data-lifecycle.md). Operators
 should also review the [Production Deployment Guide](DEPLOY.md) before placing
-Skeinix in a security-sensitive environment.
+Flowork in a security-sensitive environment.
 
 ## Supported versions
 
-Skeinix is alpha software and does not yet maintain multiple supported release
+Flowork is alpha software and does not yet maintain multiple supported release
 lines.
 
 | Version | Security support |
@@ -66,7 +66,7 @@ report:
 - availability or performance problems without a security impact;
 - reports that only expose documented local-development defaults after those
   defaults have been intentionally published to an untrusted network;
-- automated scanner output without a vulnerable Skeinix execution path or
+- automated scanner output without a vulnerable Flowork execution path or
   affected configuration; and
 - vulnerabilities that exist only in an independently modified fork.
 

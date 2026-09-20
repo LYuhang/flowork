@@ -882,7 +882,7 @@ export function TaskDetailPage() {
               <div className="min-w-0">
                 <dt className="text-xs text-content-tertiary">{t("taskDetail.output", "Output")}</dt>
                 <dd className="mt-1 truncate font-medium" title={batchSetup.outputPath ?? undefined}>
-                  {batchSetup.outputPath ?? t("taskDetail.outputManaged", "Managed by Skeinix")}
+                  {batchSetup.outputPath ?? t("taskDetail.outputManaged", "Managed by Flowork")}
                 </dd>
               </div>
             </dl>

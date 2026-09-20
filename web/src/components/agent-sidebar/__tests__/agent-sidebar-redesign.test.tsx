@@ -268,11 +268,40 @@ describe('ChatMessageList', () => {
 
     const phase = await screen.findByText(/Connecting to model/);
     expect(phase).toHaveAttribute('data-role', 'agent-startup-phase');
+    expect(phase).toHaveClass('leading-5', 'py-0.5');
+    expect(phase).not.toHaveClass('leading-none');
+    expect(phase).not.toHaveClass('truncate');
     expect(phase).not.toHaveTextContent(/…|\.\.\./);
     expect(
       screen.getByLabelText(/agent is thinking/i)
         .querySelector('[data-role="agent-thinking-dots"]'),
     ).not.toBeNull();
+  });
+
+  it.each([false, true])('renders progress without a bubble (compact=%s)', async (compact) => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    useChatStreamStore.getState().beginTurn('c1', 'turn-1');
+    useChatStreamStore.getState().setStartupProgress({
+      phase: 'running_tool',
+      label: 'generating_jpg_preview_gjpyq',
+      startedAt: new Date().toISOString(),
+      firstTurn: false,
+      runtimeType: 'codex',
+    }, 'c1');
+    render(<ChatMessageList wfId="wf" activeChatId="c1" compact={compact} />);
+
+    const phase = await screen.findByText(/generating_jpg_preview_gjpyq/);
+    expect(phase).toHaveClass('whitespace-normal', 'break-words', 'leading-5');
+    expect(phase).not.toHaveClass('truncate', 'overflow-hidden', 'leading-none');
+    const rail = phase.closest('[data-message-content-rail="assistant"]');
+    expect(rail).toHaveClass('min-w-0', 'max-w-full');
+    expect(rail?.className).not.toMatch(/(?:^|\s)(?:rounded|border|bg-|overflow-hidden)/);
+    expect(screen.getByRole('status', { name: /agent is thinking/i })).toHaveAttribute('aria-live', 'polite');
+
+    act(() => useChatStreamStore.getState().setStartupPhase('finalizing', 'c1'));
+    expect(await screen.findByText(/Preparing response/)).toBeInTheDocument();
+    act(() => useChatStreamStore.getState().setState('complete', 'c1'));
+    expect(screen.queryByRole('status', { name: /agent is thinking/i })).toBeNull();
   });
 
   it('projects assistant deltas into the mounted transcript as they arrive', async () => {

@@ -1,6 +1,6 @@
 # Installation
 
-Skeinix supports two local installation methods. Docker Compose is recommended
+Flowork supports two local installation methods. Docker Compose is recommended
 for evaluation and self-hosted use. The native Linux setup is intended for
 contributors who need to work directly with the source code.
 
@@ -43,7 +43,7 @@ sandbox snapshots. A GPU is not required.
 
 The preflight checks the Docker allocation and available repository filesystem
 space before a build starts. A deliberately undersized test installation can
-set `SKEINIX_ALLOW_UNSUPPORTED_RESOURCES=true` for that invocation, but such a
+set `FLOWORK_ALLOW_UNSUPPORTED_RESOURCES=true` for that invocation, but such a
 deployment is outside the supported configuration and may fail when an Agent,
 LibreOffice, or diagram renderer runs. The host must also support privileged
 Linux containers and the gVisor startup probe; compatibility is verified
@@ -58,12 +58,12 @@ On a fresh Ubuntu host, install Docker Engine and Compose from Docker's official
 APT repository. Follow the current [Docker Engine installation guide](https://docs.docker.com/engine/install/ubuntu/),
 including its repository-signing and package-installation steps. Ensure the
 login user can run `docker info` and `docker compose version` without `sudo`
-before starting Skeinix; after adding the user to the `docker` group, sign out
+before starting Flowork; after adding the user to the `docker` group, sign out
 and start a new SSH session so the membership takes effect.
 
 For Ubuntu 24.04 (Noble) on amd64, the repository also provides
 [`install_docker_ubuntu.sh`](../scripts/install_docker_ubuntu.sh). After cloning
-Skeinix, run the script as the normal login user; it configures Docker's signed
+Flowork, run the script as the normal login user; it configures Docker's signed
 APT repository, installs Engine, Buildx, and Compose, and verifies a rootful
 daemon. Start a new login session before continuing with the commands below.
 
@@ -77,8 +77,8 @@ leave a build process running.
 Clone the repository and start the stack:
 
 ```bash
-git clone https://github.com/LYuhang/Skeinix.git
-cd Skeinix
+git clone https://github.com/LYuhang/flowork.git
+cd flowork
 ./scripts/deploy/local_server.sh up
 ```
 
@@ -145,7 +145,7 @@ distribution: the two daemons use different sockets, images, and volumes.
 
 It is normal for `systemctl is-active docker` to report an inactive service in
 this configuration. `docker info` must still succeed from the shell where
-Skeinix is started. The startup probe determines whether the Docker Desktop
+Flowork is started. The startup probe determines whether the Docker Desktop
 kernel supports the required gVisor mode.
 
 ## Native Linux or WSL
@@ -159,8 +159,8 @@ installs operating-system packages; do not run the entire script as root.
 Clone the repository, then run the bootstrap:
 
 ```bash
-git clone https://github.com/LYuhang/Skeinix.git
-cd Skeinix
+git clone https://github.com/LYuhang/flowork.git
+cd flowork
 ./scripts/bootstrap_native_linux.sh
 ```
 
@@ -173,7 +173,7 @@ are displayed by the browser workbook renderer. Poppler renders PDF pages. The
 draw.io CLI and its disposable Xvfb display produce the image feedback used to
 review native diagrams. The
 installer verifies these runtime commands before creating the local
-configuration and starting Skeinix.
+configuration and starting Flowork.
 
 To prepare the environment without starting services:
 
@@ -188,7 +188,7 @@ Start the prepared installation later with:
 ```
 
 If dependencies are installed manually instead of through the bootstrap, add
-the server-oriented office packages before starting Skeinix:
+the server-oriented office packages before starting Flowork:
 
 ```bash
 sudo apt-get update
@@ -202,7 +202,7 @@ sudo apt-get install -y \
 
 These are non-GUI packages; a desktop LibreOffice installation is not
 required. Native Diagram feedback additionally requires the pinned draw.io
-Desktop package and `skeinix-drawio-export` wrapper installed by
+Desktop package and `flowork-drawio-export` wrapper installed by
 [`bootstrap_native_linux.sh`](../scripts/bootstrap_native_linux.sh). For a
 manual installation, follow that script's architecture selection, SHA-256
 verification, package-metadata checks, and wrapper installation rather than
@@ -214,7 +214,7 @@ available:
 ```bash
 libreoffice --version  # `soffice --version` is also accepted
 pdftoppm -v
-command -v drawio skeinix-drawio-export
+command -v drawio flowork-drawio-export
 ```
 
 The implementation is available in
@@ -276,27 +276,27 @@ OpenRouter uses `VIBECANVAS_PUBLIC_URL` as its fixed OAuth callback origin, so
 that value must match the address users open in the browser. A connected
 OpenRouter account supplies its compatible text and tool-calling models to both
 enabled Runtimes: LangChain uses its OpenAI-compatible transport, while Codex
-uses the Responses API through Skeinix's host-side model broker. The catalog can
+uses the Responses API through Flowork's host-side model broker. The catalog can
 be refreshed from Settings without changing existing Chat history. Model
 catalog visibility does not imply invocation entitlement: account credits,
 free-model daily quotas, and provider availability are enforced by OpenRouter
 when a Turn runs. See OpenRouter's [rate-limit FAQ](https://openrouter.ai/docs/faq).
 Direct outbound access is the default; deployments that require an HTTP(S)
 proxy for host-side provider traffic can set
-`SKEINIX_CONTROL_PLANE_HTTP_PROXY`. Leave it
-empty on ordinary servers—Skeinix never infers this value from a developer's
+`FLOWORK_CONTROL_PLANE_HTTP_PROXY`. Leave it
+empty on ordinary servers—Flowork never infers this value from a developer's
 desktop `HTTP_PROXY` environment.
 
 ### Install the Browser Extension
 
 Each deployment builds an extension package for its configured public URL. In
-Skeinix, open **Settings → Extensions → Download extension**, then:
+Flowork, open **Settings → Extensions → Download extension**, then:
 
 1. extract the ZIP to a permanent folder;
 2. open `chrome://extensions`;
 3. enable **Developer mode**;
 4. choose **Load unpacked** and select the extracted folder; and
-5. pin Skeinix and open its side panel.
+5. pin Flowork and open its side panel.
 
 If the deployment URL changes, rebuild or restart the deployment and download
 the extension again. The allowed Web origin is compiled into the extension
@@ -313,7 +313,7 @@ following runtime settings are occasionally changed independently:
 | `OBJECT_STORE_PROVIDER` | `filesystem` | Local file-backed object storage; production deployments normally use `s3` |
 | `SANDBOX_EGRESS_MODE` | `proxy` | Routes sandbox HTTP(S) and WebSocket traffic through the controlled egress proxy |
 | `SANDBOX_EGRESS_POLICY` | `public` | Controls whether sandboxes may reach public destinations, an allowlist, or platform services only |
-| `SKEINIX_CONTROL_PLANE_HTTP_PROXY` | (empty string) | Optional HTTP(S) proxy for host-side provider OAuth, catalogs, and metadata; unrelated to sandbox egress |
+| `FLOWORK_CONTROL_PLANE_HTTP_PROXY` | (empty string) | Optional HTTP(S) proxy for host-side provider OAuth, catalogs, and metadata; unrelated to sandbox egress |
 | `MOUNT_PATH` | (empty string) | Optional trusted host directory exposed through each user's isolated `/mount` path |
 
 Keep `VIBECANVAS_INTERNAL_BIND_ADDRESS` at its `127.0.0.1` default. It protects
@@ -333,7 +333,7 @@ For the design behind the sandbox modes and network controls, see
 
 ## Updating a source installation
 
-Skeinix is currently in alpha. Review release notes and back up PostgreSQL,
+Flowork is currently in alpha. Review release notes and back up PostgreSQL,
 object storage, and the environment secret file before updating.
 
 For Docker Compose:

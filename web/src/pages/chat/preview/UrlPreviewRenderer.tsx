@@ -59,7 +59,7 @@ export function UrlPreviewRenderer({
     'allow-scripts',
     // A framed site may request access to its own unpartitioned cookies after
     // an explicit user gesture. The browser remains the policy authority and
-    // no Skeinix credentials are exposed to the frame.
+    // no Flowork credentials are exposed to the frame.
     'allow-storage-access-by-user-activation',
     // External sites need their own origin for storage, cookies, and module
     // loading. A same-platform target stays opaque so it cannot obtain parent
@@ -168,7 +168,7 @@ export function UrlPreviewRenderer({
               sandbox={sandbox}
               // Some legitimate embeds (notably YouTube) require a Referer to
               // identify the embedding application. Cross-origin requests only
-              // receive the Skeinix origin; paths, query parameters, auth
+              // receive the Flowork origin; paths, query parameters, auth
               // headers, and application state are never forwarded.
               referrerPolicy="strict-origin-when-cross-origin"
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
@@ -183,7 +183,7 @@ export function UrlPreviewRenderer({
         <span>
           {t(
             'preview.url.isolation',
-            'This page is isolated from Skeinix. If the site blocks embedding,',
+            'This page is isolated from Flowork. If the site blocks embedding,',
           )}
         </span>
         {activeUrl ? (

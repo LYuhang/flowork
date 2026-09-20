@@ -37,4 +37,16 @@ describe('renderVfsContent', () => {
     render(renderVfsContent({ ...base, content_type: 'TABLE/JSONL', content: '{"a":1}' }));
     expect(screen.getByRole('table')).toBeInTheDocument();
   });
+
+  it.each(['image/png', 'application/octet-stream', 'table/jsonl', 'text/x-uri'])('handles absent inline content for %s', (content_type) => {
+    render(renderVfsContent({ ...base, path: '/mount/file', content_type, content: null, size_bytes: 101935 }));
+    expect(screen.getByText('This file has no text preview.')).toBeInTheDocument();
+  });
+
+  it('handles omitted content and keeps empty text files valid', () => {
+    const { rerender } = render(renderVfsContent({ ...base, content: undefined }));
+    expect(screen.getByText('This file has no text preview.')).toBeInTheDocument();
+    rerender(renderVfsContent({ ...base, path: '/mount/empty.txt', content_type: 'text/plain', content: '' }));
+    expect(screen.queryByText('This file has no text preview.')).toBeNull();
+  });
 });

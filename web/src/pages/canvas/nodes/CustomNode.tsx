@@ -43,6 +43,7 @@ import {
   NODE_LABELS,
 } from '@/pages/canvas/nodes/NODE_TYPES';
 import { NodeHoverCard } from '@/pages/canvas/nodes/NodeHoverCard';
+import { NodeOutputPreview } from '@/pages/canvas/nodes/NodeOutputPreview';
 import { useExecStreamStore } from '@/stores/exec-stream';
 import { useUIStore } from '@/stores/ui';
 
@@ -197,6 +198,7 @@ function CustomNodeImpl({ data, selected, id }: NodeProps) {
   const resolvedWarnings = warnings.map((w) => t(w));
 
   return (
+    <div className="w-56">
     <NodeHoverCard
       title={title}
       typeLabel={label}
@@ -207,13 +209,13 @@ function CustomNodeImpl({ data, selected, id }: NodeProps) {
       warnings={resolvedWarnings}
       inputCount={inputCount}
       outputCount={outputCount}
-      suppressed={suppressed}
+      suppressed={suppressed || nodeType === 'TemplateNode'}
     >
       <div
         aria-label={`${nodeType} ${payload.node_name ?? ''}`.trim()}
         data-exec-state={execState ?? undefined}
         className={cn(
-          'group w-56 overflow-hidden rounded-md border border-edge-structural bg-surface-raised text-content-primary transition-colors duration-feedback',
+          'group relative w-56 overflow-hidden rounded-md border border-edge-structural bg-surface-raised text-content-primary transition-colors duration-feedback',
           // Execution ring wins visually over the selection ring while a run is
           // live/terminal; selection ring applies only when idle (no exec state).
           execState
@@ -363,6 +365,12 @@ function CustomNodeImpl({ data, selected, id }: NodeProps) {
         )}
       </div>
     </NodeHoverCard>
+      <NodeOutputPreview
+        nodeId={id}
+        nodeType={nodeType}
+        format={typeof payload.node_config?.output_format === 'string' ? payload.node_config.output_format : undefined}
+      />
+    </div>
   );
 }
 

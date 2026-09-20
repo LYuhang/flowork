@@ -25,7 +25,7 @@ _NODE_CATALOG_MARKER = "Node catalog"
 def test_base_prompt_is_lean_no_node_definitions():
     p = _build_system_prompt("chat", active_modes=set())
     assert _NODE_CATALOG_MARKER not in p
-    assert "Skeinix assistant" in p
+    assert "Flowork assistant" in p
     assert "/workflow" in p
     assert "/browser" not in p
     # BUILD identity NOT present in Base
@@ -103,7 +103,7 @@ def test_build_prompt_warns_against_shared_end_node_for_branches():
 def test_build_prompt_still_has_lean_base_identity():
     # /workflow is additive on top of the lean base, not a replacement.
     p = _build_system_prompt("chat", active_modes={"workflow"})
-    assert "Skeinix assistant" in p
+    assert "Flowork assistant" in p
 
 
 # ── tool split ────────────────────────────────────────────────────────────

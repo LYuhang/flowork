@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Thin Skeinix adapter around the official @drawio/mcp server.
+ * Thin Flowork adapter around the official @drawio/mcp server.
  *
  * Upstream tools are proxied without changing their names, schemas, or
- * results. Skeinix adds only an atomic /data file boundary and a lightweight
+ * results. Flowork adds only an atomic /data file boundary and a lightweight
  * validation entry point so draw.io XML participates in the ordinary
  * Sandbox <-> VFS lifecycle.
  */
@@ -36,8 +36,8 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
   process.stdout.write(
-    `skeinix-diagram-mcp ${VERSION}\n\n` +
-    'Official draw.io MCP with the Skeinix sandbox file adapter.\n',
+    `flowork-diagram-mcp ${VERSION}\n\n` +
+    'Official draw.io MCP with the Flowork sandbox file adapter.\n',
   );
   process.exit(0);
 }
@@ -60,7 +60,7 @@ const SAVE_TOOL = {
   name: 'save_drawio_file',
   description:
     'Atomically save native draw.io XML below /data/diagrams. This is a thin ' +
-    'Skeinix file adapter around the official draw.io format. Optionally run ' +
+    'Flowork file adapter around the official draw.io format. Optionally run ' +
     'the official vendored Libavoid pass before saving. After success, render ' +
     'the returned source revision with the provided official draw.io CLI argv, ' +
     'inspect its PNG with the Runtime image-view capability, then publish the ' +
@@ -143,7 +143,7 @@ function physicalPath(publicPath) {
   if (!/^\/data\/diagrams\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}\.drawio$/.test(publicPath)) {
     throw new Error('path must be a safe .drawio file below /data/diagrams');
   }
-  const dataRoot = resolve(process.env.SKEINIX_SANDBOX_DATA_ROOT || '/data');
+  const dataRoot = resolve(process.env.FLOWORK_SANDBOX_DATA_ROOT || '/data');
   const candidate = resolve(dataRoot, publicPath.slice('/data/'.length));
   const allowed = resolve(dataRoot, 'diagrams');
   if (!candidate.startsWith(`${allowed}/`)) throw new Error('path escapes /data/diagrams');
@@ -160,7 +160,7 @@ function physicalFeedbackPath(publicPath) {
   if (!/^\/memory\/diagram-feedback\/[a-f0-9]{20}-[a-f0-9]{20}\.png$/.test(publicPath)) {
     throw new Error('feedback path must be a source-bound PNG below /memory');
   }
-  const memoryRoot = resolve(process.env.SKEINIX_SANDBOX_MEMORY_ROOT || '/memory');
+  const memoryRoot = resolve(process.env.FLOWORK_SANDBOX_MEMORY_ROOT || '/memory');
   const candidate = resolve(memoryRoot, publicPath.slice('/memory/'.length));
   if (!candidate.startsWith(`${memoryRoot}/`)) throw new Error('feedback path escapes /memory');
   return candidate;
@@ -208,15 +208,15 @@ const upstreamTransport = new StdioClientTransport({
   },
   stderr: 'inherit',
 });
-const upstream = new Client({ name: 'skeinix-drawio-adapter', version: VERSION });
+const upstream = new Client({ name: 'flowork-drawio-adapter', version: VERSION });
 await upstream.connect(upstreamTransport);
 const upstreamTools = (await upstream.listTools()).tools;
 const upstreamNames = new Set(upstreamTools.map((tool) => tool.name));
 
 const server = new Server(
-  { name: 'skeinix-drawio', version: VERSION },
+  { name: 'flowork-drawio', version: VERSION },
   { capabilities: { tools: {} }, instructions:
-      'Official draw.io MCP with ordinary /data file persistence for Skeinix.' },
+      'Official draw.io MCP with ordinary /data file persistence for Flowork.' },
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -250,7 +250,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const renderedPath = feedbackPath(path, contentHash);
       await mkdir(dirname(physicalFeedbackPath(renderedPath)), { recursive: true });
       const renderArgv = [
-        '/usr/local/bin/skeinix-drawio-export',
+        '/usr/local/bin/flowork-drawio-export',
         '-x',
         '-f',
         'png',

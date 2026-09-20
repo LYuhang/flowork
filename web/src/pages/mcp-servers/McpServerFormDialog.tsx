@@ -293,7 +293,7 @@ export function McpServerFormDialog({
 
           <SectionBlock
             title={t('mcp.form.connection', 'Connection')}
-            description={t('mcp.form.connectionHelp', 'Choose how Skeinix reaches this server and provide its address or command.')}
+            description={t('mcp.form.connectionHelp', 'Choose how Flowork reaches this server and provide its address or command.')}
             contentClassName="space-y-4"
           >
           <div className="flex flex-col gap-1">

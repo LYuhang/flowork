@@ -52,7 +52,7 @@ def _builtin_server(name: str) -> McpDesiredServer:
             required=True,
             activation="command",
             connection=McpStdioLaunch(
-                command="skeinix-diagram-mcp",
+                command="flowork-diagram-mcp",
                 args=[],
                 cwd="/data",
                 environmentProfile="diagram-local",
@@ -68,7 +68,7 @@ def _builtin_server(name: str) -> McpDesiredServer:
             required=True,
             activation="command",
             connection=McpStdioLaunch(
-                command="skeinix-document-mcp",
+                command="flowork-document-mcp",
                 args=[],
                 cwd="/data",
                 environmentProfile="document-local",
@@ -84,7 +84,7 @@ def _builtin_server(name: str) -> McpDesiredServer:
             required=True,
             activation="command",
             connection=McpStdioLaunch(
-                command="skeinix-playwright-mcp",
+                command="flowork-playwright-mcp",
                 args=[
                     "--codegen",
                     "none",

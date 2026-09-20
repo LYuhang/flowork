@@ -38,7 +38,7 @@ from vibecanvas_api.storage.models_enterprise_identity import (
 
 _CLAIM_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,127}$")
 _TRANSACTION_TTL = timedelta(minutes=5)
-_USER_AGENT = "Skeinix/1.0 enterprise OIDC"
+_USER_AGENT = "flowork/1.0 enterprise OIDC"
 _MAX_METADATA_BYTES = 256 * 1024
 _MAX_TOKEN_BYTES = 128 * 1024
 _MAX_CLOCK_SKEW_SECONDS = 60

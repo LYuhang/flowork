@@ -55,14 +55,14 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     assert 'test "$(npm --version)" = "${NPM_VERSION}"' in text
     assert '"@openai/codex@${CODEX_CLI_VERSION}"' in text
     assert "api/playwright-runtime/package-lock.json" in text
-    assert "skeinix-playwright-mcp --version" in text
+    assert "flowork-playwright-mcp --version" in text
     assert "--ignore-scripts" in text
     assert 'test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}"' in text
     assert "api/drawio-runtime/package-lock.json" in text
     assert "npm ci --prefix /opt/drawio-mcp" in text
     assert "COPY --from=node-runtime-base /usr/local/bin/node" in text
     assert "COPY --from=playwright-assets /opt/playwright-mcp" in text
-    assert "skeinix-diagram-mcp --version" in text
+    assert "flowork-diagram-mcp --version" in text
     assert 'node_modules/@drawio/mcp/package.json' in text
     assert "github.com/jgraph/drawio-desktop/releases/download" in text
     assert 'dpkg-deb -f' in text
@@ -70,8 +70,8 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     assert "xvfb=" in text
     assert "xauth=" in text
     assert "ln -s /opt/drawio/drawio /usr/local/bin/drawio" in text
-    assert "COPY api/drawio-runtime/export.sh /usr/local/bin/skeinix-drawio-export" in text
-    assert "chmod 0755 /usr/local/bin/skeinix-drawio-export" in text
+    assert "COPY api/drawio-runtime/export.sh /usr/local/bin/flowork-drawio-export" in text
+    assert "chmod 0755 /usr/local/bin/flowork-drawio-export" in text
     assert "ARG RUNSC_RELEASE=20260601.0" in text
     assert "sha512sum -c -" in text
     assert "fonts-dejavu-core=2.37-8" in text
@@ -89,7 +89,7 @@ def test_drawio_export_wrapper_allocates_and_reaps_desktop_processes():
     text = DRAWIO_EXPORT_PATH.read_text()
 
     assert "Xvfb -displayfd 3" in text
-    assert "SKEINIX_DRAWIO_EXPORT_TIMEOUT_SECONDS" in text
+    assert "FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS" in text
     assert "timeout --signal=TERM --kill-after=5s" in text
     assert 'trap cleanup EXIT HUP INT TERM' in text
 
@@ -106,7 +106,7 @@ def test_native_bootstrap_installs_verified_diagram_feedback_runtime():
     assert "dpkg-deb -f" in text
     assert '[[ "$(dpkg-deb -f "$drawio_deb" Package)" == "draw.io" ]]' in text
     assert 'sudo install -m 0755' in text
-    assert "/usr/local/bin/skeinix-drawio-export" in text
+    assert "/usr/local/bin/flowork-drawio-export" in text
 
 
 def test_dockerfile_copies_pyproject_and_src():

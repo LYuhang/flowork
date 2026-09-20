@@ -9,7 +9,7 @@ attached to BaseNode at import time via ``nodes/__init__.py``.
 
 class BaseNode:
     """
-    Base class definition for all node types in Skeinix.
+    Base class definition for all node types in Flowork.
     A general node dictionary schema is defined in `GENERAL_NODE_SCHEMA`, which can be used for node initialization, validation, and rendering in the frontend. Please ensure to follow this schema when initializing any node.
     In addition, each specific node type can also define its own more detailed schema (especially for `node_config`) based on the general schema, you are also required to follow the specific schema when initializing a specific node.
     """

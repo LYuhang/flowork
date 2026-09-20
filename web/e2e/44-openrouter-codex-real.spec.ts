@@ -16,8 +16,8 @@ import {
 const API_BASE = process.env.VIBECANVAS_API_BASE ?? 'http://localhost:8000';
 const APP_ORIGIN = process.env.VIBECANVAS_E2E_ORIGIN
   ?? `http://${process.env.VIBECANVAS_E2E_HOST ?? 'localhost'}:${process.env.VIBECANVAS_WEB_PORT ?? '9001'}`;
-const SESSION_FILE = process.env.SKEINIX_E2E_EXISTING_SESSION_FILE;
-const RECOVERY_CHAT_ID = process.env.SKEINIX_E2E_HISTORY_RECOVERY_CHAT_ID;
+const SESSION_FILE = process.env.FLOWORK_E2E_EXISTING_SESSION_FILE;
+const RECOVERY_CHAT_ID = process.env.FLOWORK_E2E_HISTORY_RECOVERY_CHAT_ID;
 const MESSAGE_PATH = /\/api\/v1\/chat-scopes\/([^/]+)\/chats\/([^/]+)\/messages$/;
 const EXTENSION_PATH = fileURLToPath(new URL('../../extension/dist/', import.meta.url));
 const EXTENSION_ID = 'mkfldhmlgdbpmhplaphhcfcdcoaakcik';
@@ -31,7 +31,7 @@ interface ExistingSession {
 }
 
 function sessionMaterial(): ExistingSession {
-  if (!SESSION_FILE) throw new Error('SKEINIX_E2E_EXISTING_SESSION_FILE is required');
+  if (!SESSION_FILE) throw new Error('FLOWORK_E2E_EXISTING_SESSION_FILE is required');
   const material = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8')) as ExistingSession;
   for (const field of ['session', 'csrf', 'session_id', 'user_id', 'organization_id'] as const) {
     if (!material[field]) throw new Error(`existing Session is missing ${field}`);
@@ -342,7 +342,7 @@ test.describe('OpenRouter OAuth model through Codex', () => {
   test('reconstructs an existing Chat when its native Runtime history is incomplete', async ({ page }) => {
     test.skip(
       !RECOVERY_CHAT_ID,
-      'set SKEINIX_E2E_HISTORY_RECOVERY_CHAT_ID to an explicitly authorized recovery fixture',
+      'set FLOWORK_E2E_HISTORY_RECOVERY_CHAT_ID to an explicitly authorized recovery fixture',
     );
     if (!session || !RECOVERY_CHAT_ID) return;
     const bootstrap = await api(
@@ -433,7 +433,7 @@ test.describe('OpenRouter OAuth model through Codex', () => {
       carrier_scope_id: string;
     }).carrier_scope_id);
 
-    const profileDir = await mkdtemp(`${tmpdir()}/skeinix-openrouter-sidepanel-`);
+    const profileDir = await mkdtemp(`${tmpdir()}/flowork-openrouter-sidepanel-`);
     const context = await chromium.launchPersistentContext(profileDir, {
       headless: false,
       viewport: { width: 430, height: 900 },
@@ -459,7 +459,7 @@ test.describe('OpenRouter OAuth model through Codex', () => {
         }).chrome?.runtime?.sendMessage === 'function'
       ))).toBe(true);
       await app.evaluate(() => {
-        document.dispatchEvent(new CustomEvent('skeinix:extension-auth-refresh'));
+        document.dispatchEvent(new CustomEvent('flowork:extension-auth-refresh'));
       });
       await app.waitForTimeout(750);
 

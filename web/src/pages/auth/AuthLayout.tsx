@@ -66,7 +66,7 @@ export function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
   const activeLocale: Locale = (i18n.resolvedLanguage ?? i18n.language)
     .startsWith('zh') ? 'zh' : 'en';
   useEffect(() => {
-    document.title = `${title} · Skeinix`;
+    document.title = `${title} · Flowork`;
   }, [title]);
 
   return (
@@ -108,7 +108,7 @@ export function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
               />
             </span>
             <span className="text-[2.25rem] font-semibold leading-10 tracking-[-0.035em]">
-              {t('ws_title', 'Skeinix')}
+              {t('ws_title', 'Flowork')}
             </span>
           </div>
 
@@ -171,7 +171,7 @@ export function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
                 />
               </span>
               <span className="text-[1.75rem] font-semibold leading-8 tracking-[-0.025em]">
-                {t('ws_title', 'Skeinix')}
+                {t('ws_title', 'Flowork')}
               </span>
             </div>
 

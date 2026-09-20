@@ -66,14 +66,14 @@ const SHELL_COPY = {
     auth: ["需要登录", "请在对话面板中登录后继续"],
     unavailable: ["暂时无法打开对话", "请检查应用服务后重试"],
     retry: "重试",
-    frameTitle: "Skeinix 对话",
+    frameTitle: "Flowork 对话",
   },
   en: {
     loading: ["Connecting…", "Opening browser chat"],
     auth: ["Sign in required", "Sign in in the chat panel to continue"],
     unavailable: ["Chat is unavailable", "Check the app service and try again"],
     retry: "Retry",
-    frameTitle: "Skeinix chat",
+    frameTitle: "Flowork chat",
   },
 } as const;
 

@@ -22,7 +22,8 @@
     --surface-app: 95.8% 0.012 255;
     --surface-nav: 97.3% 0.012 255;
     --surface-work: 99% 0.004 255;
-    --surface-canvas: 95.8% 0.012 255;
+    --surface-canvas: 100% 0 0;
+    --canvas-grid: 86% 0 0;
     --surface-view: 100% 0 0;
     --surface-sandbox: 97.3% 0.01 255;
     --surface-sunken: 96.7% 0.01 255;
@@ -123,7 +124,8 @@
     --surface-app: 17% 0.01 255;
     --surface-nav: 19.5% 0.01 255;
     --surface-work: 21.5% 0.008 255;
-    --surface-canvas: 17% 0.01 255;
+    --surface-canvas: 18% 0 0;
+    --canvas-grid: 32% 0 0;
     --surface-view: 23.5% 0.01 255;
     --surface-sandbox: 19.5% 0.01 255;
     --surface-sunken: 18.5% 0.009 255;
@@ -674,7 +676,7 @@
   }
 
   .route-transition {
-    animation: route-enter var(--motion-base) var(--motion-ease) both;
+    animation: route-enter var(--motion-fast) var(--motion-ease) both;
   }
 
   .chat-context-transition {
@@ -684,11 +686,9 @@
   @keyframes route-enter {
     from {
       opacity: 0;
-      transform: translateY(4px);
     }
     to {
       opacity: 1;
-      transform: translateY(0);
     }
   }
 
@@ -973,6 +973,14 @@
    cannot reveal the blue-tinted application shell underneath it. */
 .react-flow.workflow-canvas {
   --xy-background-color: oklch(var(--surface-canvas));
+  --xy-background-pattern-dots-color: oklch(var(--canvas-grid));
+  --xy-controls-button-background-color: oklch(var(--surface-raised));
+  --xy-controls-button-background-color-hover: oklch(var(--surface-hover));
+  --xy-controls-button-color: oklch(var(--text-primary));
+  --xy-controls-button-color-hover: oklch(var(--text-primary));
+  --xy-minimap-background-color: oklch(var(--surface-canvas));
+  --xy-minimap-mask-background-color: oklch(var(--surface-sunken) / 0.6);
+  --xy-minimap-node-background-color: oklch(var(--edge-structural));
 }
 
 /* Chat file View owns its width through the workbench pane. Container queries

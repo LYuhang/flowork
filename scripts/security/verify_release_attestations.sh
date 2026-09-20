@@ -43,7 +43,7 @@ digest="${image##*@}"
 case "$image_name" in
   "${expected_prefix}api"|"${expected_prefix}web"|"${expected_prefix}engine") ;;
   *)
-    printf 'Image is outside the admitted Skeinix release repositories.\n' >&2
+    printf 'Image is outside the admitted Flowork release repositories.\n' >&2
     exit 2
     ;;
 esac

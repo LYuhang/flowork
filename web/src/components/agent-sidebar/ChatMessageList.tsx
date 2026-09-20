@@ -78,7 +78,7 @@ const RuntimeProgressIndicator = memo(function RuntimeProgressIndicator({
   return (
     <span className="min-w-0" data-role="agent-runtime-progress">
       <span
-        className="block truncate whitespace-nowrap text-xs font-medium leading-none text-muted-foreground"
+        className="block whitespace-normal break-words py-0.5 text-xs font-medium leading-5 text-muted-foreground"
         data-role="agent-startup-phase"
       >
         {labels[displayed.phase]}
@@ -118,10 +118,7 @@ const AgentRunningIndicator = memo(function AgentRunningIndicator({
     >
       {!compact && <MessageAvatar label="A" tone="agent" />}
       <div
-        className={cn(
-          'flex min-h-9 min-w-12 items-center justify-center gap-2.5 rounded-2xl rounded-bl-sm border border-edge-subtle bg-surface-sunken/70 px-3.5 py-2 text-sm text-muted-foreground',
-          compact && 'max-w-[94%] rounded-xl px-3 py-2 text-[13px]',
-        )}
+        className="flex min-h-9 min-w-0 max-w-full items-center gap-2.5 py-2 text-sm text-muted-foreground"
         data-message-content-rail="assistant"
       >
         {startupProgress ? <RuntimeProgressIndicator progress={startupProgress} /> : null}

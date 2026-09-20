@@ -66,14 +66,14 @@ if (( repository_free_kib < minimum_disk_kib )); then
   resource_failures+=("the repository filesystem has $((repository_free_kib / 1024 / 1024)) GiB free; at least 20 GiB is required")
 fi
 
-allow_unsupported_resources="${SKEINIX_ALLOW_UNSUPPORTED_RESOURCES:-false}"
+allow_unsupported_resources="${FLOWORK_ALLOW_UNSUPPORTED_RESOURCES:-false}"
 if (( ${#resource_failures[@]} > 0 )); then
   for resource_failure in "${resource_failures[@]}"; do
     echo "RESOURCE ERROR: $resource_failure" >&2
   done
   case "${allow_unsupported_resources,,}" in
     1|true|yes)
-      echo "WARNING: continuing with unsupported resources because SKEINIX_ALLOW_UNSUPPORTED_RESOURCES is enabled" >&2
+      echo "WARNING: continuing with unsupported resources because FLOWORK_ALLOW_UNSUPPORTED_RESOURCES is enabled" >&2
       ;;
     *)
       fail "resource preflight failed; see docs/installation.md or explicitly opt into an unsupported test run"

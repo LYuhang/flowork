@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -26,11 +27,12 @@ function renderComposer(
   showModelSelector = false,
   onSendStart?: () => void,
   embedded = false,
+  strict = false,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const component = (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <ChatComposer
@@ -41,8 +43,9 @@ function renderComposer(
           onSendStart={onSendStart}
         />
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  return render(strict ? <StrictMode>{component}</StrictMode> : component);
 }
 
 describe('ChatComposer Stop', () => {
@@ -638,6 +641,41 @@ describe('ChatComposer Stop', () => {
     expect(s.buffer).toHaveLength(2);
   });
 
+  it('consumes an onboarding draft exactly once under Strict Mode and preserves existing text', async () => {
+    useChatStreamStore.getState().setComposerInput(composerKey('chat_onboarding'), 'Existing draft');
+    useChatStreamStore.getState().setDraft('/workflow Make images', 'chat_onboarding');
+    renderComposer('chat_onboarding', false, undefined, false, true);
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Existing draft\n\n/workflow Make images'));
+    expect(useChatStreamStore.getState().draft).toBeNull();
+  });
+
+  it('keeps a follow-up draft editable while running without submitting or stopping', async () => {
+    const user = userEvent.setup();
+    useChatStreamStore.getState().beginTurn('chat_drafting', 'turn_drafting');
+    renderComposer('chat_drafting');
+    const input = screen.getByRole('textbox');
+    expect(input).toBeEnabled();
+    await user.type(input, 'Keep the next image green');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(input).toHaveValue('Keep the next image green');
+    expect(cancelled).toEqual([]);
+    expect(screen.getByRole('button', { name: /stop|停止/i })).toBeEnabled();
+    act(() => useChatStreamStore.getState().setState('complete', 'chat_drafting'));
+    expect(input).toHaveValue('Keep the next image green');
+    expect(screen.getByRole('button', { name: /send|发送/i })).toBeEnabled();
+  });
+
+  it('lets a new draft take priority over retry after cancellation', async () => {
+    useChatStreamStore.getState().beginTurn('chat_new_draft', 'turn_old');
+    useChatStreamStore.getState().setLastInput({ content: 'old request' }, 'chat_new_draft');
+    useChatStreamStore.getState().setState('cancelled', 'chat_new_draft');
+    renderComposer('chat_new_draft');
+    expect(screen.getByRole('button', { name: /retry|重试/i })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), 'different request');
+    expect(screen.getByRole('button', { name: /send|发送/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /retry|重试/i })).not.toBeInTheDocument();
+  });
+
   it('offers Retry after the backend confirms a cancelled turn', () => {
     useChatStreamStore.getState().beginTurn('chat_cancelled', 'turn_cancelled');
     useChatStreamStore.getState().setLastInput({ content: 'run it again' }, 'chat_cancelled');
@@ -751,7 +789,8 @@ describe('ChatComposer Stop', () => {
     // optimistic user bubble and Agent thinking state.
     expect(onSendStart).toHaveBeenCalledTimes(1);
     expect(input).toHaveValue('');
-    expect(input).toHaveAttribute('placeholder', 'Agent is thinking…');
+    expect(input).toHaveAttribute('placeholder', 'The Agent is working. Draft your next message…');
+    expect(input).toBeEnabled();
     expect(container.querySelectorAll('[data-role="agent-composer-attachment-chip"]'))
       .toHaveLength(0);
     expect(useChatStreamStore.getState().pendingAttachments[stateKey])

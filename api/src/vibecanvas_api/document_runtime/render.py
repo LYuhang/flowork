@@ -47,7 +47,7 @@ def render_document_feedback(
         )
     source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     pdftoppm = _required_command("pdftoppm")
-    with tempfile.TemporaryDirectory(prefix="skeinix-document-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="flowork-document-") as temporary:
         temporary_path = Path(temporary)
         if suffix == ".pdf":
             pdf = source

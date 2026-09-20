@@ -120,7 +120,7 @@ class CodexAppServer:
             {
                 "clientInfo": {
                     "name": "vibecanvas",
-                    "title": "Skeinix",
+                    "title": "Flowork",
                     "version": "1",
                 },
                 **({"capabilities": capabilities} if capabilities else {}),

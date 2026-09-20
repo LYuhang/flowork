@@ -18,7 +18,7 @@ for (const runtime of ['langchain', 'codex'] as const satisfies readonly RealRun
     const session = new E2ECookieSession();
     const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const kbName = `Knowledge acceptance ${runtime} ${unique}`;
-    const identifier = `SKEINIX_KNOWLEDGE_E2E_${runtime.toUpperCase()}_${unique}`;
+    const identifier = `FLOWORK_KNOWLEDGE_E2E_${runtime.toUpperCase()}_${unique}`;
     let profile: RealRuntimeProfile | undefined;
     let kbId = '';
     let chatId = '';

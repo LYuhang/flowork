@@ -1,6 +1,6 @@
-# Skeinix Workflow Engine
+# Flowork Workflow Engine
 
-The Engine is Skeinix's framework-independent Python runtime for validating
+The Engine is Flowork's framework-independent Python runtime for validating
 and executing declarative workflows. It resolves a workflow definition into a
 graph of typed nodes, manages data flow and control flow, and emits structured
 events throughout execution.
@@ -26,7 +26,7 @@ deployment orchestration, or the Web interface. Those capabilities belong to
 the [`api/`](../api/) and [`web/`](../web/) packages.
 
 The Engine also does not create the platform's operating-system sandbox. In the
-supported Skeinix topology, the API-side `sandboxd` service starts gVisor and
+supported Flowork topology, the API-side `sandboxd` service starts gVisor and
 runs the Engine inside it. The distinction is described in
 [Execution isolation](#execution-isolation) below and in the repository
 [architecture guide](../docs/architecture.md).
@@ -107,7 +107,7 @@ The registry in [`register.py`](src/vibecanvas_engine/register.py) maps stable
 classes can derive from
 [`BaseNode`](src/vibecanvas_engine/nodes/base.py) and register with
 `node_registry`, but registration alone does not authorize a node for the
-Skeinix sandbox. Sandbox admission accepts only the Engine-native node set and
+Flowork sandbox. Sandbox admission accepts only the Engine-native node set and
 must remain an explicit host-side policy decision.
 
 ## Model interfaces
@@ -117,7 +117,7 @@ provider-neutral model interface. Concrete provider adapters are implemented in
 [`custom_llms.py`](src/vibecanvas_engine/custom_llms.py), while `PromptNode`
 resolves the model selected in the workflow.
 
-In the Skeinix application, the API validates the user's saved model selection
+In the Flowork application, the API validates the user's saved model selection
 and injects a short-lived runtime capability. The Engine consumes that
 execution-scoped mapping; it does not persist provider credentials or choose a
 tenant's model configuration. Inline provider secrets in workflow documents
@@ -140,7 +140,7 @@ boundary:
   [sandbox service](../api/src/vibecanvas_api/services/sandbox/).
 
 Do not execute untrusted workflow definitions directly in a host Python
-process. Use the complete Skeinix runtime topology described in
+process. Use the complete Flowork runtime topology described in
 [Sandbox lifecycle](../docs/architecture.md#sandbox-lifecycle).
 
 ## Development

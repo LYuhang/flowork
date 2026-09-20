@@ -107,7 +107,7 @@
   "nav.settings": "设置",
   "nav.knowledge": "知识库",
   "nav.open": "打开导航",
-  "nav.mobileDescription": "浏览 Skeinix 并管理工作空间。",
+  "nav.mobileDescription": "浏览 Flowork 并管理工作空间。",
   "chat.status.attention": "需要处理",
   "chat.status.running": "运行中",
   "chat.status.cancelled": "已取消",
@@ -508,7 +508,7 @@
   "ws_desc": "可视化 Workflow 编排 · AI Agent 辅助构建 · 批量执行引擎",
   "ws_dev": "开发者",
   "ws_guide": "📖 使用文档",
-  "ws_title": "Skeinix",
+  "ws_title": "Flowork",
   "ws_username_ph": "输入用户名",
   "auth_back_to_login": "← 返回登录",
   "auth_brand_tagline": "对话生成、可视化编排、调试与运行，都在一个工作空间完成。",
@@ -526,7 +526,7 @@
   "auth_benefit_control_title": "在同一工作台调试、运行和复用",
   "auth_benefit_control_description": "审阅交互结果，并在准备好之后再继续。",
   "auth_workspace_note": "在一个工作空间中统一管理对话、文件、预览和自动化。",
-  "auth_welcome": "欢迎使用 Skeinix",
+  "auth_welcome": "欢迎使用 Flowork",
   "auth_secure_note": "安全访问您的工作空间",
   "auth_confirm_password_label": "确认密码",
   "auth_creating_account": "创建账户中...",
@@ -579,9 +579,9 @@
   "preferences_subtitle": "本设备的语言与外观设置，保存在此浏览器中。",
   "settings_tab_preferences": "偏好",
   "settings_tab_extensions": "扩展",
-  "settings_extensions_subtitle": "下载和配置与当前 Skeinix 部署配套的应用扩展。",
-  "settings_extension_chrome_name": "Skeinix Chrome 扩展",
-  "settings_extension_chrome_desc": "在任意网页旁使用 Skeinix 浏览器助手。主应用已登录时可复用账号，也可以直接在侧边栏中独立登录。",
+  "settings_extensions_subtitle": "下载和配置与当前 Flowork 部署配套的应用扩展。",
+  "settings_extension_chrome_name": "Flowork Chrome 扩展",
+  "settings_extension_chrome_desc": "在任意网页旁使用 Flowork 浏览器助手。主应用已登录时可复用账号，也可以直接在侧边栏中独立登录。",
   "settings_extension_download": "下载扩展",
   "settings_extension_package_hint": "ZIP · 当前部署版本",
   "settings_extension_feature_chat": "独立的浏览器对话历史",
@@ -591,7 +591,7 @@
   "settings_extension_step_download": "下载 ZIP 包，并解压到一个长期保留的文件夹。",
   "settings_extension_step_page": "打开 chrome://extensions，并开启右上角的开发者模式。",
   "settings_extension_step_load": "点击“加载已解压的扩展程序”，选择刚才解压的文件夹。",
-  "settings_extension_step_pin": "在 Chrome 工具栏中固定 Skeinix，然后打开侧边栏。",
+  "settings_extension_step_pin": "在 Chrome 工具栏中固定 Flowork，然后打开侧边栏。",
   "settings_extension_update_hint": "更新方式：下载最新 ZIP，替换原解压目录中的文件，然后在 chrome://extensions 点击“重新加载”。Chrome 不能直接加载 ZIP。",
   "settings_extension_permissions_title": "为什么 Chrome 会请求这些权限",
   "settings_extension_permissions_desc": "侧边栏与存储权限用于保持助手可用；标签页与调试权限仅在启动浏览器控制后用于读取或操作网页；剪贴板写入权限用于原生富文本粘贴，扩展不会读取你的剪贴板。调试生效期间，Chrome 会始终显示原生的受控提示。",
@@ -952,7 +952,7 @@
   "taskDetail.mappedFields": "映射字段",
   "taskDetail.parallelRows": "并发行数",
   "taskDetail.output": "输出位置",
-  "taskDetail.outputManaged": "由 Skeinix 管理",
+  "taskDetail.outputManaged": "由 Flowork 管理",
   "taskDetail.error": "错误",
   "taskDetail.errorHint": "任务未能完成。请检查输入和工作流配置，然后重新运行。",
   "taskDetail.events": "事件",
@@ -2002,7 +2002,7 @@
   "tool.meta.browser_tabs": "管理标签页",
   "tool.meta.browser_close": "关闭页面",
   "tool.meta.browser_resize": "调整页面尺寸",
-  "notice.browser_sidepanel_only": "Browser 模式仅在插件侧边栏可用。请打开 Skeinix 插件侧边栏，在那里进入对话并使用 /browser。",
+  "notice.browser_sidepanel_only": "Browser 模式仅在插件侧边栏可用。请打开 Flowork 插件侧边栏，在那里进入对话并使用 /browser。",
   "tool.meta.browser_click": "点击",
   "tool.meta.browser_drag": "拖动",
   "tool.meta.browser_drop": "拖放文件",
@@ -2037,10 +2037,10 @@
   "chat.examples.tab.knowledge": "知识库",
   "chat.examples.office.presentation.title": "创建演示文稿",
   "chat.examples.office.presentation.description": "调研指定主题，并整理成专业、精美的演示文稿。",
-  "chat.examples.office.presentation.prompt": "/document 请创建一份面向技术团队、精美且可编辑的 3 页 Skeinix 介绍演示文稿。不要浏览网页，仅使用以下事实：Skeinix 是开源服务端 Agent，支持浏览器自动化、Workflow、Task 与 Deployment、专业办公文档与绘图，以及可复用的 Knowledge 存储。第 1 页表达问题与产品定位，第 2 页展示能力分组，第 3 页用简洁流程说明从连接 Runtime 和模型来源、开始 Chat 到交付结果的入门过程。",
+  "chat.examples.office.presentation.prompt": "/document 请创建一份面向技术团队、精美且可编辑的 3 页 Flowork 介绍演示文稿。不要浏览网页，仅使用以下事实：Flowork 是开源服务端 Agent，支持浏览器自动化、Workflow、Task 与 Deployment、专业办公文档与绘图，以及可复用的 Knowledge 存储。第 1 页表达问题与产品定位，第 2 页展示能力分组，第 3 页用简洁流程说明从连接 Runtime 和模型来源、开始 Chat 到交付结果的入门过程。",
   "chat.examples.office.report.title": "撰写商业报告",
   "chat.examples.office.report.description": "将事实依据、分析结论和建议整理成专业报告。",
-  "chat.examples.office.report.prompt": "/document 请为正在评估 Skeinix 的中型客户支持团队创建一份精美、可编辑的 3 页决策简报。不要联网搜索，仅使用以下假设：团队每月处理 20,000 张工单，35% 的人力时间用于重复的浏览器操作与报表工作，所有生产操作均须人工复核。简报需要说明当前问题、采用浏览器自动化、Workflow、Task 与 Deployment 的试点方案、预期收益与风险，以及包含可量化成功标准的 30 天落地计划。",
+  "chat.examples.office.report.prompt": "/document 请为正在评估 Flowork 的中型客户支持团队创建一份精美、可编辑的 3 页决策简报。不要联网搜索，仅使用以下假设：团队每月处理 20,000 张工单，35% 的人力时间用于重复的浏览器操作与报表工作，所有生产操作均须人工复核。简报需要说明当前问题、采用浏览器自动化、Workflow、Task 与 Deployment 的试点方案、预期收益与风险，以及包含可量化成功标准的 30 天落地计划。",
   "chat.examples.office.spreadsheet.title": "创建分析工作簿",
   "chat.examples.office.spreadsheet.description": "制作包含公式、汇总和图表的清晰电子表格。",
   "chat.examples.office.spreadsheet.prompt": "/document 请创建一份精美、可编辑的季度销售工作簿，且只包含 Data 和 Summary 两张工作表。使用四个区域、四个季度的示例数据，加入经过校验的公式、克制的条件格式，并在 Summary 工作表中放置收入、增长率和目标达成率三张紧凑图表。将每张工作表设置为横向打印时适配在一页内，以便进行视觉审查。",
@@ -2081,7 +2081,7 @@
   "chat.examples.knowledge.update.description": "补充新的事实依据，同时保持原有目录结构。",
   "chat.examples.knowledge.update.prompt": "/knowledge 请找到我的 Agent 评估知识包并补充近期发现和来源；如果该知识包不存在，请先创建包含清晰 README 与来源文件结构的知识包。校验完整内容并发布最终版本。",
   "chat.empty.desc": "先探索，需要时再构建。",
-  "chat.composer.placeholder": "给 Skeinix 发送消息...",
+  "chat.composer.placeholder": "给 Flowork 发送消息...",
   "chat.explorer": "Explorer",
   "chat.explorer.open": "打开 Explorer",
   "chat.explorer.close": "关闭 Explorer",
@@ -2574,7 +2574,7 @@
   ,"organization.identity.lastSync": "最近同步"
   ,"organization.identity.rotateToken": "轮换 SCIM 令牌"
   ,"organization.identity.tokenTitle": "请立即保存 SCIM 令牌"
-  ,"organization.identity.tokenDescription": "该令牌只展示一次。请将其保存到身份提供商的密钥字段中；Skeinix 仅保存其哈希。"
+  ,"organization.identity.tokenDescription": "该令牌只展示一次。请将其保存到身份提供商的密钥字段中；Flowork 仅保存其哈希。"
   ,"organization.chooseMember": "选择成员"
   ,"organization.name": "名称"
   ,"organization.slug": "唯一标识"
@@ -2773,7 +2773,7 @@
   ,"preview.url.invalid": "请输入完整的 HTTP(S) 地址。"
   ,"preview.url.loading": "正在加载 {{host}}…"
   ,"preview.url.timeout": "网页未能完成加载，或该网站禁止嵌入。可以重新加载，或在新标签页中打开。"
-  ,"preview.url.isolation": "此网页与 Skeinix 隔离。如果网站禁止嵌入，"
+  ,"preview.url.isolation": "此网页与 Flowork 隔离。如果网站禁止嵌入，"
   ,"knowledge.tabs.overview": "概览"
   ,"knowledge.tabs.sources": "文件"
   ,"knowledge.filterHealth": "按状态筛选"
@@ -2827,7 +2827,7 @@
   ,"credentials.openrouter.reconnect": "重新连接 OpenRouter"
   ,"credentials.openrouter.connected": "已连接"
   ,"credentials.openrouter.connectedToast": "OpenRouter 已连接"
-  ,"credentials.openrouter.description": "连接你的 OpenRouter 账户，使用符合提供商偏好和隐私设置的模型。此操作不会用于登录 Skeinix。"
+  ,"credentials.openrouter.description": "连接你的 OpenRouter 账户，使用符合提供商偏好和隐私设置的模型。此操作不会用于登录 Flowork。"
   ,"credentials.openrouter.catalogReady": "Chat 中可使用 {{count}} 个模型"
   ,"credentials.openrouter.catalogSummary": "其中 {{freeCount}} 个免费模型。开始对话时，请在 Chat 编辑框中选择模型和思考强度。"
   ,"credentials.openrouter.refresh": "刷新模型"
@@ -2842,7 +2842,7 @@
   ,"credentials.openrouter.emptyModels": "当前没有兼容的文本与工具调用模型。更新 OpenRouter 偏好后可重新刷新。"
   ,"credentials.openrouter.rejected": "OpenRouter 已拒绝此密钥，请重新连接账户。"
   ,"credentials.openrouter.refreshError": "模型目录暂时无法刷新，已保留之前的目录。"
-  ,"credentials.openrouter.boundary": "模型和价格由 OpenRouter 提供并可能变化；Skeinix 不控制其计费或可用性。兼容模型会进入 Settings 所选 Runtime 的候选列表，Codex 通过 OpenRouter Responses API 调用。"
+  ,"credentials.openrouter.boundary": "模型和价格由 OpenRouter 提供并可能变化；Flowork 不控制其计费或可用性。兼容模型会进入 Settings 所选 Runtime 的候选列表，Codex 通过 OpenRouter Responses API 调用。"
   ,"agent_settings.source_platform": "平台模型"
   ,"agent_settings.source_openai_account": "OpenAI 账户"
   ,"agent_settings.source_manual": "我的 API 连接"
@@ -2861,7 +2861,7 @@
   ,"agent_settings.model_price_compact": "{{input}} / {{output}}"
   ,"agent_settings.tool_capable": "工具调用"
   ,"credentials.openrouter.callbackFailed": "OpenRouter 未完成连接，请重新开始。"
-  ,"credentials.openrouter.callbackUnreachable": "Skeinix 无法连接 OpenRouter，请检查部署网络或代理后重新开始。"
+  ,"credentials.openrouter.callbackUnreachable": "Flowork 无法连接 OpenRouter，请检查部署网络或代理后重新开始。"
   ,"credentials.openrouter.callbackRejected": "OpenRouter 已拒绝此授权或授权已过期，请重新开始。"
   ,"credentials.openrouter.callbackExpired": "本次连接请求已过期或已使用，请重新开始。"
   ,"credentials.openrouter.startFailed": "无法启动 OpenRouter 连接。"
@@ -3120,8 +3120,8 @@
   ,"embed.execution.loadFailed": "无法载入此工作流。"
   ,"embed.preparing_browser_chat": "正在准备浏览器对话…"
   ,"embed.session_timeout": "无法建立插件会话"
-  ,"embed.session_timeout_hint": "请打开 Skeinix 侧边栏后重试。如果插件刚刚更新，请先重新载入插件。"
-  ,"embed.standalone_hint": "此安全对话页面由 Skeinix 浏览器插件打开。请打开侧边栏，或前往主应用继续操作。"
+  ,"embed.session_timeout_hint": "请打开 Flowork 侧边栏后重试。如果插件刚刚更新，请先重新载入插件。"
+  ,"embed.standalone_hint": "此安全对话页面由 Flowork 浏览器插件打开。请打开侧边栏，或前往主应用继续操作。"
   ,"execute.openRunPanel": "打开运行面板"
   ,"explorer.resize": "调整资源管理器宽度"
   ,"inspector.compact": "使用紧凑的检查器高度"
@@ -3206,7 +3206,7 @@
   ,"mcp.form.authentication": "身份验证"
   ,"mcp.form.authenticationHelp": "凭据保存后会被加密，且不会再次显示。"
   ,"mcp.form.connection": "连接"
-  ,"mcp.form.connectionHelp": "选择 Skeinix 连接此服务器的方式，并提供地址或命令。"
+  ,"mcp.form.connectionHelp": "选择 Flowork 连接此服务器的方式，并提供地址或命令。"
   ,"mcp.form.identity": "标识"
   ,"mcp.form.identityHelp": "为服务器命名，并定义 Agent 调用其工具时使用的前缀。"
   ,"mcp.form.testHelp": "保存前验证端点，并检查其公开的工具数量。"
@@ -3236,7 +3236,7 @@
   ,"rename": "重命名"
   ,"saving": "正在保存…"
   ,"settings_interface": "界面"
-  ,"settings_interface_desc": "选择 Skeinix 的外观以及信息的显示格式。"
+  ,"settings_interface_desc": "选择 Flowork 的外观以及信息的显示格式。"
   ,"share.role": "访问权限"
   ,"skills.custom.unsaved_body": "离开前请保存此 Skill 草稿，或放弃所做的修改。"
   ,"skills.detail.about": "关于此 Skill"
@@ -3369,4 +3369,16 @@
   ,"files.preview.loading": "正在载入预览…"
   ,"files.preview.readFailed": "无法读取此文件的内容。"
   ,"files.preview.unavailable": "暂不支持预览此文件类型"
+  ,"composer.running_draft_placeholder": "Agent 正在处理，你可以先写下一条消息…"
+  ,"composer.connectRuntime": "连接账户或 API"
+  ,"composer.model.backToSources": "返回模型来源"
+  ,"api.error.invalidRequestOrigin": "当前页面地址未被服务器信任，请联系管理员配置允许的访问来源后重试。"
+  ,"api.error.csrfValidationFailed": "会话安全校验失败，请先备份未保存的内容，再重新登录后重试。"
+  ,"api.error.unexpected": "请求失败，请重试。"
+  ,"workflow.save.success": "已保存"
+  ,"workflow.save.failed": "保存失败：{{message}}"
+  ,"vfs.no_text_preview": "此文件没有可显示的文本预览。"
+  ,"canvas.outputPreview.title": "输出预览"
+  ,"canvas.outputPreview.showMore": "显示更多"
+  ,"canvas.template.previewError": "预览加载失败，请收起后重新展开以重试。"
 }

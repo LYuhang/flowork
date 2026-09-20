@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Skeinix Browser Search</title>
+    <title>Flowork Browser Search</title>
     <style>
       :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; }
       * { box-sizing: border-box; }
@@ -32,8 +32,8 @@
     <script>
       document.querySelector("#search-form").addEventListener("submit", () => {
         const term = document.querySelector("#search-input").value.trim();
-        sessionStorage.setItem("skeinix.acceptance.search", term);
-        sessionStorage.removeItem("skeinix.acceptance.resultClicked");
+        sessionStorage.setItem("flowork.acceptance.search", term);
+        sessionStorage.removeItem("flowork.acceptance.resultClicked");
       });
     </script>
   </body>

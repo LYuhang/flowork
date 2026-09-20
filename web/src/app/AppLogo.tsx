@@ -4,7 +4,7 @@ import { AppIcon } from '@/app/AppIcon';
 
 export function AppLogo() {
   const { t } = useTranslation();
-  const brand = t('ws_title', 'Skeinix');
+  const brand = t('ws_title', 'Flowork');
 
   return (
     <span

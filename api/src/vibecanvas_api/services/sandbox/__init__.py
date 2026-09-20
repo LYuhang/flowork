@@ -160,7 +160,7 @@ def _gvisor_runnable() -> bool:
                         "-c",
                         "from pathlib import Path; import vibecanvas_engine; "
                         f"Path('/run/{marker_name}').write_text("
-                        "'skeinix-gvisor-ready', encoding='utf-8')",
+                        "'flowork-gvisor-ready', encoding='utf-8')",
                     ],
                     env=_workflow_python_env(),
                     network="none",
@@ -174,7 +174,7 @@ def _gvisor_runnable() -> bool:
                 if result.exit_code == 0 and os.path.isfile(marker_path):
                     with open(marker_path, encoding="utf-8") as marker:
                         marker_contents = marker.read()
-                runnable = marker_contents == "skeinix-gvisor-ready"
+                runnable = marker_contents == "flowork-gvisor-ready"
         except Exception:
             runnable = False
 

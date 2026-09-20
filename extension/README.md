@@ -1,6 +1,6 @@
-# Skeinix Browser Extension
+# Flowork Browser Extension
 
-The Browser Extension brings Skeinix Chat into Chrome's side panel and allows
+The Browser Extension brings Flowork Chat into Chrome's side panel and allows
 an Agent to inspect or operate the browser tab connected by the user. It reuses
 the main Web application's embedded Chat interface, while the extension owns
 the browser-specific transport, tab session, and Chrome DevTools Protocol
@@ -32,7 +32,7 @@ another window cannot silently take ownership of that active session.
 
 ## Installation
 
-Each Skeinix deployment packages an extension configured for its own public
+Each Flowork deployment packages an extension configured for its own public
 application URL. Download that build from the main application:
 
 1. open **Settings → Extensions**;
@@ -40,13 +40,13 @@ application URL. Download that build from the main application:
 3. extract the ZIP to a permanent folder;
 4. open `chrome://extensions` and enable **Developer mode**;
 5. select **Load unpacked** and choose the extracted folder; and
-6. pin Skeinix in the toolbar, then open its side panel.
+6. pin Flowork in the toolbar, then open its side panel.
 
 Chrome cannot load the ZIP directly. To update the extension, download the new
 package, replace the extracted files, and select **Reload** on
 `chrome://extensions`.
 
-The application origin is compiled into the extension. If the Skeinix URL,
+The application origin is compiled into the extension. If the Flowork URL,
 protocol, port, or reverse-proxy prefix changes, rebuild the deployment and
 download the matching extension again.
 
@@ -113,7 +113,7 @@ the extension exposes no web-accessible resources. It does not provide the
 backend with arbitrary JavaScript execution.
 
 Browser semantics come from the pinned official Playwright MCP, not from a
-second Skeinix command vocabulary. The extension implements only the fixed CDP
+second Flowork command vocabulary. The extension implements only the fixed CDP
 transport allow-list in
 [`relay-executor.ts`](src/playwright/relay-executor.ts) and the upstream-derived
 browser target model in
@@ -125,7 +125,7 @@ matching boundary tests and a manual privacy and security review before
 release.
 
 Production builds generate `externally_connectable` and `host_permissions`
-from exact configured Skeinix Web bases. The service worker performs an
+from exact configured Flowork Web bases. The service worker performs an
 additional runtime origin and path-prefix check before accepting messages from
 the Web application. The Browser Extension should therefore be rebuilt for
 each deployment boundary rather than distributed with a wildcard application
@@ -135,7 +135,7 @@ origin.
 
 Prepare the repository environment using the
 [development guide](../docs/development.md). Build the extension from the
-repository root with the exact Web origin used to open Skeinix:
+repository root with the exact Web origin used to open Flowork:
 
 ```bash
 VITE_WEB_BASE=http://localhost:9001 \
@@ -182,7 +182,7 @@ supported. Credentials, query strings, and fragments are rejected. Use exact
 origins: the runtime sender check does not trust wildcard origins.
 
 The production Web image builds and packages the matching extension as
-`/downloads/vibecanvas-extension.zip`. The extension ID must remain aligned
+`/downloads/flowork-extension.zip`. The extension ID must remain aligned
 with the API identity and the Web server's `/embed/*` framing policy; the full
 deployment wiring is defined in [`docker-compose.yml`](../docker-compose.yml)
 and [`web/Dockerfile`](../web/Dockerfile).

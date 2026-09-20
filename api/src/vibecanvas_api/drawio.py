@@ -1,7 +1,7 @@
 """Small platform boundary for native draw.io files.
 
 The official draw.io MCP owns authoring, page operations, layout and routing.
-Skeinix only needs to recognise an ordinary ``.drawio`` VFS file and reject
+Flowork only needs to recognise an ordinary ``.drawio`` VFS file and reject
 unsafe or structurally broken XML before publishing it in Preview.
 """
 

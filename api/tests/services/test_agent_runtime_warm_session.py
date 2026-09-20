@@ -564,7 +564,7 @@ def test_codex_runtime_mounts_resolved_playwright_mcp_package(
     launcher.chmod(0o755)
     shim_root = tmp_path / "bin"
     shim_root.mkdir()
-    shim = shim_root / "skeinix-playwright-mcp"
+    shim = shim_root / "flowork-playwright-mcp"
     shim.symlink_to(launcher)
 
     monkeypatch.setattr(manager_module, "resolve_codex_executable", lambda: "/bin/true")
@@ -605,7 +605,7 @@ def test_codex_runtime_mounts_diagram_mcp_package(
     launcher.chmod(0o755)
     shim_root = tmp_path / "bin"
     shim_root.mkdir()
-    shim = shim_root / "skeinix-diagram-mcp"
+    shim = shim_root / "flowork-diagram-mcp"
     shim.symlink_to(launcher)
     desktop_root = tmp_path / "drawio-desktop"
     desktop_root.mkdir()

@@ -26,7 +26,7 @@ async def render_url_preview(
     Use this when the result is an external web page that the user should see
     or operate without leaving the conversation. Any HTTP(S) destination is
     accepted; no domain or page-type allowlist is applied. The WebView does not
-    receive Skeinix authentication tokens or parent-page DOM access. A target
+    receive Flowork authentication tokens or parent-page DOM access. A target
     site can still refuse iframe embedding with its own browser security
     policy, in which case the user can open it in a separate tab.
 

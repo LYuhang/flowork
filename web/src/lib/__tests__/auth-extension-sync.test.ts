@@ -72,7 +72,7 @@ describe('initAuthExtensionSync', () => {
 
     expect(syncMock).toHaveBeenCalledTimes(callsAfterReasoning);
 
-    document.dispatchEvent(new CustomEvent('skeinix:extension-auth-refresh'));
+    document.dispatchEvent(new CustomEvent('flowork:extension-auth-refresh'));
     expect(syncMock).toHaveBeenLastCalledWith(true, 'tenant_1');
 
     useAuthStore.setState({

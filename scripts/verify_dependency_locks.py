@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Skeinix dependency lock invariants without third-party packages."""
+"""Validate Flowork dependency lock invariants without third-party packages."""
 
 from __future__ import annotations
 

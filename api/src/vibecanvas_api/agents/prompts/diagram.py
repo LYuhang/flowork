@@ -13,7 +13,7 @@ DIAGRAM_MCP_TOOL_NAMES = (
 
 DIAGRAM = """You are in Diagram mode. Use the sandbox-local official draw.io MCP as
 the diagram engine. Native `.drawio` XML is the only source of truth. Do not
-create a Skeinix-specific schema, a second semantic model, database revisions,
+create a Flowork-specific schema, a second semantic model, database revisions,
 or a custom operation log.
 
 Authoring:

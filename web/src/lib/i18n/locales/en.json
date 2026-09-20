@@ -107,7 +107,7 @@
   "nav.settings": "Settings",
   "nav.knowledge": "Knowledge",
   "nav.open": "Open navigation",
-  "nav.mobileDescription": "Navigate Skeinix and manage your workspace.",
+  "nav.mobileDescription": "Navigate Flowork and manage your workspace.",
   "chat.status.attention": "Needs attention",
   "chat.status.running": "Running",
   "chat.status.cancelled": "Cancelled",
@@ -508,7 +508,7 @@
   "ws_desc": "Visual Workflow Builder · AI Agent Assisted · Batch Execution Engine",
   "ws_dev": "Dev",
   "ws_guide": "📖 User Guide",
-  "ws_title": "Skeinix",
+  "ws_title": "Flowork",
   "ws_username_ph": "Enter username",
   "auth_back_to_login": "← Back to sign in",
   "auth_brand_tagline": "Conversation, visual orchestration, debugging, and execution—together in one workspace.",
@@ -526,7 +526,7 @@
   "auth_benefit_control_title": "Debug, run, and reuse in one workspace",
   "auth_benefit_control_description": "Review interactive results and continue only when you are ready.",
   "auth_workspace_note": "One workspace for conversations, files, previews, and automation.",
-  "auth_welcome": "Welcome to Skeinix",
+  "auth_welcome": "Welcome to Flowork",
   "auth_secure_note": "Secure workspace access",
   "auth_confirm_password_label": "Confirm password",
   "auth_creating_account": "Creating account…",
@@ -579,9 +579,9 @@
   "preferences_subtitle": "Language and appearance for this device. Saved to this browser.",
   "settings_tab_preferences": "Preferences",
   "settings_tab_extensions": "Extensions",
-  "settings_extensions_subtitle": "Download and configure companion apps built for this Skeinix deployment.",
-  "settings_extension_chrome_name": "Skeinix for Chrome",
-  "settings_extension_chrome_desc": "Use the Skeinix browser assistant beside any page. It shares your account when the main app is signed in, or lets you sign in directly from the side panel.",
+  "settings_extensions_subtitle": "Download and configure companion apps built for this Flowork deployment.",
+  "settings_extension_chrome_name": "Flowork for Chrome",
+  "settings_extension_chrome_desc": "Use the Flowork browser assistant beside any page. It shares your account when the main app is signed in, or lets you sign in directly from the side panel.",
   "settings_extension_download": "Download extension",
   "settings_extension_package_hint": "ZIP · current deployment build",
   "settings_extension_feature_chat": "Browser-only chat history",
@@ -591,7 +591,7 @@
   "settings_extension_step_download": "Download the ZIP package, then extract it to a permanent folder.",
   "settings_extension_step_page": "Open chrome://extensions and turn on Developer mode.",
   "settings_extension_step_load": "Choose “Load unpacked” and select the extracted folder.",
-  "settings_extension_step_pin": "Pin Skeinix in the Chrome toolbar, then open its side panel.",
+  "settings_extension_step_pin": "Pin Flowork in the Chrome toolbar, then open its side panel.",
   "settings_extension_update_hint": "To update: download the latest ZIP, replace the extracted folder, then click Reload on chrome://extensions. Chrome cannot load the ZIP directly.",
   "settings_extension_permissions_title": "Why Chrome asks for permissions",
   "settings_extension_permissions_desc": "Side panel and storage keep the assistant available. Tabs and debugger permissions let the Agent inspect or operate only when browser control is started. Clipboard write access supports native rich-text paste without reading your clipboard. Chrome always shows its native control indicator while debugging is active.",
@@ -952,7 +952,7 @@
   "taskDetail.mappedFields": "Mapped fields",
   "taskDetail.parallelRows": "Parallel rows",
   "taskDetail.output": "Output",
-  "taskDetail.outputManaged": "Managed by Skeinix",
+  "taskDetail.outputManaged": "Managed by Flowork",
   "taskDetail.error": "Error",
   "taskDetail.errorHint": "The task could not finish. Review the input and workflow configuration, then run it again.",
   "taskDetail.events": "Events",
@@ -2002,7 +2002,7 @@
   "tool.meta.browser_tabs": "Manage tabs",
   "tool.meta.browser_close": "Close page",
   "tool.meta.browser_resize": "Resize page",
-  "notice.browser_sidepanel_only": "Browser mode is only available in the extension's side panel. Open the Skeinix side panel and use /browser there.",
+  "notice.browser_sidepanel_only": "Browser mode is only available in the extension's side panel. Open the Flowork side panel and use /browser there.",
   "tool.meta.browser_click": "Click",
   "tool.meta.browser_drag": "Drag",
   "tool.meta.browser_drop": "Drop files",
@@ -2037,10 +2037,10 @@
   "chat.examples.tab.knowledge": "Knowledge",
   "chat.examples.office.presentation.title": "Create a presentation",
   "chat.examples.office.presentation.description": "Research a topic and turn it into a polished slide deck.",
-  "chat.examples.office.presentation.prompt": "/document Create a polished, editable 3-slide presentation introducing Skeinix to a technical team. Do not browse the web; use only these facts: Skeinix is an open-source server-side Agent for browser automation, Workflows, Tasks and Deployments, professional office documents and diagrams, and reusable Knowledge storage. Use slide 1 for the problem and product position, slide 2 for the capability groups, and slide 3 for a concise getting-started flow from connecting a Runtime and model source to Chat and delivery.",
+  "chat.examples.office.presentation.prompt": "/document Create a polished, editable 3-slide presentation introducing Flowork to a technical team. Do not browse the web; use only these facts: Flowork is an open-source server-side Agent for browser automation, Workflows, Tasks and Deployments, professional office documents and diagrams, and reusable Knowledge storage. Use slide 1 for the problem and product position, slide 2 for the capability groups, and slide 3 for a concise getting-started flow from connecting a Runtime and model source to Chat and delivery.",
   "chat.examples.office.report.title": "Write a business report",
   "chat.examples.office.report.description": "Structure evidence and recommendations into a professional report.",
-  "chat.examples.office.report.prompt": "/document Create a polished, editable 3-page decision brief for a mid-sized customer-support team evaluating Skeinix. Do not browse the web; use only these assumptions: the team handles 20,000 tickets per month, spends 35% of staff time on repetitive browser and reporting work, and requires human review before production actions. Cover the current problem, a proposed pilot using browser automation, Workflows, Tasks and Deployments, expected benefits and risks, and a 30-day rollout with measurable success criteria.",
+  "chat.examples.office.report.prompt": "/document Create a polished, editable 3-page decision brief for a mid-sized customer-support team evaluating Flowork. Do not browse the web; use only these assumptions: the team handles 20,000 tickets per month, spends 35% of staff time on repetitive browser and reporting work, and requires human review before production actions. Cover the current problem, a proposed pilot using browser automation, Workflows, Tasks and Deployments, expected benefits and risks, and a 30-day rollout with measurable success criteria.",
   "chat.examples.office.spreadsheet.title": "Build an analysis workbook",
   "chat.examples.office.spreadsheet.description": "Create a clear spreadsheet with formulas, summaries, and charts.",
   "chat.examples.office.spreadsheet.prompt": "/document Create a polished, editable quarterly sales workbook with exactly two sheets: Data and Summary. Use sample data for four regions across four quarters. Include validated formulas, restrained conditional formatting, and three compact charts on the Summary sheet for revenue, growth, and target attainment. Set each sheet to fit on one landscape print page for visual review.",
@@ -2081,7 +2081,7 @@
   "chat.examples.knowledge.update.description": "Add new evidence while preserving the package structure.",
   "chat.examples.knowledge.update.prompt": "/knowledge Find my Agent evaluation knowledge package and add recent findings and sources. If it does not exist, create it with a clear README and source-file structure first. Validate the complete package and publish the resulting version.",
   "chat.empty.desc": "Explore first. Build when ready.",
-  "chat.composer.placeholder": "Message Skeinix...",
+  "chat.composer.placeholder": "Message Flowork...",
   "chat.explorer": "Explorer",
   "chat.explorer.open": "Open Explorer",
   "chat.explorer.close": "Close Explorer",
@@ -2574,7 +2574,7 @@
   ,"organization.identity.lastSync": "Last sync"
   ,"organization.identity.rotateToken": "Rotate SCIM token"
   ,"organization.identity.tokenTitle": "Save the SCIM token now"
-  ,"organization.identity.tokenDescription": "This token is shown once. Store it in the identity provider secret field; Skeinix keeps only its hash."
+  ,"organization.identity.tokenDescription": "This token is shown once. Store it in the identity provider secret field; Flowork keeps only its hash."
   ,"organization.chooseMember": "Choose a member"
   ,"organization.name": "Name"
   ,"organization.slug": "Slug"
@@ -2773,7 +2773,7 @@
   ,"preview.url.invalid": "Enter an absolute HTTP(S) address."
   ,"preview.url.loading": "Loading {{host}}…"
   ,"preview.url.timeout": "This page did not finish loading or may block embedding. Reload it, or open it in a new tab."
-  ,"preview.url.isolation": "This page is isolated from Skeinix. If the site blocks embedding,"
+  ,"preview.url.isolation": "This page is isolated from Flowork. If the site blocks embedding,"
   ,"knowledge.tabs.overview": "Overview"
   ,"knowledge.tabs.sources": "Files"
   ,"knowledge.filterHealth": "Filter by status"
@@ -2827,7 +2827,7 @@
   ,"credentials.openrouter.reconnect": "Reconnect OpenRouter"
   ,"credentials.openrouter.connected": "Connected"
   ,"credentials.openrouter.connectedToast": "OpenRouter connected"
-  ,"credentials.openrouter.description": "Connect your OpenRouter account to use the models allowed by your provider preferences and privacy settings. This does not sign you in to Skeinix."
+  ,"credentials.openrouter.description": "Connect your OpenRouter account to use the models allowed by your provider preferences and privacy settings. This does not sign you in to Flowork."
   ,"credentials.openrouter.catalogReady": "{{count}} models available in Chat"
   ,"credentials.openrouter.catalogSummary": "{{freeCount}} free models. Choose the model and thinking level from the Chat composer when starting a conversation."
   ,"credentials.openrouter.refresh": "Refresh models"
@@ -2842,7 +2842,7 @@
   ,"credentials.openrouter.emptyModels": "No compatible text and tool-capable models are currently available. Refresh after updating your OpenRouter preferences."
   ,"credentials.openrouter.rejected": "OpenRouter rejected this key. Reconnect the account to continue."
   ,"credentials.openrouter.refreshError": "The model catalog could not be refreshed. The previous catalog has been kept."
-  ,"credentials.openrouter.boundary": "Models and prices come from OpenRouter and may change. Skeinix does not control billing or availability. Compatible models are available to the Runtime selected in Settings, including Codex through OpenRouter Responses API."
+  ,"credentials.openrouter.boundary": "Models and prices come from OpenRouter and may change. Flowork does not control billing or availability. Compatible models are available to the Runtime selected in Settings, including Codex through OpenRouter Responses API."
   ,"agent_settings.source_platform": "Platform models"
   ,"agent_settings.source_openai_account": "OpenAI account"
   ,"agent_settings.source_manual": "My API connections"
@@ -2861,7 +2861,7 @@
   ,"agent_settings.model_price_compact": "{{input}} / {{output}}"
   ,"agent_settings.tool_capable": "Tools"
   ,"credentials.openrouter.callbackFailed": "OpenRouter did not complete the connection. Start again."
-  ,"credentials.openrouter.callbackUnreachable": "Skeinix could not reach OpenRouter. Check the deployment network or proxy, then start again."
+  ,"credentials.openrouter.callbackUnreachable": "Flowork could not reach OpenRouter. Check the deployment network or proxy, then start again."
   ,"credentials.openrouter.callbackRejected": "OpenRouter rejected or expired this authorization. Start again."
   ,"credentials.openrouter.callbackExpired": "This connection request has expired or was already used. Start again."
   ,"credentials.openrouter.startFailed": "Could not start the OpenRouter connection."
@@ -3120,8 +3120,8 @@
   ,"embed.execution.loadFailed": "Could not load this workflow."
   ,"embed.preparing_browser_chat": "Preparing browser chat…"
   ,"embed.session_timeout": "The extension session could not be established"
-  ,"embed.session_timeout_hint": "Open the Skeinix side panel and retry. If the extension was updated, reload it before trying again."
-  ,"embed.standalone_hint": "This secure Chat surface is opened by the Skeinix browser extension. Open the side panel, or continue in the main app."
+  ,"embed.session_timeout_hint": "Open the Flowork side panel and retry. If the extension was updated, reload it before trying again."
+  ,"embed.standalone_hint": "This secure Chat surface is opened by the Flowork browser extension. Open the side panel, or continue in the main app."
   ,"execute.openRunPanel": "Open run panel"
   ,"explorer.resize": "Resize Explorer"
   ,"inspector.compact": "Use compact inspector height"
@@ -3206,7 +3206,7 @@
   ,"mcp.form.authentication": "Authentication"
   ,"mcp.form.authenticationHelp": "Credentials are encrypted after saving and are not displayed again."
   ,"mcp.form.connection": "Connection"
-  ,"mcp.form.connectionHelp": "Choose how Skeinix reaches this server and provide its address or command."
+  ,"mcp.form.connectionHelp": "Choose how Flowork reaches this server and provide its address or command."
   ,"mcp.form.identity": "Identity"
   ,"mcp.form.identityHelp": "Name the server and define the prefix agents use for its tools."
   ,"mcp.form.testHelp": "Verify the endpoint and inspect how many tools it exposes before saving."
@@ -3236,7 +3236,7 @@
   ,"rename": "Rename"
   ,"saving": "Saving…"
   ,"settings_interface": "Interface"
-  ,"settings_interface_desc": "Choose how Skeinix looks and formats information for you."
+  ,"settings_interface_desc": "Choose how Flowork looks and formats information for you."
   ,"share.role": "Access role"
   ,"skills.custom.unsaved_body": "Save this Skill draft before leaving, or discard your changes."
   ,"skills.detail.about": "About this Skill"
@@ -3369,4 +3369,16 @@
   ,"files.preview.loading": "Loading preview…"
   ,"files.preview.readFailed": "The file content could not be read."
   ,"files.preview.unavailable": "Preview is not available for this file type"
+  ,"composer.running_draft_placeholder": "The Agent is working. Draft your next message…"
+  ,"composer.connectRuntime": "Connect an account or API"
+  ,"composer.model.backToSources": "Back to model sources"
+  ,"api.error.invalidRequestOrigin": "This page address is not trusted by the server. Ask the administrator to configure its allowed origins, then retry."
+  ,"api.error.csrfValidationFailed": "Session verification failed. Keep a copy of your unsaved changes, then sign in again and retry."
+  ,"api.error.unexpected": "The request failed. Please try again."
+  ,"workflow.save.success": "Saved"
+  ,"workflow.save.failed": "Save failed: {{message}}"
+  ,"vfs.no_text_preview": "This file has no text preview."
+  ,"canvas.outputPreview.title": "Output preview"
+  ,"canvas.outputPreview.showMore": "Show more"
+  ,"canvas.template.previewError": "Preview could not be loaded. Collapse and reopen it to retry."
 }

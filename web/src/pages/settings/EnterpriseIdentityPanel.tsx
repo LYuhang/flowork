@@ -396,7 +396,7 @@ export function EnterpriseIdentityPanel({
               {t('organization.identity.tokenTitle', 'Save the SCIM token now')}
             </DialogTitle>
             <DialogDescription>
-              {t('organization.identity.tokenDescription', 'This token is shown once. Store it in the identity provider secret field; Skeinix keeps only its hash.')}
+              {t('organization.identity.tokenDescription', 'This token is shown once. Store it in the identity provider secret field; Flowork keeps only its hash.')}
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">

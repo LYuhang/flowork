@@ -609,6 +609,7 @@ function ChatDebugPanel({
     queryKey: ['chat-debug-snapshot', workspaceScopeId, latestPath],
     queryFn: async () => {
       const out = await readVfs({ wf_id: workspaceScopeId, path: latestPath as string });
+      if (typeof out.content !== 'string') return null;
       return JSON.parse(out.content) as DebugSnapshot;
     },
     enabled: !!workspaceScopeId && !!latestPath,

@@ -2,7 +2,7 @@
 
 `/diagram` creates and refines diagrams with the official draw.io MCP running
 inside the Chat sandbox. The result is a native draw.io file rather than a
-Skeinix-specific diagram schema, so the same workflow can cover flowcharts,
+Flowork-specific diagram schema, so the same workflow can cover flowcharts,
 UML, ER, BPMN, architecture and network diagrams, mind maps, timelines,
 wireframes, engineering stencils, and free-form canvases.
 
@@ -10,19 +10,19 @@ wireframes, engineering stencils, and free-form canvases.
 
 1. The Agent uses the official MCP tools to author draw.io XML, search the
    official shape libraries, manage pages, and apply draw.io routing.
-2. Skeinix adds a thin file boundary that validates and atomically saves the
+2. Flowork adds a thin file boundary that validates and atomically saves the
    result at `/data/diagrams/<name>.drawio`.
 3. The Agent uses the sandbox-local official draw.io Desktop CLI to export the
    current source to PNG, examines the actual pixels, and corrects material
-   visual defects when necessary. A thin Skeinix launcher provides a disposable
+   visual defects when necessary. A thin Flowork launcher provides a disposable
    headless display inside the sandbox; draw.io remains the renderer.
 4. The normal Sandbox-to-VFS lifecycle persists the accepted file and publishes it in
    the conversation.
 5. Preview sends the exact file to the official diagrams.net renderer, then
-   presents the returned SVG on a Skeinix-native pan-and-zoom canvas. The Agent
+   presents the returned SVG on a Flowork-native pan-and-zoom canvas. The Agent
    and user can inspect the rendered result and refine the source when needed.
 
-The `.drawio` file is the only editable source of truth. Skeinix does not keep
+The `.drawio` file is the only editable source of truth. Flowork does not keep
 a second semantic model, diagram revision table, operation log, renderer, or
 type-specific compiler.
 
@@ -34,7 +34,7 @@ made by the Agent against the native file in its sandbox. Multi-page files
 remain native and can be read or changed by the Agent with the official
 `list_pages`, `get_page`, and `set_page` MCP tools.
 
-Skeinix performs bounded XML safety and structural checks before publication.
+Flowork performs bounded XML safety and structural checks before publication.
 Those checks catch malformed XML, unsafe declarations, duplicate cell IDs, and
 dangling connector terminals; visual quality is still judged from the rendered
 diagram rather than inferred from XML validity. Agent feedback is generated

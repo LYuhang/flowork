@@ -1,6 +1,6 @@
 /**
  * Copyright (c) Microsoft Corporation.
- * Copyright (c) Skeinix contributors.
+ * Copyright (c) Flowork contributors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 
 /**
  * The data-plane half of Playwright's extension relay protocol v2, adapted to
- * Skeinix's authenticated WebSocket transport.
+ * Flowork's authenticated WebSocket transport.
  *
  * Upstream reference:
  *   microsoft/playwright packages/extension/src/relayConnection.ts
@@ -186,7 +186,7 @@ export class PlaywrightRelayExecutor {
   }
 
   /**
-   * Advertise only tabs already selected by Skeinix's browser-session control
+   * Advertise only tabs already selected by Flowork's browser-session control
    * plane. The Playwright relay responds by asking the extension to attach.
    */
   initialize(tabs: RelayTab[]): void {

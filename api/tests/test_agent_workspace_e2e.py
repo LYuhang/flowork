@@ -51,8 +51,8 @@ from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 gvisor = pytest.mark.skipif(
     not _gvisor_runnable(), reason="rootless gVisor not runnable here")
 external_network = pytest.mark.skipif(
-    os.environ.get("SKEINIX_TEST_NETWORK") != "1",
-    reason="set SKEINIX_TEST_NETWORK=1 to run external package-registry checks",
+    os.environ.get("FLOWORK_TEST_NETWORK") != "1",
+    reason="set FLOWORK_TEST_NETWORK=1 to run external package-registry checks",
 )
 
 # A small PURE-PYTHON package that is NOT in the host base image (we assert it

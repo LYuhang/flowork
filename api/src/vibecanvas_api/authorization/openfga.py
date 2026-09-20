@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
 
 class OpenFgaAuthzService:
-    """Translate stable Skeinix actions to one pinned OpenFGA model."""
+    """Translate stable Flowork actions to one pinned OpenFGA model."""
 
     def __init__(
         self,

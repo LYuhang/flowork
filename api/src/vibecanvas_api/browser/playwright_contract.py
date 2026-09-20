@@ -1,12 +1,12 @@
 """Model-facing contract for the official Playwright MCP integration.
 
 The upstream server intentionally exposes a broad automation and debugging
-surface.  Skeinix connects that server to a user's already-authenticated real
+surface.  Flowork connects that server to a user's already-authenticated real
 browser, so only the product-reviewed subset below may cross the Runtime
 boundary.  Both Runtime adapters import this module; filtering in only one
 adapter would make ``/browser`` behave differently between LangChain and Codex.
 
-Session leases, tenant scoping and the remote CDP relay are Skeinix control
+Session leases, tenant scoping and the remote CDP relay are Flowork control
 plane concerns.  They are deliberately not represented as a second set of
 Agent-callable browser tools.
 """
@@ -48,7 +48,7 @@ PLAYWRIGHT_AGENT_TOOL_SET = frozenset(PLAYWRIGHT_AGENT_TOOLS)
 
 # These tools are especially important to name in regression tests.  They are
 # exported by upstream's default ``core`` capability but are incompatible with
-# Skeinix's no-remote-code boundary.  Cookie/storage mutation and network route
+# Flowork's no-remote-code boundary.  Cookie/storage mutation and network route
 # interception are excluded by the allow-list as well.
 PLAYWRIGHT_FORBIDDEN_TOOLS = frozenset({
     "browser_evaluate",

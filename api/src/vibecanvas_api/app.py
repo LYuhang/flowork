@@ -386,9 +386,9 @@ def build_app() -> FastAPI:
     validate_production_security(app_config, cors_origins=cors_origins)
 
     app = FastAPI(
-        title="Skeinix API",
+        title="Flowork API",
         version=__version__,
-        description="HTTP API for Skeinix workflow editing and execution.",
+        description="HTTP API for Flowork workflow editing and execution.",
         lifespan=lifespan,
         docs_url=None if app_config.environment == "production" else "/docs",
         redoc_url=None if app_config.environment == "production" else "/redoc",

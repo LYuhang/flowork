@@ -5,7 +5,7 @@ Two surfaces:
   WS   /api/v1/browser/ws     — the tenant-scoped Playwright relay (one per browser)
 
 The WebSocket carries lifecycle events and authenticated Playwright CDP relay
-frames. The retired Skeinix command/observation protocol is intentionally not
+frames. The retired Flowork command/observation protocol is intentionally not
 accepted here.
 """
 
@@ -342,7 +342,7 @@ async def playwright_cdp(ws: WebSocket):
     The endpoint is not a public browser debug port. A turn-scoped Platform MCP
     capability identifies the user and Chat; the live database browser lease
     and connected extension are rechecked before the WebSocket is accepted.
-    Raw CDP frames are wrapped only while crossing the Skeinix extension WSS.
+    Raw CDP frames are wrapped only while crossing the Flowork extension WSS.
     """
 
     capability = verify_platform_mcp_capability(

@@ -77,7 +77,7 @@ case "$(dpkg --print-architecture)" in
 esac
 installed_drawio_version="$(dpkg-query -W -f='${Version}' draw.io 2>/dev/null || true)"
 if [[ "$installed_drawio_version" != "$DRAWIO_DESKTOP_VERSION" ]]; then
-  drawio_deb="$(mktemp /tmp/skeinix-drawio.XXXXXX.deb)"
+  drawio_deb="$(mktemp /tmp/flowork-drawio.XXXXXX.deb)"
   curl -fsSL --retry 3 -o "$drawio_deb" \
     "https://github.com/jgraph/drawio-desktop/releases/download/v${DRAWIO_DESKTOP_VERSION}/drawio-${drawio_arch}-${DRAWIO_DESKTOP_VERSION}.deb"
   echo "${drawio_sha256}  ${drawio_deb}" | sha256sum -c -
@@ -93,8 +93,8 @@ command -v drawio >/dev/null || {
 }
 sudo install -m 0755 \
   "$REPO_ROOT/api/drawio-runtime/export.sh" \
-  /usr/local/bin/skeinix-drawio-export
-command -v skeinix-drawio-export >/dev/null || {
+  /usr/local/bin/flowork-drawio-export
+command -v flowork-drawio-export >/dev/null || {
   echo "ERROR: draw.io feedback export wrapper was not installed" >&2
   exit 1
 }
@@ -144,19 +144,19 @@ fi
   echo "ERROR: expected codex-cli ${CODEX_CLI_VERSION}, got $(codex --version 2>/dev/null || echo missing)" >&2
   exit 1
 }
-if ! skeinix-playwright-mcp --version 2>/dev/null | grep -q "${PLAYWRIGHT_MCP_VERSION}"; then
+if ! flowork-playwright-mcp --version 2>/dev/null | grep -q "${PLAYWRIGHT_MCP_VERSION}"; then
   sudo npm install --global --ignore-scripts --no-audit --no-fund \
     "$REPO_ROOT/api/playwright-runtime"
 fi
-skeinix-playwright-mcp --version | grep -q "${PLAYWRIGHT_MCP_VERSION}" || {
+flowork-playwright-mcp --version | grep -q "${PLAYWRIGHT_MCP_VERSION}" || {
   echo "ERROR: expected Playwright MCP ${PLAYWRIGHT_MCP_VERSION}" >&2
   exit 1
 }
-if ! skeinix-diagram-mcp --version 2>/dev/null | grep -qx "1.5.0"; then
+if ! flowork-diagram-mcp --version 2>/dev/null | grep -qx "1.5.0"; then
   sudo npm install --global --ignore-scripts --no-audit --no-fund \
     "$REPO_ROOT/api/drawio-runtime"
 fi
-[[ "$(skeinix-diagram-mcp --version)" == "1.5.0" ]] || {
+[[ "$(flowork-diagram-mcp --version)" == "1.5.0" ]] || {
   echo "ERROR: expected official draw.io MCP 1.5.0" >&2
   exit 1
 }

@@ -2354,7 +2354,7 @@ async def post_message(
             "level": "info",
             "code": "browser_sidepanel_only",
             "message": (
-                "Browser mode is available only in the Skeinix extension side panel. "
+                "Browser mode is available only in the Flowork extension side panel. "
                 "Open the side panel, start or resume a conversation there, and use /browser."
             ),
             "turn_disposition": "cancel",

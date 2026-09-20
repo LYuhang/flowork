@@ -85,6 +85,7 @@ export const useRunNodeResult = (
         run_id: runId as string,
       });
       try {
+        if (typeof out.content !== 'string') return undefined;
         const parsed = JSON.parse(out.content) as Record<string, unknown>;
         return {
           inputs: parsed.inputs,
@@ -121,6 +122,7 @@ export const useRunWorkflowInputs = (
           path: '/run/__exec__/inputs.json',
           run_id: runId as string,
         });
+        if (typeof out.content !== 'string') return null;
         const parsed = JSON.parse(out.content) as unknown;
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           return null;

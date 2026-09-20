@@ -8,7 +8,7 @@ def _bsp(mode="chat"):
 def test_chat_mode_prompt_has_lightweight_planning_no_orchestrator():
     p = _bsp("chat")
     assert isinstance(p, str) and len(p) > 0
-    assert "You are the Skeinix assistant" in p
+    assert "You are the Flowork assistant" in p
     assert "## Conversation discipline" in p
     assert "## Platform message protocol" in p
     assert "ORCHESTRATOR" not in p

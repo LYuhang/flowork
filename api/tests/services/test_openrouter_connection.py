@@ -39,7 +39,7 @@ def _model(model_id: str = "openai/gpt-5") -> dict:
 def test_pkce_authorization_is_s256_and_contains_no_verifier() -> None:
     state, verifier, challenge = subject.new_pkce_material()
     url = subject.authorization_url(
-        callback=f"https://skeinix.example/settings/openrouter/callback/{state}",
+        callback=f"https://flowork.example/settings/openrouter/callback/{state}",
         challenge=challenge,
     )
     query = parse_qs(urlsplit(url).query)

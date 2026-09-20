@@ -1,18 +1,18 @@
 # Security and data lifecycle
 
-This document explains how Skeinix protects application data, where that data
+This document explains how Flowork protects application data, where that data
 is stored, and what happens when a user requests account deletion. It is
 intended for self-hosting administrators, security reviewers, and developers
-integrating Skeinix into a wider infrastructure environment.
+integrating Flowork into a wider infrastructure environment.
 
-Skeinix is alpha software. The controls described here are implemented in the
+Flowork is alpha software. The controls described here are implemented in the
 current repository, but a secure production deployment still depends on the
 operator-provided database, object storage, KMS, network, backup, audit, and
 monitoring configuration described in the [production deployment guide](../DEPLOY.md).
 
 ## Security model
 
-Skeinix separates platform management from Agent and Workflow execution. The
+Flowork separates platform management from Agent and Workflow execution. The
 control plane authenticates each request, resolves the active Organization, and
 checks access before reading data or performing an operation. Agent and
 Workflow code runs through `sandboxd` rather than inside the API process.
@@ -95,7 +95,7 @@ flowchart LR
     P -->|"A required phase fails"| F
 ```
 
-Once the request is accepted, Skeinix immediately:
+Once the request is accepted, Flowork immediately:
 
 1. changes the account status to `pending_deletion`;
 2. invalidates all Web sessions and rejects new login attempts;
@@ -157,7 +157,7 @@ due jobs from PostgreSQL.
 
 Account deletion does not delete business content owned by another
 Organization merely because the departing user created it. For non-personal
-Organizations, Skeinix:
+Organizations, Flowork:
 
 - removes the user's membership and other identity-scoped records;
 - removes the user's Chat runtime checkpoints and user-specific runtime files;
@@ -183,7 +183,7 @@ retaining the deleted identity.
 The database boundary is defined in the
 [account-erasure migration](../api/alembic/versions/120_account_erasure_policy.py).
 
-Backups are different from active application stores. Skeinix can delete active
+Backups are different from active application stores. Flowork can delete active
 database rows and objects, but it cannot selectively rewrite an immutable
 operator-managed backup. Self-hosters must therefore publish and enforce a
 backup-retention period, encrypt retained backups, restrict restore access, and
@@ -209,7 +209,7 @@ Production deployments must:
   consumes the `maintenance` queue;
 - provide working database, object-store, Valkey, OpenFGA, checkpoint, sandbox,
   and host-storage cleanup paths used by the deployment;
-- provision `public.skeinix_erase_changelog` in OpenFGA's PostgreSQL datastore
+- provision `public.flowork_erase_changelog` in OpenFGA's PostgreSQL datastore
   and set `OPENFGA_ERASURE_DATABASE_URL` to a role that can execute only that
   function. Docker Compose and the native launcher do this automatically;
 - set `BACKUP_ENCRYPTION_VERIFIED=true` only after encryption and restore tests

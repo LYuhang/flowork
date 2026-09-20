@@ -283,7 +283,7 @@ describe('CredentialsSettingsPanel', () => {
     renderPage('/settings/openrouter/callback/fixture-state?code=single-use-code');
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith(
-      'Skeinix could not reach OpenRouter. Check the deployment network or proxy, then start again.',
+      'Flowork could not reach OpenRouter. Check the deployment network or proxy, then start again.',
     ));
     await waitFor(() => expect(screen.getByTestId('location-probe')).toHaveTextContent(
       '/settings?tab=api-keys',
@@ -297,7 +297,7 @@ describe('CredentialsSettingsPanel', () => {
     expect(within(header).getByRole('heading', { name: 'API credentials' })).toBeInTheDocument();
     expect(within(header).getByRole('button', { name: 'Add key' })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Connect OpenRouter' })).toBeInTheDocument();
-    expect(screen.getByText(/does not sign you in to Skeinix/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not sign you in to Flowork/i)).toBeInTheDocument();
   });
 
   it('renders a permanently masked write-only credential row', async () => {
@@ -337,7 +337,7 @@ describe('CredentialsSettingsPanel', () => {
     expect(screen.getByText('上下文长度')).toBeInTheDocument();
     expect(screen.getByText('已保存 · 只写')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '连接 OpenRouter' })).toBeInTheDocument();
-    expect(screen.getByText(/不会用于登录 Skeinix/)).toBeInTheDocument();
+    expect(screen.getByText(/不会用于登录 Flowork/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '测试连接' }));
     await waitFor(() => expect(screen.getByText(/连接成功/)).toHaveTextContent('连接成功 · 42 ms'));

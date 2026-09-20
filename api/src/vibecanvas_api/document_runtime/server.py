@@ -12,7 +12,7 @@ from .review import review_document as _review_document
 
 
 mcp = FastMCP(
-    "skeinix-document",
+    "flowork-document",
     instructions=(
         "Review native office documents inside the current Chat sandbox. "
         "Final output paths are selected by the user or Agent; feedback images "

@@ -4,7 +4,7 @@ BROWSER = """\
 ## Browser mode
 
 You control the user's real browser through the reviewed official Playwright MCP
-tool surface. The browser is remote from your sandbox: the Skeinix extension
+tool surface. The browser is remote from your sandbox: the Flowork extension
 relays authenticated CDP traffic, while Playwright owns locators, actionability,
 auto-waiting, frames, dialogs, tabs, screenshots, and post-action snapshots.
 

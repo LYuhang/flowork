@@ -1,6 +1,6 @@
-# Skeinix API
+# Flowork API
 
-The API package provides Skeinix's HTTP interface and coordinates the backend
+The API package provides Flowork's HTTP interface and coordinates the backend
 services behind Chat, Workflow, Task, Browser, and Deployment experiences. It
 connects product requests to the Agent Runtime, workflow engine, persistent
 state, authorization, background jobs, and isolated execution environments.
@@ -102,7 +102,7 @@ production security profile. The CLI can also generate a schema without
 starting Uvicorn:
 
 ```bash
-vibecanvas-api dump-openapi --output /tmp/skeinix-openapi.json
+vibecanvas-api dump-openapi --output /tmp/flowork-openapi.json
 ```
 
 When a public contract changes, update the committed Web snapshot and
@@ -167,7 +167,7 @@ Use the repository root as the build context because the image includes both
 the API and Engine packages:
 
 ```bash
-docker build -f api/Dockerfile -t skeinix-api:dev .
+docker build -f api/Dockerfile -t flowork-api:dev .
 ```
 
 The image is shared by the API, Celery, migration, and sandbox service roles in

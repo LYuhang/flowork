@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 LAUNCHER="$REPO_ROOT/scripts/deploy/local_server.sh"
-TEMPORARY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/skeinix-local-config-test.XXXXXX")"
+TEMPORARY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/flowork-local-config-test.XXXXXX")"
 
 cleanup() {
   rm -rf -- "$TEMPORARY_DIRECTORY"
@@ -30,15 +30,15 @@ assert_value() {
 
 https_env="$TEMPORARY_DIRECTORY/https.env"
 VIBECANVAS_ENV_FILE="$https_env" "$LAUNCHER" init \
-  --public-url https://skeinix.example.com/workspace/ \
+  --public-url https://flowork.example.com/workspace/ \
   --bind-address 10.0.0.4 >/dev/null
 assert_value "$https_env" VIBECANVAS_BIND_ADDRESS 10.0.0.4
 assert_value "$https_env" VIBECANVAS_INTERNAL_BIND_ADDRESS 127.0.0.1
-assert_value "$https_env" VIBECANVAS_PUBLIC_URL https://skeinix.example.com/workspace
-assert_value "$https_env" WEB_ALLOWED_HOSTS skeinix.example.com
-assert_value "$https_env" VIBECANVAS_API_CORS_ORIGINS https://skeinix.example.com
-assert_value "$https_env" VIBECANVAS_EXTENSION_WEB_BASE https://skeinix.example.com/workspace
-assert_value "$https_env" VIBECANVAS_EXTENSION_ALLOWED_ORIGINS https://skeinix.example.com/workspace
+assert_value "$https_env" VIBECANVAS_PUBLIC_URL https://flowork.example.com/workspace
+assert_value "$https_env" WEB_ALLOWED_HOSTS flowork.example.com
+assert_value "$https_env" VIBECANVAS_API_CORS_ORIGINS https://flowork.example.com
+assert_value "$https_env" VIBECANVAS_EXTENSION_WEB_BASE https://flowork.example.com/workspace
+assert_value "$https_env" VIBECANVAS_EXTENSION_ALLOWED_ORIGINS https://flowork.example.com/workspace
 assert_value "$https_env" WEB_SESSION_COOKIE_SECURE true
 [[ "$(stat -c '%a' "$https_env")" == "600" ]]
 

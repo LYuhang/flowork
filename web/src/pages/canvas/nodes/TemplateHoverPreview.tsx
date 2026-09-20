@@ -67,8 +67,8 @@ export function TemplateHoverPreview({
   const state = result?.key === key ? result.state : 'loading';
   if (state === 'error') {
     return (
-      <p data-hover-template-error className="mt-1.5 line-clamp-2 break-all text-xs text-state-success">
-        ✓ {t('canvas.exec.completed', 'Completed')}
+      <p data-hover-template-error role="alert" className="mt-1.5 text-xs leading-5 text-state-danger">
+        {t('canvas.template.previewError', 'Preview could not be loaded. Collapse and reopen it to retry.')}
       </p>
     );
   }

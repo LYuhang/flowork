@@ -2,12 +2,12 @@
 
 Run on a Linux host prepared for rootful gVisor:
 
-    sudo -E SKEINIX_RUN_ROOTFUL_GVISOR_BENCHMARK=1 \
+    sudo -E FLOWORK_RUN_ROOTFUL_GVISOR_BENCHMARK=1 \
       pytest -q -s api/tests/integration/test_chat_sandbox_startup_benchmark.py
 
 The default run records measurements without enforcing hardware-specific SLOs.
-Set SKEINIX_CHAT_SANDBOX_COLD_SLO_S and/or
-SKEINIX_CHAT_SANDBOX_RESTORE_SLO_S to turn them into deployment gates.
+Set FLOWORK_CHAT_SANDBOX_COLD_SLO_S and/or
+FLOWORK_CHAT_SANDBOX_RESTORE_SLO_S to turn them into deployment gates.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from vibecanvas_api.services.sandbox.warm import WarmGvisorPool
 
 
 _RUNSC = config.runsc_path or shutil.which("runsc")
-_ENABLED = os.environ.get("SKEINIX_RUN_ROOTFUL_GVISOR_BENCHMARK") == "1"
+_ENABLED = os.environ.get("FLOWORK_RUN_ROOTFUL_GVISOR_BENCHMARK") == "1"
 
 pytestmark = [
     pytest.mark.gvisor,
@@ -165,10 +165,10 @@ async def test_new_chat_mount_ready_first_tool_and_snapshot_restore(
         }
         artifact = tmp_path / "chat-sandbox-startup.json"
         artifact.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
-        print("SKEINIX_CHAT_SANDBOX_BENCHMARK=" + json.dumps(metrics, sort_keys=True))
+        print("FLOWORK_CHAT_SANDBOX_BENCHMARK=" + json.dumps(metrics, sort_keys=True))
 
-        cold_slo = os.environ.get("SKEINIX_CHAT_SANDBOX_COLD_SLO_S")
-        restore_slo = os.environ.get("SKEINIX_CHAT_SANDBOX_RESTORE_SLO_S")
+        cold_slo = os.environ.get("FLOWORK_CHAT_SANDBOX_COLD_SLO_S")
+        restore_slo = os.environ.get("FLOWORK_CHAT_SANDBOX_RESTORE_SLO_S")
         if cold_slo:
             assert metrics["new_chat_to_first_tool_s"] <= float(cold_slo)
         if restore_slo:

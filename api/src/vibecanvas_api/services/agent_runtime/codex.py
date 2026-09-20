@@ -58,7 +58,7 @@ _MISSING_ROLLOUT_MESSAGE = re.compile(
     r"no rollout found for thread id \S+",
     flags=re.IGNORECASE,
 )
-_HISTORY_COVERAGE_FILENAME = ".skeinix-native-history-coverage.json"
+_HISTORY_COVERAGE_FILENAME = ".flowork-native-history-coverage.json"
 _MAX_HISTORY_COVERAGE_BYTES = 64 * 1024
 _MAX_TRACKED_NATIVE_THREADS = 64
 # Some OpenAI-compatible Responses providers can emit an assistant message and
@@ -206,7 +206,7 @@ _CODEX_APPROVAL_SERVER_REQUESTS = frozenset({
     "item/fileChange/requestApproval",
     "item/permissions/requestApproval",
 })
-# These requests belong to capabilities Skeinix does not advertise or to
+# These requests belong to capabilities Flowork does not advertise or to
 # legacy APIs superseded by the Turn-scoped methods above. They receive an
 # immediate bounded JSON-RPC error, never a silent wait.
 _CODEX_REJECTED_SERVER_REQUESTS = frozenset({
@@ -535,7 +535,7 @@ def _broker_model_config(request: RuntimeTurnRequest) -> tuple[str, dict[str, An
         "model_catalog_json": _broker_model_catalog_path(request),
         "model_providers": {
             _BROKER_PROVIDER_ID: {
-                "name": "Skeinix Runtime Model Broker",
+                "name": "Flowork Runtime Model Broker",
                 "base_url": base_url.rstrip("/"),
                 "wire_api": "responses",
                 # Newer Codex releases flatten namespace tools natively for
@@ -2289,7 +2289,7 @@ async def run_codex_turn(
             raise RuntimeError("Codex MCP Hub exposed no loopback URL")
         mcp_config = {
             "mcp_servers": {
-                "skeinix": {
+                "flowork": {
                     "url": active_hub_gateway.url,
                     "required": True,
                     "default_tools_approval_mode": "approve",
@@ -2785,7 +2785,7 @@ async def run_codex_turn(
                 await client.respond_error(
                     native_request_id,
                     code=-32601,
-                    message="This Codex request is not supported by Skeinix yet.",
+                    message="This Codex request is not supported by Flowork yet.",
                 )
                 await emit(
                     "projection",

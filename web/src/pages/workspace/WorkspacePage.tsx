@@ -52,7 +52,6 @@ import { DuplicateWorkflowDialog } from '@/pages/workspace/DuplicateWorkflowDial
 import { WorkflowPagination } from '@/pages/workspace/WorkflowPagination';
 import { ManagementPageShell, ManagementToolbar } from '@/components/layout/management-page-shell';
 import { ActionableError } from '@/components/presentation/ActionableError';
-import { CompactEmptyState } from '@/components/presentation/CompactEmptyState';
 import { SharedResourceList } from '@/components/resources/SharedResourceList';
 import {
   ResourceScopeSwitch,
@@ -306,13 +305,6 @@ export function WorkspacePage() {
             technicalDetails={workspace.error instanceof Error ? workspace.error.message : String(workspace.error)}
             technicalDetailsLabel={t('common.technicalDetails', 'Technical details')}
           />
-        ) : items.length === 0 ? (
-          <CompactEmptyState
-            title={t('no_workflow.title', 'No workflows yet')}
-            description={t('no_workflow', 'Create a workflow to turn a repeatable process into an executable graph.')}
-            actionLabel={t('new_workflow', 'New Workflow')}
-            onAction={() => setCreateOpen(true)}
-          />
         ) : (
           // Bounded column: toolbar + pagination stay pinned; only the table
           // region (flex-1) scrolls when the viewport is short.
@@ -323,6 +315,7 @@ export function WorkspacePage() {
                 <Input
                   data-testid="wf-search"
                   className="pl-8"
+                  aria-label={t('search_workflows', 'Search by name, ID, or description…')}
                   placeholder={t(
                     'search_workflows',
                     'Search by name, ID, or description…',
@@ -441,9 +434,11 @@ export function WorkspacePage() {
                       <td
                         colSpan={5}
                         className="px-4 py-10 text-center text-muted-foreground"
-                        data-testid="wf-no-match"
+                        data-testid={filtersActive ? 'wf-no-match' : 'wf-empty'}
                       >
-                        {t('no_match', 'No results found')}
+                        {filtersActive
+                          ? t('no_match', 'No results found')
+                          : t('no_workflow', 'No workflows yet. Click "New Workflow" to create one.')}
                       </td>
                     </tr>
                   ) : (

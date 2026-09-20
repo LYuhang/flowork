@@ -1,11 +1,11 @@
 {
-  "name": "skeinix-playwright-mcp-runtime",
+  "name": "flowork-playwright-mcp-runtime",
   "version": "0.3.0",
   "private": true,
-  "description": "Pinned official Playwright MCP launcher for Skeinix remote browser sessions.",
+  "description": "Pinned official Playwright MCP launcher for Flowork remote browser sessions.",
   "license": "Apache-2.0",
   "bin": {
-    "skeinix-playwright-mcp": "launch.cjs"
+    "flowork-playwright-mcp": "launch.cjs"
   },
   "dependencies": {
     "@playwright/mcp": "0.0.79"

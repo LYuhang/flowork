@@ -28,6 +28,9 @@ import { act } from 'react';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import i18n from 'i18next';
 import en from '@/lib/i18n/locales/en.json';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { NODE_LABELS } from '../NODE_TYPES';
 
 // NOTE: this @xyflow/react mock is byte-identical to the one in
 // canvas-feedback.test.tsx. Under vitest `isolate:false` sibling files share
@@ -91,6 +94,32 @@ function renderNode(data: Record<string, unknown>, id = 'node_1') {
     </I18nextProvider>,
   );
 }
+
+describe('CustomNode — output preview wiring for every node type', () => {
+  beforeEach(() => useExecStreamStore.getState().reset());
+
+  it.each(Object.keys(NODE_LABELS))('attaches a same-width output area to %s', (nodeType) => {
+    const client = new QueryClient();
+    client.setQueryData(['vfs', 'run-node-result', 'wf-preview', 'node_1'], {
+      status: 'completed', output: { message: 'Preview wired' },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={testI18n}>
+          <MemoryRouter initialEntries={['/workflow/wf-preview']}>
+            <Routes><Route path="/workflow/:wfId" element={<Node data={{ node_type: nodeType, node_name: 'test' }} id="node_1" />} /></Routes>
+          </MemoryRouter>
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+    const card = document.querySelector(`[aria-label="${nodeType} test"]`)!;
+    const preview = document.querySelector('[data-node-output-preview="node_1"]')!;
+    expect(card).toHaveClass('w-56');
+    expect(preview).toHaveClass('w-56');
+    expect(preview).toHaveTextContent('Preview wired');
+    expect(preview.querySelector('[data-handle]')).toBeNull();
+  });
+});
 
 describe('CustomNode — warning badge', () => {
   it('shows the ⚠ badge when __warnings__ is non-empty', () => {

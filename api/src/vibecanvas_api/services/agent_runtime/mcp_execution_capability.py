@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 
 _AUDIENCE = "sandbox-mcp-host-gateway"
-_DOMAIN = b"skeinix:sandbox-mcp-execution:v1\0"
+_DOMAIN = b"flowork:sandbox-mcp-execution:v1\0"
 _MAX_TOKEN_BYTES = 16 * 1024
 
 

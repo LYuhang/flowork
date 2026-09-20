@@ -30,7 +30,7 @@ interface IslandState {
 
 type Lang = "zh" | "en";
 
-const HOST_ID = "skeinix-island-host";
+const HOST_ID = "flowork-island-host";
 
 const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   navigate: { zh: "打开网页", en: "Open page" },
@@ -307,7 +307,7 @@ try {
     if (value?.type === "PAGE_NARRATE") island.narrate(value.text ?? "");
     if (value?.type === "PAGE_HIGHLIGHT") island.highlight(value.selector ?? "", value.label ?? "");
     if (value?.type === "REQUEST_AUTH_SYNC") {
-      document.dispatchEvent(new CustomEvent("skeinix:extension-auth-refresh"));
+      document.dispatchEvent(new CustomEvent("flowork:extension-auth-refresh"));
     }
     return false;
   });

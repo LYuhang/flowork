@@ -1,4 +1,4 @@
-"""Host-side adapters for Agent Runtimes running in a sandbox."""
+"""Host transport shared by sandboxed Agent Runtime adapters."""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ from vibecanvas_api.services.agent_runtime.protocol import (
 
 
 class SandboxProcessRuntime:
-    """Translate the stable Runtime interface to a ``SandboxSession`` stream.
+    """Translate the stable Runtime interface to a sandbox session stream.
 
-    SDK-specific translation lives inside the sandbox.  The host transport is
-    deliberately identical for LangChain and Codex.
+    Runtime SDKs and their dependencies live in the sandbox image. The host
+    API sees only this protocol and never imports a vendor SDK.
     """
 
     def __init__(self, sandbox_session) -> None:
@@ -62,5 +62,4 @@ class SandboxProcessRuntime:
         self._session = None
 
 
-class LangChainSandboxRuntime(SandboxProcessRuntime):
-    """LangChain marker used by the backend Runtime registry."""
+__all__ = ["SandboxProcessRuntime"]

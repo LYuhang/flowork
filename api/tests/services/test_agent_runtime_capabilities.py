@@ -7,12 +7,9 @@ from vibecanvas_api.services.agent_runtime import capabilities as capabilities_m
 from vibecanvas_api.services.agent_runtime.capabilities import (
     CODEX_CREDENTIAL_PREFIX,
     CODEX_OPENROUTER_PREFIX,
-    LANGCHAIN_CREDENTIAL_PREFIX,
     codex_openrouter_model,
     codex_capabilities,
     codex_credential_id,
-    langchain_capabilities,
-    langchain_credential_id,
     runtime_model_connection_id,
     validate_model_effort,
 )
@@ -51,63 +48,6 @@ class _ConnectedCodexAccount:
         ]
 
 
-def test_langchain_catalog_uses_opaque_selection_ids_and_model_scoped_efforts(
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        capabilities_module.config.agent, "model", "openai:gpt-platform"
-    )
-    monkeypatch.setattr(capabilities_module.config.agent, "api_key", "platform-secret")
-    credential_id = uuid.uuid4()
-    capabilities = langchain_capabilities([{
-        "id": credential_id,
-        "name": "Team reasoning model",
-        "provider": "openai",
-        "model_name": "gpt-team",
-    }])
-
-    selected = capabilities.models[1]
-    assert selected.id == f"{LANGCHAIN_CREDENTIAL_PREFIX}{credential_id}"
-    assert selected.description == "openai · gpt-team"
-    assert [option.id for option in selected.supported_reasoning_efforts] == [
-        "minimal", "low", "medium", "high", "xhigh",
-    ]
-    assert langchain_credential_id(selected.id) == credential_id
-
-
-def test_langchain_catalog_does_not_invent_a_default_api(monkeypatch):
-    monkeypatch.setattr(capabilities_module.config.agent, "model", "")
-    monkeypatch.setattr(capabilities_module.config.agent, "api_key", "")
-
-    capabilities = langchain_capabilities([])
-
-    assert capabilities.runtime_available is True
-    assert capabilities.authenticated is False
-    assert capabilities.models == []
-    assert capabilities.default_model_id is None
-    assert capabilities.error_code == "langchain_model_unavailable"
-
-
-def test_langchain_catalog_selects_the_real_user_api_without_a_synthetic_default(
-    monkeypatch,
-):
-    monkeypatch.setattr(capabilities_module.config.agent, "model", "")
-    monkeypatch.setattr(capabilities_module.config.agent, "api_key", "")
-    credential_id = uuid.uuid4()
-
-    capabilities = langchain_capabilities([{
-        "id": credential_id,
-        "name": "My explicit API",
-        "provider": "openai",
-        "model_name": "gpt-explicit",
-    }])
-
-    expected = f"{LANGCHAIN_CREDENTIAL_PREFIX}{credential_id}"
-    assert [model.id for model in capabilities.models] == [expected]
-    assert capabilities.default_model_id == expected
-    assert langchain_credential_id(capabilities.default_model_id) == credential_id
-
-
 def test_runtime_defined_effort_names_are_not_platform_enums():
     capabilities = RuntimeCapabilities(
         runtime_type=RuntimeType.CODEX,
@@ -136,18 +76,11 @@ def test_runtime_defined_effort_names_are_not_platform_enums():
 
 def test_runtime_api_registry_separates_source_provider_and_protocol():
     assert API_SOURCE_REGISTRY["openrouter_oauth"].authentication == "oauth_pkce"
-    langchain = compatible_api(
-        RuntimeType.LANGCHAIN,
-        api_source="openrouter_oauth",
-        provider="openrouter",
-    )
     codex = compatible_api(
         RuntimeType.CODEX,
         api_source="openrouter_oauth",
         provider="openrouter",
     )
-    assert langchain is not None
-    assert langchain.api_protocol == "openai_compatible"
     assert codex is not None
     assert codex.api_protocol == "openai_responses"
     assert compatible_api(
@@ -159,14 +92,6 @@ def test_runtime_api_registry_separates_source_provider_and_protocol():
 
 def test_runtime_connection_ids_preserve_the_exact_non_secret_source():
     credential_id = "11111111-1111-4111-8111-111111111111"
-    assert runtime_model_connection_id(
-        RuntimeType.LANGCHAIN,
-        f"langchain:credential:{credential_id}",
-    ) == f"langchain:credential:{credential_id}"
-    assert runtime_model_connection_id(
-        RuntimeType.LANGCHAIN,
-        f"langchain:openrouter:{credential_id}:encoded-model",
-    ) == f"langchain:openrouter:{credential_id}"
     assert runtime_model_connection_id(
         RuntimeType.CODEX,
         f"codex:openrouter:{credential_id}:encoded-model",
@@ -232,8 +157,8 @@ async def test_codex_catalog_uses_only_responses_compatible_host_broker_models(
         "resolve_codex_executable",
         lambda: "/opt/codex/bin/codex",
     )
-    # LangChain may still have a deployment-level fallback; Codex must never
-    # inherit it as an implicit API connection.
+    # Codex must never inherit a deployment-level model as an implicit API
+    # connection.
     monkeypatch.setattr(
         capabilities_module.config.agent, "model", "openai:gpt-platform"
     )
@@ -303,7 +228,7 @@ async def test_codex_catalog_prefers_connected_account_over_api_models(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_runtime_catalogs_filter_shared_credentials_by_compatibility(monkeypatch):
+async def test_codex_catalog_filters_shared_credentials_by_compatibility(monkeypatch):
     openai_id = uuid.uuid4()
     anthropic_id = uuid.uuid4()
     rows = [
@@ -311,7 +236,7 @@ async def test_runtime_catalogs_filter_shared_credentials_by_compatibility(monke
             "id": openai_id,
             "name": "Shared OpenAI API",
             "provider": "openai",
-            "runtime_scope": "langchain",
+            "runtime_scope": "codex",
             "model_name": "gpt-shared",
         },
         {
@@ -330,13 +255,7 @@ async def test_runtime_catalogs_filter_shared_credentials_by_compatibility(monke
         lambda: "/opt/codex/bin/codex",
     )
 
-    langchain = langchain_capabilities(rows)
     codex = await codex_capabilities(rows, auth_methods=["personal_api"])
-
-    assert [model.id for model in langchain.models] == [
-        f"{LANGCHAIN_CREDENTIAL_PREFIX}{openai_id}",
-        f"{LANGCHAIN_CREDENTIAL_PREFIX}{anthropic_id}",
-    ]
     assert [model.id for model in codex.models] == [
         f"{CODEX_CREDENTIAL_PREFIX}{openai_id}",
     ]

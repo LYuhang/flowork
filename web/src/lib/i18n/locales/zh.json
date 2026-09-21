@@ -2482,7 +2482,7 @@
   ,"agent.startup.initializing_runtime": "正在启动智能体运行时"
   ,"agent.startup.connecting_model": "正在连接模型"
   ,"chat.debug.codex_summary": "{{count}} 个输入条目 · {{outputCount}} 个本轮输出"
-  ,"chat.debug.langchain_summary": "{{count}} 条输入消息 · {{tokens}} tokens · {{outputCount}} 个本轮输出"
+  ,"chat.debug.runtime_summary": "{{count}} 条输入消息 · {{tokens}} tokens · {{outputCount}} 个本轮输出"
   ,"chat.debug.snapshot_truncated": "该智能体运行时快照过大，已为浏览器安全展示进行截断。"
   ,"chat.debug.codex_history_incomplete": "Codex 对部分原生线程历史返回了摘要视图。"
   ,"chat.debug.turnOutputBadge": "本轮输出"

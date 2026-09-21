@@ -189,7 +189,7 @@ uv pip install --python .venv/bin/python --require-hashes \
 uv pip install --python .venv/bin/python --no-build-isolation --no-deps \
   --editable ./engine --editable ./api
 .venv/bin/python -c \
-  'import fastapi, jsonlines, langgraph, matplotlib, networkx, numpy, pandas, psycopg, seaborn, sqlalchemy, tabulate, vibecanvas_api, vibecanvas_engine; print("Python environment: ok")'
+  'import fastapi, jsonlines, matplotlib, networkx, numpy, pandas, psycopg, seaborn, sqlalchemy, tabulate, vibecanvas_api, vibecanvas_engine; print("Python environment: ok")'
 
 echo "[6/7] Installing Web and extension packages"
 pnpm --dir web install --frozen-lockfile
@@ -210,7 +210,7 @@ WEB_ALLOWED_HOSTS="localhost,127.0.0.1,::1"
 VIBECANVAS_API_CORS_ORIGINS="http://localhost:9001,http://127.0.0.1:9001,http://[::1]:9001"
 ENABLE_TEST_USER=false
 ENTERPRISE_SSO_ENABLED=false
-AGENT_RUNTIME_TYPES="langchain,codex"
+AGENT_RUNTIME_TYPES="codex"
 CODEX_RUNTIME_AUTH_METHODS="chatgpt,managed_api,personal_api"
 CODEX_MANAGED_APIS_JSON='[]'
 EOF

@@ -1,6 +1,6 @@
 """Project Codex native thread state into the Runtime-neutral debug schema.
 
-LangChain can expose the exact message list passed to its model call. Codex
+Some runtimes expose the exact message list passed to their model call. Codex
 owns context assembly inside app-server, so its closest honest boundary is the
 native Thread projection returned by ``thread/resume`` plus the input about to
 be sent to ``turn/start``. Both use the same outer snapshot contract so the

@@ -4189,7 +4189,7 @@ export interface paths {
         get?: never;
         /**
          * Update User Timezone
-         * @description Persist the account timezone used by new LangChain conversations.
+         * @description Persist the account timezone used by new conversations.
          */
         put: operations["update_user_timezone_api_v1_agent_runtime_settings_timezone_put"];
         post?: never;
@@ -4502,14 +4502,25 @@ export interface components {
             /** Pending Hitl */
             pending_hitl?: components["schemas"]["HitlRequestOut"][];
         };
+        /** AgentRuntimeOptionOut */
+        AgentRuntimeOptionOut: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+        };
         /** AgentRuntimeSettingsOut */
         AgentRuntimeSettingsOut: {
             /**
              * Default Runtime Type
-             * @default langchain
-             * @enum {string}
+             * @default codex
              */
-            default_runtime_type: "langchain" | "codex";
+            default_runtime_type: string;
             /** Codex Managed Profile Id */
             codex_managed_profile_id?: string | null;
             /** Preferred Timezone */
@@ -4521,15 +4532,14 @@ export interface components {
             /** Codex Auth Methods */
             codex_auth_methods?: string[];
             /** Available Runtime Types */
-            available_runtime_types?: ("langchain" | "codex")[];
+            available_runtime_types?: string[];
+            /** Runtime Options */
+            runtime_options?: components["schemas"]["AgentRuntimeOptionOut"][];
         };
         /** AgentRuntimeSettingsUpdate */
         AgentRuntimeSettingsUpdate: {
-            /**
-             * Default Runtime Type
-             * @enum {string}
-             */
-            default_runtime_type: "langchain" | "codex";
+            /** Default Runtime Type */
+            default_runtime_type: string;
         };
         /**
          * AgentSettings
@@ -4622,11 +4632,8 @@ export interface components {
             chat_id: string;
             /** Parent Run Id */
             parent_run_id?: string | null;
-            /**
-             * Runtime Type
-             * @enum {string}
-             */
-            runtime_type: "langchain" | "codex";
+            /** Runtime Type */
+            runtime_type: string;
             /** Executor Type */
             executor_type: string;
             /** Tool Name */
@@ -4864,7 +4871,7 @@ export interface components {
              */
             surface: "chat" | "browser";
             /** Runtime Type */
-            runtime_type?: ("langchain" | "codex") | null;
+            runtime_type?: string | null;
             /**
              * Browser Control Status
              * @default inactive
@@ -4908,7 +4915,7 @@ export interface components {
              */
             browser_control_status: "inactive" | "attaching" | "attached" | "lost";
             /** Runtime Type */
-            runtime_type?: ("langchain" | "codex") | null;
+            runtime_type?: string | null;
             access?: components["schemas"]["ResourceAccessOut"] | null;
         };
         /** ChatRenameBody */
@@ -4919,7 +4926,7 @@ export interface components {
         /** ChatRuntimeBindingOut */
         ChatRuntimeBindingOut: {
             /** Runtime Type */
-            runtime_type?: ("langchain" | "codex") | null;
+            runtime_type?: string | null;
             /**
              * Runtime Version
              * @default 1
@@ -5208,10 +5215,9 @@ export interface components {
             provider: string;
             /**
              * Runtime Scope
-             * @default langchain
-             * @enum {string}
+             * @default codex
              */
-            runtime_scope: "langchain" | "codex";
+            runtime_scope: string;
             /** Model Name */
             model_name: string;
             /** Model Context Tokens */
@@ -5244,11 +5250,8 @@ export interface components {
              * @enum {string}
              */
             connection_kind: "manual" | "openrouter_oauth";
-            /**
-             * Runtime Scope
-             * @enum {string}
-             */
-            runtime_scope: "langchain" | "codex";
+            /** Runtime Scope */
+            runtime_scope: string;
             /** Model Name */
             model_name: string;
             /** Model Context Tokens */
@@ -5290,11 +5293,8 @@ export interface components {
              * @enum {string}
              */
             connection_kind: "manual" | "openrouter_oauth";
-            /**
-             * Runtime Scope
-             * @enum {string}
-             */
-            runtime_scope: "langchain" | "codex";
+            /** Runtime Scope */
+            runtime_scope: string;
             /** Model Context Tokens */
             model_context_tokens?: number | null;
             /**
@@ -5335,7 +5335,7 @@ export interface components {
             /** Provider */
             provider?: string | null;
             /** Runtime Scope */
-            runtime_scope?: ("langchain" | "codex") | null;
+            runtime_scope?: string | null;
             /** Model Name */
             model_name?: string | null;
             /** Model Context Tokens */
@@ -6883,7 +6883,7 @@ export interface components {
          * @description One model choice in runtime-defined display order.
          *
          *     ``id`` is the stable value sent back on a Turn. It may be an account model
-         *     slug (Codex) or an opaque platform selection id (LangChain credential).
+         *     slug or an opaque platform selection id.
          */
         RuntimeModelOption: {
             /** Id */
@@ -6951,7 +6951,7 @@ export interface components {
          * RuntimeType
          * @enum {string}
          */
-        RuntimeType: "langchain" | "codex";
+        RuntimeType: "codex";
         /** ScheduledRunCreateBody */
         ScheduledRunCreateBody: {
             /** Name */

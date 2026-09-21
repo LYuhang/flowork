@@ -275,8 +275,8 @@ the model and thinking level only within that connection.
 OpenRouter uses `VIBECANVAS_PUBLIC_URL` as its fixed OAuth callback origin, so
 that value must match the address users open in the browser. A connected
 OpenRouter account supplies its compatible text and tool-calling models to both
-enabled Runtimes: LangChain uses its OpenAI-compatible transport, while Codex
-uses the Responses API through Flowork's host-side model broker. The catalog can
+enabled Runtimes. Codex uses the Responses API through Flowork's host-side
+model broker. The catalog can
 be refreshed from Settings without changing existing Chat history. Model
 catalog visibility does not imply invocation entitlement: account credits,
 free-model daily quotas, and provider availability are enforced by OpenRouter

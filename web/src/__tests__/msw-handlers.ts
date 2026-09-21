@@ -74,7 +74,7 @@ export const handlers = [
   http.get('*/api/v1/agent-runtime/capabilities', () =>
     HttpResponse.json({
       protocol_version: 2,
-      runtime_type: 'langchain',
+      runtime_type: 'codex',
       runtime_available: true,
       authenticated: null,
       source: 'test-default',

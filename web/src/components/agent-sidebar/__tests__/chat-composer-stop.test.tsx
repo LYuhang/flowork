@@ -81,11 +81,11 @@ describe('ChatComposer Stop', () => {
   });
 
   it('shows and stores the concrete API selection instead of a synthetic Default', async () => {
-    const modelId = 'langchain:credential:11111111-1111-4111-8111-111111111111';
+    const modelId = 'codex:credential:11111111-1111-4111-8111-111111111111';
     server.use(
       http.get('*/api/v1/agent-runtime/capabilities', () => HttpResponse.json({
         protocol_version: 2,
-        runtime_type: 'langchain',
+        runtime_type: 'codex',
         runtime_available: true,
         authenticated: true,
         source: 'test-explicit-api',
@@ -457,13 +457,13 @@ describe('ChatComposer Stop', () => {
   });
 
   it('preserves an unavailable explicit API instead of switching to another one', async () => {
-    const unavailableId = 'langchain:credential:22222222-2222-4222-8222-222222222222';
-    const otherId = 'langchain:credential:33333333-3333-4333-8333-333333333333';
+    const unavailableId = 'codex:credential:22222222-2222-4222-8222-222222222222';
+    const otherId = 'codex:credential:33333333-3333-4333-8333-333333333333';
     useAgentSettingsStore.getState().set({ modelId: unavailableId });
     server.use(
       http.get('*/api/v1/agent-runtime/capabilities', () => HttpResponse.json({
         protocol_version: 2,
-        runtime_type: 'langchain',
+        runtime_type: 'codex',
         runtime_available: true,
         authenticated: true,
         source: 'test-explicit-api',
@@ -495,8 +495,8 @@ describe('ChatComposer Stop', () => {
   });
 
   it('clears a model selection inherited from a different Runtime for a new draft', async () => {
-    const langChainModelId = 'langchain:credential:44444444-4444-4444-8444-444444444444';
-    useAgentSettingsStore.getState().set({ modelId: langChainModelId });
+    const removedRuntimeModelId = 'removed:credential:44444444-4444-4444-8444-444444444444';
+    useAgentSettingsStore.getState().set({ modelId: removedRuntimeModelId });
     server.use(
       http.get('*/api/v1/agent-runtime/capabilities', () => HttpResponse.json({
         protocol_version: 2,
@@ -520,7 +520,7 @@ describe('ChatComposer Stop', () => {
     });
     expect(container.querySelector('[data-role="chat-model-select"]'))
       .toHaveTextContent('No model configured');
-    expect(screen.queryByText(new RegExp(langChainModelId))).toBeNull();
+    expect(screen.queryByText(new RegExp(removedRuntimeModelId))).toBeNull();
   });
 
   it('waits for the persisted chat row before reading chat state', async () => {

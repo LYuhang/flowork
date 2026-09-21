@@ -15,9 +15,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from psycopg.rows import dict_row
-from psycopg_pool import AsyncConnectionPool
 
 from . import __version__
 from .observability import configure_logging, init_tracing, install_http_observability
@@ -114,39 +111,12 @@ def _run_migrations_sync() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: migrate → init async engine → open the Postgres
-    checkpointer on a pooled psycopg connection → wire singletons.
-    Shutdown: drain in-flight agent turns, then tear down the
-    checkpointer pool and the SQLAlchemy engine.
+    """Startup: migrate, initialize the database, then wire shared stores.
 
-    MCP T4 follow-up: the legacy ``_get_or_create_agent`` warm-build
-    call at the end of startup was removed when the agent went
-    async + per-tenant (MCP tools loaded per request). There is no
-    tenant at process-start, the cache was deleted, and the warm-build
-    no longer has any semantic; first request builds the agent inline.
+    Shutdown drains in-flight agent turns before closing the SQLAlchemy engine.
 
-    The checkpointer uses a psycopg ``AsyncConnectionPool`` rather than
-    ``AsyncPostgresSaver.from_conn_string`` (a single un-pooled,
-    un-pinged long-lived connection). A single connection dies on cloud
-    / pgbouncer idle-timeout or failover, after which *every* agent turn
-    fails until a process restart (a production SPOF). A pool reconnects
-    transparently, and schema setup runs on that same pool.
-
-    Leak-safety: every resource (checkpointer pool, engine) is
-    registered with an ``AsyncExitStack`` *immediately* after
-    acquisition and *before* ``checkpointer.setup()``, so a failure in
-    ``setup()`` / migrations / store init BEFORE ``yield`` — or a
-    FastAPI lifespan error — still unwinds the pool close + engine
-    dispose with correct exception propagation.
-
-    Shutdown ordering (carried T11 #3): the agent-turn worker daemon
-    threads are bridged to async via ``TURN_TASKS`` (awaiting the task
-    drains its producer thread to completion); we set ``TURN_STOP`` and
-    await ``TURN_TASKS`` to a bounded best-effort completion BEFORE the
-    AsyncExitStack tears the checkpointer pool / engine down — so no
-    in-flight turn touches a closed pool. The producer threads are
-    anonymous daemons (no joinable handle); awaiting ``TURN_TASKS`` is
-    the available bounded join and is sequenced first.
+    Every acquired resource is registered with an ``AsyncExitStack`` before
+    later startup work, so a partial startup still unwinds cleanly.
     """
     from .config import config as app_config
     from .context import init_stores
@@ -262,45 +232,8 @@ async def lifespan(app: FastAPI):
         set_platform_mcp_openfga_client(getattr(app.state, "openfga_client", None))
         stack.callback(set_platform_mcp_openfga_client, None)
 
-        # 3. Postgres checkpointer on a psycopg AsyncConnectionPool.
-        #    Runtime state is deliberately separate from the product database.
-        #    ``agent_runtime_database_url`` may still fall back to the same
-        #    PostgreSQL cluster for local/simple deployments.
-        #    SQLAlchemy URLs use ``postgresql+asyncpg://...``;
-        #    psycopg3 needs the bare ``postgresql://...`` dsn.
-        cp_conninfo = app_config.agent_runtime_database_url.replace("+asyncpg", "")
-        pool = AsyncConnectionPool(
-            conninfo=cp_conninfo,
-            open=False,
-            # Lift max_size above psycopg's four-connection default so
-            # checkpointer-backed background sub-agents (each detached phase
-            # opens its own checkpointed graph) don't exhaust the pool.
-            max_size=app_config.database.checkpointer_pool_max_size,
-            kwargs={
-                "autocommit": True,
-                "prepare_threshold": 0,
-                "row_factory": dict_row,
-            },
-        )
-        await pool.open()
-        # Register pool close immediately (before setup()) so a
-        # setup() failure still closes the freshly-opened pool.
-        stack.push_async_callback(pool.close)
-
-        checkpointer = AsyncPostgresSaver(conn=pool)
-        if app_config.run_database_migrations:
-            await checkpointer.setup()
-        else:
-            from .security.checkpointer_schema import (
-                verify_checkpointer_schema,
-            )
-
-            await verify_checkpointer_schema(pool)
-        app.state.checkpointer = checkpointer
-
         # Initialize process-scoped stores after the durable task subsystem.
         init_stores(
-            _checkpointer=checkpointer,
             _vfs_store=PostgresVfsStore(),
         )
 
@@ -333,15 +266,6 @@ async def lifespan(app: FastAPI):
         stack.push_async_callback(
             _stop_sandbox_runtime, sandbox_reaper_stop, sandbox_reaper_task
         )
-        from .services.background_jobs import background_job_dispatcher
-
-        stack.push_async_callback(background_job_dispatcher.shutdown)
-        from .services.background_delivery import background_result_delivery
-
-        await background_result_delivery.start(
-            openfga_client=getattr(app.state, "openfga_client", None),
-        )
-        stack.push_async_callback(background_result_delivery.shutdown)
         # Some dependency initializers used above may configure stdlib logging
         # as a side effect. This is the final startup boundary immediately
         # before requests are accepted, so make the product pipeline
@@ -350,9 +274,7 @@ async def lifespan(app: FastAPI):
         try:
             yield
         finally:
-            # Shutdown: drain in-flight agent turns BEFORE the
-            # AsyncExitStack closes the checkpointer pool / engine
-            # (carried T11 #3 ordering — see docstring).
+            # Shutdown: drain in-flight agent turns before the database engine.
             from .streaming.turn_runtime import TURN_STOP, TURN_TASKS
 
             for ev in TURN_STOP.values():
@@ -369,10 +291,10 @@ async def lifespan(app: FastAPI):
             # (or a lifespan-less route test) can observe a closed saver.
             from .context import clear_stores
 
-            clear_stores(expected_checkpointer=checkpointer)
+            clear_stores()
 
-            # AsyncExitStack unwinds here (LIFO): pool.close →
-            # dispose_engine, with correct exception propagation.
+            # AsyncExitStack unwinds registered resources here in LIFO order,
+            # including the SQLAlchemy engine.
 
 
 def build_app() -> FastAPI:
@@ -380,7 +302,7 @@ def build_app() -> FastAPI:
     from .security_profile import validate_production_security
 
     cors_origins = _parse_cors_origins()
-    # Validate before constructing routers or opening database/checkpointer
+    # Validate before constructing routers or opening database
     # pools. A production process with a development fallback must never become
     # live enough to answer even a health check.
     validate_production_security(app_config, cors_origins=cors_origins)

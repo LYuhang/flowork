@@ -2,8 +2,8 @@
 
 Keep package import deliberately light.  ``sandbox_entry`` must import the
 wire protocol before it can connect to the host bus; eagerly importing the
-host orchestrator here used to pull LangGraph, SQLAlchemy, the sandbox manager
-and workflow engine into *every* fresh Runtime process before that connection.
+host orchestrator here would pull SQLAlchemy, the sandbox manager and workflow
+engine into every fresh Runtime process before that connection.
 Heavy host adapters remain available through lazy compatibility attributes.
 """
 
@@ -43,7 +43,6 @@ __all__ = [
     "RuntimeTurnRequest",
     "RuntimeType",
     "RuntimeReasoningEffortOption",
-    "LangChainSandboxRuntime",
     "CodexSandboxRuntime",
     "AgentRuntimeOrchestrator",
     "private_runtime_root",
@@ -51,10 +50,6 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name == "LangChainSandboxRuntime":
-        from .langchain import LangChainSandboxRuntime
-
-        return LangChainSandboxRuntime
     if name == "CodexSandboxRuntime":
         from .codex_runtime import CodexSandboxRuntime
 

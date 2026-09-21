@@ -13,8 +13,6 @@ __all__ = [
     "WorkflowRepo",
     "ChatRepo",
     "ExecutionRepo",
-    "run_agent_turn",
-    "_get_or_create_agent",
     "config",
     "AgentConfig",
     "StorageConfig",
@@ -32,12 +30,6 @@ def __getattr__(name: str):
     if name == "ExecutionRepo":
         from .storage.execution_repo import ExecutionRepo
         return ExecutionRepo
-    if name in {"run_agent_turn", "_get_or_create_agent"}:
-        from .agent import _get_or_create_agent, run_agent_turn
-        return {
-            "run_agent_turn": run_agent_turn,
-            "_get_or_create_agent": _get_or_create_agent,
-        }[name]
     if name in {"config", "AgentConfig", "StorageConfig"}:
         from .config import AgentConfig, StorageConfig, config
         return {

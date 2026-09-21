@@ -52,7 +52,7 @@ describe('initAuthExtensionSync', () => {
     expect(syncMock).toHaveBeenLastCalledWith(true, 'tenant_1');
 
     useAgentSettingsStore.getState().setAll({
-      modelId: 'langchain:credential:cred_1',
+      modelId: 'codex:credential:cred_1',
       temperature: 0.2,
       maxTokens: 2048,
       timeout: 30,

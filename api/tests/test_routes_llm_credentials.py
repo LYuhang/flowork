@@ -106,7 +106,7 @@ async def test_llm_credential_crud_never_leaks_from_normal_views(
     owner = created.json()
     credential_id = owner["id"]
     assert owner["api_key_set"] is True
-    assert owner["runtime_scope"] == "langchain"
+    assert owner["runtime_scope"] == "codex"
     assert owner["model_name"] == "gpt-4o"
     assert owner["access"]["effective_role"] == "owner"
     assert "manage_secret" in owner["access"]["capabilities"]
@@ -116,7 +116,7 @@ async def test_llm_credential_crud_never_leaks_from_normal_views(
     assert listed.status_code == 200
     public = listed.json()[0]
     assert public["id"] == credential_id
-    assert public["runtime_scope"] == "langchain"
+    assert public["runtime_scope"] == "codex"
     for forbidden in ("api_key", "model_name", "api_url", "proxy"):
         assert forbidden not in public
     assert secret not in listed.text
@@ -338,6 +338,6 @@ async def test_llm_credential_is_not_a_tenant_wide_runtime_model(
     outsider_model_ids = {
         model["id"] for model in outsider_capabilities.json()["models"]
     }
-    private_model_id = f"langchain:credential:{credential_id}"
+    private_model_id = f"codex:credential:{credential_id}"
     assert private_model_id in owner_model_ids
     assert private_model_id not in outsider_model_ids

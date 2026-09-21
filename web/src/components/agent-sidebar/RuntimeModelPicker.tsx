@@ -46,8 +46,8 @@ interface ModelSourceGroup {
 function sourceId(model: RuntimeModelOption): string {
   if (model.api_source) return model.api_source;
   if (model.id.startsWith('codex:account:')) return 'chatgpt_account';
-  if (model.id.startsWith('langchain:openrouter:')) return 'openrouter_oauth';
-  if (model.id === 'langchain:default' || model.id.startsWith('codex:managed:')) {
+  if (model.id.startsWith('codex:openrouter:')) return 'openrouter_oauth';
+  if (model.id.startsWith('codex:managed:')) {
     return 'managed_api';
   }
   return 'manual';

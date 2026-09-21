@@ -1333,7 +1333,7 @@ function ComposerMcpPicker({
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   disabled: boolean;
-  runtimeType?: 'langchain' | 'codex';
+  runtimeType?: string;
 }) {
   const { t } = useTranslation();
   const candidates = servers.filter((server) =>
@@ -1462,7 +1462,7 @@ function isModelIdFromDifferentRuntime(
 ): boolean {
   if (!modelId) return false;
   const prefix = modelId.split(':', 1)[0];
-  return (prefix === 'langchain' || prefix === 'codex') && prefix !== runtimeType;
+  return Boolean(prefix) && prefix !== runtimeType;
 }
 
 function ComposerRuntimeSelectors({
@@ -1489,7 +1489,7 @@ function ComposerRuntimeSelectors({
         settings.timeout != null
       ) {
         // Codex app-server owns its model configuration surface. Do not carry
-        // LangChain-only generation knobs into a Codex Turn.
+        // generation knobs from another Runtime into a Codex Turn.
         onChange({ temperature: null, maxTokens: null, timeout: null });
       }
     }

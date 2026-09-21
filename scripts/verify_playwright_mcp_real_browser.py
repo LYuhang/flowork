@@ -4,7 +4,7 @@
 This verifier intentionally bypasses the application database and model. It
 launches a headed Chromium with the unpacked production extension, connects the
 exact pinned official MCP through Flowork's PLAYWRIGHT_RELAY_FRAME boundary,
-and calls the same MCP tools exposed to LangChain and Codex.
+and calls the same MCP tools exposed to installed Agent Runtimes.
 
 Run after building the extension:
 

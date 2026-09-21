@@ -32,7 +32,6 @@ def _platform_authority(names: list[str], *, runtime_session_id: str):
 def test_platform_mcp_selection_is_command_driven_and_stable() -> None:
     base = ["config", "interactive"]
     assert platform_mcp_names_for_modes([]) == base
-    assert platform_mcp_names_for_modes([], runtime_type="langchain") == base
     assert platform_mcp_names_for_modes([], runtime_type="codex") == base
     assert platform_mcp_names_for_modes(["workflow"]) == [
         *base,
@@ -63,26 +62,17 @@ def test_platform_mcp_selection_is_command_driven_and_stable() -> None:
     ]
 
 
-def test_platform_mcp_authorization_ceiling_is_runtime_neutral() -> None:
-    authorities = [
-        _platform_authority(["workflow"], runtime_session_id=runtime_session_id)[0]
-        for runtime_session_id in ("runtime-langchain", "runtime-codex")
-    ]
-    capabilities = [
-        verify_platform_mcp_capability(
-            authority.connection["capability"],
-            secret=config.signing_secret,
-            server="workflow",
-        )
-        for authority in authorities
-    ]
-    langchain, codex = capabilities
-    assert langchain is not None and codex is not None
-    assert langchain.resources == codex.resources
-    assert langchain.actions == codex.actions
-    assert langchain.authorization_generation == codex.authorization_generation
-    assert langchain.runtime_session_id == "runtime-langchain"
-    assert codex.runtime_session_id == "runtime-codex"
+def test_platform_mcp_authorization_is_bound_to_runtime_session() -> None:
+    authority = _platform_authority(
+        ["workflow"], runtime_session_id="runtime-codex"
+    )[0]
+    capability = verify_platform_mcp_capability(
+        authority.connection["capability"],
+        secret=config.signing_secret,
+        server="workflow",
+    )
+    assert capability is not None
+    assert capability.runtime_session_id == "runtime-codex"
 
 
 def test_browser_authority_is_host_only_and_turn_scoped() -> None:

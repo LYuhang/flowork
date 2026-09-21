@@ -152,7 +152,7 @@ async def test_management_catalog_matches_each_runtime_boundary() -> None:
     assert catalog["workflow"]["activation_mode"] == "command"
     assert catalog["workflow"]["activation"] == "/workflow"
     assert catalog["task"]["activation"] == "/task"
-    assert catalog["diagram"]["runtime_types"] == ["langchain", "codex"]
+    assert catalog["diagram"]["runtime_types"] == ["codex"]
 
 
 def test_transport_neutral_manifest_matches_fastmcp_registration() -> None:

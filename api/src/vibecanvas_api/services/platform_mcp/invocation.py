@@ -6,10 +6,9 @@ import json
 from typing import Any
 
 from jsonschema import Draft202012Validator
-from langchain.tools import ToolRuntime
 from mcp import types
 
-from vibecanvas_api.agent import AgentContext
+from vibecanvas_api.services.platform_mcp.tool_runtime import AgentContext, ToolRuntime
 from vibecanvas_api.auth.deps import AuthContext
 from vibecanvas_api.auth.live_identity import (
     LiveIdentityError,

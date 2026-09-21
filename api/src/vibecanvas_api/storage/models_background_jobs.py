@@ -104,7 +104,7 @@ class ChatToolJob(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "runtime_type IN ('langchain','codex')",
+            "runtime_type ~ '^[a-z][a-z0-9_-]{0,63}$'",
             name="ck_chat_tool_jobs_runtime_type",
         ),
         CheckConstraint(

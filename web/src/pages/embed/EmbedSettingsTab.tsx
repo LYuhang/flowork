@@ -103,6 +103,9 @@ export function EmbedSettingsTab() {
   };
 
   const availableRuntimes = new Set(runtimeSettings?.available_runtime_types ?? []);
+  const runtimeOptions = (runtimeSettings?.runtime_options ?? []).filter((option) =>
+    availableRuntimes.has(option.id)
+  );
   const mainRuntimeSettingsUrl = `${getBasePath()}/settings?tab=runtime`;
 
   return (
@@ -162,15 +165,18 @@ export function EmbedSettingsTab() {
             <Select
               value={runtimeSettings?.default_runtime_type}
               onValueChange={(value) => void updateRuntime(value as AgentRuntimeType)}
-              disabled={!runtimeSettings || runtimeBusy}
+              disabled={!runtimeSettings || runtimeBusy || runtimeOptions.length <= 1}
             >
               <SelectTrigger className="w-full" aria-label={t('settings_runtime_default', 'Default Agent runtime')}>
                 {runtimeBusy ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : null}
                 <SelectValue placeholder={t('settings_runtime_loading', 'Loading runtime…')} />
               </SelectTrigger>
               <SelectContent>
-                {availableRuntimes.has('langchain') ? <SelectItem value="langchain">LangChain</SelectItem> : null}
-                {availableRuntimes.has('codex') ? <SelectItem value="codex">Codex</SelectItem> : null}
+                {runtimeOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {runtimeError ? (

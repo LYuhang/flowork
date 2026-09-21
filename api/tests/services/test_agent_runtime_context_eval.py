@@ -11,7 +11,7 @@ from vibecanvas_api.services.agent_runtime.protocol import (
 )
 
 
-def test_context_manifest_is_deterministic_and_runtime_neutral() -> None:
+def test_context_manifest_is_deterministic() -> None:
     instruction = RuntimeInstruction(
         instruction_id="command:build:v1",
         kind="command_context",
@@ -37,15 +37,14 @@ def test_context_manifest_is_deterministic_and_runtime_neutral() -> None:
         workspace_scope_id="workspace-1",
         active_modes=["workflow"],
     )
-    langchain = build_context_manifest(runtime_type="langchain", **common)
-    codex = build_context_manifest(runtime_type="codex", **common)
+    first = build_context_manifest(runtime_type="codex", **common)
+    second = build_context_manifest(runtime_type="codex", **common)
 
-    assert langchain.ordered_hash == codex.ordered_hash
-    assert [item.id for item in langchain.sections] == [
-        item.id for item in codex.sections
+    assert first.ordered_hash == second.ordered_hash
+    assert [item.id for item in first.sections] == [
+        item.id for item in second.sections
     ]
-    assert langchain.adapter_mode == "active"
-    assert codex.adapter_mode == "observe_only"
+    assert first.adapter_mode == "observe_only"
 
 
 def test_context_canary_assignment_is_stable() -> None:

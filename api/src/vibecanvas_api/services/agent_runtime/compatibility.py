@@ -60,21 +60,6 @@ _CODEX_RESPONSES_PROVIDERS = frozenset({"openai", "azure", "azure_openai"})
 
 
 RUNTIME_API_COMPATIBILITY: dict[RuntimeType, tuple[RuntimeApiCompatibility, ...]] = {
-    RuntimeType.LANGCHAIN: (
-        RuntimeApiCompatibility(
-            api_source="managed_api",
-            api_protocol="langchain_provider_adapter",
-        ),
-        RuntimeApiCompatibility(
-            api_source="manual",
-            api_protocol="langchain_provider_adapter",
-        ),
-        RuntimeApiCompatibility(
-            api_source="openrouter_oauth",
-            api_protocol="openai_compatible",
-            providers=frozenset({"openrouter"}),
-        ),
-    ),
     RuntimeType.CODEX: (
         RuntimeApiCompatibility(
             api_source="openrouter_oauth",

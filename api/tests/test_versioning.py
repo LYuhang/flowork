@@ -1,7 +1,7 @@
 """version_str: the shared active-version formatter (VFS 2c).
 
 Lives in the leaf util `utils.versioning` so both the agent's read_file tool
-and the VFS HTTP route share it without the route importing LangChain.
+and the VFS HTTP route share it without importing an Agent Runtime SDK.
 """
 from vibecanvas_api.utils.versioning import version_str
 

@@ -1,19 +1,18 @@
-"""todo tool — LangChain's adapter for the backend-owned Chat task list.
+"""todo tool — Runtime-neutral adapter for the backend-owned Chat task list.
 
 The current backend snapshot is copied into AgentContext at the Turn boundary.
 Every mutation emits a complete ``todo_update`` projection which is committed
-to the Chat database before the frontend observes it. The LangGraph checkpointer
+to the Chat database before the frontend observes it. Runtime-native state
 does not own or duplicate the list.
 
-Three statuses mirror the LangChain Deep Agents write_todos pattern:
+Three statuses form the stable cross-Runtime task contract:
     pending → in_progress → done
 """
 from __future__ import annotations
 
 import asyncio
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 
 from vibecanvas_api.agents.tools.decorator import ToolError, tool_output
 from vibecanvas_api.agents.tools.render import Rendered, register_render

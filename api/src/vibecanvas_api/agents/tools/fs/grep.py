@@ -1,7 +1,7 @@
 """grep tool — search file contents with a regular expression (like `grep -rn`)."""
 from __future__ import annotations
 
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import tool
 
 from vibecanvas_api.agents.tools.decorator import tool_output, ToolError
 from vibecanvas_api.agents.tools.render import register_render, Rendered

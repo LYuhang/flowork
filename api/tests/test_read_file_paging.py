@@ -28,13 +28,11 @@ def test_page_offset_zero_limit_zero_is_identity():
 
 
 def test_projection_reads_are_platform_mcp_only():
-    from vibecanvas_api.agents.tools import build_tools
-    base = {t.name for t in build_tools(set())}
-    build = {t.name for t in build_tools({"workflow"})}
+    from vibecanvas_api.agents.tools import builtin_tool_names
+    base = builtin_tool_names()
     # Cross-Runtime build capabilities are supplied exclusively by Platform MCP,
-    # never disguised as LangChain-private tools.
+    # never disguised as Runtime-private tools.
     assert "get_workflow" not in base and "get_template" not in base
-    assert "get_workflow" not in build and "get_template" not in build
     # the clean industry FS surface lives in Base (ls/glob retired → bash/grep)
     assert {"read_file", "write_file", "edit_file", "grep", "bash"} <= base
     assert "update_state" not in base

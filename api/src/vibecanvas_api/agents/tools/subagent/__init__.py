@@ -1,6 +1,6 @@
-"""agents/tools/subagent — delegate bounded sub-tasks to isolated worker agents."""
-from vibecanvas_api.agents.tools.subagent.subagent import subagent
+"""Reusable implementation support for workflow SubAgent nodes."""
 
-SUBAGENT_TOOLS = [subagent]
+from .core import SubAgentResult, run_bounded_agent
+from .toolset import build_agent_subagent_tools
 
-__all__ = ["subagent", "SUBAGENT_TOOLS"]
+__all__ = ["SubAgentResult", "build_agent_subagent_tools", "run_bounded_agent"]

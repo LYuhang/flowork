@@ -107,7 +107,7 @@ export interface BackgroundJob {
   job_id: string;
   chat_id: string;
   parent_run_id?: string | null;
-  runtime_type: 'langchain' | 'codex';
+  runtime_type: string;
   executor_type: string;
   tool_name: string;
   title: string;

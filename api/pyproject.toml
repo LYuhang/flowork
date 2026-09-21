@@ -12,7 +12,7 @@ license = "Apache-2.0"
 authors = [
     { name = "Flowork contributors" },
 ]
-keywords = ["workflow", "agent", "langgraph", "flowork"]
+keywords = ["workflow", "agent", "runtime", "flowork"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
@@ -26,20 +26,18 @@ classifiers = [
 dependencies = [
     # Workflow execution engine.
     "vibecanvas-engine>=0.3.0,<0.4",
-    # LangChain ecosystem (agent loop, tools, checkpointing)
+    # Transitional implementation detail of workflow SubAgentNode only. These
+    # packages are lazy-loaded inside the workflow sandbox; LangChain is not an
+    # installed/selectable Flowork Agent Runtime.
     "langchain>=1.3.9,<2",
     "langchain-core>=1.0,<2",
     "langgraph>=1.2,<2",
-    # Agent LLM provider integrations (init_chat_model): openai + azure_openai
-    # come from langchain-openai; anthropic; google_genai. Required for the
-    # Agent settings credential picker to drive each provider.
     "langchain-openai>=1.0,<2",
     "langchain-anthropic>=1.0,<2",
     "langchain-google-genai>=4,<5",
     "sqlalchemy[asyncio]>=2.0,<3",
     "asyncpg>=0.30,<1",
     "alembic>=1.13,<2",
-    "langgraph-checkpoint-postgres>=3.1,<4",
     "psycopg[binary,pool]>=3.2,<4",
     # LLM providers
     "openai>=1.0",
@@ -78,16 +76,13 @@ dependencies = [
     # Cron expression parsing for scheduled Tasks.
     "croniter>=2,<3",
     # MCP (Model Context Protocol) — client/session/runtime dependencies used by
-    # the chat-sandbox MCP supervisor plus host-side LangChain proxy tools.
-    # ``mcp`` is the upstream Python SDK; ``langchain-mcp-adapters`` provides
-    # LangChain-compatible tool/session helpers. Local/test MCP servers can use
+    # the chat-sandbox MCP supervisor. Local/test MCP servers can use
     # ``mcp.server.fastmcp`` from the upstream SDK; do not depend on the
     # separate ``fastmcp`` package because its pydocket/OpenTelemetry line
     # conflicts with the current API service stack.
     # Third-party stdio MCP packages may still be installed through npx/uvx/pip
     # according to their own registration config.
     "mcp>=1.24,<2",
-    "langchain-mcp-adapters>=0.3,<1",
     # Web search — DuckDuckGo HTML uses requests + BeautifulSoup below;
     # Tavily/Brave need WEB_SEARCH_API_KEY.
     # Agent-native Knowledge — file parsers and deterministic text chunking.

@@ -1,6 +1,6 @@
 """`@tool_output` — the per-tool decorator (spec 2026-06-22 §2, §2.1, §4.6).
 
-TWO-CHANNEL output (langchain ``response_format="content_and_artifact"``):
+TWO-CHANNEL output (``response_format="content_and_artifact"``):
 - **content** (a string) → ``ToolMessage.content`` — what the MODEL reads. The current
   agent-facing form only: fresh = the full body (or head/tail when large); after
   compaction = the selected degraded form. Errors → the human message.
@@ -12,7 +12,7 @@ TWO-CHANNEL output (langchain ``response_format="content_and_artifact"``):
 So machinery (content_type/path/flags) never pollutes what the agent reads; the path
 is also woven into the abstract so the agent still knows where the full body is.
 
-Stack UNDER langchain's ``@tool(response_format="content_and_artifact")``::
+Stack under the Runtime-neutral ``@tool`` descriptor::
 
     @tool(response_format="content_and_artifact")
     @tool_output(content_type="application/json", tool="node_execute")

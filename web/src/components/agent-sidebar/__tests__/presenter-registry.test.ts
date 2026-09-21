@@ -55,7 +55,7 @@ describe('tool presenter registry', () => {
         invocation: {
           schemaVersion: 1,
           invocationId: 'i2',
-          runtime: { type: 'langchain' },
+          runtime: { type: 'codex' },
           origin: { kind: 'custom_mcp', serverName: 'untrusted' },
           capability: 'shell.execute',
           name: 'bash',

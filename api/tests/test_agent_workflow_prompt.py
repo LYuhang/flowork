@@ -16,20 +16,6 @@ def test_chat_mode_prompt_has_lightweight_planning_no_orchestrator():
     assert "run_phases" not in p and "set_plan" not in p
 
 
-def test_agent_context_keeps_runtime_run_id_without_legacy_agent_plan():
-    from vibecanvas_api.agent import AgentContext
-    c = AgentContext()
-    assert not hasattr(c, "agent_plan")
-    assert hasattr(c, "run_id")
-
-
-def test_agent_context_has_subagent_runtime_fields():
-    from vibecanvas_api.agent import AgentContext
-    ctx = AgentContext()
-    assert ctx.agent_cfg is None
-    assert ctx.stop_event is None
-
-
 def test_chat_mode_planning_is_conservative_and_toolless():
     """Base prompt is conservative and names no orchestration tools."""
     p = _bsp("chat")

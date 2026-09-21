@@ -224,6 +224,9 @@ function AgentRuntimePanel() {
   };
 
   const available = new Set(settings?.available_runtime_types ?? []);
+  const runtimeOptions = (settings?.runtime_options ?? []).filter((option) =>
+    available.has(option.id)
+  );
 
   return (
     <>
@@ -245,11 +248,11 @@ function AgentRuntimePanel() {
           </div>
           <div className="w-full shrink-0 sm:w-64">
             <Select
-              value={settings?.default_runtime_type ?? 'langchain'}
+              value={settings?.default_runtime_type ?? 'codex'}
               onValueChange={(value) =>
                 void updateRuntime(value as AgentRuntimeType)
               }
-              disabled={!settings || saving}
+              disabled={!settings || saving || runtimeOptions.length <= 1}
             >
               <SelectTrigger data-testid="settings-agent-runtime-select" aria-label={t('settings_runtime_default', 'Default Agent runtime')}>
                 <SelectValue
@@ -260,12 +263,11 @@ function AgentRuntimePanel() {
                 />
               </SelectTrigger>
               <SelectContent>
-                {available.has('langchain') ? (
-                  <SelectItem value="langchain">LangChain</SelectItem>
-                ) : null}
-                {available.has('codex') ? (
-                  <SelectItem value="codex">Codex</SelectItem>
-                ) : null}
+                {runtimeOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {saving ? (

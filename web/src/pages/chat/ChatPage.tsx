@@ -245,7 +245,7 @@ interface DebugSnapshot {
   chat_id: string;
   thread_id?: string;
   turn_id?: string;
-  runtime_type?: 'langchain' | 'codex';
+  runtime_type?: string;
   snapshot_semantics?: 'model_input' | 'runtime_thread_input';
   model_call_index: number;
   created_at: string;
@@ -703,7 +703,7 @@ function ChatDebugPanel({
     () => [...snapshotMessages, ...turnOutputMessages],
     [snapshotMessages, turnOutputMessages],
   );
-  const runtimeType = snapshot?.runtime_type ?? 'langchain';
+  const runtimeType = snapshot?.runtime_type ?? 'codex';
   const runtimeMetadata = snapshot?.runtime_metadata ?? {};
   const codexHistoryIncomplete =
     runtimeType === 'codex' && runtimeMetadata.history_complete === false;
@@ -789,7 +789,7 @@ function ChatDebugPanel({
                     },
                   )
                 : t(
-                    'chat.debug.langchain_summary',
+                    'chat.debug.runtime_summary',
                     '{{count}} input messages + {{outputCount}} turn outputs · {{tokens}} input tokens',
                     {
                       count: snapshotMessages.length,
@@ -1832,8 +1832,8 @@ export function ChatPage() {
     : sandboxLabel;
   const runtimeLabel = activeChatSession?.runtime_type === 'codex'
     ? 'Codex'
-    : activeChatSession?.runtime_type === 'langchain'
-      ? 'LangChain'
+    : activeChatSession?.runtime_type
+      ? activeChatSession.runtime_type
       : t('chat.runtime.pending', 'Runtime pending');
   const currentWorkflowId = workspace.data?.current_workflow_id ?? '';
   const previewResources = useMemo(() => {

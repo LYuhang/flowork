@@ -1,8 +1,7 @@
 """Platform MCP get_node_spec tool."""
 from __future__ import annotations
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 
 from vibecanvas_api.agents.prompts.node_definitions import (
     available_node_types,

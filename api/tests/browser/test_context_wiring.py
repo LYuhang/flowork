@@ -1,6 +1,6 @@
-from vibecanvas_api import agent as agent_mod
 from vibecanvas_api.browser.registry import TransportRegistry
 from vibecanvas_api.schemas.chat import MessagePostBody
+from vibecanvas_api.services.platform_mcp.tool_runtime import AgentContext
 
 
 def test_browser_topology_is_not_part_of_model_context() -> None:
@@ -15,7 +15,7 @@ def test_browser_topology_is_not_part_of_model_context() -> None:
         "client_context_id",
     }
     assert forbidden.isdisjoint(MessagePostBody.model_fields)
-    assert forbidden.isdisjoint(agent_mod.AgentContext.model_fields)
+    assert forbidden.isdisjoint(AgentContext.model_fields)
 
 
 def test_transport_registry_replacement_is_connection_fenced() -> None:

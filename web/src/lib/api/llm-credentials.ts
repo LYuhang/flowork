@@ -33,7 +33,7 @@ export interface CredentialPublic {
   description: string | null;
   provider: string;
   connection_kind?: 'manual' | 'openrouter_oauth';
-  runtime_scope: 'langchain' | 'codex';
+  runtime_scope: string;
   model_context_tokens: number | null;
   created_at: string;
   updated_at: string;
@@ -47,7 +47,7 @@ export interface CredentialOwner {
   description: string | null;
   provider: string;
   connection_kind?: 'manual' | 'openrouter_oauth';
-  runtime_scope: 'langchain' | 'codex';
+  runtime_scope: string;
   model_name: string;
   model_context_tokens: number | null;
   api_url: string | null;
@@ -63,8 +63,8 @@ export interface CreateCredentialBody {
   name: string;
   description?: string | null;
   provider: string;
-  /** Runtime catalog that owns this credential. Defaults to LangChain. */
-  runtime_scope?: 'langchain' | 'codex';
+  /** Runtime catalog that owns this credential. Defaults to Codex. */
+  runtime_scope?: string;
   model_name: string;
   model_context_tokens?: number | null;
   api_url?: string | null;
@@ -77,7 +77,7 @@ export interface UpdateCredentialBody {
   name?: string;
   description?: string | null;
   provider?: string;
-  runtime_scope?: 'langchain' | 'codex';
+  runtime_scope?: string;
   model_name?: string;
   model_context_tokens?: number | null;
   api_url?: string | null;

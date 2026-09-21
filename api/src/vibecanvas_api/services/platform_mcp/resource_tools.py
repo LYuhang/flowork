@@ -17,8 +17,7 @@ from typing import Any, Literal
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 from starlette.requests import Request
 
 from vibecanvas_api.auth.deps import AuthContext

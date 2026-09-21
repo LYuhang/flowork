@@ -96,11 +96,11 @@ grouped under [`routes/`](../api/src/vibecanvas_api/routes/).
 
 ### Agent Runtime
 
-A Chat selects either the LangChain or Codex runtime when it first starts. The
-Runtime and exact account or API connection remain fixed for that Chat, while
+A Chat selects an installed Runtime when it first starts. Codex is currently
+the built-in Runtime. The Runtime and exact account or API connection remain fixed for that Chat, while
 the user may switch the model and reasoning effort within that connection
-between idle turns. The API sends both
-runtimes the same internal request format, and each adapter translates that
+between idle turns. The API sends runtimes the same internal request format,
+and each adapter translates that
 request into the format expected by its SDK. SDK-specific state and event
 formats are therefore not exposed to the rest of the application. The common
 request contains the message, attachments, selected model, active commands,
@@ -134,9 +134,10 @@ This common interface is defined in the
 Runtime selection and conversion into the application's common event format
 are centralized in the
 [runtime orchestrator](../api/src/vibecanvas_api/services/agent_runtime/orchestrator.py);
-the concrete adapters live in
-[`langchain.py`](../api/src/vibecanvas_api/services/agent_runtime/langchain.py)
-and [`codex_runtime.py`](../api/src/vibecanvas_api/services/agent_runtime/codex_runtime.py).
+the Runtime registry is defined in
+[`registry.py`](../api/src/vibecanvas_api/services/agent_runtime/registry.py),
+and the Codex adapter lives in
+[`codex_runtime.py`](../api/src/vibecanvas_api/services/agent_runtime/codex_runtime.py).
 
 ### Workflow engine
 
@@ -236,9 +237,9 @@ and [approval repository](../api/src/vibecanvas_api/storage/hitl_repo.py).
 ### Agent tools and MCP integration
 
 Slash Commands activate a defined set of tools and instructions for a Chat.
-Every resident Chat sandbox owns one aggregate MCP Hub. LangChain calls that
-Hub directly, while Codex connects to its single loopback Streamable HTTP
-endpoint. Base capabilities are always projected; commands such as `/workflow`
+Every resident Chat sandbox owns one aggregate MCP Hub. Codex connects to its
+single loopback Streamable HTTP endpoint. Base capabilities are always
+projected; commands such as `/workflow`
 and `/task` add authenticated Platform capabilities, while `/diagram` and
 `/document` start specialized sandbox-local servers. `/browser` is available
 only in the extension side panel.
@@ -369,7 +370,7 @@ are listed and when a call is forwarded.
 | **OpenFGA** | Relationship-based access control (ReBAC) | Evaluates whether a user can perform an action on a resource |
 | **Object storage** | File content for VFS, artifacts, authoritative Knowledge package files, Task outputs, and run files | Filesystem and S3 backends implement the same storage interface |
 | **Valkey** | Message broker and transient coordination | Carries Celery jobs, short-lived notifications, and locks; it is not the system of record |
-| **Runtime state** | LangChain checkpoints and SDK-specific Chat state | Persists independently of live network connections; it may use the same PostgreSQL cluster |
+| **Runtime state** | SDK-specific Chat state inside authenticated Runtime volumes | Persists independently of live network connections without exposing SDK internals to the API |
 | **Runtime volumes and snapshots** | Chat-specific runtime files and optional gVisor checkpoints | Used to resume execution efficiently, not to determine identity or permissions |
 
 VFS metadata and file content are separated by the

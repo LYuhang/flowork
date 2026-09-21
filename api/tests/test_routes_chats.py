@@ -268,13 +268,11 @@ async def test_chat_sandboxes_batch_status_is_read_only(client, pg_engine):
 
 
 @pytest.mark.asyncio
-async def test_delete_chat_session_deletes_checkpoint_and_runtime_volume(
+async def test_delete_chat_session_deletes_runtime_volume(
     client, app_engine, monkeypatch, tmp_path,
 ):
     from vibecanvas_api.config import config
     from vibecanvas_api.services.vfs_volume import get_chat_runtime_volume_provider
-    from vibecanvas_api.storage.chat_repo import ChatRepo
-
     tok = await _register(client)
     headers = _hdr(tok)
     me = (await client.get("/api/v1/auth/me", headers=headers)).json()
@@ -290,11 +288,9 @@ async def test_delete_chat_session_deletes_checkpoint_and_runtime_volume(
         name="Delete me",
         surface="chat",
         state={
-            "runtime_type": "langchain",
+            "runtime_type": "codex",
             "runtime_session_id": "runtime-delete",
-            "runtime_state_ref": ChatRepo.checkpointer_thread_id(
-                me["user_id"], scope_id, chat_id
-            ),
+            "runtime_state_ref": "thread-delete",
         },
     )
     monkeypatch.setattr(config, "agent_runtime_root", str(tmp_path))
@@ -320,18 +316,6 @@ async def test_delete_chat_session_deletes_checkpoint_and_runtime_volume(
     runtime_marker = Path(runtime_volume.path) / "prepared-before-first-runtime"
     runtime_marker.write_text("delete with Chat", encoding="utf-8")
 
-    deleted_threads: list[str] = []
-
-    async def fake_delete(self, thread_id: str) -> bool:
-        deleted_threads.append(thread_id)
-        return True
-
-    monkeypatch.setattr(
-        "vibecanvas_api.services.agent_runtime.checkpoint_store."
-        "LangChainCheckpointStore.delete",
-        fake_delete,
-    )
-
     r = await client.delete(
         f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}",
         headers=headers,
@@ -339,9 +323,6 @@ async def test_delete_chat_session_deletes_checkpoint_and_runtime_volume(
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["runtime_state_deleted"] is True
-    assert deleted_threads == [
-        ChatRepo.checkpointer_thread_id(me["user_id"], scope_id, chat_id)
-    ]
     assert not Path(runtime_volume.path).exists()
 
 
@@ -824,7 +805,7 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
             "role": "user",
             "content": "cross-connection switch",
             "agent_settings": {
-                "model_id": f"langchain:credential:{credential_ids[0]}",
+                "model_id": f"codex:credential:{credential_ids[0]}",
                 "reasoning_effort": "low",
             },
         },
@@ -864,10 +845,10 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
     assert all("mcp_servers" not in snapshot for snapshot in snapshots)
     assert all("Authorization" not in str(snapshot) for snapshot in snapshots)
     assert chat_binding.runtime_model_id not in {
-        f"langchain:credential:{credential_id}"
+        f"codex:credential:{credential_id}"
         for credential_id in credential_ids
     }
-    assert chat_binding.runtime_connection_id == "langchain:managed"
+    assert str(chat_binding.runtime_connection_id).startswith("codex:")
 
     # A real host-side Platform MCP request can rebuild the context while the
     # exact Turn is active, but the same already-issued descriptor is rejected
@@ -1209,8 +1190,8 @@ async def test_background_results_are_claimed_as_one_hidden_turn_with_visible_no
                 chat_id=chat_id,
                 creator_user_id=me["user_id"],
                 parent_run_id=None,
-                runtime_type="langchain",
-                executor_type="langchain_subagent",
+                runtime_type="codex",
+                executor_type="runtime_task",
                 tool_name="subagent",
                 title=f"Research {index + 1}",
                 input_snapshot={},

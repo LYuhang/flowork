@@ -59,7 +59,6 @@ def _source_hashes() -> dict[str, str]:
         api_root / "services" / "agent_runtime" / "mcp_browser_transport.py",
         api_root / "services" / "agent_runtime" / "mcp_runtime_protocol.py",
         api_root / "services" / "agent_runtime" / "mcp.py",
-        api_root / "agent.py",
     )
     return {
         str(path.relative_to(api_root)): hashlib.sha256(path.read_bytes()).hexdigest()

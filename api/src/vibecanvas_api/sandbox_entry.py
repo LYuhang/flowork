@@ -45,7 +45,7 @@ from vibecanvas_engine.sandbox_entry import (  # noqa: E402
 
 
 def _jsonable(value):
-    """Best-effort conversion for MCP SDK/LangChain return objects."""
+    """Best-effort conversion for MCP SDK return objects."""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, (list, tuple)):
@@ -163,7 +163,7 @@ class _SandboxMcpRuntime:
         return key, fingerprint
 
     async def _serve_actor(self, actor: _McpActor) -> None:
-        from langchain_mcp_adapters.client import MultiServerMCPClient
+        from vibecanvas_api.services.sandbox.mcp_client import mcp_client_session
 
         server = actor.server
         prefix = str(server.get("tool_prefix") or server.get("name") or "mcp")
@@ -171,8 +171,7 @@ class _SandboxMcpRuntime:
         try:
             if not connection:
                 raise ValueError("missing MCP connection config")
-            client = MultiServerMCPClient({prefix: connection})
-            async with client.session(prefix) as session:
+            async with mcp_client_session(connection) as session:
                 if not actor.started.done():
                     actor.started.set_result(None)
                 while True:

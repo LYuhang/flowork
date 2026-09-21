@@ -41,12 +41,12 @@ def test_mcp_dependencies_declared_in_project_and_dev_snapshot():
     """MCP runtime deps must be present in both prod metadata and the dev snapshot."""
     pyproject = (ROOT / "api" / "pyproject.toml").read_text()
     assert '"mcp>=' in pyproject
-    assert '"langchain-mcp-adapters>=' in pyproject
+    assert '"langchain-mcp-adapters>=' not in pyproject
     assert '"fastmcp' not in pyproject
 
     dev_reqs = (ROOT / "requirements-dev.txt").read_text().splitlines()
     assert any(line.startswith("mcp==") for line in dev_reqs)
-    assert any(line.startswith("langchain-mcp-adapters==") for line in dev_reqs)
+    assert not any(line.startswith("langchain-mcp-adapters==") for line in dev_reqs)
     assert not any(line.startswith("fastmcp==") for line in dev_reqs)
 
 

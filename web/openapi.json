@@ -13196,7 +13196,7 @@
           "agent-runtime"
         ],
         "summary": "Update User Timezone",
-        "description": "Persist the account timezone used by new LangChain conversations.",
+        "description": "Persist the account timezone used by new conversations.",
         "operationId": "update_user_timezone_api_v1_agent_runtime_settings_timezone_put",
         "requestBody": {
           "content": {
@@ -14795,16 +14795,35 @@
         ],
         "title": "ActiveAgentRun"
       },
+      "AgentRuntimeOptionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "AgentRuntimeOptionOut"
+      },
       "AgentRuntimeSettingsOut": {
         "properties": {
           "default_runtime_type": {
             "type": "string",
-            "enum": [
-              "langchain",
-              "codex"
-            ],
             "title": "Default Runtime Type",
-            "default": "langchain"
+            "default": "codex"
           },
           "codex_managed_profile_id": {
             "anyOf": [
@@ -14854,14 +14873,17 @@
           },
           "available_runtime_types": {
             "items": {
-              "type": "string",
-              "enum": [
-                "langchain",
-                "codex"
-              ]
+              "type": "string"
             },
             "type": "array",
             "title": "Available Runtime Types"
+          },
+          "runtime_options": {
+            "items": {
+              "$ref": "#/components/schemas/AgentRuntimeOptionOut"
+            },
+            "type": "array",
+            "title": "Runtime Options"
           }
         },
         "type": "object",
@@ -14871,10 +14893,7 @@
         "properties": {
           "default_runtime_type": {
             "type": "string",
-            "enum": [
-              "langchain",
-              "codex"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Default Runtime Type"
           }
         },
@@ -15121,10 +15140,6 @@
           },
           "runtime_type": {
             "type": "string",
-            "enum": [
-              "langchain",
-              "codex"
-            ],
             "title": "Runtime Type"
           },
           "executor_type": {
@@ -15678,11 +15693,7 @@
           "runtime_type": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "langchain",
-                  "codex"
-                ]
+                "type": "string"
               },
               {
                 "type": "null"
@@ -15778,11 +15789,7 @@
           "runtime_type": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "langchain",
-                  "codex"
-                ]
+                "type": "string"
               },
               {
                 "type": "null"
@@ -15828,11 +15835,7 @@
           "runtime_type": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "langchain",
-                  "codex"
-                ]
+                "type": "string"
               },
               {
                 "type": "null"
@@ -16669,12 +16672,9 @@
           },
           "runtime_scope": {
             "type": "string",
-            "enum": [
-              "langchain",
-              "codex"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Runtime Scope",
-            "default": "langchain"
+            "default": "codex"
           },
           "model_name": {
             "type": "string",
@@ -16772,10 +16772,6 @@
           },
           "runtime_scope": {
             "type": "string",
-            "enum": [
-              "langchain",
-              "codex"
-            ],
             "title": "Runtime Scope"
           },
           "model_name": {
@@ -16890,10 +16886,6 @@
           },
           "runtime_scope": {
             "type": "string",
-            "enum": [
-              "langchain",
-              "codex"
-            ],
             "title": "Runtime Scope"
           },
           "model_context_tokens": {
@@ -17005,10 +16997,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "langchain",
-                  "codex"
-                ]
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
               },
               {
                 "type": "null"
@@ -21163,7 +21152,7 @@
           "label"
         ],
         "title": "RuntimeModelOption",
-        "description": "One model choice in runtime-defined display order.\n\n``id`` is the stable value sent back on a Turn. It may be an account model\nslug (Codex) or an opaque platform selection id (LangChain credential)."
+        "description": "One model choice in runtime-defined display order.\n\n``id`` is the stable value sent back on a Turn. It may be an account model\nslug or an opaque platform selection id."
       },
       "RuntimeReasoningEffortOption": {
         "properties": {
@@ -21193,7 +21182,6 @@
       "RuntimeType": {
         "type": "string",
         "enum": [
-          "langchain",
           "codex"
         ],
         "title": "RuntimeType"

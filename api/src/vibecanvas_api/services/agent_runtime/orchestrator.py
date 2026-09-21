@@ -3,13 +3,12 @@
 This module is the only Chat execution path allowed to select an SDK adapter.
 It translates the stable runtime event protocol into the existing product event
 protocol; the caller persists those product events before exposing them to SSE.
-No LangGraph or Codex wire object crosses this boundary.
+No SDK-native wire object crosses this boundary.
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from time import perf_counter
@@ -18,16 +17,10 @@ from typing import Any
 import structlog
 
 from vibecanvas_api.services.agent_runtime.approval import PreToolApprovalPolicy
-from vibecanvas_api.services.agent_runtime.checkpoint_store import (
-    LangChainCheckpointStore,
-)
-from vibecanvas_api.services.agent_runtime.codex_runtime import CodexSandboxRuntime
-from vibecanvas_api.services.agent_runtime.langchain import LangChainSandboxRuntime
 from vibecanvas_api.services.agent_runtime.mcp_host_gateway import (
     handle_mcp_gateway_request,
 )
 from vibecanvas_api.services.agent_runtime.protocol import (
-    RuntimeBackgroundJobResponse,
     RuntimeControlResponse,
     RuntimeEvent,
     RuntimeOpenRequest,
@@ -35,21 +28,14 @@ from vibecanvas_api.services.agent_runtime.protocol import (
     RuntimeTurnRequest,
     RuntimeType,
 )
-from vibecanvas_api.services.background_job_registry import (
-    cancel_background_job,
-    get_background_job,
-    list_background_jobs_page,
-)
-from vibecanvas_api.services.background_jobs import background_job_dispatcher
+from vibecanvas_api.services.agent_runtime.registry import create_runtime_adapter
 from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
 from vibecanvas_api.services.sandbox.coordinator import get_sandbox_coordinator
 from vibecanvas_api.services.vfs_volume import get_chat_runtime_volume_provider
 from vibecanvas_api.storage.agent_runtime_repo import AgentRuntimeRepo
-from vibecanvas_api.storage.background_delivery_repo import BackgroundDeliveryRepo
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.hitl_repo import HitlRepo
 
-_SAFE_SEGMENT = re.compile(r"[^A-Za-z0-9_.-]+")
 logger = structlog.get_logger(__name__)
 
 def _runtime_status_payload(
@@ -77,13 +63,11 @@ def private_runtime_root(runtime_type: RuntimeType, chat_id: str) -> str:
 
     Codex owns a Chat-scoped CODEX_HOME and stores only that Chat's thread state
     below it. Provider/account credentials are host-brokered and never mounted.
-    LangChain's value is only an internal protocol correlation namespace. It is
-    not created or mounted because its native state lives in PostgreSQL.
     """
-    if runtime_type == RuntimeType.CODEX:
-        return "/runtime/.codex"
-    safe_chat_id = _SAFE_SEGMENT.sub("_", chat_id).strip("._") or "chat"
-    return f"/runtime/langchain/chats/{safe_chat_id}"
+    del chat_id
+    if runtime_type != RuntimeType.CODEX:
+        raise RuntimeError(f"runtime adapter unavailable: {runtime_type.value}")
+    return "/runtime/.codex"
 
 
 def _product_events(event: RuntimeEvent) -> list[tuple[str, dict]]:
@@ -153,22 +137,14 @@ class AgentRuntimeOrchestrator:
     def __init__(
         self,
         sandbox_manager=None,
-        langchain_state_store=None,
         approval_policy=None,
     ) -> None:
         self._sandbox_manager = sandbox_manager or get_sandbox_coordinator()
-        self._langchain_state_store = (
-            langchain_state_store or LangChainCheckpointStore()
-        )
         self._approval_policy = approval_policy or PreToolApprovalPolicy()
 
     @staticmethod
     def _adapter(runtime_type: RuntimeType, sandbox):
-        if runtime_type == RuntimeType.LANGCHAIN:
-            return LangChainSandboxRuntime(sandbox)
-        if runtime_type == RuntimeType.CODEX:
-            return CodexSandboxRuntime(sandbox)
-        raise RuntimeError(f"runtime adapter unavailable: {runtime_type.value}")
+        return create_runtime_adapter(runtime_type.value, sandbox)
 
     async def respond(
         self,
@@ -193,10 +169,6 @@ class AgentRuntimeOrchestrator:
 
     async def delete_state(self, open_request: RuntimeOpenRequest) -> bool:
         """Delete adapter-owned Chat state without exposing its storage model."""
-        if open_request.runtime_type == RuntimeType.LANGCHAIN:
-            if not open_request.state_ref:
-                return False
-            return await self._langchain_state_store.delete(open_request.state_ref)
         if open_request.runtime_type == RuntimeType.CODEX:
             provider = get_chat_runtime_volume_provider()
             return await asyncio.to_thread(
@@ -930,141 +902,6 @@ class AgentRuntimeOrchestrator:
                         continue
                     event = event.model_copy(update={"type": "approval.required"})
 
-                if event.type == "background_job.requested":
-                    payload = dict(event.payload)
-                    operation = str(payload.get("operation") or "submit")
-                    correlation = RuntimeRequestCorrelation.model_validate(
-                        payload.get("runtime_correlation") or {}
-                    )
-                    request_id = str(payload.get("request_id") or "")
-                    try:
-                        if (
-                            turn_request.runtime_type != RuntimeType.LANGCHAIN
-                            or correlation.source != "langchain_background"
-                        ):
-                            raise ValueError(
-                                "background subagents are supported only by LangChain"
-                            )
-                        job_spec = payload.get("job")
-                        job_spec = (
-                            job_spec if isinstance(job_spec, dict) else {}
-                        )
-                        response_payload: dict = {}
-                        job_id: str | None = None
-                        if operation == "submit":
-                            private = payload.get("execution_private")
-                            private = (
-                                private if isinstance(private, dict) else {}
-                            )
-                            model = private.get("model")
-                            model = model if isinstance(model, dict) else {}
-                            job_id, _created = (
-                                await background_job_dispatcher.submit_langchain_subagent(
-                                    sandbox=sandbox,
-                                    tenant_id=turn_request.tenant_id,
-                                    user_id=turn_request.user_id,
-                                    chat_id=turn_request.chat_id,
-                                    parent_turn_id=turn_request.turn_id,
-                                    runtime_root=turn_request.runtime_root,
-                                    tool_call_id=str(
-                                        correlation.runtime_request_id
-                                    ),
-                                    job_spec=job_spec,
-                                    model=model,
-                                )
-                            )
-                        elif operation == "list":
-                            include_finished = bool(
-                                job_spec.get("include_finished", False)
-                            )
-                            limit = max(
-                                1, min(int(job_spec.get("limit") or 50), 100)
-                            )
-                            async with session_scope(
-                                tenant_id=turn_request.tenant_id
-                            ) as session:
-                                page = await list_background_jobs_page(
-                                    session,
-                                    chat_id=turn_request.chat_id,
-                                    creator_user_id=turn_request.user_id,
-                                    include_finished=include_finished,
-                                    limit=limit,
-                                    cursor=(str(job_spec.get("cursor") or "").strip() or None),
-                                )
-                                response_payload = page
-                        elif operation == "get":
-                            job_id = str(job_spec.get("job_id") or "").strip()
-                            if not job_id:
-                                raise ValueError(
-                                    "background_job_get requires job_id"
-                                )
-                            async with session_scope(
-                                tenant_id=turn_request.tenant_id
-                            ) as session:
-                                job = await get_background_job(
-                                    session,
-                                    chat_id=turn_request.chat_id,
-                                    job_id=job_id,
-                                    creator_user_id=turn_request.user_id,
-                                )
-                                if job is None:
-                                    raise LookupError(
-                                        "background job not found"
-                                    )
-                                response_payload = {"job": job}
-                        elif operation == "cancel":
-                            job_id = str(job_spec.get("job_id") or "").strip()
-                            if not job_id:
-                                raise ValueError(
-                                    "background_job_cancel requires job_id"
-                                )
-                            async with session_scope(
-                                tenant_id=turn_request.tenant_id
-                            ) as session:
-                                job = await cancel_background_job(
-                                    session,
-                                    chat_id=turn_request.chat_id,
-                                    job_id=job_id,
-                                    creator_user_id=turn_request.user_id,
-                                )
-                                if job is None:
-                                    raise LookupError(
-                                        "background job not found"
-                                    )
-                                response_payload = {"job": job}
-                        else:
-                            raise ValueError(
-                                f"unsupported background operation: {operation}"
-                            )
-                        response = RuntimeBackgroundJobResponse(
-                            request_id=request_id,
-                            chat_id=turn_request.chat_id,
-                            turn_id=turn_request.turn_id,
-                            operation=operation,
-                            action="accepted",
-                            job_id=job_id,
-                            payload=response_payload,
-                            correlation=correlation,
-                        )
-                    except Exception as exc:  # noqa: BLE001 - converted to protocol rejection
-                        response = RuntimeBackgroundJobResponse(
-                            request_id=request_id or "background_job_request",
-                            chat_id=turn_request.chat_id,
-                            turn_id=turn_request.turn_id,
-                            operation=(
-                                operation
-                                if operation in {"submit", "list", "get", "cancel"}
-                                else "submit"
-                            ),
-                            action="rejected",
-                            error=str(exc),
-                            correlation=correlation,
-                        )
-                    await runtime.respond(response)
-                    # Submission payload contains the resolved model
-                    # configuration and is private control traffic.
-                    continue
-
                 if event.type == "approval.required":
                     event = await self._persist_approval_for_turn(
                         event, turn_request
@@ -1174,21 +1011,6 @@ class AgentRuntimeOrchestrator:
                 task.cancel()
             await asyncio.gather(*approval_tasks, return_exceptions=True)
             await runtime.close()
-            # A Turn pins its sandbox while active. Background jobs and
-            # terminal-but-undelivered results extend that pin; otherwise the
-            # ordinary idle TTL may reclaim the now-quiescent session.
-            keep_resident = True
-            try:
-                async with session_scope(
-                    tenant_id=turn_request.tenant_id
-                ) as session:
-                    keep_resident = await BackgroundDeliveryRepo(
-                        session
-                    ).has_sandbox_hold(turn_request.chat_id)
-            except Exception:  # noqa: BLE001 - lease lookup fails safe to resident
-                # Losing the control-plane read must fail safe: retain the
-                # sandbox rather than disturb an otherwise successful Turn.
-                keep_resident = True
             set_session_lease = getattr(
                 self._sandbox_manager,
                 "set_session_lease",
@@ -1198,7 +1020,7 @@ class AgentRuntimeOrchestrator:
                 await set_session_lease(
                     turn_request.tenant_id,
                     workspace_scope_id,
-                    "resident" if keep_resident else "interactive",
+                    "interactive",
                 )
             logger.info(
                 "agent_runtime_timing",

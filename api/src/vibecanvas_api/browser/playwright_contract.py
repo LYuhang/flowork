@@ -4,7 +4,7 @@ The upstream server intentionally exposes a broad automation and debugging
 surface.  Flowork connects that server to a user's already-authenticated real
 browser, so only the product-reviewed subset below may cross the Runtime
 boundary.  Both Runtime adapters import this module; filtering in only one
-adapter would make ``/browser`` behave differently between LangChain and Codex.
+adapter would make ``/browser`` behave differently between Runtime providers.
 
 Session leases, tenant scoping and the remote CDP relay are Flowork control
 plane concerns.  They are deliberately not represented as a second set of

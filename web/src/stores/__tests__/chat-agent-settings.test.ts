@@ -9,7 +9,7 @@ import {
 describe('chat agent settings', () => {
   beforeEach(() => {
     useAgentSettingsStore.getState().setAll({
-      modelId: 'langchain:default',
+      modelId: 'codex:account:default',
       temperature: 0.2,
       maxTokens: null,
       timeout: null,
@@ -21,15 +21,15 @@ describe('chat agent settings', () => {
   it('seeds drafts from user defaults without leaking changes across Chats', () => {
     const store = useChatAgentSettingsStore.getState();
     store.initializeDraft('chat-a');
-    store.set('chat-a', { modelId: 'langchain:credential:a', reasoningEffort: 'high' });
+    store.set('chat-a', { modelId: 'codex:credential:a', reasoningEffort: 'high' });
     store.initializeDraft('chat-b');
 
     expect(getChatAgentSettings('chat-a')).toMatchObject({
-      modelId: 'langchain:credential:a',
+      modelId: 'codex:credential:a',
       reasoningEffort: 'high',
     });
     expect(getChatAgentSettings('chat-b')).toMatchObject({
-      modelId: 'langchain:default',
+      modelId: 'codex:account:default',
       reasoningEffort: 'medium',
     });
   });

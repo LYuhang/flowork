@@ -1,7 +1,7 @@
 """Compaction engine — pure form-selection over the ladder (spec 2026-06-22 §4).
 
-Operates on lightweight ``item`` dicts so it is fully unit-testable without
-langchain messages. Each item:
+Operates on lightweight ``item`` dicts so it is independent of Runtime SDK
+message classes. Each item:
 
     {"meta": <_meta dict>, "is_error": bool, "tool": str|None,
      "path": str|None, "stale": bool}

@@ -91,7 +91,6 @@ from ..streaming.turn_runtime import (
 )
 # NOTE: `run_turn` is already imported above — it fences both the normal agent
 # turn and the `/browser` handoff producer with the frozen started/done envelope.
-from ..services.llm_credentials_inject import merge_agent_settings_override
 from ..services.object_store import get_object_store
 from ..services.sandbox.manager import get_sandbox_manager
 from ..services.vfs_volume import get_chat_runtime_volume_provider
@@ -101,9 +100,6 @@ from ..services.agent_runtime.capabilities import (
     codex_credential_id,
     codex_managed_model,
     codex_openrouter_model,
-    langchain_capabilities,
-    langchain_credential_id,
-    langchain_openrouter_model,
     runtime_model_connection_id,
     validate_model_effort,
 )
@@ -149,7 +145,6 @@ from .deps import (
     get_hitl_repo,
     get_workflow_repo,
 )
-from langchain_core.messages.utils import count_tokens_approximately
 from ..agents.middleware.compaction_forms import (
     parse_envelope, output_content_type, output_path,
 )
@@ -708,7 +703,7 @@ async def delete_chat_session(
         )
     # The Runtime Volume belongs to the Chat, not to one adapter checkpoint.
     # A Chat may have created the volume before its first Runtime state_ref, and
-    # LangChain Chats can also have an empty volume from sandbox preparation.
+    # Runtime Chats can also have an empty volume from sandbox preparation.
     # Delete it unconditionally after the sandbox owner has been closed.
     runtime_volume_deleted = await asyncio.to_thread(
         get_chat_runtime_volume_provider().delete,
@@ -878,7 +873,16 @@ def _debug_meta(m) -> dict:
     role = {"HumanMessage": "user", "AIMessage": "assistant",
             "ToolMessage": "tool", "SystemMessage": "system"}.get(
         type(m).__name__, "unknown")
-    meta: dict = {"role": role, "approx_tokens": count_tokens_approximately([m])}
+    raw_content = getattr(m, "content", "")
+    rendered_content = (
+        raw_content
+        if isinstance(raw_content, str)
+        else json.dumps(raw_content, ensure_ascii=False, default=str)
+    )
+    meta: dict = {
+        "role": role,
+        "approx_tokens": max(0, (len(rendered_content) + 3) // 4),
+    }
     artifact = getattr(m, "artifact", None)
     if isinstance(artifact, dict):
         ameta = artifact.get("meta") if isinstance(artifact.get("meta"), dict) else {}
@@ -2693,7 +2697,7 @@ async def post_message(
     # MODE_CONTROL scoped-token handoff producer was removed with the cross-app
     # relay.
 
-    thread_id = ChatRepo.checkpointer_thread_id(auth.user_id, scope_id, chat_id)
+    thread_id = f"chat:{chat_id}"
     user_message = {
         "role": "user",
         # Slash commands are platform control syntax, not Agent dialogue. The
@@ -2745,104 +2749,82 @@ async def post_message(
     credential_rows = await LlmCredentialsRepo(session).list_for_user(
         auth.user_id
     )
-    if runtime_type == RuntimeType.CODEX:
-        runtime_preferences = await runtime_repo.get_preferences()
-        selected_managed_profile = runtime_preferences.get(
-            "codex_managed_profile_id"
+    if runtime_type != RuntimeType.CODEX:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "runtime_adapter_unavailable",
+                "runtime_type": runtime_type.value,
+            },
         )
-        if selected_managed_profile not in {
-            str(profile["id"]) for profile in app_config.codex_managed_apis
-        }:
-            selected_managed_profile = None
-        runtime_capabilities = await codex_capabilities(
-            credential_rows,
-            tenant_id=auth.tenant_id,
-            user_id=auth.user_id,
-            selected_managed_profile_id=selected_managed_profile,
-            auth_methods=app_config.codex_runtime_auth_methods,
+    runtime_preferences = await runtime_repo.get_preferences()
+    selected_managed_profile = runtime_preferences.get(
+        "codex_managed_profile_id"
+    )
+    if selected_managed_profile not in {
+        str(profile["id"]) for profile in app_config.codex_managed_apis
+    }:
+        selected_managed_profile = None
+    runtime_capabilities = await codex_capabilities(
+        credential_rows,
+        tenant_id=auth.tenant_id,
+        user_id=auth.user_id,
+        selected_managed_profile_id=selected_managed_profile,
+        auth_methods=app_config.codex_runtime_auth_methods,
+    )
+    if not runtime_capabilities.runtime_available:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": runtime_capabilities.error_code
+                or "codex_cli_unavailable",
+                "runtime_type": runtime_type.value,
+            },
         )
-        if not runtime_capabilities.runtime_available:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": runtime_capabilities.error_code
-                    or "codex_cli_unavailable",
-                    "runtime_type": runtime_type.value,
-                },
-            )
-        if runtime_capabilities.error_code:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": runtime_capabilities.error_code,
-                    "runtime_type": runtime_type.value,
-                },
-            )
-        if settings is not None and any(
-            value is not None
-            for value in (settings.temperature, settings.max_tokens, settings.timeout)
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "runtime_setting_not_supported",
-                    "runtime_type": runtime_type.value,
-                    "fields": ["temperature", "max_tokens", "timeout"],
-                },
-            )
-        try:
-            selected_runtime_model = validate_model_effort(
-                runtime_capabilities,
-                model_id=selected_model_id,
-                reasoning_effort=selected_effort,
-            )
-            effective_codex_model_id = (
-                selected_model_id or runtime_capabilities.default_model_id
-            )
-            account_model_id = codex_account_model_id(effective_codex_model_id)
-            managed_model = codex_managed_model(effective_codex_model_id)
-            credential_id = (
-                None
-                if account_model_id is not None or managed_model is not None
-                else codex_credential_id(effective_codex_model_id)
-            )
-            selected_openrouter_model = codex_openrouter_model(
-                effective_codex_model_id
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": str(exc), "runtime_type": runtime_type.value},
-            ) from exc
-    else:
-        runtime_capabilities = langchain_capabilities(credential_rows)
-        try:
-            selected_runtime_model = validate_model_effort(
-                runtime_capabilities,
-                model_id=selected_model_id,
-                reasoning_effort=selected_effort,
-            )
-            # Resolve the credential from the effective catalog selection, not
-            # from the possibly-empty browser field.  On a new Chat the
-            # catalog may select the user's first real saved API.  Treating the
-            # original ``None`` as a platform credential would silently change
-            # the authentication source and is therefore forbidden.
-            effective_langchain_model_id = (
-                selected_model_id or runtime_capabilities.default_model_id
-            )
-            credential_id = langchain_credential_id(
-                effective_langchain_model_id
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": str(exc), "runtime_type": runtime_type.value},
-            ) from exc
-        account_model_id = None
-        managed_model = None
-        selected_openrouter_model = langchain_openrouter_model(
-            effective_langchain_model_id
+    if runtime_capabilities.error_code:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": runtime_capabilities.error_code,
+                "runtime_type": runtime_type.value,
+            },
         )
+    if settings is not None and any(
+        value is not None
+        for value in (settings.temperature, settings.max_tokens, settings.timeout)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "runtime_setting_not_supported",
+                "runtime_type": runtime_type.value,
+                "fields": ["temperature", "max_tokens", "timeout"],
+            },
+        )
+    try:
+        selected_runtime_model = validate_model_effort(
+            runtime_capabilities,
+            model_id=selected_model_id,
+            reasoning_effort=selected_effort,
+        )
+        effective_codex_model_id = (
+            selected_model_id or runtime_capabilities.default_model_id
+        )
+        account_model_id = codex_account_model_id(effective_codex_model_id)
+        managed_model = codex_managed_model(effective_codex_model_id)
+        credential_id = (
+            None
+            if account_model_id is not None or managed_model is not None
+            else codex_credential_id(effective_codex_model_id)
+        )
+        selected_openrouter_model = codex_openrouter_model(
+            effective_codex_model_id
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc), "runtime_type": runtime_type.value},
+        ) from exc
     effective_runtime_model_id = (
         selected_model_id or runtime_capabilities.default_model_id
     )
@@ -2900,40 +2882,7 @@ async def post_message(
             "model_name": selected_openrouter_model,
         }
 
-    if runtime_type == RuntimeType.LANGCHAIN:
-        if settings is not None and any(
-            value is not None
-            for value in (
-                settings.model_id,
-                settings.temperature,
-                settings.max_tokens,
-                settings.timeout,
-                settings.reasoning_effort,
-            )
-        ):
-            agent_cfg = merge_agent_settings_override(
-                app_config.agent.to_agent_cfg(),
-                credential_row=credential_row,
-                temperature=settings.temperature,
-                max_tokens=settings.max_tokens,
-                timeout=settings.timeout,
-            )
-        else:
-            agent_cfg = app_config.agent
-        if selected_effort is not None:
-            # LangChain/OpenAI maps this stable field to Responses reasoning.
-            if not isinstance(agent_cfg, dict):
-                agent_cfg = agent_cfg.to_agent_cfg()
-            else:
-                agent_cfg = dict(agent_cfg)
-            agent_cfg["reasoning"] = {"effort": selected_effort}
-        runtime_model = (
-            agent_cfg.to_agent_cfg()
-            if hasattr(agent_cfg, "to_agent_cfg")
-            else dict(agent_cfg)
-        )
-
-    elif account_model_id is not None:
+    if account_model_id is not None:
         # Account-backed Codex uses its official model transport. The account
         # cache is mounted independently from Chat thread state and is never
         # reused as a provider API key.
@@ -2942,9 +2891,8 @@ async def post_message(
             "connection_type": "chatgpt_account",
         }
     else:
-        # Codex receives only the SDK model name plus the same host-brokered
-        # transport used by LangChain. No Codex account token or provider key
-        # enters the Chat sandbox.
+        # Codex receives only the SDK model name plus the host-brokered model
+        # transport. No account token or provider key enters the Chat sandbox.
         runtime_model = {}
 
     # API-backed modes receive only a short-lived host-broker capability. The
@@ -2961,33 +2909,14 @@ async def post_message(
             updated_at=f"managed:{managed_profile_id}",
         )
     elif credential_row is None:
-        if runtime_type == RuntimeType.CODEX:
-            # Codex API mode must always resolve to an explicitly configured
-            # managed profile or a user-owned saved credential. Falling
-            # through to ``config.agent`` here would silently recreate the
-            # removed platform-default API path. A real personal credential
-            # continues through the shared broker branch below.
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "model_not_available_for_runtime",
-                    "runtime_type": runtime_type.value,
-                },
-            )
-        configured_model = str(app_config.agent.model or "")
-        configured_provider, separator, configured_name = (
-            configured_model.partition(":")
-        )
-        model_provider = (
-            configured_provider if separator else ""
-        ).strip().lower().replace("-", "_")
-        model_name = (
-            configured_name if separator else configured_model
-        ).strip()
-        credential_revision = model_config_revision(
-            provider=model_provider,
-            model=model_name,
-            updated_at="platform-process-config",
+        # API mode must resolve to an explicitly managed profile or a
+        # user-owned credential; there is no process-global fallback secret.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "model_not_available_for_runtime",
+                "runtime_type": runtime_type.value,
+            },
         )
     else:
         model_provider = str(
@@ -3126,12 +3055,6 @@ async def post_message(
         tenant_id=auth.tenant_id,
         workspace_scope_id=agent_wf_id,
     )
-    if runtime_type == RuntimeType.LANGCHAIN:
-        runtime_model.setdefault("compaction_v2", {})
-        runtime_model["compaction_v2"].update({
-            "v2_enabled": context_rollout_mode == "active",
-            "effective_mode": context_rollout_mode,
-        })
     context_manifest = build_context_manifest(
         runtime_type=runtime_type.value,
         rollout_mode=context_rollout_mode,
@@ -3148,19 +3071,17 @@ async def post_message(
         workspace_scope_id=agent_wf_id,
         active_modes=effective_active_modes,
     )
-    durable_history = None
-    if runtime_type == RuntimeType.CODEX:
-        history_rows, history_total, _history_offset = (
-            await chat_repo.list_message_page(
-                chat_id,
-                limit=512,
-                tail=True,
-            )
+    history_rows, history_total, _history_offset = (
+        await chat_repo.list_message_page(
+            chat_id,
+            limit=512,
+            tail=True,
         )
-        durable_history = build_durable_history_snapshot(
-            history_rows,
-            source_total=history_total,
-        )
+    )
+    durable_history = build_durable_history_snapshot(
+        history_rows,
+        source_total=history_total,
+    )
     open_request = RuntimeOpenRequest(
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
@@ -3180,16 +3101,7 @@ async def post_message(
         runtime_session_id=runtime_binding["runtime_session_id"],
         runtime_root=runtime_root,
         runtime_state_ref=runtime_binding["runtime_state_ref"],
-        conversation_clock=(
-            {
-                "timezone": runtime_binding["runtime_timezone"],
-                "started_at": runtime_binding["runtime_started_at"],
-            }
-            if runtime_type == RuntimeType.LANGCHAIN
-            and runtime_binding.get("runtime_timezone")
-            and runtime_binding.get("runtime_started_at") is not None
-            else None
-        ),
+        conversation_clock=None,
         durable_history=(
             durable_history.model_dump(mode="json")
             if durable_history is not None

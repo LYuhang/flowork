@@ -1,7 +1,7 @@
 """Gate 4 — cancel propagation: request_cancel sets the stop event;
 run_turn terminates with an error event coded 'cancelled' within 2s.
 
-Direct unit test against turn_runtime avoids needing the full LangGraph
+Direct unit test against turn_runtime avoids needing a full Runtime process
 stack — the cancel contract is between request_cancel + run_turn +
 AsyncTurnBuffer, not the agent itself.
 

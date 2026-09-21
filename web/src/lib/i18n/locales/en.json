@@ -2482,7 +2482,7 @@
   ,"agent.startup.initializing_runtime": "Starting Agent Runtime"
   ,"agent.startup.connecting_model": "Connecting to model"
   ,"chat.debug.codex_summary": "{{count}} input items · {{outputCount}} current-turn outputs"
-  ,"chat.debug.langchain_summary": "{{count}} input messages · {{tokens}} tokens · {{outputCount}} current-turn outputs"
+  ,"chat.debug.runtime_summary": "{{count}} input messages · {{tokens}} tokens · {{outputCount}} current-turn outputs"
   ,"chat.debug.snapshot_truncated": "This large Runtime snapshot was truncated for safe browser display."
   ,"chat.debug.codex_history_incomplete": "Codex returned a summarized native thread for part of this history."
   ,"chat.debug.turnOutputBadge": "turn output"

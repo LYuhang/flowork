@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 
 from vibecanvas_api.services.agent_runtime.codex_runtime import CodexSandboxRuntime
-from vibecanvas_api.services.agent_runtime.langchain import LangChainSandboxRuntime
 from vibecanvas_api.services.agent_runtime.orchestrator import _product_events
 from vibecanvas_api.services.agent_runtime.protocol import (
     RuntimeControlResponse,
@@ -23,13 +22,6 @@ FIXTURE_ROOT = (
 )
 
 RUNTIME_PROFILES = (
-    pytest.param(
-        RuntimeType.LANGCHAIN,
-        LangChainSandboxRuntime,
-        "/runtime/langchain/chats/chat-conformance",
-        {},
-        id="langchain",
-    ),
     pytest.param(
         RuntimeType.CODEX,
         CodexSandboxRuntime,

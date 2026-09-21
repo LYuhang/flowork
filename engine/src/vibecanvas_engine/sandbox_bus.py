@@ -43,7 +43,7 @@ MSG_CANCEL = "cancel"
 MSG_INJECT = "inject"  # RESERVED (host→sandbox external data) — not produced in v1
 MSG_OUTPUT_STREAM = "output_stream"  # RESERVED (sandbox→host streamed output)
 # Agent Runtime messages use the same framing/channel, but carry only the
-# platform-owned stable protocol.  LangGraph/Codex SDK objects are translated by
+# platform-owned stable protocol. Runtime SDK objects are translated by
 # the in-sandbox adapter before they cross this boundary.
 MSG_RUNTIME_REQUEST = "runtime_request"       # host→sandbox: one turn request
 MSG_RUNTIME_EVENT = "runtime_event"           # sandbox→host: streamed event

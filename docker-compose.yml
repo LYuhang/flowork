@@ -165,11 +165,6 @@ services:
       - /bin/sh
       - -ec
       - |
-        # The strict rev-067 backfill includes legacy Runtime State rows. The
-        # broker/checkpointer schema must therefore exist before that backfill,
-        # including on a brand-new database. Both setup and migration commands
-        # are idempotent, so this ordering is safe for upgrades and retries.
-        python /app/scripts/security/setup_runtime_checkpointer.py
         python /app/scripts/security/migrate_strict_content_encryption.py
         if [ "$${OBJECT_STORE_PROVIDER}" = "filesystem" ]; then
           python /app/scripts/security/migrate_filesystem_object_store.py

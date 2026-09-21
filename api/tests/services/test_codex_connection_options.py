@@ -64,42 +64,6 @@ def test_invalid_runtime_choice_fails_startup(monkeypatch):
         AppConfig({})
 
 
-def test_codex_settings_are_absent_when_runtime_is_disabled(monkeypatch):
-    monkeypatch.setattr(
-        agent_runtime_routes.config,
-        "agent_runtime_types",
-        ("langchain",),
-    )
-    monkeypatch.setattr(
-        agent_runtime_routes.config,
-        "codex_runtime_auth_methods",
-        ("chatgpt", "managed_api", "personal_api"),
-    )
-    monkeypatch.setattr(
-        agent_runtime_routes.config,
-        "codex_managed_apis",
-        [
-            {
-                "id": "corp",
-                "name": "Corporate",
-                "base_url": "https://service.example.test/v1",
-                "api_key": "secret",
-                "models": ("gpt-codex",),
-            }
-        ],
-    )
-
-    settings = agent_runtime_routes._settings_out(
-        {
-            "default_runtime_type": "langchain",
-            "codex_managed_profile_id": "corp",
-        }
-    )
-
-    assert settings.codex_auth_methods == []
-    assert settings.codex_managed_profiles == []
-
-
 def test_bound_chat_model_replaces_only_the_catalog_default():
     capabilities = RuntimeCapabilities(
         runtime_type=RuntimeType.CODEX,

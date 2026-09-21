@@ -35,7 +35,7 @@ export function diagramPreviewPath(value: unknown): string | null {
 /**
  * MCP clients expose structured tool output in either `structuredContent` or
  * as a JSON object serialized into a text content block. The latter is the
- * shape currently emitted by the LangChain adapter. Keep this bounded and
+ * shape emitted by some adapters. Keep this bounded and
  * narrowly scoped to the signed Diagram Preview reference; arbitrary nested
  * JSON is never rendered as trusted markup.
  */
@@ -67,7 +67,7 @@ export function parseStandardToolResult(result: string | undefined): UniversalTo
   if (!result) return null;
   let raw: unknown;
   try { raw = JSON.parse(result); } catch { return null; }
-  // LangChain's MCP adapter serializes the protocol `content` list directly,
+  // Some MCP adapters serialize the protocol `content` list directly,
   // while other clients retain the enclosing `{ content, structuredContent }`
   // result object. Normalize both protocol-preserving shapes.
   if (Array.isArray(raw)) {

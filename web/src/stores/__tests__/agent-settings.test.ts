@@ -40,7 +40,7 @@ describe('useAgentSettingsStore', () => {
 
   it('setAll updates the store AND persists to localStorage', () => {
     useAgentSettingsStore.getState().setAll({
-      modelId: 'langchain:credential:cred-123',
+      modelId: 'codex:credential:cred-123',
       temperature: 0.7,
       maxTokens: 2048,
       timeout: 45,
@@ -49,7 +49,7 @@ describe('useAgentSettingsStore', () => {
 
     // Reactive store reflects the write.
     const s = useAgentSettingsStore.getState();
-    expect(s.modelId).toBe('langchain:credential:cred-123');
+    expect(s.modelId).toBe('codex:credential:cred-123');
     expect(s.temperature).toBe(0.7);
     expect(s.maxTokens).toBe(2048);
     expect(s.timeout).toBe(45);
@@ -58,7 +58,7 @@ describe('useAgentSettingsStore', () => {
     // Persisted to localStorage under the documented key.
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) as string);
     expect(raw).toEqual({
-      modelId: 'langchain:credential:cred-123',
+      modelId: 'codex:credential:cred-123',
       temperature: 0.7,
       maxTokens: 2048,
       timeout: 45,
@@ -87,7 +87,7 @@ describe('useAgentSettingsStore', () => {
 
   it('reset clears runtime state and persisted credential selection', () => {
     useAgentSettingsStore.getState().setAll({
-      modelId: 'langchain:credential:cred-old-user',
+      modelId: 'codex:credential:cred-old-user',
       temperature: 0.2,
       maxTokens: 1000,
       timeout: 30,

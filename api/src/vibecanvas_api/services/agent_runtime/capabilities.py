@@ -21,9 +21,6 @@ from vibecanvas_api.services.agent_runtime.protocol import (
 )
 from vibecanvas_api.services.codex_cli import resolve_codex_executable
 
-LANGCHAIN_DEFAULT_MODEL_ID = "langchain:default"
-LANGCHAIN_CREDENTIAL_PREFIX = "langchain:credential:"
-LANGCHAIN_OPENROUTER_PREFIX = "langchain:openrouter:"
 CODEX_OPENROUTER_PREFIX = "codex:openrouter:"
 CODEX_CREDENTIAL_PREFIX = "codex:credential:"
 CODEX_ACCOUNT_MODEL_PREFIX = "codex:account:"
@@ -42,16 +39,7 @@ def runtime_model_connection_id(
     several user-owned sources into a generic ``codex:api`` bucket.
     """
     runtime = RuntimeType(runtime_type)
-    if runtime == RuntimeType.LANGCHAIN:
-        if model_id == LANGCHAIN_DEFAULT_MODEL_ID:
-            return "langchain:managed"
-        if model_id.startswith(LANGCHAIN_OPENROUTER_PREFIX):
-            credential_id = model_id.removeprefix(
-                LANGCHAIN_OPENROUTER_PREFIX
-            ).partition(":")[0]
-            return f"langchain:openrouter:{credential_id}"
-        if model_id.startswith(LANGCHAIN_CREDENTIAL_PREFIX):
-            return model_id
+    if runtime != RuntimeType.CODEX:
         raise ValueError("model_not_available_for_runtime")
     if model_id.startswith(CODEX_ACCOUNT_MODEL_PREFIX):
         return "codex:account"
@@ -102,7 +90,7 @@ def _normalized_provider(provider: str) -> str:
     return provider.strip().lower().replace("-", "_")
 
 
-def _langchain_efforts(provider: str) -> list[RuntimeReasoningEffortOption]:
+def _openai_reasoning_efforts(provider: str) -> list[RuntimeReasoningEffortOption]:
     normalized = provider.strip().lower().replace("-", "_")
     if normalized not in {"openai", "azure", "azure_openai"}:
         return []
@@ -130,162 +118,6 @@ def _catalog_reasoning_efforts(
             description=description,
         ))
     return result
-
-
-def langchain_capabilities(
-    credential_rows: Iterable[Mapping[str, Any]],
-) -> RuntimeCapabilities:
-    """Build the live LangChain catalog from explicit platform/user APIs."""
-    platform_model = str(config.agent.model or "").strip()
-    platform_provider = _provider_from_model(platform_model)
-    models: list[RuntimeModelOption] = []
-    if platform_model and str(config.agent.api_key or "").strip():
-        platform_compatibility = compatible_api(
-            RuntimeType.LANGCHAIN,
-            api_source="managed_api",
-            provider=platform_provider,
-        )
-        models.append(RuntimeModelOption(
-            id=LANGCHAIN_DEFAULT_MODEL_ID,
-            label=platform_model,
-            description="Operator-configured platform model and credential.",
-            api_source="managed_api",
-            api_protocol=(
-                platform_compatibility.api_protocol
-                if platform_compatibility else None
-            ),
-            provider=platform_provider or None,
-            provider_model_id=_model_name(platform_model),
-            is_default=True,
-            supported_reasoning_efforts=_langchain_efforts(platform_provider),
-            default_reasoning_effort=None,
-        ))
-    for row in credential_rows:
-        credential_id = str(row.get("id") or "").strip()
-        model_name = str(row.get("model_name") or "").strip()
-        provider = str(row.get("provider") or "").strip()
-        connection_kind = str(row.get("connection_kind") or "manual").strip()
-        name = str(row.get("name") or model_name or provider or credential_id).strip()
-        if (
-            not credential_id
-            or not model_name
-            or not runtime_supports_api(
-                RuntimeType.LANGCHAIN,
-                api_source=connection_kind,
-                provider=provider,
-            )
-        ):
-            continue
-        if connection_kind == "openrouter_oauth":
-            compatibility = compatible_api(
-                RuntimeType.LANGCHAIN,
-                api_source=connection_kind,
-                provider=provider,
-            )
-            assert compatibility is not None
-            if row.get("catalog_error_code") == "openrouter_credentials_rejected":
-                continue
-            for model in row.get("model_catalog") or []:
-                if not isinstance(model, Mapping):
-                    continue
-                openrouter_model_id = str(model.get("id") or "").strip()
-                if not openrouter_model_id:
-                    continue
-                encoded = base64.urlsafe_b64encode(
-                    openrouter_model_id.encode("utf-8")
-                ).rstrip(b"=").decode("ascii")
-                pricing = model.get("pricing")
-                pricing = pricing if isinstance(pricing, Mapping) else {}
-                models.append(RuntimeModelOption(
-                    id=f"{LANGCHAIN_OPENROUTER_PREFIX}{credential_id}:{encoded}",
-                    label=str(model.get("name") or openrouter_model_id),
-                    description=str(model.get("description") or ""),
-                    api_source=connection_kind,
-                    api_protocol=compatibility.api_protocol,
-                    provider="openrouter",
-                    provider_model_id=openrouter_model_id,
-                    context_length=model.get("context_length"),
-                    input_modalities=list(model.get("input_modalities") or []),
-                    output_modalities=list(model.get("output_modalities") or []),
-                    supports_tools=bool(model.get("supports_tools")),
-                    supports_web_search=bool(model.get("supports_web_search")),
-                    input_price=(
-                        str(pricing["prompt"])
-                        if pricing.get("prompt") is not None else None
-                    ),
-                    output_price=(
-                        str(pricing["completion"])
-                        if pricing.get("completion") is not None else None
-                    ),
-                    available=bool(model.get("available", True)),
-                    supported_reasoning_efforts=_catalog_reasoning_efforts(model),
-                    default_reasoning_effort=(
-                        str(model.get("default_reasoning_effort"))
-                        if model.get("default_reasoning_effort") is not None
-                        else None
-                    ),
-                ))
-            continue
-        compatibility = compatible_api(
-            RuntimeType.LANGCHAIN,
-            api_source=connection_kind,
-            provider=provider,
-        )
-        assert compatibility is not None
-        models.append(RuntimeModelOption(
-            id=f"{LANGCHAIN_CREDENTIAL_PREFIX}{credential_id}",
-            label=name,
-            description=(
-                f"{provider} · {model_name}" if provider else model_name
-            ),
-            api_source=connection_kind,
-            api_protocol=compatibility.api_protocol,
-            provider=provider or None,
-            provider_model_id=model_name,
-            supported_reasoning_efforts=_langchain_efforts(provider),
-            default_reasoning_effort=None,
-        ))
-    if not models:
-        return RuntimeCapabilities(
-            runtime_type=RuntimeType.LANGCHAIN,
-            runtime_available=True,
-            authenticated=False,
-            source="langchain.explicit_credentials",
-            error_code="langchain_model_unavailable",
-        )
-    default = next((model.id for model in models if model.is_default), None)
-    return RuntimeCapabilities(
-        runtime_type=RuntimeType.LANGCHAIN,
-        runtime_available=True,
-        authenticated=True,
-        source="langchain.explicit_credentials",
-        models=models,
-        default_model_id=default or models[0].id,
-    )
-
-
-def langchain_credential_id(model_id: str | None) -> uuid.UUID | None:
-    """Resolve a public LangChain model-selection id to its credential id."""
-    if model_id is None or model_id == LANGCHAIN_DEFAULT_MODEL_ID:
-        return None
-    if model_id.startswith(LANGCHAIN_OPENROUTER_PREFIX):
-        raw = model_id.removeprefix(LANGCHAIN_OPENROUTER_PREFIX)
-        credential_raw, separator, _encoded = raw.partition(":")
-        if not separator:
-            raise ValueError("model_not_available_for_runtime")
-        raw = credential_raw
-    elif model_id.startswith(LANGCHAIN_CREDENTIAL_PREFIX):
-        raw = model_id.removeprefix(LANGCHAIN_CREDENTIAL_PREFIX)
-    else:
-        raise ValueError("model_not_available_for_runtime")
-    try:
-        return uuid.UUID(raw)
-    except ValueError as exc:
-        raise ValueError("model_not_available_for_runtime") from exc
-
-
-def langchain_openrouter_model(model_id: str | None) -> str | None:
-    return _openrouter_model_from_id(model_id, prefix=LANGCHAIN_OPENROUTER_PREFIX)
 
 
 def codex_openrouter_model(model_id: str | None) -> str | None:
@@ -370,7 +202,7 @@ async def codex_capabilities(
                 is_default=(
                     profile_id == selected_managed_profile_id and index == 0
                 ),
-                supported_reasoning_efforts=_langchain_efforts("openai"),
+                supported_reasoning_efforts=_openai_reasoning_efforts("openai"),
                 default_reasoning_effort=None,
             ))
     for row in credential_rows if "personal_api" in allowed_auth else ():
@@ -453,7 +285,7 @@ async def codex_capabilities(
             api_protocol=compatibility.api_protocol,
             provider=provider,
             provider_model_id=model_name,
-            supported_reasoning_efforts=_langchain_efforts(provider),
+            supported_reasoning_efforts=_openai_reasoning_efforts(provider),
             default_reasoning_effort=None,
         ))
     account_authenticated = False

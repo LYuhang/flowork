@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+from vibecanvas_api.agents.tools.subagent.core import SubAgentResult
 from vibecanvas_api.services.sandbox.workflow_guard import (
     SANDBOX_RUNNABLE_NODE_TYPES,
     classify_workflow,
@@ -9,20 +10,17 @@ from vibecanvas_api.services.sandbox.workflow_guard import (
 from vibecanvas_engine.nodes.base import BaseNode
 from vibecanvas_engine.nodes.subagent import SubAgentNode
 from vibecanvas_engine.register import node_registry
-from vibecanvas_api.agents.tools.subagent.core import SubAgentResult
 
 
-def _make_node(*, output_fields=None, node_config=None):
+def _make_node() -> SubAgentNode:
     return SubAgentNode(
         node_type="SubAgentNode",
         node_id="node_2",
         node_name="worker",
         node_description="a bounded sub-agent",
         input_fields={"task": {"type": "string", "value": "", "reference": ""}},
-        output_fields=output_fields
-        or {"answer": {"type": "string", "description": "the answer"}},
-        node_config=node_config
-        or {
+        output_fields={"answer": {"type": "string", "description": "the answer"}},
+        node_config={
             "task_template": "Summarize this task: {{task}}",
             "model_name": "m1",
             "max_iterations": 5,
@@ -31,34 +29,30 @@ def _make_node(*, output_fields=None, node_config=None):
     )
 
 
-def test_subagent_node_registered_and_in_schema():
+def test_subagent_node_is_registered_and_sandbox_runnable():
     assert node_registry.get("SubAgentNode") is not None
-    assert (
-        "SubAgentNode"
-        in BaseNode.GENERAL_NODE_SCHEMA["properties"]["node_type"]["enum"]
-    )
-
-
-def test_subagent_node_in_sandbox_allowlist():
+    assert "SubAgentNode" in BaseNode.GENERAL_NODE_SCHEMA["properties"]["node_type"]["enum"]
     assert "SubAgentNode" in SANDBOX_RUNNABLE_NODE_TYPES
 
 
-def test_subagent_node_populates_output_fields():
+def test_subagent_node_populates_declared_output_fields():
     node = _make_node()
-    result = SubAgentResult(
-        "done", {"answer": "ok"}, trace=[{"role": "ai", "text": "ok"}]
-    )
+    result = SubAgentResult("done", {"answer": "ok"})
 
-    with patch(
-        "vibecanvas_api.agent._build_chat_model",
-        return_value=object(),
-    ), patch(
-        "vibecanvas_api.agents.tools.subagent.toolset.build_agent_subagent_tools",
-        return_value=[],
-    ), patch(
-        "vibecanvas_api.agents.tools.subagent.core.run_bounded_agent",
-        new=AsyncMock(return_value=result),
-    ) as run_mock:
+    with (
+        patch(
+            "vibecanvas_api.services.workflow_subagent.build_workflow_chat_model",
+            return_value=object(),
+        ) as model_mock,
+        patch(
+            "vibecanvas_api.agents.tools.subagent.toolset.build_agent_subagent_tools",
+            return_value=[],
+        ),
+        patch(
+            "vibecanvas_api.agents.tools.subagent.core.run_bounded_agent",
+            new=AsyncMock(return_value=result),
+        ) as run_mock,
+    ):
         envelope = node(
             {"task": "summarize"},
             {},
@@ -77,46 +71,12 @@ def test_subagent_node_populates_output_fields():
 
     assert envelope["status"] == "success", envelope
     assert envelope["output"] == {"answer": "ok"}
-    kwargs = run_mock.call_args.kwargs
-    assert kwargs["user_input"] == "Summarize this task: summarize"
-    assert "bounded workflow sub-agent" in kwargs["system_prompt"]
+    assert model_mock.call_args.args[0]["model"] == "openai:gpt-test"
+    assert run_mock.call_args.kwargs["user_input"] == "Summarize this task: summarize"
 
 
-def test_subagent_node_uses_default_model_settings_from_credentials():
-    node = _make_node()
-    result = SubAgentResult("done", {"answer": ""}, trace=[])
-    credential = {
-        "provider": "openai",
-        "model_name": "gpt-test",
-        "api_key": "test-only-api-key",
-        "api_url": "https://example.invalid/v1",
-        "model_context_tokens": 128000,
-    }
-
-    with patch(
-        "vibecanvas_api.agent._build_chat_model",
-        return_value=object(),
-    ) as model_mock, patch(
-        "vibecanvas_api.agents.tools.subagent.toolset.build_agent_subagent_tools",
-        return_value=[],
-    ), patch(
-        "vibecanvas_api.agents.tools.subagent.core.run_bounded_agent",
-        new=AsyncMock(return_value=result),
-    ):
-        node(
-            {"task": "summarize"},
-            {},
-            extra={"run_id": "r1", "llm_credentials": {"m1": credential}},
-        )
-
-    agent_cfg = model_mock.call_args.args[0]
-    assert agent_cfg["model"] == "openai:gpt-test"
-    assert "temperature" not in agent_cfg
-    assert "max_tokens" not in agent_cfg
-
-
-def _subagent_wf() -> dict:
-    return {
+def test_subagent_workflow_remains_database_free():
+    workflow = {
         "__meta__": {
             "workflow_id": "wf_subagent",
             "workflow_name": "subagent_smoke",
@@ -141,9 +101,7 @@ def _subagent_wf() -> dict:
             "input_fields": {
                 "task": {"type": "string", "value": "", "reference": "__start__.task"}
             },
-            "output_fields": {
-                "answer": {"type": "string", "description": "the answer"}
-            },
+            "output_fields": {"answer": {"type": "string", "description": "the answer"}},
             "node_config": {
                 "task_template": "Answer this task: {{task}}",
                 "model_name": "m1",
@@ -159,14 +117,10 @@ def _subagent_wf() -> dict:
             "input_fields": {
                 "answer": {"type": "string", "value": "", "reference": "worker.answer"}
             },
-            "output_fields": {
-                "answer": {"type": "string", "description": "the answer"}
-            },
+            "output_fields": {"answer": {"type": "string", "description": "the answer"}},
             "node_config": {},
             "children": [],
         },
     }
 
-
-def test_subagent_workflow_is_database_free():
-    assert classify_workflow(_subagent_wf()) == "pure"
+    assert classify_workflow(workflow) == "pure"

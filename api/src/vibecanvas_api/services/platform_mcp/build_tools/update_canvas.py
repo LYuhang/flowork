@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 
 from vibecanvas_api.services.platform_mcp.build_tools.workflow_file import (
     DEFAULT_WORKFLOW_PATH,

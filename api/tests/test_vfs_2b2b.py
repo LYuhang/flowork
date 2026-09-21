@@ -146,7 +146,7 @@ async def test_run_workflow_unknown_node_errors(app_engine):
 
 
 def test_registry_has_fused_tools_not_retired():
-    # Platform workflow execution is no longer a LangChain-private built-in,
+    # Platform workflow execution is not a Runtime-private built-in,
     # while tabular work is handled through bash/Python instead of dedicated
     # tools.
     from vibecanvas_api.agents.tools import builtin_tool_names

@@ -1,7 +1,7 @@
 """Generic limit/offset paginated response wrapper.
 
 Spec §3.6 + P2.2.8 — every list endpoint paginates from day 1 to
-match GitHub / Dify / LangGraph / LangFlow conventions.
+match common GitHub / Dify / LangFlow conventions.
 
 Usage in route handler:
 

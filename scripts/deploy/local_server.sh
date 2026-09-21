@@ -210,7 +210,7 @@ backfill_env() {
   ensure_env_value OAUTH_ENCRYPTION_KEY "$(random_urlsafe_key)"
   ensure_env_value ENABLE_TEST_USER false
   ensure_env_value ENTERPRISE_SSO_ENABLED false
-  ensure_env_value AGENT_RUNTIME_TYPES langchain,codex
+  ensure_env_value AGENT_RUNTIME_TYPES codex
   ensure_env_value CODEX_RUNTIME_AUTH_METHODS chatgpt,managed_api,personal_api
   ensure_env_value CODEX_MANAGED_APIS_JSON '[]'
   ensure_env_value AGENT_DEBUG_VIEW_ENABLED false
@@ -262,7 +262,7 @@ initialize_env() {
   set_env_value OAUTH_ENCRYPTION_KEY "$(random_urlsafe_key)"
   set_env_value ENABLE_TEST_USER false
   set_env_value ENTERPRISE_SSO_ENABLED false
-  set_env_value AGENT_RUNTIME_TYPES langchain,codex
+  set_env_value AGENT_RUNTIME_TYPES codex
   set_env_value CODEX_RUNTIME_AUTH_METHODS chatgpt,managed_api,personal_api
   set_env_value CODEX_MANAGED_APIS_JSON '[]'
   set_env_value AGENT_DEBUG_VIEW_ENABLED false

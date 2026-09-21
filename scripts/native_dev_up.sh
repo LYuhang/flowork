@@ -295,7 +295,7 @@ write_env() {
   printf -v codex_access_token_q '%q' "${CODEX_ACCESS_TOKEN:-}"
   printf -v codex_id_token_q '%q' "${CODEX_ID_TOKEN:-}"
   printf -v mount_path_q '%q' "${MOUNT_PATH:-}"
-  printf -v agent_runtime_types_q '%q' "${AGENT_RUNTIME_TYPES:-langchain,codex}"
+  printf -v agent_runtime_types_q '%q' "${AGENT_RUNTIME_TYPES:-codex}"
   printf -v codex_auth_methods_q '%q' "${CODEX_RUNTIME_AUTH_METHODS:-chatgpt,managed_api,personal_api}"
   printf -v codex_managed_apis_q '%q' "${CODEX_MANAGED_APIS_JSON:-[]}"
   cat > "$RUNDIR/.env.native" <<EOF
@@ -485,10 +485,6 @@ SQL
     "$PGBIN/psql" -h localhost -p "$PGPORT" -U "$(whoami)" -d vibecanvas \
       -f "$REPO_ROOT/scripts/security/provision_database_roles.sql"
     local migration_url="postgresql+asyncpg://vibecanvas_migrator:vibecanvas_migrator@localhost:${PGPORT}/vibecanvas"
-    DATABASE_URL="$migration_url" MIGRATION_DATABASE_URL="$migration_url" \
-      PYTHONPATH="$API_DIR/src:$ENGINE_DIR/src${PYTHONPATH:+:$PYTHONPATH}" \
-      "$VIBECANVAS_PYTHON" \
-      "$REPO_ROOT/scripts/security/setup_runtime_checkpointer.py"
     DATABASE_URL="$migration_url" MIGRATION_DATABASE_URL="$migration_url" \
       PYTHONPATH="$API_DIR/src:$ENGINE_DIR/src${PYTHONPATH:+:$PYTHONPATH}" \
       "$VIBECANVAS_PYTHON" \

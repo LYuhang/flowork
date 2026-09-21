@@ -140,7 +140,7 @@ async def test_openrouter_connect_refresh_reconnect_and_disconnect(
         "GPT-5", "Claude Sonnet",
     }
     assert all(model["supports_tools"] for model in openrouter_options)
-    assert all(model["id"].startswith("langchain:openrouter:") for model in openrouter_options)
+    assert all(model["id"].startswith("codex:openrouter:") for model in openrouter_options)
 
     replay = await client.post(
         "/api/v1/llm-credentials/openrouter/callback",

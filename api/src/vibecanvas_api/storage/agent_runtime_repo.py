@@ -10,12 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.config import config
+from vibecanvas_api.services.agent_runtime.registry import AVAILABLE_RUNTIME_TYPES
 
 from .models import Chat, UserAgentPreference
-from .chat_repo import ChatRepo
-
-
-RUNTIME_TYPES = frozenset({"langchain", "codex"})
 
 
 def validate_user_timezone(value: str) -> str:
@@ -37,7 +34,9 @@ class AgentRuntimeRepo:
     async def get_preferences(self) -> dict:
         row = await self._session.get(UserAgentPreference, self._user_id)
         configured = tuple(
-            runtime for runtime in config.agent_runtime_types if runtime in RUNTIME_TYPES
+            runtime
+            for runtime in config.agent_runtime_types
+            if runtime in AVAILABLE_RUNTIME_TYPES
         )
         default_runtime = configured[0]
         stored_runtime = row.default_runtime_type if row is not None else None
@@ -54,7 +53,10 @@ class AgentRuntimeRepo:
         }
 
     async def set_default_runtime_type(self, runtime_type: str) -> dict:
-        if runtime_type not in RUNTIME_TYPES or runtime_type not in config.agent_runtime_types:
+        if (
+            runtime_type not in AVAILABLE_RUNTIME_TYPES
+            or runtime_type not in config.agent_runtime_types
+        ):
             raise ValueError(f"unsupported runtime type: {runtime_type}")
         row = await self._session.get(UserAgentPreference, self._user_id)
         if row is None:
@@ -133,62 +135,37 @@ class AgentRuntimeRepo:
             if selected is None:
                 selected = (await self.get_preferences())["default_runtime_type"]
             if (
-                selected not in RUNTIME_TYPES
+                selected not in AVAILABLE_RUNTIME_TYPES
                 or selected not in config.agent_runtime_types
             ):
                 raise ValueError(f"unsupported runtime type: {selected}")
             chat.runtime_type = selected
             chat.runtime_session_id = f"rt_{selected}_{uuid.uuid4().hex}"
-            # LangGraph's durable state lives in PostgreSQL and is addressed by
-            # its existing thread id.  The private /runtime mount is a separate
-            # filesystem concern; conflating the two would fork conversation
-            # history during cutover. Codex assigns its session/thread ref when
-            # the adapter actually opens the first turn.
-            chat.runtime_state_ref = (
-                ChatRepo.checkpointer_thread_id(
-                    self._user_id, chat.scope_id, chat.chat_id
-                )
-                if selected == "langchain"
-                else None
-            )
+            # Codex assigns its native thread ref when the adapter opens the
+            # first turn.
+            chat.runtime_state_ref = None
             chat.runtime_version = 1
-            if selected == "langchain":
-                configured_timezone = (
-                    preference.preferred_timezone
-                    if preference is not None
-                    and preference.preferred_timezone
-                    else user_timezone or "UTC"
-                )
-                chat.runtime_timezone = validate_user_timezone(
-                    configured_timezone
-                )
-                chat.runtime_started_at = datetime.now(timezone.utc)
-                # A browser-provided zone seeds the durable user preference
-                # only when the account has never selected one.  Existing
-                # backend preference always wins across devices.
-                if (
-                    user_timezone
-                    and (
-                        preference is None
-                        or not preference.preferred_timezone
+            configured_timezone = (
+                preference.preferred_timezone
+                if preference is not None and preference.preferred_timezone
+                else user_timezone or "UTC"
+            )
+            chat.runtime_timezone = validate_user_timezone(configured_timezone)
+            chat.runtime_started_at = datetime.now(timezone.utc)
+            if user_timezone and (
+                preference is None or not preference.preferred_timezone
+            ):
+                if preference is None:
+                    preference = UserAgentPreference(
+                        user_id=self._user_id,
+                        default_runtime_type=selected,
                     )
-                ):
-                    if preference is None:
-                        preference = UserAgentPreference(
-                            user_id=self._user_id,
-                            default_runtime_type=selected,
-                        )
-                        self._session.add(preference)
-                    preference.preferred_timezone = validate_user_timezone(
-                        user_timezone
-                    )
+                    self._session.add(preference)
+                preference.preferred_timezone = validate_user_timezone(user_timezone)
             await self._session.flush()
-        elif chat.runtime_type == "langchain" and (
+        elif chat.runtime_type == "codex" and (
             not chat.runtime_timezone or chat.runtime_started_at is None
         ):
-            # One-time upgrade path for Chats bound before revision 110.  The
-            # row lock above guarantees concurrent resume requests choose one
-            # clock and all subsequent Turns reuse it.
             configured_timezone = (
                 preference.preferred_timezone
                 if preference is not None and preference.preferred_timezone

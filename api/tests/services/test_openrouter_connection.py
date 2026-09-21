@@ -9,11 +9,7 @@ import pytest
 
 from vibecanvas_api.services import openrouter_connection as subject
 from vibecanvas_api.services.agent_runtime.capabilities import (
-    LANGCHAIN_OPENROUTER_PREFIX,
     codex_capabilities,
-    langchain_capabilities,
-    langchain_credential_id,
-    langchain_openrouter_model,
 )
 
 
@@ -208,39 +204,6 @@ async def test_revoked_key_is_classified_without_returning_provider_body(
     assert "sensitive" not in str(caught.value)
 
 
-def test_langchain_expands_openrouter_catalog_with_source_metadata() -> None:
-    credential_id = "7c58b22c-1df3-4ecf-b904-ec6d5aa19f98"
-    capabilities = langchain_capabilities([{
-        "id": credential_id,
-        "name": "OpenRouter",
-        "provider": "openrouter",
-        "runtime_scope": "langchain",
-        "connection_kind": "openrouter_oauth",
-        "model_name": "openai/gpt-5",
-        "model_catalog": [{
-            "id": "openai/gpt-5",
-            "name": "GPT-5",
-            "description": "",
-            "context_length": 400_000,
-            "input_modalities": ["text"],
-            "output_modalities": ["text"],
-            "supports_tools": True,
-            "pricing": {"prompt": "0.1", "completion": "0.2"},
-            "available": True,
-        }],
-    }])
-    option = next(
-        model for model in capabilities.models
-        if model.id.startswith(LANGCHAIN_OPENROUTER_PREFIX)
-    )
-    assert str(langchain_credential_id(option.id)) == credential_id
-    assert langchain_openrouter_model(option.id) == "openai/gpt-5"
-    assert option.context_length == 400_000
-    assert option.supports_tools is True
-    assert option.api_source == "openrouter_oauth"
-    assert option.api_protocol == "openai_compatible"
-
-
 @pytest.mark.asyncio
 async def test_openrouter_catalog_is_projected_to_codex_responses(
     monkeypatch,
@@ -252,7 +215,7 @@ async def test_openrouter_catalog_is_projected_to_codex_responses(
         [{
             "id": "7c58b22c-1df3-4ecf-b904-ec6d5aa19f98",
             "provider": "openrouter",
-            "runtime_scope": "langchain",
+            "runtime_scope": "codex",
             "connection_kind": "openrouter_oauth",
             "model_name": "openai/gpt-5",
             "model_catalog": [_model()],
@@ -265,15 +228,3 @@ async def test_openrouter_catalog_is_projected_to_codex_responses(
     assert option.provider_model_id == "openai/gpt-5"
     assert option.api_source == "openrouter_oauth"
     assert option.api_protocol == "openai_responses"
-
-
-def test_revoked_openrouter_connection_is_not_advertised_to_langchain() -> None:
-    result = langchain_capabilities([{
-        "id": "7c58b22c-1df3-4ecf-b904-ec6d5aa19f98",
-        "provider": "openrouter",
-        "connection_kind": "openrouter_oauth",
-        "model_name": "openai/gpt-5",
-        "model_catalog": [_model()],
-        "catalog_error_code": "openrouter_credentials_rejected",
-    }])
-    assert all(model.provider != "openrouter" for model in result.models)

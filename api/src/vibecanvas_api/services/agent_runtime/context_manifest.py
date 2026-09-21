@@ -61,7 +61,7 @@ def build_context_manifest(
     """Build a stable product-fact manifest before either adapter runs.
 
     Adapters may add model-native history decisions, but the shared resources
-    and their ordering remain identical across LangChain and Codex.
+    and their ordering remain identical across Runtime adapters.
     """
     sections: list[RuntimeContextSection] = []
 

@@ -9,7 +9,7 @@
  *      `tool_calls[i].result` with `status: 'done'`.
  *   3. Orphan tool chunks are dropped unless exactly one pending call makes
  *      fallback attachment unambiguous.
- *   4. Both wire shapes for tool-call announcements (LangChain nested
+ *   4. Both wire shapes for tool-call announcements (nested
  *      `{ function: {...} }` and the flat `{ id, name, arguments }`) are
  *      handled.
  */
@@ -21,7 +21,7 @@ describe('mergeChunks', () => {
     const running = {
       schemaVersion: 1 as const,
       invocationId: 'call_1',
-      runtime: { type: 'langchain' },
+      runtime: { type: 'codex' },
       origin: { kind: 'custom_mcp' as const, serverName: 'github', toolName: 'search_repositories', qualifiedName: 'github__search_repositories' },
       capability: 'github',
       name: 'search_repositories',
@@ -107,7 +107,7 @@ describe('mergeChunks', () => {
     });
   });
 
-  it('pairs a LangChain nested-shape tool-call with its result chunk', () => {
+  it('pairs a nested-shape tool-call with its result chunk', () => {
     const chunks: RawChunk[] = [
       {
         role: 'assistant',

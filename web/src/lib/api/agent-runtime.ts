@@ -1,11 +1,16 @@
 import { getApiBase } from '@/lib/base-path';
 import { useAuthStore } from '@/stores/auth';
 
-export type AgentRuntimeType = 'langchain' | 'codex';
+export type AgentRuntimeType = string;
 
 export interface AgentRuntimeSettings {
   default_runtime_type: AgentRuntimeType;
   available_runtime_types: AgentRuntimeType[];
+  runtime_options: Array<{
+    id: AgentRuntimeType;
+    label: string;
+    description: string;
+  }>;
   codex_managed_profile_id: string | null;
   preferred_timezone: string | null;
   codex_managed_profiles: Array<{

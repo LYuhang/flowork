@@ -31,7 +31,7 @@ source_marker() {
 
 runtime_self_check() {
   PYTHONNOUSERSITE=1 env -u PYTHONPATH "$CACHE_PREFIX/bin/python" -c \
-    'import asyncio, fastapi, jsonlines, langgraph, matplotlib, networkx, numpy, pandas, psycopg, seaborn, sqlalchemy, tabulate, webauthn; print("runtime environment self-check: ok")'
+    'import asyncio, fastapi, jsonlines, matplotlib, networkx, numpy, pandas, psycopg, seaborn, sqlalchemy, tabulate, webauthn; print("runtime environment self-check: ok")'
 }
 
 sync_base_environment() {

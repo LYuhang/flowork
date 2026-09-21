@@ -133,10 +133,6 @@ async def test_runtime_erasure_constructs_manager_in_worker_process(
         async def unregister_user(self, *, user_id):
             calls.append(("unregister_user", user_id))
 
-    class CheckpointStore:
-        async def close(self):
-            calls.append(("checkpoint_close", None))
-
     manager = Manager()
     factory_calls = 0
 
@@ -147,7 +143,6 @@ async def test_runtime_erasure_constructs_manager_in_worker_process(
 
     monkeypatch.setattr(purge, "get_sandbox_manager", manager_factory)
     monkeypatch.setattr(purge, "host_mount_bridge", HostMountBridge())
-    monkeypatch.setattr(purge, "LangChainCheckpointStore", CheckpointStore)
     monkeypatch.setattr(
         purge,
         "_user_tenant_ids",

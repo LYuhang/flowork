@@ -90,7 +90,7 @@ class _FakeBroker:
 def _runtime_request(
     turn_id: str,
     *,
-    runtime_type: str = "langchain",
+    runtime_type: str = "codex",
     model: dict | None = None,
 ) -> dict:
     """Build the same complete protocol-v2 Turn envelope used in production."""
@@ -648,7 +648,6 @@ def test_codex_runtime_mounts_diagram_mcp_package(
 @pytest.mark.parametrize(
     ("runtime_type", "model", "expected_auth"),
     [
-        ("langchain", {}, "detached"),
         ("codex", {"connection_type": "managed_api"}, "detached"),
         ("codex", {"connection_type": "chatgpt_account"}, "account_bound"),
     ],
@@ -705,39 +704,6 @@ async def test_all_interactive_runtimes_share_hibernate_security_boundary(
     assert resources["authentication"] == "detached"
     assert resources["network"] == "disconnected"
     assert provider.stops == 1
-
-    await session.close()
-
-
-@pytest.mark.asyncio
-async def test_runtime_binding_cannot_switch_inside_one_session(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    provider = _FakeProvider()
-    monkeypatch.setattr(manager_module, "BusBroker", _FakeBroker)
-    session = SandboxSession(
-        tenant_id="tenant",
-        wf_id="chat",
-        run_dir=None,
-        overlay_dir=None,
-        provider=provider,
-        base_binds=[],
-        expose_run=False,
-    )
-    _ = [
-        event
-        async for event in session.run_agent_runtime_stream(
-            _runtime_request("turn-1")
-        )
-    ]
-
-    with pytest.raises(RuntimeError, match="sandbox_runtime_binding_mismatch"):
-        _ = [
-            event
-            async for event in session.run_agent_runtime_stream(
-                _runtime_request("turn-2", runtime_type="codex")
-            )
-        ]
 
     await session.close()
 

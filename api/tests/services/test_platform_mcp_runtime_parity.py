@@ -1,4 +1,4 @@
-"""Both Runtime adapters receive the same host-authorized Platform MCP policy."""
+"""The active Runtime receives the host-authorized Platform MCP policy."""
 
 from __future__ import annotations
 
@@ -113,7 +113,7 @@ async def _register(client, label: str) -> tuple[dict[str, str], dict]:
 
 
 @pytest.mark.asyncio
-async def test_langchain_and_codex_platform_mcp_share_allow_deny_boundary(
+async def test_codex_platform_mcp_enforces_allow_deny_boundary(
     client,
     pg_engine,
     monkeypatch,
@@ -184,27 +184,14 @@ async def test_langchain_and_codex_platform_mcp_share_allow_deny_boundary(
     assert bootstrap.status_code == 200, bootstrap.text
     carrier_scope_id = bootstrap.json()["carrier_scope_id"]
 
-    for runtime_type, chat_id in (
-        ("langchain", "chat-platform-langchain"),
-        ("codex", "chat-platform-codex"),
-    ):
-        settings = await client.put(
-            "/api/v1/agent-runtime/settings",
-            headers=owner_headers,
-            json={"default_runtime_type": runtime_type},
-        )
-        assert settings.status_code == 200, settings.text
-        sent = await client.post(
-            f"/api/v1/chat-scopes/{carrier_scope_id}/chats/{chat_id}/messages",
-            headers=owner_headers,
-            json={"role": "user", "content": "/workflow inspect access"},
-        )
-        assert sent.status_code == 200, sent.text
+    sent = await client.post(
+        f"/api/v1/chat-scopes/{carrier_scope_id}/chats/chat-platform-codex/messages",
+        headers=owner_headers,
+        json={"role": "user", "content": "/workflow inspect access"},
+    )
+    assert sent.status_code == 200, sent.text
 
-    assert [request.runtime_type.value for request in dispatched] == [
-        "langchain",
-        "codex",
-    ]
+    assert [request.runtime_type.value for request in dispatched] == ["codex"]
     capabilities = []
     for request in dispatched:
         descriptor = next(
@@ -221,16 +208,6 @@ async def test_langchain_and_codex_platform_mcp_share_allow_deny_boundary(
         assert capability.runtime_session_id == request.runtime_session_id
         capabilities.append(capability)
 
-    assert capabilities[0].actions == capabilities[1].actions
-    assert tuple(
-        resource
-        for resource in capabilities[0].resources
-        if resource.endswith(":*")
-    ) == tuple(
-        resource
-        for resource in capabilities[1].resources
-        if resource.endswith(":*")
-    )
     async with pg_engine.begin() as connection:
         await connection.execute(
             text("SELECT set_config('app.tenant_id', :tenant_id, false)"),
@@ -267,7 +244,7 @@ async def test_langchain_and_codex_platform_mcp_share_allow_deny_boundary(
             denied = True
         results.append((True, denied))
 
-    assert results == [(True, True), (True, True)]
+    assert results == [(True, True)]
 
 
 @pytest.mark.asyncio

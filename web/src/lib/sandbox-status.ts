@@ -38,7 +38,7 @@ export interface SandboxResourceStatus {
     | 'unknown';
   network: 'connected' | 'disconnected' | 'unknown';
   snapshot_kind: 'baseline' | 'session_hibernation' | null;
-  runtime_type: 'langchain' | 'codex' | null;
+  runtime_type: string | null;
   lifecycle_generation: number | null;
   lifecycle_state: string;
 }

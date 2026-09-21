@@ -59,7 +59,7 @@ async def test_tool_carrier_is_persisted_before_its_result(monkeypatch):
             "invocation": {
                 "schemaVersion": 1,
                 "invocationId": "call_1",
-                "runtime": {"type": "langchain"},
+                "runtime": {"type": "codex"},
                 "status": "running",
             },
         },
@@ -76,7 +76,7 @@ async def test_tool_carrier_is_persisted_before_its_result(monkeypatch):
             "invocation": {
                 "schemaVersion": 1,
                 "invocationId": "call_1",
-                "runtime": {"type": "langchain"},
+                "runtime": {"type": "codex"},
                 "status": "success",
             },
         },

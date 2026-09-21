@@ -54,7 +54,7 @@ async def test_chat_runtime_binding_is_immutable_after_first_start(pg_engine) ->
     async with session_scope(tenant_id=tenant_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         assert await repo.get_preferences() == {
-            "default_runtime_type": "langchain",
+            "default_runtime_type": "codex",
             "codex_managed_profile_id": None,
             "preferred_timezone": None,
         }
@@ -69,18 +69,16 @@ async def test_chat_runtime_binding_is_immutable_after_first_start(pg_engine) ->
 
     async with session_scope(tenant_id=tenant_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
-        await repo.set_default_runtime_type("langchain")
+        await repo.set_default_runtime_type("codex")
         rebound = await repo.bind_chat(first_chat)
         second = await repo.bind_chat(second_chat)
         await session.commit()
 
     assert rebound == first
     assert second is not None
-    assert second["runtime_type"] == "langchain"
-    assert second["runtime_session_id"].startswith("rt_langchain_")
-    assert second["runtime_state_ref"] == (
-        f"{user_id}____chat_runtime__{second_chat}"
-    )
+    assert second["runtime_type"] == "codex"
+    assert second["runtime_session_id"].startswith("rt_codex_")
+    assert second["runtime_state_ref"] is None
     assert second["runtime_timezone"] == "UTC"
     assert second["runtime_started_at"] is not None
 
@@ -151,7 +149,7 @@ async def test_chat_runtime_model_selection_can_advance_between_turns(
 
 
 @pytest.mark.asyncio
-async def test_langchain_conversation_clock_is_fixed_across_resume(pg_engine) -> None:
+async def test_runtime_conversation_clock_is_fixed_across_resume(pg_engine) -> None:
     tenant_id, user_id = await _seed(pg_engine)
     chat_id = f"runtime_clock_{uuid.uuid4().hex[:8]}"
     await _insert_chat(tenant_id, user_id, chat_id)
@@ -160,7 +158,7 @@ async def test_langchain_conversation_clock_is_fixed_across_resume(pg_engine) ->
         repo = AgentRuntimeRepo(session, user_id)
         first = await repo.bind_chat(
             chat_id,
-            runtime_type="langchain",
+            runtime_type="codex",
             user_timezone="Asia/Shanghai",
         )
         await session.commit()

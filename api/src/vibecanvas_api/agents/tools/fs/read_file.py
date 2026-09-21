@@ -13,7 +13,7 @@ returns a short descriptor instead of raw bytes.
 """
 from __future__ import annotations
 
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import tool
 
 from vibecanvas_api.agents.tools._common import _human_size
 from vibecanvas_api.agents.tools.decorator import tool_output, ToolError

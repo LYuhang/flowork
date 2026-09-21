@@ -21,7 +21,7 @@
  * (e.g., a malformed stream) are skipped rather than emitted as their own
  * row so the renderer never has to handle the `'tool'` role.
  *
- * The reducer accepts either the LangChain-style nested tool-call shape
+ * The reducer accepts either a nested tool-call shape
  * (`{id, type:'function', function:{name, arguments}}`) or a flat
  * `{id, name, arguments}` — both forms appear in practice depending on
  * which agent emitted the frame.
@@ -90,7 +90,7 @@ function argsToString(args: unknown): string {
   }
 }
 
-/** Narrow a raw tool-call entry, tolerating both LangChain + flat shapes. */
+/** Narrow a raw tool-call entry, tolerating both nested and flat shapes. */
 function readRawToolCall(raw: unknown): RawToolCall | null {
   if (!isObject(raw)) return null;
   const out: RawToolCall = {};

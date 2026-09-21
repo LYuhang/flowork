@@ -40,7 +40,6 @@ logger = structlog.get_logger(__name__)
 _MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 _STREAM_METHODS = {
     "run_agent_runtime_stream",
-    "run_background_job_stream",
     "submit_workflow_stream",
 }
 _SESSION_METHODS = {
@@ -54,8 +53,6 @@ _SESSION_METHODS = {
     *_STREAM_METHODS,
     "send_agent_runtime_control",
     "cancel_agent_runtime",
-    "cancel_background_job",
-    "send_background_job_control",
     "cancel_workflow_run",
     "read_file",
     "write_file",
@@ -249,16 +246,6 @@ class RemoteSandboxSession:
 
     async def cancel_agent_runtime(self, turn_id: str) -> bool:
         return bool(await self._call("cancel_agent_runtime", turn_id))
-
-    async def run_background_job_stream(self, request: dict) -> AsyncIterator[dict]:
-        async for item in self._stream("run_background_job_stream", request):
-            yield item
-
-    async def cancel_background_job(self, job_id: str) -> bool:
-        return bool(await self._call("cancel_background_job", job_id))
-
-    async def send_background_job_control(self, job_id: str, response: dict) -> bool:
-        return bool(await self._call("send_background_job_control", job_id, response))
 
     async def submit_workflow_stream(self, **kwargs: Any) -> AsyncIterator[dict]:
         async for item in self._stream("submit_workflow_stream", **kwargs):
@@ -477,7 +464,6 @@ class RemoteSandboxManager:
             })
             if method in {
                 "send_agent_runtime_control", "cancel_agent_runtime",
-                "cancel_background_job", "send_background_job_control",
                 "cancel_workflow_run",
             }:
                 response = await stub.Control(pb.ControlRequest(
@@ -837,7 +823,6 @@ class _SandboxGrpcService(pb_grpc.SandboxServiceServicer):
         try:
             allowed = {
                 "send_agent_runtime_control", "cancel_agent_runtime",
-                "cancel_background_job", "send_background_job_control",
                 "cancel_workflow_run",
             }
             if request.action not in allowed:

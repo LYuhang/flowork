@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from vibecanvas_api.agents.tools import build_tools
+from vibecanvas_api.agents.tools import builtin_tool_names
 from vibecanvas_api.services.platform_mcp.build_tools._target import target_workflow_id
 from vibecanvas_api.services.platform_mcp.build_tools import workflow_context
 from vibecanvas_api.agents.tools.decorator import ToolError
@@ -17,16 +17,14 @@ def test_workflow_context_tools_are_platform_mcp_only():
         CHAT_WORKFLOW_CONTEXT_TOOLS,
     )
 
-    chat_names = _names(build_tools({"workflow"}, surface="chat"))
-    browser_names = _names(build_tools({"workflow"}, surface="browser"))
+    private_names = builtin_tool_names()
 
     assert _names(CHAT_WORKFLOW_CONTEXT_TOOLS) == [
         "set_workflow",
         "create_workflow",
     ]
     for name in ("list_workflows", "set_workflow", "create_workflow"):
-        assert name not in chat_names
-        assert name not in browser_names
+        assert name not in private_names
 
 
 def test_chat_build_requires_real_current_workflow():

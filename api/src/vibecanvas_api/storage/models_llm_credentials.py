@@ -55,11 +55,10 @@ class LlmCredential(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     provider: Mapped[str] = mapped_column(Text, nullable=False)
     # Runtime ownership is explicit: a saved provider connection must never
-    # appear in both Runtime catalogs merely because both can speak a similar
-    # wire protocol. Existing/general API credentials default to LangChain;
-    # Codex Settings opts in explicitly when it creates a personal API.
+    # appear in multiple Runtime catalogs merely because they speak a similar
+    # wire protocol.
     runtime_scope: Mapped[str] = mapped_column(
-        Text, nullable=False, default="langchain", server_default=text("'langchain'"),
+        Text, nullable=False, default="codex", server_default=text("'codex'"),
     )
     connection_kind: Mapped[str] = mapped_column(
         Text, nullable=False, default="manual", server_default=text("'manual'"),
@@ -111,7 +110,7 @@ class LlmCredential(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "runtime_scope IN ('langchain', 'codex')",
+            "runtime_scope ~ '^[a-z][a-z0-9_-]{0,63}$'",
             name="ck_llm_credentials_runtime_scope",
         ),
         CheckConstraint(

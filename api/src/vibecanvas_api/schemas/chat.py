@@ -20,7 +20,7 @@ class ChatListItem(BaseModel):
     browser_control_status: Literal[
         "inactive", "attaching", "attached", "lost",
     ] = "inactive"
-    runtime_type: Literal["langchain", "codex"] | None = None
+    runtime_type: str | None = None
     access: ResourceAccessOut | None = None
 
 
@@ -44,7 +44,7 @@ class ChatInventoryItem(BaseModel):
     chat_id: str
     scope_id: str
     surface: Literal["chat", "browser"] = "chat"
-    runtime_type: Literal["langchain", "codex"] | None = None
+    runtime_type: str | None = None
     browser_control_status: Literal[
         "inactive", "attaching", "attached", "lost",
     ] = "inactive"
@@ -70,7 +70,7 @@ class BackgroundJobOut(BaseModel):
     job_id: str
     chat_id: str
     parent_run_id: str | None = None
-    runtime_type: Literal["langchain", "codex"]
+    runtime_type: str
     executor_type: str
     tool_name: str
     title: str = ""
@@ -164,19 +164,26 @@ class AgentSettings(BaseModel):
         return normalized
 
 
+class AgentRuntimeOptionOut(BaseModel):
+    id: str
+    label: str
+    description: str = ""
+
+
 class AgentRuntimeSettingsOut(BaseModel):
-    default_runtime_type: Literal["langchain", "codex"] = "langchain"
+    default_runtime_type: str = "codex"
     codex_managed_profile_id: str | None = None
     preferred_timezone: str | None = None
     codex_managed_profiles: list[dict[str, str | int]] = Field(default_factory=list)
     codex_auth_methods: list[str] = Field(default_factory=list)
-    available_runtime_types: list[Literal["langchain", "codex"]] = Field(
-        default_factory=lambda: ["langchain"]
+    available_runtime_types: list[str] = Field(
+        default_factory=lambda: ["codex"]
     )
+    runtime_options: list[AgentRuntimeOptionOut] = Field(default_factory=list)
 
 
 class AgentRuntimeSettingsUpdate(BaseModel):
-    default_runtime_type: Literal["langchain", "codex"]
+    default_runtime_type: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 class UserTimezoneUpdate(BaseModel):
@@ -198,7 +205,7 @@ class CodexManagedProfileUpdate(BaseModel):
 
 
 class ChatRuntimeBindingOut(BaseModel):
-    runtime_type: Literal["langchain", "codex"] | None = None
+    runtime_type: str | None = None
     runtime_version: int = 1
     runtime_model_id: str | None = None
     runtime_connection_id: str | None = None
@@ -276,7 +283,7 @@ class MessagePostBody(BaseModel):
     mcp_server_ids: list[str] = Field(default_factory=list)
     chat_config_revision: int = Field(default=0, ge=0)
     # Browser projection of the user's platform timezone.  It is consulted
-    # only while the first LangChain Turn atomically fixes the Chat clock;
+    # only while the first Runtime Turn atomically fixes the Chat clock;
     # resumes never replace an existing clock.
     timezone: str | None = Field(default=None, min_length=1, max_length=128)
 

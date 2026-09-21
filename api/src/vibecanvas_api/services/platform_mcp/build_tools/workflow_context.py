@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 import structlog
 
 from vibecanvas_api.agents.tools.decorator import ToolError, tool_output

@@ -1,4 +1,4 @@
-"""Projection and control boundary for durable LangChain background jobs."""
+"""Projection and control boundary for durable Runtime background jobs."""
 
 from __future__ import annotations
 

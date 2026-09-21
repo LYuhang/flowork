@@ -1,8 +1,7 @@
 """Platform MCP check_workflow tool."""
 from __future__ import annotations
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 
 from vibecanvas_api.agents.tools.decorator import ToolError, tool_output
 from vibecanvas_api.agents.tools.render import Rendered, register_render

@@ -259,7 +259,7 @@ class SubAgentNode(BaseNode):
 
     @staticmethod
     def _agent_cfg(model_name: str, extra: dict | None) -> dict:
-        """Build the LangChain model descriptor for this in-sandbox worker.
+        """Build the model descriptor for this in-sandbox worker.
 
         Workflow execution injects a short-lived Runtime Model Broker
         capability, not the provider credential. Unlike the host Chat Runtime,
@@ -308,7 +308,8 @@ class SubAgentNode(BaseNode):
         )
 
     async def _call_async(self, inputs: dict, extra: dict | None) -> dict:
-        from vibecanvas_api.agent import AgentContext, _build_chat_model
+        from vibecanvas_api.services.platform_mcp.tool_runtime import AgentContext
+        from vibecanvas_api.services.workflow_subagent import build_workflow_chat_model
         from vibecanvas_api.agents.tools.subagent.core import run_bounded_agent
         from vibecanvas_api.agents.tools.subagent.toolset import build_agent_subagent_tools
 
@@ -317,7 +318,7 @@ class SubAgentNode(BaseNode):
             cfg["task_template"], inputs, unpack_multimodal=False
         )
         agent_cfg = self._agent_cfg(cfg["model_name"], extra)
-        model = _build_chat_model(agent_cfg)
+        model = build_workflow_chat_model(agent_cfg)
         ctx = AgentContext(
             wf_id=(extra or {}).get("run_id") or "",
             run_id=(extra or {}).get("run_id") or "",

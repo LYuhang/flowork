@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Real Custom Skill versioning and cross-Runtime acceptance test.
+"""Real Custom Skill versioning and sandboxed Runtime acceptance test.
 
 The verifier drives the same browser UI a user sees for Skill management, then
-uses the public Chat/SSE contract used by that UI to prove that both supported
-Agent Runtimes receive the newly published Skill revision.
+uses the public Chat/SSE contract used by that UI to prove that the installed
+Agent Runtime receives the newly published Skill revision.
 
 Expected environment:
 
 * API at http://127.0.0.1:8000 with ENABLE_TEST_USER=1;
 * web app at http://127.0.0.1:9001;
-* a configured platform LangChain model;
 * Codex CLI authentication for the test user.
 """
 
@@ -344,34 +343,8 @@ def _exercise_runtimes(
     scope_id = api.get("/api/v1/chats/bootstrap?surface=chat").json()[
         "carrier_scope_id"
     ]
-    langchain_chat = f"skill-lc-{uuid.uuid4().hex}"
     codex_chat = f"skill-codex-{uuid.uuid4().hex}"
     try:
-        print("[step] verify published Skill in LangChain Runtime", flush=True)
-        api.put(
-            "/api/v1/agent-runtime/settings",
-            {"default_runtime_type": "langchain"},
-        )
-        langchain_capabilities = api.get(
-            "/api/v1/agent-runtime/capabilities"
-        ).json()
-        langchain = api.stream_turn(
-            scope_id=scope_id,
-            chat_id=langchain_chat,
-            content=(
-                f"Use the installed Skill named {skill_name!r}. Find its exact "
-                "SKILL.md path in the Available skills section, read it with the "
-                "normal filesystem read tool before answering, and then follow "
-                "its verification protocol exactly."
-            ),
-            model_id=langchain_capabilities["default_model_id"],
-        )
-        _assert_contains(
-            langchain["assistant_text"],
-            expected_marker,
-            "LangChain Skill result",
-        )
-
         print("[step] verify published Skill in Codex Runtime", flush=True)
         api.put(
             "/api/v1/agent-runtime/settings",
@@ -408,24 +381,16 @@ def _exercise_runtimes(
         bindings = {
             item["chat_id"]: item["runtime_type"]
             for item in chats
-            if item["chat_id"] in {langchain_chat, codex_chat}
+            if item["chat_id"] == codex_chat
         }
-        if bindings != {
-            langchain_chat: "langchain",
-            codex_chat: "codex",
-        }:
+        if bindings != {codex_chat: "codex"}:
             raise AssertionError(f"incorrect Chat Runtime bindings: {bindings!r}")
         return {
-            "langchain_elapsed_s": langchain["elapsed_s"],
-            "langchain_streamed": bool(langchain["visible_updates"]),
             "codex_elapsed_s": codex["elapsed_s"],
             "codex_streamed": bool(codex["visible_updates"]),
             "bindings": bindings,
         }
     finally:
-        api.delete(
-            f"/api/v1/chat-scopes/{scope_id}/chats/{langchain_chat}?surface=chat"
-        )
         api.delete(
             f"/api/v1/chat-scopes/{scope_id}/chats/{codex_chat}?surface=chat"
         )

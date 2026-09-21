@@ -34,7 +34,7 @@ class CredentialPublicOut(BaseModel):
     description: Optional[str] = None
     provider: str
     connection_kind: Literal["manual", "openrouter_oauth"] = "manual"
-    runtime_scope: Literal["langchain", "codex"]
+    runtime_scope: str
     model_context_tokens: Optional[int] = None
     created_at: datetime
     updated_at: datetime
@@ -51,7 +51,7 @@ class CredentialOwnerOut(BaseModel):
     description: Optional[str] = None
     provider: str
     connection_kind: Literal["manual", "openrouter_oauth"] = "manual"
-    runtime_scope: Literal["langchain", "codex"]
+    runtime_scope: str
     model_name: str
     model_context_tokens: Optional[int] = None
     api_url: Optional[str] = None
@@ -129,7 +129,7 @@ class CredentialCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
     provider: str = Field(..., min_length=1, max_length=100)
-    runtime_scope: Literal["langchain", "codex"] = "langchain"
+    runtime_scope: str = Field(default="codex", pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     model_name: str = Field(..., min_length=1, max_length=200)
     model_context_tokens: Optional[int] = Field(default=None, gt=0)
     api_url: Optional[str] = Field(default=None, max_length=2000)
@@ -147,7 +147,9 @@ class CredentialUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
     provider: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    runtime_scope: Optional[Literal["langchain", "codex"]] = None
+    runtime_scope: Optional[str] = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_-]{0,63}$"
+    )
     model_name: Optional[str] = Field(
         default=None, min_length=1, max_length=200,
     )

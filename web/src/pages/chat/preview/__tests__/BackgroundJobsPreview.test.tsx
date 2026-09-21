@@ -20,8 +20,8 @@ vi.mock('@/lib/api/queries/chats', async () => {
         {
           job_id: 'job_live_1',
           chat_id: 'chat-1',
-          runtime_type: 'langchain',
-          executor_type: 'langchain_subagent',
+          runtime_type: 'codex',
+          executor_type: 'runtime_task',
           tool_name: 'subagent',
           title: 'Research competitors',
           status: 'running',

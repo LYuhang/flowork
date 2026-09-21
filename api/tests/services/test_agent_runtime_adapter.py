@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from vibecanvas_api.services.agent_runtime.langchain import LangChainSandboxRuntime
+from vibecanvas_api.services.agent_runtime.codex_runtime import CodexSandboxRuntime
 from vibecanvas_api.services.agent_runtime.protocol import (
     RuntimeOpenRequest,
     RuntimeTurnRequest,
@@ -21,7 +21,7 @@ class _FakeSandboxSession:
             "seq": 1,
             "chat_id": request["chat_id"],
             "turn_id": request["turn_id"],
-            "runtime_type": "langchain",
+            "runtime_type": "codex",
             "runtime_session_id": request["runtime_session_id"],
             "type": "projection",
             "payload": {"event_type": "NO_OP", "payload": {}},
@@ -36,16 +36,16 @@ class _FakeSandboxSession:
 
 
 @pytest.mark.asyncio
-async def test_langchain_adapter_validates_and_streams_stable_events():
-    runtime = LangChainSandboxRuntime(_FakeSandboxSession())
+async def test_codex_adapter_validates_and_streams_stable_events():
+    runtime = CodexSandboxRuntime(_FakeSandboxSession())
     await runtime.open(
         RuntimeOpenRequest(
             tenant_id="tenant",
             user_id="user",
             chat_id="chat",
-            runtime_type=RuntimeType.LANGCHAIN,
+            runtime_type=RuntimeType.CODEX,
             runtime_session_id="runtime_session",
-            runtime_root="/runtime/langchain/chats/chat",
+            runtime_root="/runtime/.codex",
         )
     )
     request = RuntimeTurnRequest(
@@ -53,10 +53,11 @@ async def test_langchain_adapter_validates_and_streams_stable_events():
         user_id="user",
         chat_id="chat",
         turn_id="turn",
-        runtime_type=RuntimeType.LANGCHAIN,
+        runtime_type=RuntimeType.CODEX,
         runtime_session_id="runtime_session",
-        runtime_root="/runtime/langchain/chats/chat",
+        runtime_root="/runtime/.codex",
         message={"role": "user", "content": "hello"},
+        model={"id": "gpt-test", "connection_type": "chatgpt_account"},
     )
 
     events = [event async for event in runtime.run_turn(request)]
@@ -65,17 +66,17 @@ async def test_langchain_adapter_validates_and_streams_stable_events():
 
 
 @pytest.mark.asyncio
-async def test_langchain_adapter_delivers_control_and_cancel_on_private_channel():
+async def test_codex_adapter_delivers_control_and_cancel_on_private_channel():
     sandbox = _FakeSandboxSession()
-    runtime = LangChainSandboxRuntime(sandbox)
+    runtime = CodexSandboxRuntime(sandbox)
     await runtime.open(
         RuntimeOpenRequest(
             tenant_id="tenant",
             user_id="user",
             chat_id="chat",
-            runtime_type=RuntimeType.LANGCHAIN,
+            runtime_type=RuntimeType.CODEX,
             runtime_session_id="runtime_session",
-            runtime_root="/runtime/langchain/chats/chat",
+            runtime_root="/runtime/.codex",
         )
     )
     from vibecanvas_api.services.agent_runtime.protocol import RuntimeControlResponse
@@ -87,7 +88,7 @@ async def test_langchain_adapter_delivers_control_and_cancel_on_private_channel(
         gate_type="pre_tool_approval",
         action="approve",
         correlation={
-            "source": "langchain",
+            "source": "codex",
             "runtime_request_id": "tool-call",
             "runtime_method": "tool/approval",
         },

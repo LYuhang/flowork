@@ -1,6 +1,6 @@
 """bash tool — run a shell command in the current Agent Runtime sandbox.
 
-The LangChain process already runs inside gVisor, so this tool invokes bash
+The Agent Runtime process already runs inside a sandbox, so this tool invokes bash
 directly against the mounted workspace. It does not resolve or inject a nested
 ``SandboxSession``. Network and persistent overlay behavior are properties of
 the owning Runtime sandbox.
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import tool
 import structlog
 
 from vibecanvas_api.agents.tools.decorator import tool_output, ToolError

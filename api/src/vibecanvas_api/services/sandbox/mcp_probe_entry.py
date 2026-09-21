@@ -34,16 +34,19 @@ def _jsonable(value: Any) -> Any:
 
 
 async def _probe(request: dict[str, Any]) -> dict[str, Any]:
-    from langchain_mcp_adapters.client import MultiServerMCPClient
+    from vibecanvas_api.services.sandbox.mcp_client import mcp_client_session
 
-    prefix = str(request.get("prefix") or "mcp")
     connection = request.get("connection")
     timeout_s = float(request.get("timeout_s") or 60.0)
     if not isinstance(connection, dict) or not connection:
         raise ValueError("missing MCP connection config")
 
-    client = MultiServerMCPClient({prefix: connection})
-    tools = await asyncio.wait_for(client.get_tools(), timeout=timeout_s)
+    async def list_tools():
+        async with mcp_client_session(connection) as session:
+            return await session.list_tools()
+
+    listed = await asyncio.wait_for(list_tools(), timeout=timeout_s)
+    tools = list(getattr(listed, "tools", []) or [])
     return {
         "status": "ok",
         "tool_count": len(tools),
@@ -52,7 +55,8 @@ async def _probe(request: dict[str, Any]) -> dict[str, Any]:
                 "name": str(getattr(tool, "name", "") or ""),
                 "description": str(getattr(tool, "description", "") or ""),
                 "input_schema": _jsonable(
-                    getattr(tool, "args_schema", None)
+                    getattr(tool, "inputSchema", None)
+                    or getattr(tool, "input_schema", None)
                     or {"type": "object", "properties": {}}
                 ),
             }

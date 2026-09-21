@@ -143,7 +143,7 @@ PY
   export CONTENT_LOOKUP_HMAC_KEY_FILE="$local_lookup_key_file"
   export ENABLE_TEST_USER="${ENABLE_TEST_USER:-1}"
   export ENTERPRISE_SSO_ENABLED="${ENTERPRISE_SSO_ENABLED:-0}"
-  export AGENT_RUNTIME_TYPES="${AGENT_RUNTIME_TYPES:-langchain,codex}"
+  export AGENT_RUNTIME_TYPES="${AGENT_RUNTIME_TYPES:-codex}"
   export CODEX_RUNTIME_AUTH_METHODS="${CODEX_RUNTIME_AUTH_METHODS:-chatgpt,managed_api,personal_api}"
   export CODEX_MANAGED_APIS_JSON="${CODEX_MANAGED_APIS_JSON:-[]}"
   export AGENT_RUNTIME_ROOT="${AGENT_RUNTIME_ROOT:-$HOME/.vibecanvas/agent-runtime}"

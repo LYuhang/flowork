@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 
 from vibecanvas_api.agents.tools.decorator import tool_error_boundary
 from vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive import (

@@ -30,7 +30,8 @@ import {
 vi.mock('@/lib/api/agent-runtime', () => ({
   getAgentRuntimeSettings: vi.fn(async () => ({
     default_runtime_type: 'codex',
-    available_runtime_types: ['langchain', 'codex'],
+    available_runtime_types: ['codex'],
+    runtime_options: [{ id: 'codex', label: 'Codex', description: 'Sandboxed agent runtime.' }],
     codex_managed_profile_id: 'corp-primary',
     preferred_timezone: 'UTC',
     codex_managed_profiles: [{ id: 'corp-primary', name: 'Corporate OpenAI', model_count: 2 }],
@@ -243,6 +244,7 @@ describe('<SettingsPage> tab shell', () => {
     vi.mocked(getAgentRuntimeSettings).mockResolvedValueOnce({
       default_runtime_type: 'codex',
       available_runtime_types: ['codex'],
+      runtime_options: [{ id: 'codex', label: 'Codex', description: 'Sandboxed agent runtime.' }],
       codex_managed_profile_id: 'corp-primary',
       preferred_timezone: 'UTC',
       codex_managed_profiles: [{ id: 'corp-primary', name: 'Corporate OpenAI', model_count: 2 }],
@@ -254,38 +256,6 @@ describe('<SettingsPage> tab shell', () => {
     expect(screen.queryByRole('tab', { name: /openai api/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /sign in with openai/i })).toBeNull();
     expect(screen.getByText(/configured under api keys/i)).toBeInTheDocument();
-  });
-
-  it('does not render runtime types disabled by deployment policy', async () => {
-    vi.mocked(getAgentRuntimeSettings).mockResolvedValueOnce({
-      default_runtime_type: 'langchain',
-      available_runtime_types: ['langchain'],
-      codex_managed_profile_id: null,
-      preferred_timezone: 'UTC',
-      codex_managed_profiles: [],
-      codex_auth_methods: [],
-    });
-    renderAt('/settings?tab=runtime');
-
-    expect(await screen.findByTestId('settings-agent-runtime-select')).toBeInTheDocument();
-    expect(await screen.findByText('LangChain')).toBeInTheDocument();
-    expect(screen.queryByTestId('codex-connections-panel')).toBeNull();
-  });
-
-  it('hides Codex connection settings while LangChain is selected', async () => {
-    vi.mocked(getAgentRuntimeSettings).mockResolvedValueOnce({
-      default_runtime_type: 'langchain',
-      available_runtime_types: ['langchain', 'codex'],
-      codex_managed_profile_id: null,
-      preferred_timezone: 'UTC',
-      codex_managed_profiles: [],
-      codex_auth_methods: ['chatgpt', 'personal_api'],
-    });
-    renderAt('/settings?tab=runtime');
-
-    expect(await screen.findByText('LangChain')).toBeInTheDocument();
-    expect(screen.queryByTestId('codex-connections-panel')).toBeNull();
-    expect(screen.queryByText('Codex connection')).toBeNull();
   });
 
   it('shows passkey security without initial-release authenticator MFA', async () => {

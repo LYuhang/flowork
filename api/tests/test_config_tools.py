@@ -108,9 +108,9 @@ def test_get_config_rejects_bad_scope():
 
 
 def test_get_config_tool_is_platform_mcp_only():
-    from vibecanvas_api.agents.tools import build_tools
+    from vibecanvas_api.agents.tools import builtin_tool_names
     from vibecanvas_api.services.platform_mcp.config_tools import CONFIG_TOOLS
 
-    names = {tool.name for tool in build_tools(set())}
+    names = builtin_tool_names()
     assert "get_config" not in names
     assert [tool.name for tool in CONFIG_TOOLS] == ["get_config"]

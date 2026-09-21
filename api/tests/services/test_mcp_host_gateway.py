@@ -51,9 +51,10 @@ async def test_remote_gateway_preserves_session_without_exposing_broker_token(
         user_id="user",
         chat_id="chat",
         turn_id="turn",
-        runtime_type="langchain",
+        runtime_type="codex",
         runtime_session_id="runtime",
-        runtime_root="/runtime/langchain/chats/chat",
+        runtime_root="/runtime/.codex",
+        model={"id": "codex:account:gpt-test", "connection_type": "chatgpt_account"},
         message={"role": "user", "content": "hello"},
         mcp_host_servers=[{
             "name": "remote_tools",

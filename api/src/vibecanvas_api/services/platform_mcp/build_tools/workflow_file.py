@@ -7,7 +7,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from langchain.tools import ToolRuntime
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime
 
 from vibecanvas_api.agents.tools._session_fs import _require_session
 from vibecanvas_api.services.platform_mcp.build_tools._target import target_workflow_id

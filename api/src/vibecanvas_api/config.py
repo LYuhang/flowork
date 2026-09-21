@@ -30,6 +30,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 
+from vibecanvas_api.services.agent_runtime.registry import AVAILABLE_RUNTIME_TYPES
+
 _CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 
@@ -435,7 +437,7 @@ class CompactionV2Config:
         self.v2_enabled: bool = bool(raw.get("v2_enabled", False))
         # Rollout is independent from the emergency compatibility flag. Shadow
         # always builds observability without changing model input; canary uses
-        # a stable tenant/workspace bucket; full enables the LangChain adapter.
+        # a stable tenant/workspace bucket; full enables active compaction.
         self.rollout_mode: str = str(
             raw.get("rollout_mode", "full" if self.v2_enabled else "shadow")
         ).lower()
@@ -465,22 +467,12 @@ class CompactionV2Config:
 
 
 class AgentConfig:
-    """LLM agent configuration for langchain init_chat_model.
+    """Shared model and context-window configuration.
 
     `api_key` should NOT be committed to config.yaml. Leave it blank
     and supply ``AGENT_API_KEY`` via the environment.
 
-    OpenAI Responses API support (see
-    https://docs.langchain.com/oss/python/integrations/chat/openai):
-    - ``use_responses_api``: explicit toggle. When True, ChatOpenAI uses
-      OpenAI's Responses API instead of Chat Completions. Leave unset
-      (None) to keep the default Chat Completions path — required for
-      OpenAI-compatible vendors (Doubao/Ark, etc.) that don't implement
-      the Responses endpoint.
-    - ``reasoning``: e.g. ``{"effort": "medium"}``. Auto-routes to the
-      Responses API even when ``use_responses_api`` is unset.
-    - ``output_version``: e.g. ``"responses/v1"``. Controls how typed
-      content blocks are exposed on the AIMessage.
+    Runtime adapters receive only the serializable subset they support.
     """
 
     def __init__(self, raw: Dict[str, Any]):
@@ -647,7 +639,7 @@ class AgentConfig:
         return self.compaction_model or self.model
 
     def to_init_kwargs(self) -> Dict[str, Any]:
-        """Build kwargs dict for langchain's init_chat_model."""
+        """Build provider-neutral model invocation options."""
         kwargs: Dict[str, Any] = {}
         if self.base_url:
             kwargs["base_url"] = self.base_url
@@ -785,14 +777,6 @@ class DatabaseConfig:
         self.pool_size: int = int(raw.get("pool_size", 20))
         self.max_overflow: int = int(raw.get("max_overflow", 10))
         self.pool_recycle: int = int(raw.get("pool_recycle", 3600))
-        # LangGraph AsyncPostgresSaver runs on a psycopg
-        # AsyncConnectionPool whose max_size defaults to 4. Checkpointer-backed
-        # background sub-agents (each detached phase opens its own checkpointed
-        # graph) would exhaust that. Default = headroom over the per-run
-        # parallel batch + the orchestrator turn fit: max(10, 6 + 4) = 10.
-        self.checkpointer_pool_max_size: int = int(
-            raw.get("checkpointer_pool_max_size", 10)
-        )
 
 
 class RedisConfig:
@@ -1106,8 +1090,8 @@ class AppConfig:
             )
         self.agent_runtime_types = _csv_choice_set(
             os.environ.get("AGENT_RUNTIME_TYPES"),
-            default=("langchain", "codex"),
-            allowed=frozenset({"langchain", "codex"}),
+            default=("codex",),
+            allowed=AVAILABLE_RUNTIME_TYPES,
             setting="AGENT_RUNTIME_TYPES",
         )
         self.codex_runtime_auth_methods = _csv_choice_set(
@@ -1934,15 +1918,6 @@ class AppConfig:
             or raw.get("vfs_volume_root")
             or self.agent_runtime_root
         )
-        # Runtime-owned database state is a different persistence boundary from
-        # the platform product database even when both initially share one
-        # PostgreSQL cluster. LangChain uses this DSN only for its checkpointer;
-        # Chat/messages/runs/events/HITL remain owned by ``database.url``.
-        # Production may point this at a separate schema/database and restricted
-        # role without changing any frontend or Runtime protocol.
-        self._agent_runtime_database_url: str | None = os.environ.get(
-            "AGENT_RUNTIME_DATABASE_URL"
-        ) or raw.get("agent_runtime_database_url")
         # Official Codex CLI used by the Codex runtime adapter and account-aware
         # capability discovery. An explicit path is important for services whose
         # PATH differs from the interactive shell (systemd, containers, workers).
@@ -1961,11 +1936,6 @@ class AppConfig:
             or raw.get("lib_overlay_root")
             or os.path.join(tempfile.gettempdir(), "vibecanvas-lib-overlay")
         )
-
-    @property
-    def agent_runtime_database_url(self) -> str:
-        """Runtime-native store DSN; defaults dynamically to the product DB."""
-        return self._agent_runtime_database_url or self.database.url
 
     @classmethod
     def load(cls, config_path: Optional[Path | str] = None) -> "AppConfig":

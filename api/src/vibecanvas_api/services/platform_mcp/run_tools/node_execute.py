@@ -11,8 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 
 from vibecanvas_engine.node import node_registry
 from vibecanvas_api.services.platform_mcp.run_tools._backend import (

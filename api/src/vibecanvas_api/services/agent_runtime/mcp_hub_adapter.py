@@ -417,24 +417,6 @@ def hub_call_result(value: Any) -> types.CallToolResult:
     )
 
 
-class _HubClientSession:
-    """Small ClientSession-compatible view consumed by the official adapter."""
-
-    def __init__(self, hub, server_name: str) -> None:
-        self._hub = hub
-        self._server_name = server_name
-
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any],
-        **_kwargs: Any,
-    ) -> types.CallToolResult:
-        return hub_call_result(
-            await self._hub.call(self._server_name, name, dict(arguments))
-        )
-
-
 async def project_hub_tools(
     hub,
     adapter: SandboxMcpRuntimeAdapter,
@@ -545,44 +527,9 @@ async def project_hub_tools(
     return projections, catalog
 
 
-async def build_langchain_hub_tools(
-    hub,
-    adapter: SandboxMcpRuntimeAdapter,
-    desired_servers: list[McpDesiredServer],
-) -> tuple[list[Any], list[dict[str, Any]]]:
-    """Project one warm Hub manifest through LangChain's official adapter."""
-    projections, catalog = await project_hub_tools(
-        hub,
-        adapter,
-        desired_servers,
-    )
-    # A Turn without active MCP servers must not import the optional LangChain
-    # MCP adapter stack. Besides avoiding needless work in ordinary chat turns,
-    # this keeps a cold rootless-gVisor Runtime from traversing thousands of
-    # dependency files before it can report a missing model credential.
-    if not projections:
-        return [], catalog
-
-    from langchain_mcp_adapters.tools import (
-        convert_mcp_tool_to_langchain_tool,
-    )
-
-    tools: list[Any] = []
-    for projection in projections:
-        session = _HubClientSession(hub, projection.server_name)
-        tools.append(convert_mcp_tool_to_langchain_tool(
-            session,  # type: ignore[arg-type]
-            projection.tool,
-            server_name=projection.server_name,
-            handle_tool_errors=True,
-        ))
-    return tools, catalog
-
-
 __all__ = [
     "HubToolProjection",
     "SandboxMcpRuntimeAdapter",
-    "build_langchain_hub_tools",
     "hub_call_result",
     "project_hub_tools",
 ]

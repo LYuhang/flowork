@@ -1,6 +1,6 @@
 """Workflow active-version formatting.
 
-A leaf utility (no LangChain / DB imports) shared by the agent's read_file
+A leaf utility (no Agent SDK / DB imports) shared by the agent's read_file
 tool and the VFS HTTP route, so the artifact `stale` flag can't drift between
 the two code paths.
 """

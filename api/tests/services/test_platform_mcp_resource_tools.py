@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from langchain.tools import ToolRuntime
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime
 
 from vibecanvas_api.services.platform_mcp.resource_tools import (
     deployment_collect_diagnostics,

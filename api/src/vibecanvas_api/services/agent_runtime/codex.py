@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 from vibecanvas_engine.sandbox_bus import MSG_RUNTIME_CONTROL
 
-from vibecanvas_api.agents.middleware.user_approval import requires_user_approval
+from vibecanvas_api.services.agent_runtime.approval import requires_user_approval
 from vibecanvas_api.services.agent_runtime.codex_app_server import (
     CodexAppServer,
     CodexAppServerError,

@@ -19,7 +19,6 @@ import pytest_asyncio
 from _pytest.monkeypatch import MonkeyPatch
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from langgraph.checkpoint.postgres import PostgresSaver
 from pytest_postgresql import factories
 from pytest_postgresql.janitor import DatabaseJanitor
 from httpx import ASGITransport, AsyncClient
@@ -52,12 +51,7 @@ API_DIR = TESTS_DIR.parent
 ALEMBIC_INI = API_DIR / "alembic.ini"
 ALEMBIC_DIR = API_DIR / "alembic"
 
-# Tables truncated between tests. The LangGraph PostgresSaver checkpoint
-# tables are added so a checkpoint written by one test (e.g. the agent
-# smoke / lifespan test) cannot leak into another's thread_id space.
-# NOT ``checkpoint_migrations`` — that is the saver's own schema-version
-# bookkeeping (like alembic_version); truncating it would force a
-# re-setup and is not test state.
+# Tables truncated between tests.
 _TRUNCATE_TABLES = (
     "workflows, workflow_versions, chats, chat_messages, "
     "chat_tool_job_events, chat_tool_jobs, "
@@ -66,7 +60,6 @@ _TRUNCATE_TABLES = (
     "mcp_servers, "
     "env_builds, "
     "usage_events, usage_rollup_daily, "
-    "checkpoints, checkpoint_writes, checkpoint_blobs, "
     "oidc_login_transactions, enterprise_directory_users, "
     "enterprise_identity_providers, privileged_access_requests, sessions, "
     "platform_admin_eligibilities, "
@@ -379,45 +372,6 @@ def _migrate(pg_url, monkeypatch_session):
     yield
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _setup_checkpoint_tables(_migrate):
-    """Pre-create the 4 LangGraph checkpoint tables AS ``vibecanvas_app``.
-
-    The LangGraph saver tables (``checkpoint_migrations``, ``checkpoints``,
-    ``checkpoint_blobs``, ``checkpoint_writes``) are NOT in Alembic — they
-    are created at runtime by ``PostgresSaver.setup()`` /
-    ``AsyncPostgresSaver.setup()``. Whichever role runs ``setup()`` FIRST
-    becomes their owner.
-
-    In production the app — running as ``vibecanvas_app`` — creates them
-    itself, so ``vibecanvas_app`` owns them. In the test suite, however,
-    ``test_agent_async_smoke`` / ``test_checkpointer_pg`` call ``setup()``
-    via ``pg_url`` (the SUPERUSER ``postgres`` role). If one of those runs
-    first the tables end up owned by ``postgres`` with no grant to
-    ``vibecanvas_app`` — and every later app-lifespan test's ``setup()``
-    then fails ``permission denied for table checkpoint_migrations``.
-    Re-granting DML would not help: ``setup()``'s later migrations are
-    table-owner DDL (``ALTER TABLE``, ``CREATE INDEX``).
-
-    Fix: run ``setup()`` AS ``vibecanvas_app`` ONCE here, session-scoped
-    and autouse, right after ``_migrate`` — so the checkpoint tables exist
-    and are owned by ``vibecanvas_app`` before ANY test runs. ``setup()``
-    is idempotent (``CREATE TABLE IF NOT EXISTS`` + a ``checkpoint_migrations``
-    version row), so the superuser ``setup()`` calls in those other tests
-    become harmless no-ops, and the real app lifespan (also ``vibecanvas_app``)
-    owns its tables exactly as in production.
-
-    Note: ``checkpoints``/``checkpoint_writes``/``checkpoint_blobs`` are
-    owned by ``vibecanvas_app`` but TRUNCATEd by ``_truncate_between_tests``
-    via the superuser ``pg_url`` engine (a superuser truncates any owner's
-    table) — a deliberate cross-role split.
-    """
-    cp_dsn = _live_config.database.url.replace("+asyncpg", "")
-    with PostgresSaver.from_conn_string(cp_dsn) as cp:
-        cp.setup()
-    yield
-
-
 @pytest_asyncio.fixture
 async def pg_engine(pg_url, _migrate):
     """Async engine connecting as the SUPERUSER ``postgres`` role — it
@@ -483,13 +437,8 @@ async def pg_session(pg_engine):
 async def _truncate_between_tests(pg_url, _migrate):
     """After each test, wipe all domain tables so tests are isolated.
 
-    The LangGraph checkpoint tables (checkpoints,
-    checkpoint_writes, checkpoint_blobs) are created lazily by
-    ``AsyncPostgresSaver.setup()`` inside the app lifespan, NOT by
-    alembic — so before the first lifespan-running test they may not
-    exist yet. Truncate only the tables that currently exist (filter
-    via information_schema) so a TRUNCATE of a not-yet-created
-    checkpoint table never errors and breaks an unrelated test.
+    Truncate only tables that currently exist so revision-specific test
+    databases remain safe while migrations evolve.
     """
     yield
     eng = create_async_engine(

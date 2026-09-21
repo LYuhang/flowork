@@ -7,8 +7,8 @@ turns), never a re-tokenize of history.
 
 Forms are FROZEN-ONCE: the first time a form's token count is stamped it sticks
 (write-once), so the export stays complete and the fed view re-derives consistently
-These helpers operate on the ``_meta`` dict itself; attaching and extracting
-it on a langchain message is the chatml layer's job (§7, B2).
+These helpers operate on the ``_meta`` dict itself; a Runtime adapter may attach
+or extract it from its native message representation.
 """
 from __future__ import annotations
 

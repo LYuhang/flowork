@@ -44,16 +44,9 @@ from vibecanvas_engine.sandbox_bus import (
     MSG_RUNTIME_EVENT,
     MSG_RUNTIME_REQUEST,
     MSG_RUNTIME_RESULT,
-    MSG_RUNTIME_STATE_REQUEST,
-    MSG_RUNTIME_STATE_RESPONSE,
 )
 
 from vibecanvas_api.config import config
-from vibecanvas_api.services.agent_runtime.checkpoint_store import (
-    LangChainCheckpointStore,
-    RuntimeStateScope,
-    runtime_state_response,
-)
 from vibecanvas_api.services.agent_runtime.codex_account import (
     codex_account_auth_file,
 )
@@ -497,7 +490,6 @@ class SandboxSession:
         # A session is already serialized by ``_lock``, so one duplex channel
         # can safely carry consecutive requests while HITL control messages are
         # still routed by the active turn id through ``_runtime_brokers``.
-        # Background subagents deliberately use their own one-shot processes.
         self._runtime_broker: BusBroker | None = None
         self._runtime_handle = None
         self._runtime_type: str | None = None
@@ -507,11 +499,6 @@ class SandboxSession:
         # not only a currently live app-server process.
         self._bound_runtime_type: str | None = None
         self._bound_runtime_uses_codex_account = False
-        # Host-only checkpoint adapter. The resident sandbox receives only
-        # scoped RPC results over its private UDS, never this store's DSN.
-        self._runtime_state_store = LangChainCheckpointStore()
-        self._background_job_brokers: dict[str, BusBroker] = {}
-        self._background_job_broker_lock = asyncio.Lock()
         self.last_used = time.monotonic()
         self._inflight_operations = 0
         self.closed = False
@@ -628,8 +615,7 @@ class SandboxSession:
         observed_at = time.monotonic() if now is None else now
         inflight = _session_inflight_operations(self)
         runtime_brokers = getattr(self, "_runtime_brokers", {})
-        background_brokers = getattr(self, "_background_job_brokers", {})
-        broker_count = len(runtime_brokers) + len(background_brokers)
+        broker_count = len(runtime_brokers)
         wb_task = getattr(self, "_wb_task", None)
         writeback_busy = bool(
             getattr(self, "_wb_pending", False)
@@ -1154,7 +1140,7 @@ class SandboxSession:
                 runtime_request = self._mcp_runtime_request(request)
                 # Interactive Runtimes are Chat-scoped and remain resident across
                 # Turns.  Codex account sessions follow the same lifecycle as
-                # API-backed Codex and LangChain: explicit account disconnect,
+                # API-backed Codex: explicit account disconnect,
                 # Chat/session close, idle hibernation/TTL, or a transport error
                 # owns teardown.  ``invalidate_codex_account_sessions`` closes
                 # every locally-owned session for the disconnected principal so
@@ -1169,19 +1155,6 @@ class SandboxSession:
                     self._runtime_brokers[runtime_turn_id] = broker
                     turn_registered = True
                 phase_started = time.perf_counter()
-                state_scope = RuntimeStateScope(
-                    organization_id=self.tenant_id,
-                    chat_id=str(request.get("chat_id") or self.wf_id),
-                    runtime_session_id=str(
-                        request.get("runtime_session_id") or self.wf_id
-                    ),
-                    thread_id=str(
-                        request.get("runtime_state_ref")
-                        or (request.get("command_context") or {}).get("thread_id")
-                        or request.get("runtime_session_id")
-                        or self.wf_id
-                    ),
-                )
                 try:
                     await broker.send(
                         {
@@ -1244,19 +1217,6 @@ class SandboxSession:
                         error = message.get("error") or {}
                         raise RuntimeError(
                             str(error.get("message") or "agent runtime failed")
-                        )
-                    elif kind == MSG_RUNTIME_STATE_REQUEST:
-                        state_request = message.get("request")
-                        response = await runtime_state_response(
-                            self._runtime_state_store,
-                            state_scope,
-                            state_request if isinstance(state_request, dict) else {},
-                        )
-                        await broker.send(
-                            {
-                                "type": MSG_RUNTIME_STATE_RESPONSE,
-                                "response": response,
-                            }
                         )
                 if not received_result:
                     invalidate_runtime = True
@@ -1822,141 +1782,6 @@ class SandboxSession:
             "type": MSG_RUNTIME_CONTROL,
             "response": {"action": "cancel", "turn_id": turn_id},
         })
-        return True
-
-    async def run_background_job_stream(self, request: dict):
-        """Run one independent background executor process in this Chat sandbox.
-
-        Unlike ``run_agent_runtime_stream`` this method does not hold the
-        per-Turn runtime lock. Multiple background jobs may therefore run
-        concurrently while the parent Agent continues its own Turn.
-        """
-        from vibecanvas_engine.sandbox_bus import (
-            MSG_BACKGROUND_JOB_EVENT,
-            MSG_BACKGROUND_JOB_REQUEST,
-            MSG_BACKGROUND_JOB_RESULT,
-            MSG_RUNTIME_ERROR,
-        )
-
-        self._begin_activity()
-        handle = None
-        job_id = str(request.get("job_id") or "")
-        if not job_id:
-            self._end_activity()
-            raise ValueError("background job request requires job_id")
-        broker = BusBroker(socket_path_for(f"background-{job_id}"))
-        try:
-            await broker.start()
-            rw_binds = list(self._rw_binds)
-            ro_binds = list(self.base_binds)
-            if self.skills_dir:
-                ro_binds.append(("/skills", self.skills_dir))
-            handle = await asyncio.to_thread(
-                self.provider.launch_agent_runtime_bus,
-                run_id=f"background-{job_id}",
-                bus_socket=broker.socket_path,
-                tenant=self.tenant_id,
-                extra_rw_binds=rw_binds,
-                extra_ro_binds=ro_binds,
-                env_overrides={},
-            )
-            try:
-                await asyncio.wait_for(broker.wait_connected(), timeout=30.0)
-            except asyncio.TimeoutError as exc:
-                raise RuntimeError(
-                    "background executor did not connect to its bus"
-                ) from exc
-            async with self._background_job_broker_lock:
-                if job_id in self._background_job_brokers:
-                    raise RuntimeError(
-                        f"background job {job_id} is already active"
-                    )
-                self._background_job_brokers[job_id] = broker
-            await broker.send({
-                "type": MSG_BACKGROUND_JOB_REQUEST,
-                "request": request,
-            })
-            state_scope = RuntimeStateScope(
-                organization_id=self.tenant_id,
-                chat_id=str(request.get("chat_id") or self.wf_id),
-                runtime_session_id=f"background:{job_id}",
-                thread_id=f"sub:{request.get('chat_id') or self.wf_id}:{job_id}",
-            )
-            async for message in broker.messages():
-                kind = message.get("type")
-                if kind == MSG_BACKGROUND_JOB_EVENT:
-                    event = message.get("event")
-                    if isinstance(event, dict):
-                        yield {"kind": "event", **event}
-                elif kind == MSG_BACKGROUND_JOB_RESULT:
-                    result = message.get("result")
-                    yield {
-                        "kind": "result",
-                        **(result if isinstance(result, dict) else {}),
-                    }
-                    break
-                elif kind == MSG_RUNTIME_ERROR:
-                    error = message.get("error") or {}
-                    raise RuntimeError(
-                        str(error.get("message") or "background executor failed")
-                    )
-                elif kind == MSG_RUNTIME_STATE_REQUEST:
-                    state_request = message.get("request")
-                    response = await runtime_state_response(
-                        self._runtime_state_store,
-                        state_scope,
-                        state_request if isinstance(state_request, dict) else {},
-                    )
-                    await broker.send(
-                        {
-                            "type": MSG_RUNTIME_STATE_RESPONSE,
-                            "response": response,
-                        }
-                    )
-        finally:
-            async with self._background_job_broker_lock:
-                if self._background_job_brokers.get(job_id) is broker:
-                    self._background_job_brokers.pop(job_id, None)
-            if handle is not None:
-                await asyncio.to_thread(self.provider.stop_run, handle, kill=True)
-            try:
-                self.schedule_writeback()
-            except Exception:
-                logger.warning(
-                    "background_job_writeback_schedule_failed",
-                    wf_id=self.wf_id,
-                    job_id=job_id,
-                    exc_info=True,
-                )
-            await broker.close()
-            self._end_activity()
-
-    async def cancel_background_job(self, job_id: str) -> bool:
-        """Interrupt a locally owned background executor process."""
-        async with self._background_job_broker_lock:
-            broker = self._background_job_brokers.get(job_id)
-        if broker is None:
-            return False
-        await broker.send({
-            "type": MSG_RUNTIME_CONTROL,
-            "response": {
-                "action": "cancel",
-                "job_id": job_id,
-            },
-        })
-        return True
-
-    async def send_background_job_control(
-        self,
-        job_id: str,
-        response: dict,
-    ) -> bool:
-        """Deliver a correlated approval/control to one live background worker."""
-        async with self._background_job_broker_lock:
-            broker = self._background_job_brokers.get(job_id)
-        if broker is None:
-            return False
-        await broker.send({"type": MSG_RUNTIME_CONTROL, "response": response})
         return True
 
     async def submit_workflow_stream(
@@ -3001,16 +2826,6 @@ class SandboxSession:
                     volume_id=runtime_volume.volume_id,
                     exc_info=True,
                 )
-        runtime_state_store = getattr(self, "_runtime_state_store", None)
-        if runtime_state_store is not None:
-            try:
-                await runtime_state_store.close()
-            except Exception:  # pragma: no cover - fail-soft
-                logger.warning(
-                    "agent_runtime_state_store_close_failed",
-                    wf_id=wf_id,
-                    exc_info=True,
-                )
         # Task 4b-ii — tear down the warm file-op worker (a long-lived gVisor
         # process); ``stop()`` is sync → offload. Fail-soft: a teardown failure
         # must never raise out of close(). ``getattr`` guards a bare session
@@ -3251,7 +3066,7 @@ class SandboxManager:
         root: str,
         provider: object,
     ) -> None:
-        """Build and connection-test clean LangChain and Codex boot images."""
+        """Build and connection-test clean installed Runtime boot images."""
 
         from .agent_runtime_snapshot import ensure_agent_runtime_baseline
 
@@ -3279,11 +3094,7 @@ class SandboxManager:
             # Chat Runtime Volumes are materialized under the projection root
             # (normally /tmp), unlike Skills/auth. Preserve that mixed parent /
             # child mount profile because runsc validates both independently.
-            runtime_dir = (
-                os.path.join(probe_root, "runtime")
-                if runtime_type == "codex"
-                else None
-            )
+            runtime_dir = os.path.join(probe_root, "runtime")
             for folder in _RUN_WRITEBACK_FOLDERS:
                 os.makedirs(os.path.join(run_dir, folder), mode=0o700, exist_ok=True)
             os.makedirs(os.path.join(overlay_dir, "py"), mode=0o700, exist_ok=True)
@@ -3318,7 +3129,7 @@ class SandboxManager:
             )
             return probe, rw_binds, ro_binds, env
 
-        for runtime_type in ("langchain", "codex"):
+        for runtime_type in config.agent_runtime_types:
             build_storage = tempfile.mkdtemp(
                 prefix=f".runtime-bootstrap-{runtime_type}-",
                 dir=config.agent_runtime_root,

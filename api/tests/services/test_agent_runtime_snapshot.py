@@ -32,17 +32,17 @@ def test_fingerprint_ignores_substitutable_runtime_resource_sources(
 
     first = agent_runtime_snapshot._fingerprint(
         provider,
-        runtime_type="langchain",
+        runtime_type="codex",
         rw_binds=[("/data", "/tmp/chat-a/data")],
         ro_binds=[("/skills", "/runtime/user-a/skills"), "/usr"],
-        env_overrides={"VC_AGENT_RUNTIME_TYPE": "langchain"},
+        env_overrides={"VC_AGENT_RUNTIME_TYPE": "codex"},
     )
     second = agent_runtime_snapshot._fingerprint(
         provider,
-        runtime_type="langchain",
+        runtime_type="codex",
         rw_binds=[("/data", "/tmp/chat-b/data")],
         ro_binds=[("/skills", "/runtime/user-b/skills"), "/usr"],
-        env_overrides={"VC_AGENT_RUNTIME_TYPE": "langchain"},
+        env_overrides={"VC_AGENT_RUNTIME_TYPE": "codex"},
     )
 
     assert first == second

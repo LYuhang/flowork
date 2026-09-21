@@ -93,6 +93,7 @@ from vibecanvas_api.services.llm_connection_secrets import (
     store_llm_connection_credentials,
 )
 from vibecanvas_api.services.pinned_http import PinnedAsyncHTTPTransport
+from vibecanvas_api.services.agent_runtime.registry import AVAILABLE_RUNTIME_TYPES
 from vibecanvas_api.services.openrouter_connection import (
     CATALOG_TTL_SECONDS,
     OPENROUTER_API_BASE_URL,
@@ -131,7 +132,7 @@ def _public_out(
         description=row.get("description"),
         provider=row["provider"],
         connection_kind=row.get("connection_kind") or "manual",
-        runtime_scope=row.get("runtime_scope") or "langchain",
+        runtime_scope=row.get("runtime_scope") or "codex",
         model_context_tokens=row.get("model_context_tokens"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -151,7 +152,7 @@ def _owner_out(
         description=row.get("description"),
         provider=row["provider"],
         connection_kind=row.get("connection_kind") or "manual",
-        runtime_scope=row.get("runtime_scope") or "langchain",
+        runtime_scope=row.get("runtime_scope") or "codex",
         model_name=row["model_name"],
         model_context_tokens=row.get("model_context_tokens"),
         api_url=row.get("api_url"),
@@ -481,7 +482,7 @@ async def complete_openrouter_connection(
         await repo.update(
             credential_id,
             provider="openrouter",
-            runtime_scope="langchain",
+            runtime_scope="codex",
             connection_kind="openrouter_oauth",
             model_name=selected_model,
             model_context_tokens=model_context,
@@ -510,7 +511,7 @@ async def complete_openrouter_connection(
             name=f"OpenRouter · {str(credential_id)[:8]}",
             description="Connected OpenRouter account",
             provider="openrouter",
-            runtime_scope="langchain",
+            runtime_scope="codex",
             connection_kind="openrouter_oauth",
             model_name=selected_model,
             model_context_tokens=model_context,
@@ -707,6 +708,11 @@ async def create_credential(
         ),
         action=Action.CREATE,
     )
+    if body.runtime_scope not in AVAILABLE_RUNTIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="unsupported runtime scope",
+        )
     repo = LlmCredentialsRepo(session)
     cid = uuid.uuid4()
     secret_ref = await secret_service().put_text(
@@ -1006,6 +1012,14 @@ async def update_credential(
         )
 
     fields = body.model_dump(exclude_unset=True)
+    if (
+        "runtime_scope" in fields
+        and fields["runtime_scope"] not in AVAILABLE_RUNTIME_TYPES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="unsupported runtime scope",
+        )
     new_api_key = fields.pop("api_key", None)
     previous_secret_ref = existing.get("secret_ref")
     previous_connection_secret_ref = existing.get("connection_secret_ref")

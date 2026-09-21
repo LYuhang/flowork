@@ -1,8 +1,7 @@
 """Shared service-locator singletons used by the FastAPI route modules.
 
 ``init_stores`` is called once from ``app.py``'s lifespan to wire the
-process-wide singletons the routes read directly (``ctx.checkpointer``,
-``ctx.vfs_store``).
+process-wide singletons the routes read directly (currently ``ctx.vfs_store``).
 
 The legacy Gradio-era session-state factory
 (``build_session_state``), the disk-checkpointer history loader
@@ -29,22 +28,18 @@ import uuid
 # ---------------------------------------------------------------------------
 # Module-level store references (populated by init_stores; read by routes)
 # ---------------------------------------------------------------------------
-checkpointer = None
 vfs_store = None
-agent_state_writer = None
 
 
 def init_stores(
-    _checkpointer,
     _vfs_store=None,
 ):
     """Called once by app.py's lifespan to inject shared singletons."""
-    global checkpointer, vfs_store
-    checkpointer = _checkpointer
+    global vfs_store
     vfs_store = _vfs_store
 
 
-def clear_stores(*, expected_checkpointer=None) -> None:
+def clear_stores() -> None:
     """Release process-wide references owned by a finished app lifespan.
 
     ``build_app()`` may be entered more than once in the same process (tests,
@@ -53,22 +48,8 @@ def clear_stores(*, expected_checkpointer=None) -> None:
     checkpointer.  The identity guard prevents an older lifespan from clearing
     stores that a newer lifespan has already installed.
     """
-    global checkpointer, vfs_store, agent_state_writer
-    if expected_checkpointer is not None and checkpointer is not expected_checkpointer:
-        return
-    checkpointer = None
+    global vfs_store
     vfs_store = None
-    agent_state_writer = None
-
-
-def set_agent_state_writer(writer) -> None:
-    """Register the compiled graph used for out-of-band checkpoint updates.
-
-    HITL decisions arrive through HTTP while no model request is running. The
-    writer updates small state channels without rewriting persisted messages.
-    """
-    global agent_state_writer
-    agent_state_writer = writer
 
 
 # ---------------------------------------------------------------------------

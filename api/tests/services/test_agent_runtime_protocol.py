@@ -15,10 +15,6 @@ from vibecanvas_api.services.agent_runtime import (
     RuntimeTurnRequest,
 )
 from vibecanvas_api.services.agent_runtime.protocol import RuntimeSkill
-from vibecanvas_api.services.agent_runtime.protocol import (
-    RuntimeBackgroundJobRequest,
-    RuntimeBackgroundJobResponse,
-)
 
 
 @pytest.mark.asyncio
@@ -34,11 +30,12 @@ async def test_sandbox_entry_accepts_consecutive_runtime_turns(
             "user_id": "user",
             "chat_id": "chat",
             "turn_id": turn_id,
-            "runtime_type": "langchain",
+            "runtime_type": "codex",
             "runtime_session_id": "session",
-            "runtime_root": "/runtime/langchain/chats/chat",
+            "runtime_root": "/runtime/.codex",
             "runtime_state_ref": "thread",
             "message": {"role": "user", "content": turn_id},
+            "model": {"id": "gpt-test", "connection_type": "chatgpt_account"},
         }
 
     class FakeChannel:
@@ -83,7 +80,7 @@ def test_runtime_protocol_import_does_not_eagerly_load_host_orchestrator() -> No
         "import sys; "
         "import vibecanvas_api.services.agent_runtime.protocol; "
         "assert 'vibecanvas_api.services.agent_runtime.orchestrator' not in sys.modules; "
-        "assert 'langgraph.checkpoint.postgres.aio' not in sys.modules"
+        "assert 'vibecanvas_api.services.agent_runtime.orchestrator' not in sys.modules"
     )
     completed = subprocess.run(
         [sys.executable, "-c", code],
@@ -119,9 +116,9 @@ def test_runtime_open_requires_runtime_namespace() -> None:
             tenant_id="tenant",
             user_id="user",
             chat_id="chat",
-            runtime_type="langchain",
+            runtime_type="codex",
             runtime_session_id="session",
-            runtime_root="/data/langchain",
+            runtime_root="/data/codex",
         )
 
 
@@ -186,10 +183,11 @@ def test_runtime_instructions_are_backend_resolved_and_match_active_modes() -> N
         "user_id": "user",
         "chat_id": "chat",
         "turn_id": "turn",
-        "runtime_type": "langchain",
+        "runtime_type": "codex",
         "runtime_session_id": "session",
-        "runtime_root": "/runtime/langchain/chats/chat",
+        "runtime_root": "/runtime/.codex",
         "message": {"role": "user", "content": "build a workflow"},
+        "model": {"id": "gpt-test", "connection_type": "chatgpt_account"},
         "command_context": {
             "active_modes": ["workflow"],
             "activated_this_turn": ["workflow"],
@@ -233,10 +231,11 @@ def test_runtime_turn_requires_exact_platform_descriptor_set() -> None:
         "user_id": "user",
         "chat_id": "chat",
         "turn_id": "turn",
-        "runtime_type": "langchain",
+        "runtime_type": "codex",
         "runtime_session_id": "session",
-        "runtime_root": "/runtime/langchain/chats/chat",
+        "runtime_root": "/runtime/.codex",
         "message": {"role": "user", "content": "/workflow"},
+        "model": {"id": "gpt-test", "connection_type": "chatgpt_account"},
     }
     with pytest.raises(ValidationError, match="exactly match"):
         RuntimeTurnRequest(**common, active_platform_mcps=["workflow"])
@@ -261,10 +260,11 @@ def test_runtime_command_context_rejects_backend_domain_objects() -> None:
             user_id="user",
             chat_id="chat",
             turn_id="turn",
-            runtime_type="langchain",
+            runtime_type="codex",
             runtime_session_id="session",
-            runtime_root="/runtime/langchain/chats/chat",
+            runtime_root="/runtime/.codex",
             message={"role": "user", "content": "/workflow"},
+            model={"id": "gpt-test", "connection_type": "chatgpt_account"},
             command_context={
                 "workspace_scope_id": "workspace",
                 "active_modes": ["workflow"],
@@ -279,7 +279,7 @@ def test_runtime_event_rejects_unversioned_or_unknown_wire_types() -> None:
         seq=1,
         chat_id="chat",
         turn_id="turn",
-        runtime_type="langchain",
+        runtime_type="codex",
         runtime_session_id="session",
         type="message.delta",
         payload={"text": "a"},
@@ -291,9 +291,9 @@ def test_runtime_event_rejects_unversioned_or_unknown_wire_types() -> None:
             seq=2,
             chat_id="chat",
             turn_id="turn",
-            runtime_type="langchain",
+            runtime_type="codex",
             runtime_session_id="session",
-            type="langgraph.on_chat_model_stream",
+            type="unknown.runtime.event",
         )
 
 
@@ -330,94 +330,4 @@ def test_runtime_control_rejects_approval_action_for_post_tool_gate() -> None:
                 "runtime_request_id": "rpc-7",
                 "runtime_method": "mcpServer/elicitation/request",
             },
-        )
-
-
-def test_background_job_protocol_is_langchain_only_and_requires_explicit_ack() -> None:
-    request = RuntimeBackgroundJobRequest(
-        tenant_id="tenant",
-        user_id="user",
-        chat_id="chat",
-        parent_turn_id="turn",
-        job_id="job_1",
-        runtime_root="/runtime/langchain/chats/chat",
-        title="Inspect data",
-        prompt="Inspect /mount/data/input.json and return its schema.",
-        max_iterations=12,
-        model={"model": "test-model"},
-    )
-    assert request.runtime_type.value == "langchain"
-
-    correlation = {
-        "source": "langchain_background",
-        "runtime_request_id": "call_1",
-        "runtime_method": "background_job/submit",
-    }
-    accepted = RuntimeBackgroundJobResponse(
-        request_id="bgreq_1",
-        chat_id="chat",
-        turn_id="turn",
-        action="accepted",
-        job_id="job_1",
-        correlation=correlation,
-    )
-    assert accepted.job_id == "job_1"
-    listed = RuntimeBackgroundJobResponse(
-        request_id="bgreq_2",
-        chat_id="chat",
-        turn_id="turn",
-        operation="list",
-        action="accepted",
-        payload={"jobs": []},
-        correlation={
-            **correlation,
-            "runtime_method": "background_job/list",
-        },
-    )
-    assert listed.payload == {"jobs": []}
-    fetched = RuntimeBackgroundJobResponse(
-        request_id="bgreq_get",
-        chat_id="chat",
-        turn_id="turn",
-        operation="get",
-        action="accepted",
-        job_id="job_1",
-        payload={"job": {"job_id": "job_1", "status": "completed"}},
-        correlation={
-            **correlation,
-            "runtime_method": "background_job/get",
-        },
-    )
-    assert fetched.payload["job"]["status"] == "completed"
-    with pytest.raises(ValidationError, match="get requires job_id"):
-        RuntimeBackgroundJobResponse(
-            request_id="bgreq_get_missing",
-            chat_id="chat",
-            turn_id="turn",
-            operation="get",
-            action="accepted",
-            correlation={
-                **correlation,
-                "runtime_method": "background_job/get",
-            },
-        )
-    with pytest.raises(ValidationError, match="cancel requires job_id"):
-        RuntimeBackgroundJobResponse(
-            request_id="bgreq_3",
-            chat_id="chat",
-            turn_id="turn",
-            operation="cancel",
-            action="accepted",
-            correlation={
-                **correlation,
-                "runtime_method": "background_job/cancel",
-            },
-        )
-    with pytest.raises(ValidationError, match="requires job_id"):
-        RuntimeBackgroundJobResponse(
-            request_id="bgreq_1",
-            chat_id="chat",
-            turn_id="turn",
-            action="accepted",
-            correlation=correlation,
         )

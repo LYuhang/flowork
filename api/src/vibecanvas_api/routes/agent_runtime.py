@@ -17,12 +17,14 @@ from vibecanvas_api.schemas.chat import (
 )
 from vibecanvas_api.services.agent_runtime.capabilities import (
     codex_capabilities,
-    langchain_capabilities,
     runtime_model_connection_id,
 )
 from vibecanvas_api.services.agent_runtime.codex_account import CodexAccountService
 from vibecanvas_api.services.agent_runtime.protocol import RuntimeCapabilities
-from vibecanvas_api.services.agent_runtime.registry import AVAILABLE_RUNTIME_TYPES
+from vibecanvas_api.services.agent_runtime.registry import (
+    AVAILABLE_RUNTIME_TYPES,
+    runtime_options,
+)
 from vibecanvas_api.services.sandbox.manager import get_existing_sandbox_manager
 from vibecanvas_api.storage.repo_llm_credentials import LlmCredentialsRepo
 
@@ -170,6 +172,7 @@ def _settings_out(preferences: dict) -> AgentRuntimeSettingsOut:
             for runtime in config.agent_runtime_types
             if runtime in AVAILABLE_RUNTIME_TYPES
         ],
+        runtime_options=runtime_options(config.agent_runtime_types),
         codex_auth_methods=(
             list(config.codex_runtime_auth_methods)
             if "codex" in config.agent_runtime_types
@@ -214,12 +217,6 @@ async def get_agent_runtime_capabilities(
     else:
         preferences = await runtime_repo.get_preferences()
 
-    if runtime_type == "langchain":
-        credentials = await LlmCredentialsRepo(session).list_for_user(auth.user_id)
-        return _with_chat_model_default(
-            langchain_capabilities(credentials),
-            binding,
-        )
     if runtime_type == "codex":
         credentials = await LlmCredentialsRepo(session).list_for_user(auth.user_id)
         selected_profile = preferences.get("codex_managed_profile_id")
@@ -362,7 +359,7 @@ async def update_user_timezone(
     body: UserTimezoneUpdate,
     runtime_repo=Depends(get_agent_runtime_repo),
 ) -> AgentRuntimeSettingsOut:
-    """Persist the account timezone used by new LangChain conversations."""
+    """Persist the account timezone used by new conversations."""
     return _settings_out(
         await runtime_repo.set_preferred_timezone(body.preferred_timezone)
     )

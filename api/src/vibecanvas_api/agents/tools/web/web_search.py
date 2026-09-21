@@ -25,8 +25,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 
 from vibecanvas_api.agents.tools.decorator import ToolError, tool_output
 from vibecanvas_api.agents.tools.render import Rendered, register_render
@@ -225,7 +224,7 @@ async def web_search(
         abstract = "web_search → N results for <query>".
 
     Examples:
-        web_search(query="LangGraph agent memory tutorial 2025")
+        web_search(query="agent memory tutorial 2025")
         web_search(query="Python pandas read_csv encoding options", max_results=3)
     """
     n = max_results if max_results > 0 else config.web_search.max_results

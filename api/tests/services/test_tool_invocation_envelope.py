@@ -9,7 +9,7 @@ from vibecanvas_api.services.agent_runtime.tool_invocation import (
 def test_runtime_neutral_invocation_classifies_platform_mcp_and_normalizes_json():
     started, clock = start_tool_invocation(
         invocation_id="call-1",
-        runtime_type="langchain",
+        runtime_type="codex",
         name="knowledge_search",
         arguments='{"query":"release notes","authorization":"Bearer private"}',
         mcp_catalog=[{
@@ -39,7 +39,7 @@ def test_runtime_neutral_invocation_classifies_platform_mcp_and_normalizes_json(
         started,
         started_monotonic=clock,
         invocation_id="call-1",
-        runtime_type="langchain",
+        runtime_type="codex",
         name="knowledge_search",
         status="done",
         content="found 2 records",

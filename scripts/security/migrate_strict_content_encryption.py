@@ -2,8 +2,8 @@
 """Atomically cut an installation over to ciphertext-only content storage.
 
 The command is safe to rerun. It pauses at each migration-only revision,
-encrypts every pre-cutover Chat/Workflow/Task/Knowledge Base/Runtime checkpoint/
-Skill file/private Template row, verifies that no plaintext broker payload
+encrypts every pre-cutover Chat/Workflow/Task/Knowledge Base/Skill
+file/private Template row, verifies that no plaintext broker payload
 remains, and then applies all irreversible strict revisions through the current
 head.
 """
@@ -53,9 +53,6 @@ from vibecanvas_api.security.migrate_legacy_secrets import (
     migrate_legacy_mcp_oauth_transactions,
 )
 from vibecanvas_api.security.secret_service import suppress_secret_creation_audit
-from vibecanvas_api.services.agent_runtime.checkpoint_store import (
-    LangChainCheckpointStore,
-)
 from vibecanvas_api.services.tenant_db import session_scope_admin
 from vibecanvas_api.storage.db import dispose_engine, session_scope
 
@@ -175,17 +172,6 @@ async def _migrate() -> tuple[int, int]:
                 else:
                     rows += await backfill_workflow(session, resource_id)
             resources += 1
-
-    store = LangChainCheckpointStore()
-    try:
-        rows += await store.backfill_encryption()
-        remaining_state = await store.plaintext_row_count()
-        if remaining_state:
-            raise RuntimeError(
-                f"runtime state encryption incomplete: {remaining_state} rows remain"
-            )
-    finally:
-        await store.close()
 
     remaining = await _pending_resources(limit=1)
     if remaining:

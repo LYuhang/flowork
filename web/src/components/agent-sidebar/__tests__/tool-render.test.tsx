@@ -257,7 +257,7 @@ describe('universal MCP result fallback', () => {
           invocation: {
             schemaVersion: 1,
             invocationId: 'mcp_1',
-            runtime: { type: 'langchain' },
+            runtime: { type: 'codex' },
             origin: { kind: 'custom_mcp', serverName: 'github', serverLabel: 'GitHub', toolName: 'search_repositories', qualifiedName: 'github__search_repositories' },
             capability: 'github',
             name: 'search_repositories',
@@ -292,7 +292,7 @@ describe('universal MCP result fallback', () => {
           invocation: {
             schemaVersion: 1,
             invocationId: 'custom_bash_1',
-            runtime: { type: 'langchain' },
+            runtime: { type: 'codex' },
             origin: {
               kind: 'custom_mcp',
               serverName: 'untrusted',

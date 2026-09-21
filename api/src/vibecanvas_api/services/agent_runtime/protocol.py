@@ -1,7 +1,6 @@
 """Stable host↔sandbox Agent Runtime protocol.
 
-SDK-specific structures (LangGraph state, Codex app-server notifications, and
-provider request objects) must be translated inside the sandbox adapter. They
+SDK-specific structures must be translated inside the sandbox adapter. They
 must never leak into this module or the frontend event contract.
 """
 
@@ -27,7 +26,6 @@ RUNTIME_PROTOCOL_VERSION = 2
 
 
 class RuntimeType(str, Enum):
-    LANGCHAIN = "langchain"
     CODEX = "codex"
 
 
@@ -234,7 +232,7 @@ class RuntimeContextManifest(BaseModel):
 
 
 class RuntimeConversationClock(BaseModel):
-    """Immutable wall-clock reference fixed by the first LangChain Turn."""
+    """Immutable wall-clock reference fixed by the first Runtime Turn."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -327,7 +325,7 @@ class RuntimeTurnRequest(BaseModel):
     # Zero is the user's native Runtime turn; positive values are deterministic
     # protocol continuations and must never be projected as new user messages.
     continuation_index: int = Field(default=0, ge=0, le=3)
-    # LangChain receives the same value on every Turn/resume so its system
+    # A Runtime receives the same value on every Turn/resume so its system
     # prefix remains byte-stable. Codex owns its native context and never
     # receives this platform prompt block.
     conversation_clock: RuntimeConversationClock | None = None
@@ -517,42 +515,6 @@ class RuntimeTurnRequest(BaseModel):
         return self
 
 
-class RuntimeBackgroundJobRequest(BaseModel):
-    """Private request for one executor process independent of an Agent Turn."""
-
-    protocol_version: Literal[2] = RUNTIME_PROTOCOL_VERSION
-    tenant_id: str
-    user_id: str
-    chat_id: str
-    parent_turn_id: str
-    job_id: str
-    runtime_type: Literal[RuntimeType.LANGCHAIN] = RuntimeType.LANGCHAIN
-    runtime_root: str
-    executor_type: Literal["langchain_subagent"] = "langchain_subagent"
-    title: str = Field(min_length=1, max_length=160)
-    prompt: str = Field(min_length=1)
-    max_iterations: int = Field(default=25, ge=1, le=100)
-    model: dict[str, Any] = Field(default_factory=dict)
-    system_prompt: str | None = Field(default=None, max_length=20_000)
-    output_fields: dict[str, dict[str, Any]] | None = None
-    approval_mode: Literal["always_ask", "always_allow", "agent"] = "agent"
-    approval_owner: Literal["none"] = "none"
-
-    @model_validator(mode="after")
-    def validate_runtime_root(self) -> "RuntimeBackgroundJobRequest":
-        if not self.runtime_root.startswith("/runtime/"):
-            raise ValueError("runtime_root must be under /runtime")
-        if any(part in {"", ".", ".."} for part in self.runtime_root.split("/")[1:]):
-            raise ValueError("runtime_root contains an invalid path segment")
-        if self.output_fields is not None:
-            if not 1 <= len(self.output_fields) <= 32:
-                raise ValueError("output_fields must contain 1..32 fields")
-            for name, spec in self.output_fields.items():
-                if not name or len(name) > 80 or not isinstance(spec, dict):
-                    raise ValueError("output_fields contains an invalid field")
-        return self
-
-
 class RuntimeCapabilitiesRequest(BaseModel):
     """Request a user/account-aware runtime configuration catalog."""
 
@@ -582,7 +544,7 @@ class RuntimeModelOption(BaseModel):
     """One model choice in runtime-defined display order.
 
     ``id`` is the stable value sent back on a Turn. It may be an account model
-    slug (Codex) or an opaque platform selection id (LangChain credential).
+    slug or an opaque platform selection id.
     """
 
     id: str = Field(min_length=1)
@@ -640,9 +602,6 @@ RUNTIME_EVENT_TYPES = Literal[
     "artifact",
     "usage",
     "checkpoint",
-    # Private Runtime→host submission request. The orchestrator consumes this
-    # event and never projects its executor payload to the frontend.
-    "background_job.requested",
     # Private sandbox MCP Hub→Host Gateway request. Tool manifests and calls
     # cross the Chat-bound Runtime bus; Platform URLs and bearer credentials do
     # not. The orchestrator consumes this event and returns a private control
@@ -710,7 +669,7 @@ class RuntimeMcpGatewayRequest(BaseModel):
 class RuntimeControlResponse(BaseModel):
     protocol_version: Literal[2] = RUNTIME_PROTOCOL_VERSION
     # Stable platform hitl_request_id. It is deliberately distinct from the
-    # Codex JSON-RPC request id and a LangChain tool_call_id.
+    # Runtime-native request id (for Codex this is its JSON-RPC request id).
     request_id: str
     chat_id: str
     turn_id: str
@@ -733,36 +692,6 @@ class RuntimeControlResponse(BaseModel):
             raise ValueError(
                 f"action {self.action!r} is invalid for gate {self.gate_type!r}"
             )
-        return self
-
-
-class RuntimeBackgroundJobResponse(BaseModel):
-    """Host response for a LangChain-private background control operation."""
-
-    protocol_version: Literal[2] = RUNTIME_PROTOCOL_VERSION
-    request_id: str
-    chat_id: str
-    turn_id: str
-    control_type: Literal["background_job"] = "background_job"
-    operation: Literal["submit", "list", "get", "cancel"] = "submit"
-    action: Literal["accepted", "rejected"]
-    job_id: str | None = None
-    payload: dict[str, Any] = Field(default_factory=dict)
-    error: str | None = None
-    correlation: RuntimeRequestCorrelation
-
-    @model_validator(mode="after")
-    def validate_result(self) -> "RuntimeBackgroundJobResponse":
-        if (
-            self.action == "accepted"
-            and self.operation in {"submit", "get", "cancel"}
-            and not self.job_id
-        ):
-            raise ValueError(
-                f"accepted background job {self.operation} requires job_id"
-            )
-        if self.action == "rejected" and not self.error:
-            raise ValueError("rejected background job requires error")
         return self
 
 
@@ -797,7 +726,6 @@ class RuntimeMcpGatewayResponse(BaseModel):
 
 RuntimeControlMessage = (
     RuntimeControlResponse
-    | RuntimeBackgroundJobResponse
     | RuntimeMcpGatewayResponse
 )
 

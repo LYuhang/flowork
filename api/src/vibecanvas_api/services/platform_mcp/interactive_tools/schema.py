@@ -1,6 +1,6 @@
 """Cross-Runtime schema for Platform MCP ``render_interactive``.
 
-The tool accepts ``Any`` at the LangChain invocation boundary so malformed
+The tool accepts ``Any`` at the Runtime invocation boundary so malformed
 model output reaches the tool's normal error envelope instead of becoming an
 opaque framework validation failure. ``WithJsonSchema`` still exposes this
 strict discriminated union to the model; ``validate_*`` performs the exact same
@@ -117,7 +117,7 @@ def interactive_view_json_schema() -> dict[str, Any]:
 
 
 def _inline_view_json_schema() -> dict[str, Any]:
-    """Inline local refs for LangChain's enclosing tool-call schema.
+    """Inline local refs for the enclosing tool-call schema.
 
     ``WithJsonSchema`` is embedded below another Pydantic model. Local ``$defs``
     from the supplied fragment are not hoisted by Pydantic, leaving broken refs;

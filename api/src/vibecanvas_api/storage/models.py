@@ -253,7 +253,7 @@ class Chat(Base):
     # accepted Turn so provider-native history, credentials, and billing never
     # cross accounts; models and reasoning remain mutable within the connection.
     runtime_connection_id: Mapped[str | None] = mapped_column(Text)
-    # Fixed when a LangChain Chat binds on its first Turn.  These values are
+    # Fixed when a Chat binds to its Runtime on the first Turn. These values are
     # deliberately immutable afterwards: regenerating a wall clock value for
     # every resume would invalidate the model provider's prompt-prefix cache.
     runtime_timezone: Mapped[str | None] = mapped_column(Text)
@@ -290,7 +290,7 @@ class Chat(Base):
         CheckConstraint("surface IN ('chat','browser')",
                         name="ck_chats_surface"),
         CheckConstraint(
-            "runtime_type IS NULL OR runtime_type IN ('langchain','codex')",
+            "runtime_type IS NULL OR runtime_type ~ '^[a-z][a-z0-9_-]{0,63}$'",
             name="ck_chats_runtime_type",
         ),
         CheckConstraint("runtime_version > 0", name="ck_chats_runtime_version_pos"),
@@ -469,7 +469,7 @@ class UserAgentPreference(Base):
         server_default=text("current_setting('app.tenant_id', true)::uuid"),
     )
     default_runtime_type: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default="langchain"
+        Text, nullable=False, server_default="codex"
     )
     codex_managed_profile_id: Mapped[str | None] = mapped_column(Text)
     # IANA timezone used for Agent time context and as the default UI display
@@ -480,7 +480,7 @@ class UserAgentPreference(Base):
     updated_at: Mapped[datetime] = _ts()
     __table_args__ = (
         CheckConstraint(
-            "default_runtime_type IN ('langchain','codex')",
+            "default_runtime_type ~ '^[a-z][a-z0-9_-]{0,63}$'",
             name="ck_user_agent_preferences_runtime_type",
         ),
     )

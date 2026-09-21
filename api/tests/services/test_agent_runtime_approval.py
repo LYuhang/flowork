@@ -14,13 +14,13 @@ def test_agent_mode_defaults_approval_capable_tool_to_wait() -> None:
     policy = PreToolApprovalPolicy()
     assert policy.evaluate(
         approval_mode="agent",
-        source="langchain",
+        source="runtime",
         tool_name="browser_click",
         arguments={"handle": "submit"},
     ).action == "wait"
     assert policy.evaluate(
         approval_mode="agent",
-        source="langchain",
+        source="runtime",
         tool_name="browser_click",
         arguments={"handle": "submit", "require_user_auth": False},
     ).action == "allow"

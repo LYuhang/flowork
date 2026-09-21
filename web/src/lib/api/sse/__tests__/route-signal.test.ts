@@ -146,7 +146,7 @@ describe('routeAgentSignalWith', () => {
 
     routeAgentSignalWith(client, 'RUNTIME_STATUS', {
       first_turn: true,
-      runtime_type: 'langchain',
+      runtime_type: 'codex',
       phase: 'initializing_runtime',
       started_at: '2026-08-06T12:00:00Z',
       operation_id: 'turn_42',
@@ -156,12 +156,12 @@ describe('routeAgentSignalWith', () => {
       phase: 'initializing_runtime',
       startedAt: '2026-08-06T12:00:00Z',
       firstTurn: true,
-      runtimeType: 'langchain',
+      runtimeType: 'codex',
       operationId: 'turn_42',
     });
     routeAgentSignalWith(client, 'RUNTIME_STATUS', {
       first_turn: false,
-      runtime_type: 'langchain',
+      runtime_type: 'codex',
       phase: 'awaiting_first_output',
       started_at: '2026-08-06T12:00:01Z',
     }, ctx);

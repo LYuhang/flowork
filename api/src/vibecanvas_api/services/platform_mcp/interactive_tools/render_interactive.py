@@ -7,8 +7,7 @@ import uuid
 from pathlib import PurePosixPath
 from typing import Any
 
-from langchain.tools import ToolRuntime
-from langchain_core.tools import tool
+from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
 
 from vibecanvas_api.agents.tools._session_fs import _require_session
 from vibecanvas_api.agents.tools._envelope import tool_ok

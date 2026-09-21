@@ -15,7 +15,7 @@ the FastAPI routes depend on is preserved byte-for-byte:
   stay frozen.
 * ``checkpointer_thread_id`` — kept as a ``@staticmethod`` with the
   ``(username, scope_id, chat_id, major_version=0)`` namespaced signature;
-  the LangGraph checkpointer thread-id semantics are owned by T11, not
+  Runtime-native thread-id semantics are owned by the Runtime adapter, not
   T7, and ``context.py``/routes call it statically.
 
 Attachment helpers (``save_attachment``/``add_attachment``/
@@ -1098,7 +1098,7 @@ class ChatRepo:
     def checkpointer_thread_id(
         username: str, scope_id: str, chat_id: str, major_version: int = 0,
     ) -> str:
-        """Namespaced LangGraph checkpointer thread_id.
+        """Namespaced Runtime thread identifier.
 
         Kept as the legacy ``@staticmethod`` (context.py + routes call it
         without an instance). The thread-id <-> Postgres-checkpointer

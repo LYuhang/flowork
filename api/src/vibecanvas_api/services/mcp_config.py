@@ -31,7 +31,7 @@ def build_connection_config(
     auth_config: dict | None = None,
     connection_config: dict | None = None,
 ) -> dict[str, Any]:
-    """Return the LangChain MCP adapter connection dict for one server.
+    """Return the official MCP SDK connection dict for one server.
 
     ``endpoint`` is retained as the user-facing legacy field:
     - HTTP/SSE: URL

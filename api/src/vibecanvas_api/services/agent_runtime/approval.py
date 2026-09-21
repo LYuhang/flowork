@@ -89,3 +89,19 @@ class PreToolApprovalPolicy:
                 return ApprovalPolicyDecision("wait", "tool_requested_user_auth")
             return ApprovalPolicyDecision("allow", "tool_marked_low_risk")
         return ApprovalPolicyDecision("deny", "invalid_approval_mode")
+
+
+def requires_user_approval(
+    tool_name: str,
+    arguments: dict[str, Any],
+    approval_mode: str,
+    *,
+    source: str = "runtime",
+) -> bool:
+    """Return whether a recognized tool call must wait for user approval."""
+    return PreToolApprovalPolicy().evaluate(
+        approval_mode=approval_mode,
+        source=source,
+        tool_name=tool_name,
+        arguments=arguments,
+    ).action == "wait"

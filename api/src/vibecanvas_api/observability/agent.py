@@ -20,7 +20,7 @@ _slog = structlog.get_logger("vibecanvas.agent.usage")
 
 def record_llm_usage(*, model, usage_metadata, tenant_id) -> None:
     """Read usage off an updates-branch AIMessage. usage_metadata is the
-    LangChain dict {input_tokens, output_tokens, total_tokens}. Per-model
+    Runtime dict {input_tokens, output_tokens, total_tokens}. Per-model
     Prometheus counters + a per-tenant token log line."""
     try:
         model_label = str(model or "unknown")

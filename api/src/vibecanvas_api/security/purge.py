@@ -7,7 +7,6 @@ completed while a required phase is missing.
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import os
@@ -27,7 +26,6 @@ from vibecanvas_api.authorization.openfga_client import (
 )
 from vibecanvas_api.config import config
 from vibecanvas_api.security.redaction import redact_text
-from vibecanvas_api.services.agent_runtime.checkpoint_store import LangChainCheckpointStore
 from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
@@ -298,25 +296,6 @@ async def _purge_runtime_state(lease: PurgeLease) -> None:
     )
     await host_mount_bridge.unregister_user(user_id=str(lease.user_id))
     coordinates = await _chat_runtime_coordinates(lease)
-    grouped: dict[uuid.UUID, list[ChatRuntimeCoordinate]] = defaultdict(list)
-    for coordinate in coordinates:
-        grouped[coordinate.tenant_id].append(coordinate)
-    store = LangChainCheckpointStore()
-    try:
-        for tenant_id, tenant_coordinates in grouped.items():
-            chats = [value.chat_id for value in tenant_coordinates]
-            threads = [value.thread_id for value in tenant_coordinates]
-            if tenant_id == lease.tenant_id:
-                await store.purge_organization(
-                    str(tenant_id), legacy_thread_ids=threads, chat_ids=chats
-                )
-            else:
-                await store.purge_chats(
-                    str(tenant_id), legacy_thread_ids=threads, chat_ids=chats
-                )
-    finally:
-        await store.close()
-
     volume_provider = get_chat_runtime_volume_provider()
     for coordinate in coordinates:
         await asyncio.to_thread(

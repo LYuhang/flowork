@@ -84,8 +84,9 @@ What makes Flowork different:
   and failures remain inspectable from Chat and the canvas.
 - ♻️ **Reusable automation** — Convert one-off agent work into a durable,
   versioned workflow that can run again or be published.
-- 🧩 **Extensible agent capabilities** — Combine LangChain or Codex with MCP
-  servers, Skills, Knowledge, SubAgents, and browser control.
+- 🧩 **Extensible agent capabilities** — Combine sandboxed Codex with MCP
+  servers, Skills, Knowledge, and browser control through a Runtime-neutral
+  platform contract.
 - 🛡️ **Self-hosted execution boundaries** — Keep control of models and data
   while routing untrusted execution through isolated sandboxes.
 
@@ -133,14 +134,10 @@ Open <http://localhost:9001> after startup verification succeeds.
 
 ### Build your first workflow
 
-1. **Choose an Agent runtime.** Open **Settings → Agent runtime** and select the
-   default runtime for new Chats:
-   - **LangChain** uses model-provider credentials and the LangChain Agent
-     toolset.
-   - **Codex** runs conversations through the Codex runtime.
-
-   Only runtimes enabled by the deployment are shown. The selection applies to
-   new Chats; an existing Chat keeps the runtime with which it was created.
+1. **Choose an Agent runtime.** Open **Settings → Agent runtime** to review the
+   Runtime used by new Chats. Codex runs inside each Chat sandbox. Runtime
+   registration is isolated behind a stable protocol so additional providers
+   can be installed without coupling their SDKs to the API.
 
 2. **Connect a model or account.** Complete the connection required by the
    selected runtime:
@@ -202,7 +199,7 @@ Task responsibility.
 
 | Surface | What you can do | Demo |
 | --- | --- | --- |
-| **Chat** | Describe a request in conversation and let a LangChain or Codex agent use tools, build Workflows, create diagrams, and organize files. Preview Workflows, background jobs, common documents, tables, media, and diagrams beside the conversation. Each Chat has its own workspace, with a sandbox that starts, hibernates, and restores as needed. | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
+| **Chat** | Describe a request in conversation and let a sandboxed Codex agent use tools, build Workflows, create diagrams, and organize files. Preview Workflows, common documents, tables, media, and diagrams beside the conversation. Each Chat has its own workspace, with a sandbox that starts, hibernates, and restores as needed. | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
 | **Workflow** | Add, connect, and configure nodes on a visual canvas, validate the graph, and execute either the full Workflow or an individual node. Review run output, generated files, and earlier versions, or use batch execution and JSON import and export. | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
 | **Task** | Run a Workflow across a tabular input file or schedule it for a particular time or interval. Task Center shows queue and execution progress, events, output, and failures, and lets users pause, cancel, or resume work where supported. | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
 | **Deployment** | Publish a verified Workflow as an API or webhook for external systems. Each Deployment provides its invocation details, code examples, test requests, traffic controls, credentials, run history, and health metrics. Use a scheduled Task when the Workflow needs to run on a recurring or calendar-based schedule. | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
@@ -234,13 +231,13 @@ combined when a task spans more than one area.
 
 | Command | Purpose | Availability |
 | --- | --- | --- |
-| `/workflow` | Ask the agent to create or open a Workflow, then modify nodes, validate the graph, create versions, or run it from the conversation | Main app and extension; LangChain/Codex |
-| `/task` | Ask the agent to find or manage Tasks, or export searchable event and execution diagnostics for troubleshooting | Main app and extension; LangChain/Codex |
-| `/deployment` | Ask the agent to find or manage Deployments, or export searchable invocation logs and metrics for troubleshooting | Main app and extension; LangChain/Codex |
-| `/knowledge` | Let the Agent read, create, and version Knowledge file packages in the active organization | Main app and extension; LangChain/Codex |
-| [`/diagram`](docs/diagram.md) | Create and refine native draw.io diagrams with the official sandbox-local MCP, then preview and export them | Main app and extension; LangChain/Codex |
-| `/document` | Create or revise professional PPTX, DOCX, XLSX, or PDF files, review their structure and rendered output, then publish the native file in Preview | Main app and extension; LangChain/Codex |
-| `/browser` | Let the agent read or operate tabs and authenticated pages in the connected browser | Extension side panel only; LangChain/Codex |
+| `/workflow` | Ask the agent to create or open a Workflow, then modify nodes, validate the graph, create versions, or run it from the conversation | Main app and extension; Codex |
+| `/task` | Ask the agent to find or manage Tasks, or export searchable event and execution diagnostics for troubleshooting | Main app and extension; Codex |
+| `/deployment` | Ask the agent to find or manage Deployments, or export searchable invocation logs and metrics for troubleshooting | Main app and extension; Codex |
+| `/knowledge` | Let the Agent read, create, and version Knowledge file packages in the active organization | Main app and extension; Codex |
+| [`/diagram`](docs/diagram.md) | Create and refine native draw.io diagrams with the official sandbox-local MCP, then preview and export them | Main app and extension; Codex |
+| `/document` | Create or revise professional PPTX, DOCX, XLSX, or PDF files, review their structure and rendered output, then publish the native file in Preview | Main app and extension; Codex |
+| `/browser` | Let the agent read or operate tabs and authenticated pages in the connected browser | Extension side panel only; Codex |
 
 ### Browser Extension
 

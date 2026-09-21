@@ -152,6 +152,13 @@ catalog is under [`nodes/`](../engine/src/vibecanvas_engine/nodes/). The API
 provides the surrounding permission checks, persistence, event streaming, and
 sandbox integration.
 
+The selectable Chat Runtime does not use LangChain. The workflow
+`SubAgentNode` currently retains a small, lazily loaded LangChain/LangGraph
+loop inside the workflow sandbox. This transitional implementation reuses
+Flowork's Runtime-neutral tool definitions and does not include the retired
+LangChain Chat adapter, MCP adapter, persistent checkpointer, or Runtime state
+services.
+
 ### Workers
 
 Celery workers perform batch execution, scheduled Task runs, Deployment invocations,

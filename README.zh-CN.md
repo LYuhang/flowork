@@ -70,7 +70,7 @@ Flowork 的核心特点：
 - 🪄 **由 Agent 直接构建工作流**：Agent 编辑并验证真实的工作流图，避免方案描述与实际执行逻辑相互脱节。
 - 🔎 **从目标到结果全程可见**：计划、节点、版本、运行记录、输出和异常均可在 Chat 与画布中检查。
 - ♻️ **将一次性任务转化为可复用自动化**：把 Agent 完成的临时工作沉淀为可持久化、可版本管理、可再次运行或发布的工作流。
-- 🧩 **可扩展的 Agent 能力**：支持 LangChain 或 Codex，并可组合 MCP 服务、Skills、知识库、SubAgent 和浏览器控制能力。
+- 🧩 **可扩展的 Agent 能力**：当前使用沙盒化 Codex，并通过 Runtime 中立的平台协议组合 MCP 服务、Skills、知识库、SubAgent 和浏览器控制能力。
 - 🛡️ **自托管与隔离执行**：模型与数据由部署方掌控，Agent 与 Workflow 的代码执行统一进入隔离沙盒。
 
 ## 快速开始
@@ -113,13 +113,9 @@ cd flowork
 
 ### 创建第一个工作流
 
-1. **选择 Agent Runtime。** 进入 **Settings → Agent Runtime**，为新建 Chat 选择默认运行时：
-   - **LangChain** 使用模型提供商的 API 凭据和 LangChain Agent 工具集。
-   - **Codex** 通过 Codex Runtime 运行对话。
+1. **查看 Agent Runtime。** 进入 **Settings → Agent Runtime**，查看新建 Chat 使用的运行时。当前版本由 **Codex** 在每个 Chat 的隔离沙盒中运行。Runtime 注册已封装在稳定协议之后，后续可以接入其他 Runtime，而无需把其 SDK 耦合进 API 服务。
 
-   页面只会显示当前部署已经启用的 Runtime。默认 Runtime 仅作用于之后新建的 Chat；已有 Chat 会继续使用创建时绑定的 Runtime。
-
-2. **连接模型或账户。** 根据所选 Runtime 完成相应配置：
+2. **连接模型或账户。** 完成 Codex 所需的连接配置：
    - 进入 **设置 → API 凭据**，可以连接 OpenRouter，也可以手动添加只写的模型提供商 API Key。OpenAI、Azure OpenAI、Anthropic、Google Gemini 以及自定义提供商会在与所选 Runtime 兼容时显示。OpenRouter 的安全回调依赖部署方配置规范的 `VIBECANVAS_PUBLIC_URL`。
    - 使用 **Codex** 时，还可以进入 **设置 → Agent Runtime → Codex account**，通过设备验证码登录 OpenAI 账户。连接 OpenRouter 后，与 Codex 兼容的文本和工具调用模型也会通过 OpenRouter Responses API 提供。部署方统一配置的 API 模型无需添加个人凭据即可显示。
 
@@ -143,7 +139,7 @@ cd flowork
 
 | 功能模块 | 用户可以做什么 | 演示 |
 | --- | --- | --- |
-| **Chat** | 通过对话描述需求，由 LangChain 或 Codex Agent 调用工具、构建 Workflow、绘制图表和整理文件。Workflow、后台任务、常见文档、表格、媒体和图表都可以在对话旁直接预览。每个 Chat 拥有独立的工作空间，沙盒会随对话按需启动、休眠和恢复。 | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
+| **Chat** | 通过对话描述需求，由 Codex Agent 调用工具、构建 Workflow、绘制图表和整理文件。Workflow、后台任务、常见文档、表格、媒体和图表都可以在对话旁直接预览。每个 Chat 拥有独立的工作空间，沙盒会随对话按需启动、休眠和恢复。 | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
 | **Workflow** | 在可视化画布上添加、连接和配置节点，检查工作流结构并执行整个流程或单个节点。运行结果、生成文件和历史版本可以集中查看，工作流也支持批量执行以及 JSON 导入和导出。 | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
 | **Task** | 使用表格文件批量运行 Workflow，或者按指定时间和间隔创建定时任务。Task Center 会持续显示排队和执行进度、事件、输出与异常，并允许用户暂停、取消或恢复适用的任务。 | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
 | **Deployment** | 将验证通过的 Workflow 发布为 API 或 Webhook，供外部系统调用。每个 Deployment 都提供调用信息、代码示例、在线测试、流量控制、凭据、运行历史与健康指标；如需按周期或指定日历时间执行 Workflow，请创建定时 Task。 | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
@@ -164,13 +160,13 @@ cd flowork
 
 | 命令 | 用途 | 可用范围 |
 | --- | --- | --- |
-| `/workflow` | 让 Agent 创建或打开 Workflow，并在对话中修改节点、检查结构、创建版本或运行流程 | 主应用与浏览器扩展；LangChain/Codex |
-| `/task` | 让 Agent 查找或管理 Task，也可以导出可搜索的事件与执行诊断包来排查问题 | 主应用与浏览器扩展；LangChain/Codex |
-| `/deployment` | 让 Agent 查找或管理 Deployment，也可以导出可搜索的调用日志与指标来排查问题 | 主应用与浏览器扩展；LangChain/Codex |
-| `/knowledge` | 让 Agent 读取、创建和更新当前组织中的 Knowledge 文件资料包 | 主应用与浏览器扩展；LangChain/Codex |
-| [`/diagram`](docs/diagram.zh-CN.md) | 使用沙盒内的 draw.io 官方 MCP 创建和调整原生图表，并完成预览与导出 | 主应用与浏览器扩展；LangChain/Codex |
-| `/document` | 创建或修改专业的 PPTX、DOCX、XLSX 或 PDF 文件，检查文档结构与实际渲染效果，然后在 Preview 中交付原生文件 | 主应用与浏览器扩展；LangChain/Codex |
-| `/browser` | 让 Agent 读取或操作当前浏览器中的标签页和已登录页面 | 仅限浏览器扩展侧边栏；LangChain/Codex |
+| `/workflow` | 让 Agent 创建或打开 Workflow，并在对话中修改节点、检查结构、创建版本或运行流程 | 主应用与浏览器扩展；Codex |
+| `/task` | 让 Agent 查找或管理 Task，也可以导出可搜索的事件与执行诊断包来排查问题 | 主应用与浏览器扩展；Codex |
+| `/deployment` | 让 Agent 查找或管理 Deployment，也可以导出可搜索的调用日志与指标来排查问题 | 主应用与浏览器扩展；Codex |
+| `/knowledge` | 让 Agent 读取、创建和更新当前组织中的 Knowledge 文件资料包 | 主应用与浏览器扩展；Codex |
+| [`/diagram`](docs/diagram.zh-CN.md) | 使用沙盒内的 draw.io 官方 MCP 创建和调整原生图表，并完成预览与导出 | 主应用与浏览器扩展；Codex |
+| `/document` | 创建或修改专业的 PPTX、DOCX、XLSX 或 PDF 文件，检查文档结构与实际渲染效果，然后在 Preview 中交付原生文件 | 主应用与浏览器扩展；Codex |
+| `/browser` | 让 Agent 读取或操作当前浏览器中的标签页和已登录页面 | 仅限浏览器扩展侧边栏；Codex |
 
 ### 浏览器扩展
 

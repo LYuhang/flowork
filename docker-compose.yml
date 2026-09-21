@@ -28,7 +28,8 @@ services:
     networks:
       - data
 
-  # Valkey is the BSD-licensed, Redis-protocol-compatible queue and cache.
+  # Valkey is the BSD-licensed, Redis-protocol-compatible transient cache and
+  # coordination service. Durable background delivery is owned by DBOS/Postgres.
   # Keep the service name `redis` so existing REDIS_URL values remain stable.
   redis:
     image: valkey/valkey:9.1.1-alpine3.24@sha256:ee91f7a174ac4d6a6b0685b3a60e321f0a9dbbb691f9b0e285be2ba1d1be8328
@@ -169,12 +170,15 @@ services:
         if [ "$${OBJECT_STORE_PROVIDER}" = "filesystem" ]; then
           python /app/scripts/security/migrate_filesystem_object_store.py
         fi
+        dbos migrate -s "$${DBOS_ADMIN_DATABASE_URL}" -r vibecanvas_app
+        python /app/scripts/security/provision_dbos_roles.py
     user: "10001:10001"
     env_file:
       - ${VIBECANVAS_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql+asyncpg://vibecanvas_migrator:${VIBECANVAS_MIGRATOR_PASSWORD:-vc_migrator}@postgres:5432/vibecanvas
       MIGRATION_DATABASE_URL: postgresql+asyncpg://vibecanvas_migrator:${VIBECANVAS_MIGRATOR_PASSWORD:-vc_migrator}@postgres:5432/vibecanvas
+      DBOS_ADMIN_DATABASE_URL: postgresql+psycopg://vibecanvas_migrator:${VIBECANVAS_MIGRATOR_PASSWORD:-vc_migrator}@postgres:5432/vibecanvas
       OBJECT_STORE_PROVIDER: ${OBJECT_STORE_PROVIDER:-filesystem}
       OBJECT_STORE_FS_ROOT: ${OBJECT_STORE_FS_ROOT:-/var/lib/vibecanvas/objectstore}
       VIBECANVAS_STORAGE_ROOT: /var/lib/vibecanvas/local-data
@@ -195,7 +199,7 @@ services:
 
   # ─────── sandbox control/data plane ───────
   # The only service allowed to own runsc processes, Runtime brokers and
-  # resident SandboxSession state. API/Celery instances connect through the
+  # resident SandboxSession state. API/background-worker instances connect through the
   # shared Unix socket, so a request may move between workers without creating
   # a second sandbox for the same logical scope.
   sandboxd:
@@ -346,6 +350,8 @@ services:
     # NOTE: compose merges env_file + environment; environment wins on conflict.
     environment:
       DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
+      DBOS_SYSTEM_DATABASE_URL: postgresql+psycopg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
+      DBOS_RUN_MIGRATIONS: "false"
       MAINTENANCE_DATABASE_URL: postgresql+asyncpg://vibecanvas_maintenance:${VIBECANVAS_MAINTENANCE_PASSWORD:-vc_maintenance}@postgres:5432/vibecanvas
       REDIS_URL: redis://redis:6379/0
       OPENFGA_API_URL: http://openfga:8080
@@ -359,7 +365,7 @@ services:
       DISTRIBUTED_AUTH_RATE_LIMIT_ENABLED: ${DISTRIBUTED_AUTH_RATE_LIMIT_ENABLED:-true}
       HIGH_RISK_STEP_UP_REQUIRED: ${HIGH_RISK_STEP_UP_REQUIRED:-false}
       # Cross-process blob store: the SAME named volume is mounted
-      # into api + celery_worker + celery_beat so a blob put by one is
+      # into api + background_worker so a blob put by one is
       # fetchable by the others. inmemory would not span the boundary.
       OBJECT_STORE_PROVIDER: ${OBJECT_STORE_PROVIDER:-filesystem}
       OBJECT_STORE_FS_ROOT: ${OBJECT_STORE_FS_ROOT:-/var/lib/vibecanvas/objectstore}
@@ -427,23 +433,23 @@ services:
       - data
       - authorization
 
-  celery_worker:
+  background_worker:
     build:
       context: .
       dockerfile: api/Dockerfile
     command:
-      - celery
-      - -A
-      - vibecanvas_api.celery_app
-      - worker
-      - -Q
-      - interactive,deployments,kb_indexing,maintenance
-      - --concurrency=2
+      - python
+      - -m
+      - vibecanvas_api.background_worker
     user: "10001:10001"
     env_file:
       - ${VIBECANVAS_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
+      DBOS_SYSTEM_DATABASE_URL: postgresql+psycopg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
+      DBOS_RUN_MIGRATIONS: "false"
+      DBOS_MAX_EXECUTOR_THREADS: ${DBOS_MAX_EXECUTOR_THREADS:-2}
+      BACKGROUND_QUEUE_CONCURRENCY: ${BACKGROUND_QUEUE_CONCURRENCY:-1}
       MAINTENANCE_DATABASE_URL: postgresql+asyncpg://vibecanvas_maintenance:${VIBECANVAS_MAINTENANCE_PASSWORD:-vc_maintenance}@postgres:5432/vibecanvas
       REDIS_URL: redis://redis:6379/0
       OPENFGA_API_URL: http://openfga:8080
@@ -451,7 +457,6 @@ services:
       OPENFGA_BOOTSTRAP_CONFIG_FILE: /run/vibecanvas-openfga/config.json
       OPENFGA_ERASURE_DATABASE_URL: postgresql://flowork_openfga_erasure:${OPENFGA_ERASURE_PASSWORD:-openfga-erasure-development-only}@openfga_postgres:5432/openfga?sslmode=disable
       PLATFORM_MCP_INTERNAL_BASE_URL: ${PLATFORM_MCP_INTERNAL_BASE_URL:-http://api:8000}
-      CELERY_QUEUES: interactive,deployments,kb_indexing,maintenance
       PURGE_WORKER_ENABLED: ${PURGE_WORKER_ENABLED:-true}
       OBJECT_STORE_PROVIDER: ${OBJECT_STORE_PROVIDER:-filesystem}
       OBJECT_STORE_FS_ROOT: ${OBJECT_STORE_FS_ROOT:-/var/lib/vibecanvas/objectstore}
@@ -497,58 +502,6 @@ services:
       - data
       - authorization
       - authorization_data
-      - worker_egress
-
-  celery_beat:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-    command:
-      - celery
-      - -A
-      - vibecanvas_api.celery_app
-      - beat
-      - --schedule=/var/lib/celerybeat/schedule
-    user: "10001:10001"
-    env_file:
-      - ${VIBECANVAS_ENV_FILE:-.env}
-    environment:
-      DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
-      MAINTENANCE_DATABASE_URL: postgresql+asyncpg://vibecanvas_maintenance:${VIBECANVAS_MAINTENANCE_PASSWORD:-vc_maintenance}@postgres:5432/vibecanvas
-      REDIS_URL: redis://redis:6379/0
-      OPENFGA_API_URL: http://openfga:8080
-      OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-vibecanvas-openfga-development-only-key}
-      OPENFGA_BOOTSTRAP_CONFIG_FILE: /run/vibecanvas-openfga/config.json
-      OBJECT_STORE_PROVIDER: ${OBJECT_STORE_PROVIDER:-filesystem}
-      OBJECT_STORE_FS_ROOT: ${OBJECT_STORE_FS_ROOT:-/var/lib/vibecanvas/objectstore}
-      VIBECANVAS_STORAGE_ROOT: /var/lib/vibecanvas/local-data
-      KMS_PROVIDER: ${KMS_PROVIDER:-local}
-      KMS_KEY_ID: ${KMS_KEY_ID:-vibecanvas-local-development}
-      KMS_WORKLOAD_IDENTITY: ${KMS_WORKLOAD_IDENTITY:-}
-      KMS_LOCAL_MASTER_KEY: ${KMS_LOCAL_MASTER_KEY:-}
-      CONTENT_LOOKUP_HMAC_KEY: ${CONTENT_LOOKUP_HMAC_KEY:-}
-      SANDBOX_SERVICE_MODE: service
-      SANDBOX_SERVICE_SOCKET: /run/vibecanvas-sandbox/sandboxd.sock
-    volumes:
-      - celery_beat_data:/var/lib/celerybeat
-      - object_store_data:/var/lib/vibecanvas/objectstore
-      - openfga_bootstrap_data:/run/vibecanvas-openfga:ro
-      - sandbox_socket:/run/vibecanvas-sandbox
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      openfga_bootstrap:
-        condition: service_completed_successfully
-      sandbox_prewarm:
-        condition: service_completed_successfully
-    restart: unless-stopped
-    networks:
-      - data
-      - authorization
       - worker_egress
 
   web:
@@ -600,11 +553,10 @@ volumes:
   valkey_data:
   openfga_postgres_data:
   openfga_bootstrap_data:
-  celery_beat_data:
-  # Shared blob store mounted into api + celery_worker + celery_beat
+  # Shared blob store mounted into api + background_worker
   # at OBJECT_STORE_FS_ROOT so the filesystem object store spans processes.
   object_store_data:
-  # Shared CodeNode library overlay — mounted into api + celery_worker at
+  # Shared CodeNode library overlay — mounted into api + background_worker at
   # LIB_OVERLAY_ROOT so worker-built overlays are bind-mountable by the api.
   lib_overlay_data:
   # Private Codex account authentication. Back this volume with encrypted

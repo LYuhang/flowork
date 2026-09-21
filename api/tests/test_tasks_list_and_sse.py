@@ -62,7 +62,7 @@ async def test_list_tasks_filters_by_status_and_type(pg_engine):
                 workflow_id=None,
                 task_type="batch_exec",
                 payload={},
-                celery_id=str(task_id),
+                background_job_id=str(task_id),
             )
             await repo.update_status(task_id, status=st)
         scheduled_id = uuid.uuid4()
@@ -73,7 +73,7 @@ async def test_list_tasks_filters_by_status_and_type(pg_engine):
             workflow_id=None,
             task_type="scheduled_run",
             payload={},
-            celery_id=str(scheduled_id),
+            background_job_id=str(scheduled_id),
         )
         await repo.update_status(scheduled_id, status="running")
 
@@ -134,7 +134,7 @@ async def test_sse_emits_replay_after_last_event_id(pg_engine):
             workflow_id=None,
             task_type="batch_exec",
             payload={},
-            celery_id=str(task_id),
+            background_job_id=str(task_id),
         )
         await repo.update_status(task_id, status="running")
         for i in range(5):

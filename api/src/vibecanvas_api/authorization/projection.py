@@ -429,7 +429,7 @@ async def reconcile_organization(
     stats = ReconcileStats(organizations=1)
     mutation_ids: list[uuid.UUID] = []
 
-    # The reconciler is invoked by Celery through a fresh ``asyncio.run`` on
+    # The reconciler is invoked by background worker through a fresh ``asyncio.run`` on
     # every tick. A process-global asyncpg pool is bound to the first event
     # loop and leaks unusable/idle transactions across later ticks. Use a
     # per-call engine whose connection is always disposed on the same loop.
@@ -850,41 +850,51 @@ async def _read_object_tuples(
     organization_id: str,
     object_keys: set[tuple[str, str]],
 ) -> set[MutationEdge]:
+    """Read current tuples without issuing one HTTP request per resource.
+
+    OpenFGA's ``read`` endpoint can page over the store when the tuple key is
+    empty.  The previous implementation filtered by object and therefore made
+    an N+1 request for every workflow, task, chat, and installation on every
+    reconciliation pass.  That saturated the worker and OpenFGA even for a
+    modest personal workspace.  Read each page once and retain only objects
+    from this tenant's canonical inventory; this preserves the same drift
+    boundary while making request count proportional to tuple pages.
+    """
     result: set[MutationEdge] = set()
-    for object_type, object_id in sorted(object_keys):
-        object_name = f"{object_type}:{object_id}"
-        continuation = ""
-        while True:
-            page = await client.read(
-                tuple_key=OpenFgaTuple(
-                    user="",
-                    relation="",
-                    object=object_name,
-                ),
-                continuation_token=continuation,
-            )
-            for item in page.tuples:
-                if item.object != object_name:
-                    raise OpenFgaUnavailableError(
-                        "authorization_invalid_response"
-                    )
-                subject_type, subject_id, subject_relation = _parse_subject(
-                    item.user
+    if not object_keys:
+        return result
+
+    continuation = ""
+    while True:
+        page = await client.read(
+            tuple_key=OpenFgaTuple(user="", relation="", object=""),
+            continuation_token=continuation,
+        )
+        for item in page.tuples:
+            object_type, separator, object_id = item.object.partition(":")
+            if not separator or not object_type or not object_id:
+                raise OpenFgaUnavailableError(
+                    "authorization_invalid_response"
                 )
-                result.add(MutationEdge(
-                    # All input objects were discovered from one tenant's
-                    # canonical data or its durable ledger.
-                    organization_id=organization_id,
-                    object_type=object_type,
-                    object_id=object_id,
-                    relation=item.relation,
-                    subject_type=subject_type,
-                    subject_id=subject_id,
-                    subject_relation=subject_relation,
-                ))
-            continuation = page.continuation_token
-            if not continuation:
-                break
+            if (object_type, object_id) not in object_keys:
+                continue
+            subject_type, subject_id, subject_relation = _parse_subject(
+                item.user
+            )
+            result.add(MutationEdge(
+                # Only objects discovered from this tenant's canonical data
+                # or durable ledger cross the organization boundary here.
+                organization_id=organization_id,
+                object_type=object_type,
+                object_id=object_id,
+                relation=item.relation,
+                subject_type=subject_type,
+                subject_id=subject_id,
+                subject_relation=subject_relation,
+            ))
+        continuation = page.continuation_token
+        if not continuation:
+            break
     return result
 
 

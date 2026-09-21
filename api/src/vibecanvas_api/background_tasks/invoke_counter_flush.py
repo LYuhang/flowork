@@ -1,6 +1,7 @@
-"""Spec §4.4 — flush Redis invoke counters into deployments.invoke_count.
+"""Flush Redis invoke counters into ``deployments.invoke_count``.
 
-Beat: every 60s. Best-effort: if Redis is empty or unreachable, no-op.
+Scheduled every 60 seconds by DBOS. If Redis is empty or unavailable, this is
+a best-effort no-op.
 """
 from __future__ import annotations
 
@@ -8,7 +9,6 @@ import asyncio
 
 from sqlalchemy import text
 
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.services.rate_limit import _get_redis
 from vibecanvas_api.services.tenant_db import session_scope_admin
 
@@ -16,7 +16,6 @@ from vibecanvas_api.services.tenant_db import session_scope_admin
 FLUSH_INTERVAL_SEC = 60.0
 
 
-@celery_app.task(name="deployments.flush_invoke_counters")
 def flush_invoke_counters():
     asyncio.run(_flush())
 
@@ -55,11 +54,3 @@ async def _flush() -> None:
                 "UPDATE deployments SET invoke_count = invoke_count + :n, "
                 "last_invoked_at = now() WHERE id = :id"
             ), {"id": dep_id, "n": delta})
-
-
-if not getattr(celery_app.conf, "beat_schedule", None):
-    celery_app.conf.beat_schedule = {}
-celery_app.conf.beat_schedule["deployments.flush_invoke_counters"] = {
-    "task": "deployments.flush_invoke_counters",
-    "schedule": FLUSH_INTERVAL_SEC,
-}

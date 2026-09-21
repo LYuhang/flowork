@@ -1,4 +1,4 @@
-"""Scheduled-run helpers shared by routes and Celery workers."""
+"""Scheduled-run helpers shared by routes and background workers."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

@@ -286,13 +286,13 @@ Browser / Chrome extension
             ▼
       FastAPI control plane ─── PostgreSQL / OpenFGA / object storage
             │
-            ├── Valkey / Celery workers
+            ├── DBOS background worker / transient Valkey
             └── sandboxd ─── per-Chat agent runtime and workflow sandboxes
 ```
 
 PostgreSQL is the system of record. OpenFGA and row-level security enforce
 authorization boundaries, object storage holds durable file content, and
-Valkey provides queueing and transient coordination. The sandbox service keeps
+DBOS persists queues in PostgreSQL, while Valkey provides transient coordination. The sandbox service keeps
 agent and workflow execution outside the API process.
 
 See the [architecture guide](docs/architecture.md) for runtime lifecycle, MCP

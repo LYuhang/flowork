@@ -314,7 +314,7 @@ async def test_task_direct_roles_capabilities_and_revoke(
             assert item["result"] is None
             assert item["results_uri"] is None
             assert item["error"] is None
-            assert item["celery_id"] is None
+            assert item["background_job_id"] is None
             assert item["sandbox_status"] is None
             capabilities = set(item["access"]["capabilities"])
             assert "view_metadata" in capabilities

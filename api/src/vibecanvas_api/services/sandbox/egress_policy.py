@@ -266,7 +266,7 @@ def compute_allow_hosts(
     creds_mapping: dict | None = None,
 ) -> set[str]:
     """SYNC wrapper — gather parts via the sync short-session facade and feed the
-    pure core. Used by ``run_workflow_sandboxed_sync`` (a sync Celery / to_thread
+    pure core. Used by ``run_workflow_sandboxed_sync`` (a sync background worker / to_thread
     context with the tenant carried in ``current_sync_tenant_id``).
 
     ``creds_mapping`` should be the already-minted broker mapping staged for the

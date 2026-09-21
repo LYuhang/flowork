@@ -254,7 +254,7 @@ def clear_sandbox_coordinator() -> None:
 async def dispose_sandbox_rpc_client() -> None:
     """Close and forget the loop-bound sandbox RPC client, if one exists.
 
-    Synchronous Celery tasks commonly enter async code with a fresh
+    Synchronous background worker tasks commonly enter async code with a fresh
     ``asyncio.run`` loop for every task. ``grpc.aio.Channel`` objects cannot be
     reused by the next task because they remain bound to the loop that created
     them. Call this from that task's async ``finally`` block, before its loop is

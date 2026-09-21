@@ -3,34 +3,24 @@
 Wires together (in order):
 
 * ``routes.kb.create_kb`` — KB row inserted.
-* ``routes.kb.upload_file`` — file row + object_store + ``tasks`` row +
-  Celery ``send_task`` enqueue.
-* The ``kb.index_file`` Celery task body — runs the indexer against the
+* ``routes.kb.upload_file`` — file row + object store + durable enqueue.
+* The DBOS ``kb.index_file`` ID adapter and runtime-neutral body — run the
+  indexer against the
   in-memory object store. Status walks
   pending → indexing → indexed.
 * ``routes.kb.search`` — issues a real encrypted lexical query against the
   freshly-inserted chunks and returns hits.
 
-Celery worker strategy
-----------------------
-The plan example references a ``celery_worker`` fixture that doesn't
-exist in this repo. The repo's existing eager-mode pattern (see
-``test_celery_batch_exec.py:eager_celery``) monkey-patches
-``celery_app.conf.task_always_eager = True`` — but that only catches
-``.delay()`` / ``.apply_async()`` paths. Our upload route invokes
-``celery_app.send_task("kb.index_file", ...)`` via ``asyncio.to_thread``,
-which always wants a real broker connection.
-
-Approach: patch ``celery_app.send_task`` to a callable that immediately
-invokes ``kb_index_file_task.apply(kwargs=...)`` (Celery's synchronous
-test-mode entry). That gives us:
-  * no broker, no worker process, no Redis,
-  * the real task body executes inline,
-  * exceptions propagate to the test like any sync function.
+Background-worker strategy
+--------------------------
+Patch the runtime-neutral enqueue boundary with an async callable that invokes
+the real opaque-ID adapter in a worker thread. This verifies that tenant/user
+context is reloaded from business storage without requiring a worker process.
 
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import uuid
 from types import SimpleNamespace
@@ -41,7 +31,7 @@ from fastapi import UploadFile
 from sqlalchemy import text
 
 from vibecanvas_api.authorization.types import Decision
-from vibecanvas_api.celery_tasks.kb_indexer import kb_index_file_task
+from vibecanvas_api.background_workflows import _run_kb_from_id
 from vibecanvas_api.routes.kb import (
     KbCreate,
     SearchRequest,
@@ -132,31 +122,27 @@ def _make_upload(name: str, content: bytes, content_type: str) -> UploadFile:
     )
 
 
-def _make_send_task_sync_runner():
-    """Build a replacement for ``celery_app.send_task`` that runs the
-    target task body synchronously via ``kb_index_file_task.apply``.
+def _make_enqueue_runner():
+    """Build an async enqueue replacement that runs the task body in a thread.
 
     Signature mirrors the way the upload route calls it::
 
-        celery_app.send_task(
+        enqueue_background_job_async(
             "kb.index_file",
-            task_id=...,
+            job_id=...,
             queue=...,
-            kwargs=dict(task_id=..., tenant_id=..., file_id=...),
+            kwargs={"file_id": ...},
         )
 
     Only ``"kb.index_file"`` is dispatched — any other name is a bug
     in the test wiring and raises.
     """
 
-    def _run(name, *args, **kwargs):
+    async def _run(name, *args, **kwargs):
         if name != "kb.index_file":
-            raise AssertionError(f"unexpected celery task: {name!r}")
+            raise AssertionError(f"unexpected background task: {name!r}")
         task_kwargs = kwargs.get("kwargs") or {}
-        # .apply runs the body in-process; .get() surfaces propagated
-        # errors. We capture the AsyncResult so the caller can inspect
-        # state if they want.
-        return kb_index_file_task.apply(kwargs=task_kwargs)
+        return await asyncio.to_thread(_run_kb_from_id, **task_kwargs)
 
     return _run
 
@@ -165,7 +151,7 @@ def _make_send_task_sync_runner():
 
 
 @pytest.mark.asyncio
-async def test_upload_to_indexed_to_search(pg_engine):
+async def test_upload_to_indexed_to_search(pg_engine, pg_url):
     """Create KB → upload txt → run indexer inline → search returns hits.
 
     The path is local and deterministic: parsing, encrypted chunk writes, and
@@ -185,18 +171,21 @@ async def test_upload_to_indexed_to_search(pg_engine):
         await s.commit()
         kb_id = uuid.UUID(kb.id)
 
-    # 2. Upload file — patch ``send_task`` so the Celery body runs inline.
+    # 2. Upload file — patch enqueue so the business body runs inline.
     blob = b"hello world this is the integration test content for KB upload flow"
-    send_task_runner = _make_send_task_sync_runner()
+    send_task_runner = _make_enqueue_runner()
 
     async def _allow_captured_user(*args, **kwargs):
         return None
 
     with patch(
-        "vibecanvas_api.routes.kb.celery_app.send_task",
+        "vibecanvas_api.routes.kb.enqueue_background_job_async",
         side_effect=send_task_runner,
     ), patch(
-        "vibecanvas_api.celery_tasks.kb_indexer._require_captured_user_update",
+        "vibecanvas_api.storage.sync_session._admin_url",
+        return_value=pg_url,
+    ), patch(
+        "vibecanvas_api.background_tasks.kb_indexer._require_captured_user_update",
         side_effect=_allow_captured_user,
     ):
         async with session_scope(tenant_id=str(tenant_id)) as s:

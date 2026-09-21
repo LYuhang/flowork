@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
@@ -57,6 +58,39 @@ def test_scheduled_run_routes_and_queue_are_registered():
     assert "/api/v1/tasks/scheduled-runs/{task_id}" in paths
     assert "/api/v1/tasks/scheduled-runs/{task_id}/run-now" in paths
     assert route_for("scheduled_run") == "interactive"
+
+
+def test_scheduled_execution_disposes_loop_bound_resources(monkeypatch):
+    import vibecanvas_api.background_tasks.scheduled_runs as scheduled_runs
+
+    run = AsyncMock()
+    dispose_db = AsyncMock()
+    dispose_rpc = AsyncMock()
+    monkeypatch.setattr(scheduled_runs, "_execute_scheduled_run", run)
+    monkeypatch.setattr(scheduled_runs, "dispose_engine", dispose_db)
+    monkeypatch.setattr(
+        scheduled_runs,
+        "dispose_sandbox_rpc_client",
+        dispose_rpc,
+    )
+    ids = [str(uuid.uuid4()) for _ in range(4)]
+
+    for _ in range(2):
+        scheduled_runs.execute_scheduled_run(
+            task_id=ids[0],
+            schedule_id=ids[1],
+            execution_id=ids[2],
+            tenant_id=ids[3],
+            user_id=ids[3],
+            workflow_id="wf-loop-safe",
+        )
+
+    assert run.await_count == 2
+    assert dispose_rpc.await_count == 2
+    assert dispose_db.await_count == 4
+    assert [call.kwargs for call in dispose_db.await_args_list] == [
+        {"close": False}, {}, {"close": False}, {},
+    ]
 
 
 @pytest.mark.asyncio
@@ -175,10 +209,7 @@ async def test_due_dispatch_uses_encrypted_schedule_and_task_documents(
 ):
     from datetime import timedelta
 
-    from vibecanvas_api.celery_app import celery_app
-    from vibecanvas_api.celery_tasks.scheduled_runs import (
-        _dispatch_due_scheduled_runs,
-    )
+    import vibecanvas_api.background_tasks.scheduled_runs as scheduled_runs
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
     from vibecanvas_api.storage.repo_tasks import TasksRepo
@@ -208,12 +239,15 @@ async def test_due_dispatch_uses_encrypted_schedule_and_task_documents(
 
     sent: list[dict] = []
     monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
+    async def _capture_enqueue(_session, name, **kwargs):
+        sent.append({"name": name, **kwargs})
+
     monkeypatch.setattr(
-        celery_app,
-        "send_task",
-        lambda name, **kwargs: sent.append({"name": name, **kwargs}),
+        scheduled_runs,
+        "enqueue_background_job_in_transaction",
+        _capture_enqueue,
     )
-    await _dispatch_due_scheduled_runs()
+    await scheduled_runs._dispatch_due_scheduled_runs()
 
     async with session_scope(tenant_id=str(tenant_id)) as session:
         repo = TasksRepo(session)
@@ -228,4 +262,4 @@ async def test_due_dispatch_uses_encrypted_schedule_and_task_documents(
     assert executions[0].status == "queued"
     assert executions[0].input_snapshot == {"private": "input"}
     assert sent and sent[0]["name"] == "scheduled_runs.execute"
-    assert sent[0]["kwargs"]["execution_id"] == str(executions[0].id)
+    assert sent[0]["kwargs"] == {"execution_id": str(executions[0].id)}

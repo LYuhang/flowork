@@ -227,7 +227,6 @@ RUN groupadd --gid 10001 vibecanvas && \
     useradd --uid 10001 --gid 10001 --create-home \
       --home-dir /home/vibecanvas --shell /usr/sbin/nologin vibecanvas && \
     install -d -o 10001 -g 10001 -m 0770 \
-      /var/lib/celerybeat \
       /var/lib/vibecanvas/local-data \
       /var/lib/vibecanvas/objectstore \
       /var/lib/vibecanvas/lib-overlay \

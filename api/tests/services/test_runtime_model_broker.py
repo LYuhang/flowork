@@ -918,10 +918,17 @@ async def test_chat_runtime_broker_injects_provider_key_only_on_host(
 
     upstream = await asyncio.start_server(upstream_handler, "127.0.0.1", 0)
     port = upstream.sockets[0].getsockname()[1]
-    monkeypatch.setattr(config.agent, "model", "openai:gpt-host-broker-test")
-    monkeypatch.setattr(config.agent, "api_key", "provider-secret-on-host")
-    monkeypatch.setattr(config.agent, "base_url", f"http://127.0.0.1:{port}/v1")
-    monkeypatch.setattr(config.agent, "proxy", "")
+    monkeypatch.setattr(
+        config,
+        "codex_managed_apis",
+        [{
+            "id": "host-broker-test",
+            "name": "Host broker test",
+            "base_url": f"http://127.0.0.1:{port}/v1",
+            "api_key": "provider-secret-on-host",
+            "models": ("gpt-host-broker-test",),
+        }],
+    )
 
     dispatched_turns = []
 
@@ -1047,10 +1054,17 @@ async def test_privileged_chat_runtime_broker_keeps_exact_scope_and_revokes(
     port = upstream.sockets[0].getsockname()[1]
     monkeypatch.setattr(config, "web_session_cookie_enabled", True)
     monkeypatch.setattr(config.public_urls, "public_url", "")
-    monkeypatch.setattr(config.agent, "model", "openai:gpt-support-broker-test")
-    monkeypatch.setattr(config.agent, "api_key", "support-provider-secret")
-    monkeypatch.setattr(config.agent, "base_url", f"http://127.0.0.1:{port}/v1")
-    monkeypatch.setattr(config.agent, "proxy", "")
+    monkeypatch.setattr(
+        config,
+        "codex_managed_apis",
+        [{
+            "id": "support-broker-test",
+            "name": "Support broker test",
+            "base_url": f"http://127.0.0.1:{port}/v1",
+            "api_key": "support-provider-secret",
+            "models": ("gpt-support-broker-test",),
+        }],
+    )
     monkeypatch.setattr(
         privileged_routes,
         "get_email_sender",

@@ -21,7 +21,6 @@ the teardown commit, so it genuinely covers the durable write).
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 
 from fastapi import (
@@ -79,7 +78,6 @@ from ..authorization.types import (
     ResourceRef,
     ResourceType,
 )
-from ..celery_app import celery_app
 from ..config import config
 from ..schemas.access import (
     DirectBindingGrantIn,
@@ -89,6 +87,7 @@ from ..schemas.access import (
     access_from_decision,
     decision_allows_content,
 )
+from ..services.background_queue import enqueue_background_job_async
 from ..services.batch_output import build_output_sink
 from ..services.access_presentation import direct_binding_out
 from ..services.object_store import get_object_store
@@ -1326,16 +1325,15 @@ async def get_prompt_history(
 # ---------------------------------------------------------------------------
 # Atomic batch submission.
 #
-# ``tasks.id == tasks.celery_id == response.task_id``. The DB row is the
-# durable audit (RLS-scoped to the caller's tenant); the broker delivery
-# is best-effort and reconciled every 30s by ``phase6.reconciler`` (see
-# ``celery_tasks/reconciler.py``).
+# ``tasks.id == tasks.background_job_id == response.task_id``. The DB row is
+# the durable audit (RLS-scoped to the caller's tenant); enqueue is reconciled
+# every 30s by ``background.reconcile_queued``.
 # ---------------------------------------------------------------------------
 
 
 class BatchSubmitBody(BaseModel):
     """Atomic-submit body. ``extra='ignore'`` so a client cannot smuggle
-    ``tenant_id`` / ``user_id`` / ``celery_id`` into the row — those are
+    ``tenant_id`` / ``user_id`` / ``background_job_id`` into the row — those are
     derived from the authenticated context, never from the request."""
 
     model_config = ConfigDict(extra="ignore")
@@ -1368,9 +1366,8 @@ async def submit_batch(
     """Submit a batch atomically.
 
     Inserts a ``tasks`` row inside the request transaction, then
-    ``send_task``s to the broker with ``task_id == tasks.id`` (so the
-    Celery message and the DB row share a single identifier — the
-    reconciler relies on this for idempotent re-publish).
+    enqueues a durable workflow with ``workflow_id == tasks.id`` (so DBOS and
+    the business row share one idempotency key used by the reconciler).
     """
     await _authorize_workflow(
         request=request,
@@ -1420,7 +1417,7 @@ async def submit_batch(
         workflow_id=wf_id,
         task_type="batch_exec",
         payload=body.model_dump(),
-        celery_id=str(task_id),
+        background_job_id=str(task_id),
         service_account_id=service_account_id,
     )
     # Close the permission-revocation race immediately before the durable
@@ -1480,26 +1477,14 @@ async def submit_batch(
     await apply_committed_structural_mutations(coordinator, mutation_ids)
     await _rebind_request_organization(session, ctx)
 
-    # send_task is sync (kombu) — push it to a worker thread so we don't
-    # block the request loop on broker I/O. A failure here is fine: the
-    # row is queued and the celery-beat reconciler will re-publish it
-    # within 60s + 30s.
+    # A failure here is safe: the business row is already durably queued and
+    # the periodic reconciler will idempotently enqueue it again.
     try:
-        await asyncio.to_thread(
-            celery_app.send_task,
+        await enqueue_background_job_async(
             "batch_exec",
-            task_id=str(task_id),
-            kwargs=dict(
-                task_id=str(task_id),
-                tenant_id=ctx.tenant_id,
-                user_id=ctx.user_id,
-                workflow_id=wf_id,
-                data_source=body.data_source,
-                column_mapping=body.column_mapping,
-                output=body.output,
-                output_columns=body.output_columns,
-                concurrency=body.concurrency,
-            ),
+            job_id=str(task_id),
+            queue="interactive",
+            kwargs={"task_id": str(task_id)},
         )
     except Exception:
         # Swallow — the row is durably queued and the reconciler owns

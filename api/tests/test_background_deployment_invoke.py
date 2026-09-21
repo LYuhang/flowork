@@ -1,7 +1,7 @@
-"""Deployments T9 — Celery ``deployment_invoke`` task drives the engine.
+"""Deployments T9 — background ``deployment_invoke`` drives the engine.
 
-Tests the worker body directly via Celery eager mode (no broker, no
-worker process). Deployment invocation ids are opaque Celery invocation
+Tests the runtime-neutral worker body directly (no queue or worker process).
+Deployment invocation ids are opaque background workflow
 ids; they are not Task Center rows.
 
 Strategy mirrors batch_exec's eager-end-to-end coverage:
@@ -12,8 +12,7 @@ Strategy mirrors batch_exec's eager-end-to-end coverage:
     the writes.
   * Monkeypatch ``db._admin_engine`` onto ``pg_engine`` so
     ``load_workflow_version``'s ``session_scope_admin`` finds the row.
-  * Invoke ``deployment_invoke.apply(...)`` synchronously, propagating
-    exceptions.
+  * Invoke ``deployment_invoke(...)`` synchronously.
   * Assert no Task row is created by the worker.
 
 The minimal-workflow shape is copied from the T7 async-submit tests so
@@ -28,7 +27,6 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
@@ -73,40 +71,17 @@ _MINIMAL_WORKFLOW = {
 }
 
 
-@pytest.fixture
-def eager_celery(monkeypatch):
-    """Run Celery tasks synchronously in-process.
-
-    ``task_always_eager`` makes ``.apply`` / ``.delay`` execute the
-    task body inline — no broker, no worker. ``task_eager_propagates``
-    surfaces task exceptions to ``.apply().get()`` instead of capturing
-    them on the result object.
-    """
-    monkeypatch.setattr(celery_app.conf, "task_always_eager", True)
-    monkeypatch.setattr(celery_app.conf, "task_eager_propagates", True)
-    yield
-
-
-def test_deployment_invoke_is_a_celery_task():
-    """Importing the module side-effect-registers the task."""
-    from vibecanvas_api.celery_tasks.deployment_invoke import deployment_invoke
-    assert deployment_invoke.name == "deployment_invoke"
-    assert hasattr(deployment_invoke, "delay")
-    assert hasattr(deployment_invoke, "apply")
-
-
-def test_deployment_invoke_registered_in_celery_app():
-    """``celery_tasks/__init__.py`` imports the module so the task
-    self-registers on the global Celery instance."""
-    import vibecanvas_api.celery_tasks  # noqa: F401 — import side effect
-    assert "deployment_invoke" in celery_app.tasks
+def test_deployment_invoke_is_runtime_neutral():
+    from vibecanvas_api.background_tasks.deployment_invoke import deployment_invoke
+    assert callable(deployment_invoke)
+    assert not hasattr(deployment_invoke, "delay")
 
 
 async def _seed_deployment(pg_engine, app_engine):
     """Seed tenant + user + workflow + version + deployment.
 
     Returns ``(tenant_id, dep_id, task_id)`` — all UUIDs. The caller
-    drives ``deployment_invoke.apply(...)`` against the returned ids.
+    drives ``deployment_invoke(...)`` against the returned ids.
     """
     tenant_id = uuid.uuid4()
     user_id = uuid.uuid4()
@@ -179,7 +154,7 @@ async def _seed_deployment(pg_engine, app_engine):
 
 @pytest.mark.asyncio
 async def test_deployment_invoke_marks_finished_and_emits_event(
-    pg_url, pg_engine, app_engine, monkeypatch, eager_celery,
+    pg_url, pg_engine, app_engine, monkeypatch,
 ):
     """Happy path — engine runs to completion without creating a Task row.
 
@@ -188,7 +163,7 @@ async def test_deployment_invoke_marks_finished_and_emits_event(
     task takes the ``finished`` branch in ``_finalize``.
 
     Loop-isolation note (differs from T6/T7/T8 admin-engine setup):
-    the Celery task body wraps its async work in ``asyncio.run`` inside
+    the DBOS task body wraps its async work in ``asyncio.run`` inside
     an ``asyncio.to_thread`` hop, so the test's pytest-asyncio loop and
     the worker's loop are DIFFERENT. We can't reuse the test-loop-bound
     ``pg_engine`` for ``_admin_engine`` (asyncpg connections are
@@ -207,27 +182,26 @@ async def test_deployment_invoke_marks_finished_and_emits_event(
     # in-process host-fallback (removed in the sandbox-only cutover): the task
     # still resolves the pinned version + finalizes, but never runs the engine.
     monkeypatch.setattr(
-        "vibecanvas_api.celery_tasks.deployment_invoke.run_workflow_sandboxed_sync",
+        "vibecanvas_api.background_tasks.deployment_invoke.run_workflow_sandboxed_sync",
         lambda *, workflow_id, inputs, tenant_id, user_id, **kw: (
             {"__end__": dict(inputs)}, {}, 0.0),
     )
 
     tenant_id, dep_id, task_id = await _seed_deployment(pg_engine, app_engine)
 
-    from vibecanvas_api.celery_tasks.deployment_invoke import deployment_invoke
+    from vibecanvas_api.background_tasks.deployment_invoke import deployment_invoke
     # The task body calls ``asyncio.run`` — pytest-asyncio already has
     # a running loop in this coroutine, so we MUST escape via
     # ``asyncio.to_thread`` (mirrors batch_exec's eager-test pattern).
-    result = await asyncio.to_thread(
-        deployment_invoke.apply,
-        kwargs=dict(
+    await asyncio.to_thread(
+        deployment_invoke,
+        **dict(
             task_id=str(task_id),
             tenant_id=str(tenant_id),
             deployment_id=str(dep_id),
             inputs={"x": 7},
         ),
     )
-    result.get(propagate=True)
 
     # Deployment invocations are not Task Center rows.
     async with app_engine.connect() as c:
@@ -244,7 +218,7 @@ async def test_deployment_invoke_marks_finished_and_emits_event(
 
 @pytest.mark.asyncio
 async def test_deployment_invoke_handles_missing_deployment(
-    pg_url, pg_engine, app_engine, monkeypatch, eager_celery,
+    pg_url, pg_engine, app_engine, monkeypatch,
 ):
     """Race: deployment soft-deleted between submit and pickup.
 
@@ -287,18 +261,17 @@ async def test_deployment_invoke_handles_missing_deployment(
         )
         await c.commit()
 
-    from vibecanvas_api.celery_tasks.deployment_invoke import deployment_invoke
+    from vibecanvas_api.background_tasks.deployment_invoke import deployment_invoke
     # Same loop-escape as the finished path — see comment above.
-    result = await asyncio.to_thread(
-        deployment_invoke.apply,
-        kwargs=dict(
+    await asyncio.to_thread(
+        deployment_invoke,
+        **dict(
             task_id=str(task_id),
             tenant_id=str(tenant_id),
             deployment_id=str(dep_id),
             inputs={"x": 7},
         ),
     )
-    result.get(propagate=True)
 
     async with app_engine.connect() as c:
         await c.execute(

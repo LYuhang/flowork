@@ -156,6 +156,18 @@ async def test_grant_commits_intent_applies_and_is_idempotent(pg_engine):
     assert first.revocation_guard_active is False
     assert store.write_calls == 1
     assert len(store.tuples) == 1
+    async with pg_engine.connect() as connection:
+        delivery = (
+            await connection.execute(
+                text(
+                    "SELECT name, status FROM dbos.workflow_status "
+                    "WHERE workflow_uuid = :workflow_id"
+                ),
+                {"workflow_id": f"authz-{first.mutation_id}"},
+            )
+        ).one()
+    assert delivery.name == "authorization.apply_mutation"
+    assert delivery.status == "ENQUEUED"
     async with session_scope(organization_id) as session:
         rows = list(
             (

@@ -29,7 +29,7 @@ export function VfsRunSection({ wfId, onOpenFile }: VfsRunSectionProps) {
   const [runOpen, setRunOpen] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const q = useVfsRunList(runId);
+  const q = useVfsRunList(runId, { poll: true });
 
   const toggle = (path: string) =>
     setExpanded((prev) => {

@@ -336,7 +336,7 @@ async def run_batch_workflow(
             {}, workflow, tenant_id, **injection_claims,
         )
     else:
-        # Celery's synchronous task body prepares credentials through the
+        # background worker's synchronous task body prepares credentials through the
         # short-session sync bridge before opening this asyncio.run loop. That
         # prevents the process-global async DB pool from leaking a Future bound
         # to an earlier worker loop into this batch loop.
@@ -352,7 +352,7 @@ async def run_batch_workflow(
     else:
         run_extra.pop("code_pythonpath", None)
 
-    # A batch gets a daemon-owned, task-scoped workspace.  API/Celery processes
+    # A batch gets a daemon-owned, task-scoped workspace.  API/background worker processes
     # pass logical payloads over gRPC and never stage files in a shared host
     # directory.  This remains valid when sandboxd moves to another node and
     # materializes the same object-store prefix locally.

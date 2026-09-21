@@ -15,7 +15,7 @@ from vibecanvas_api.authorization.openfga_client import (
     OpenFgaTuple,
 )
 from vibecanvas_api.config import config
-from vibecanvas_api.celery_tasks.kb_indexer import kb_index_file_task
+from vibecanvas_api.background_tasks.kb_indexer import kb_index_file_task
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_kb import KbRepo
 
@@ -207,6 +207,9 @@ async def test_knowledge_base_roles_children_share_and_revoke(
     pg_engine,
     monkeypatch,
 ):
+    async def _enqueue_background_job(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(config, "resource_sharing_enabled", True)
     store = _RelationshipStore()
     object_store = _ObjectStore()
@@ -215,8 +218,8 @@ async def test_knowledge_base_roles_children_share_and_revoke(
         lambda: object_store,
     )
     monkeypatch.setattr(
-        "vibecanvas_api.routes.kb.celery_app.send_task",
-        lambda *_args, **_kwargs: None,
+        "vibecanvas_api.routes.kb.enqueue_background_job_async",
+        _enqueue_background_job,
     )
     app = build_app()
     app.state.openfga_client = store
@@ -602,20 +605,20 @@ async def test_kb_index_worker_fails_closed_after_captured_user_revocation(
 
     store = _RelationshipStore()
     monkeypatch.setattr(
-        "vibecanvas_api.celery_tasks.kb_indexer."
+        "vibecanvas_api.background_tasks.kb_indexer."
         "openfga_client_from_config",
         lambda: store,
     )
 
     await asyncio.to_thread(
-        lambda: kb_index_file_task.apply(
-            kwargs={
+        lambda: kb_index_file_task(
+            **{
                 "task_id": str(uuid.uuid4()),
                 "tenant_id": str(tenant_id),
                 "file_id": str(file_id),
                 "user_id": str(user_id),
             }
-        ).get()
+        )
     )
 
     async with session_scope(tenant_id=str(tenant_id)) as session:

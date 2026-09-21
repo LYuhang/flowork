@@ -9,8 +9,8 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from starlette.requests import Request
 
-from vibecanvas_api.celery_tasks.batch_exec import _task_execution_lease
-from vibecanvas_api.celery_tasks.scheduled_runs import (
+from vibecanvas_api.background_tasks.batch_exec import _task_execution_lease
+from vibecanvas_api.background_tasks.scheduled_runs import (
     _scheduled_execution_lease,
 )
 from vibecanvas_api.config import config

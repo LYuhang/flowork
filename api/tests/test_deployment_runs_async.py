@@ -17,7 +17,7 @@ then seed workflow + workflow_versions + deployments via ``app_engine``
 ``resolve_deployment_and_bind_tenant``'s ``session_scope_admin`` can
 actually find the row.
 
-Celery ``send_task`` is stubbed: T9 ships the worker body; here we
+DBOS ``send_task`` is stubbed: T9 ships the worker body; here we
 only assert the API-side row insert + task_id return. We call the
 route handler directly (no HTTPX) so we don't have to wire the JWT
 auth dependency — the deployment flow authenticates by Bearer api_key,
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -148,14 +149,14 @@ async def test_runs_returns_202_without_task_row(
     from vibecanvas_api.storage import db as db_mod
     monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
-    # Stub Celery send_task — T9 ships the worker; here we only assert
+    # Stub DBOS send_task — T9 ships the worker; here we only assert
     # the API-side row insert. ``send_task`` runs through
     # ``asyncio.to_thread`` inside ``DeploymentsService.submit``, so the
     # stub must be a plain (sync) callable.
     from vibecanvas_api.services import deployments_service
+    enqueue = AsyncMock()
     monkeypatch.setattr(
-        deployments_service.celery_app, "send_task",
-        lambda *a, **kw: None,
+        deployments_service, "enqueue_background_job_in_transaction", enqueue,
     )
 
     tenant_id, slug, api_key, _ = await _seed_deployment(pg_engine, app_engine)
@@ -177,6 +178,20 @@ async def test_runs_returns_202_without_task_row(
             {"id": task_id},
         )).first()
     assert row is None
+    assert enqueue.await_args.kwargs["kwargs"] == {"invocation_id": task_id}
+
+    async with pg_engine.connect() as c:
+        invocation = (
+            await c.execute(
+                text(
+                    "SELECT private_ciphertext, private_nonce, private_key_id "
+                    "FROM deployment_invocations WHERE id = :id"
+                ),
+                {"id": task_id},
+            )
+        ).one()
+    assert all(invocation)
+    assert "21" not in invocation.private_ciphertext
 
 
 @pytest.mark.asyncio

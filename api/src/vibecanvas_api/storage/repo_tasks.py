@@ -6,7 +6,7 @@ async DI ``session_scope(tenant_id=...)`` (request path) or via
 path). FORCE RLS on ``tasks`` / ``task_events`` (migration 004) enforces
 cross-tenant isolation regardless.
 
-The Celery worker writes via the async path (``session_scope`` driven
+The background worker writes via the async path (``session_scope`` driven
 from ``asyncio.run`` inside the task body) so this repo stays a pure
 async API — no sync facade needed at T9. Routes (T10/T11/T12) use the
 same async ``TasksRepo`` directly through their DI session.
@@ -39,7 +39,7 @@ from vibecanvas_api.storage.models_tasks import (
 # also doubles as a schema-evolution checklist).
 _TASK_UPDATABLE_FIELDS = frozenset({
     "status", "progress", "payload", "result", "results_uri", "error",
-    "celery_id", "started_at", "finished_at",
+    "background_job_id", "started_at", "finished_at",
 })
 
 TASK_EVENT_TYPES = frozenset({"state", "progress", "log", "result", "terminal"})
@@ -77,7 +77,7 @@ class TasksRepo:
 
     Caller owns the transaction: each public method ``flush()``-es but
     does NOT ``commit()``. The DI request session commits at request end;
-    background writers (the Celery task body) commit explicitly via the
+    background writers (the background worker task body) commit explicitly via the
     ``session_scope`` context manager.
     """
 
@@ -256,7 +256,7 @@ class TasksRepo:
         workflow_id: str | None,
         task_type: str,
         payload: dict,
-        celery_id: str | None = None,
+        background_job_id: str | None = None,
         deployment_id: uuid.UUID | None = None,
         service_account_id: uuid.UUID | None = None,
     ) -> Task:
@@ -278,7 +278,7 @@ class TasksRepo:
             content_ciphertext=encrypted.ciphertext,
             content_nonce=encrypted.nonce,
             content_key_id=encrypted.key_id,
-            celery_id=celery_id,
+            background_job_id=background_job_id,
             deployment_id=deployment_id,
             service_account_id=service_account_id,
         )
@@ -297,7 +297,7 @@ class TasksRepo:
         """Update one-or-more whitelisted columns on a ``Task`` row.
 
         Unknown column names raise ``ValueError`` — this keeps the
-        Celery task body honest about which fields it touches and
+        background worker task body honest about which fields it touches and
         catches typos at the repo boundary, not via a silent no-op.
         """
         if not fields:

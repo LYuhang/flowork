@@ -2,11 +2,11 @@
 
 Each gate is one or more pytest functions covering a §12 spec invariant.
 Infrastructure-bound gates are skipped with explicit rationale; they run
-in staging where Redis + a Celery worker + a real beat are available.
+in staging where Redis + a DBOS worker + a real beat are available.
 
 Strategy mirrors T1-T13: seed via ``pg_engine``/``app_engine`` (superuser
 + app-role respectively), drive route handlers directly (no HTTP
-roundtrip), and mock external infrastructure (Redis, ``celery_app.send_task``)
+roundtrip), and mock external infrastructure (Redis and background enqueue)
 at the call site.
 """
 from __future__ import annotations
@@ -324,15 +324,14 @@ def test_g3_long_workflow_504():
 async def test_g4_runs_async_returns_task_id(
     pg_engine, app_engine, monkeypatch, pg_url,
 ):
-    """Spec G4 — POST /runs enqueues a Celery task and returns task_id."""
+    """Spec G4 — POST /runs enqueues a DBOS task and returns task_id."""
     from vibecanvas_api.routes.deployment_invoke import invoke_async
     from vibecanvas_api.services import deployments_service
     from vibecanvas_api.storage import db as db_mod
     monkeypatch.setattr(db_mod, "_admin_engine", None)
     monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
     monkeypatch.setattr(
-        deployments_service.celery_app, "send_task",
-        lambda *a, **kw: None,
+        deployments_service, "enqueue_background_job_in_transaction", AsyncMock(),
     )
 
     _, _, _, _, slug, key, _ = await _seed_full(
@@ -358,8 +357,7 @@ async def test_g5_webhook_signature_branches(
     monkeypatch.setattr(db_mod, "_admin_engine", None)
     monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
     monkeypatch.setattr(
-        deployments_service.celery_app, "send_task",
-        lambda *a, **kw: None,
+        deployments_service, "enqueue_background_job_in_transaction", AsyncMock(),
     )
 
     _, _, _, _, slug, _, secret = await _seed_full(

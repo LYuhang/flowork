@@ -189,8 +189,7 @@ def test_release_compose_reuses_only_the_verified_api_and_web_images() -> None:
         "sandboxd",
         "sandbox_prewarm",
         "api",
-        "celery_worker",
-        "celery_beat",
+        "background_worker",
     }
     assert set(services) == api_consumers | {"web"}
     for service_name in api_consumers:
@@ -204,8 +203,7 @@ def test_release_compose_reuses_only_the_verified_api_and_web_images() -> None:
         "sandboxd",
         "sandbox_prewarm",
         "api",
-        "celery_worker",
-        "celery_beat",
+        "background_worker",
     }
     for service_name in openfga_consumers:
         environment = services[service_name]["environment"]

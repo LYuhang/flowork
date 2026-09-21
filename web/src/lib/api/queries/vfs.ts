@@ -28,12 +28,15 @@ export const useVfsList = (
  * /api/v1/vfs/runs/{runId}`. Disabled while `runId` is falsy. Polled like
  * the agent-VFS list so a still-running execution surfaces new files.
  */
-export const useVfsRunList = (runId: string | null) =>
+export const useVfsRunList = (
+  runId: string | null,
+  opts: { poll?: boolean } = {},
+) =>
   useQuery({
     queryKey: ['vfs', 'run-list', runId],
     queryFn: () => listVfsRun(runId as string),
     enabled: !!runId,
-    refetchInterval: 3000,
+    refetchInterval: opts.poll ? 3000 : false,
     refetchIntervalInBackground: false,
   });
 

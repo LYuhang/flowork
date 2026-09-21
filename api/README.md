@@ -19,7 +19,7 @@ The API package owns:
 - Agent Runtime orchestration and model/MCP brokering;
 - application persistence, database migrations, and object-store integration;
 - tenant authorization through OpenFGA;
-- durable and scheduled work through Celery; and
+- durable and scheduled work through DBOS and PostgreSQL; and
 - the control contracts used to request isolated execution from `sandboxd`.
 
 Framework-independent workflow definitions and execution primitives belong to
@@ -36,11 +36,10 @@ standalone web server:
 | Component | Role |
 | --- | --- |
 | **API** | Serves HTTP and streaming requests, validates access, coordinates Agent Runtime operations, and submits durable work |
-| **Celery worker** | Executes queued interactive, deployment, knowledge-indexing, and maintenance jobs |
-| **Celery beat** | Schedules periodic dispatch and reconciliation work |
+| **DBOS background worker** | Executes queued interactive, deployment, knowledge-indexing, maintenance, and periodic jobs |
 | **`sandboxd`** | Owns gVisor processes and isolated execution lifecycle; API and worker processes communicate with it through the sandbox service contract |
 | **PostgreSQL** | Stores application state, authorization projections, execution records, and Agent Runtime checkpoints |
-| **Redis-compatible service** | Provides the Celery broker and result backend; the Compose stack uses Valkey |
+| **Redis-compatible service** | Provides transient event fanout, counters, rate limits, and locks; it is not the task broker |
 | **OpenFGA** | Evaluates tenant and resource authorization from the pinned model |
 | **Object store** | Stores encrypted file and content payloads shared across backend processes |
 
@@ -123,6 +122,9 @@ dedicated migrator connection:
 cd api
 MIGRATION_DATABASE_URL='postgresql+asyncpg://<migrator>@<host>/<database>' \
   alembic upgrade head
+dbos migrate \
+  -s 'postgresql+psycopg://<migrator>@<host>/<database>' \
+  -r vibecanvas_app
 ```
 
 Production API and worker processes do not receive schema-changing authority;
@@ -132,15 +134,18 @@ documented deployment sequence with an unreviewed Alembic command.
 
 ## Background work and sandbox execution
 
-[`celery_app.py`](src/vibecanvas_api/celery_app.py) configures the worker, JSON
-serialization, and queue behavior. Job entry points live under
-[`celery_tasks/`](src/vibecanvas_api/celery_tasks/). Worker and scheduler
-processes are required for asynchronous deployments, scheduled runs, knowledge
+[`services/background_queue.py`](src/vibecanvas_api/services/background_queue.py)
+defines the runtime-neutral submission boundary. DBOS workflow/schedule
+registrations live in
+[`background_workflows.py`](src/vibecanvas_api/background_workflows.py), while
+business implementations live under
+[`background_tasks/`](src/vibecanvas_api/background_tasks/). One background
+worker process handles asynchronous deployments, scheduled runs, knowledge
 indexing, reconciliation, and maintenance.
 
 Sandbox contracts and clients live under
 [`services/sandbox/`](src/vibecanvas_api/services/sandbox/). In the supported
-topology, only `sandboxd` starts and owns gVisor processes; the API and Celery
+topology, only `sandboxd` starts and owns gVisor processes; the API and background
 worker request execution through its Unix-socket or mTLS gRPC interface. The
 [sandbox lifecycle](../docs/architecture.md#sandbox-lifecycle) section explains
 the isolation and ownership boundary in detail.
@@ -170,7 +175,7 @@ the API and Engine packages:
 docker build -f api/Dockerfile -t flowork-api:dev .
 ```
 
-The image is shared by the API, Celery, migration, and sandbox service roles in
+The image is shared by the API, background worker, migration, and sandbox service roles in
 the Compose topology; it is not a complete deployment by itself. Use the
 [installation guide](../docs/installation.md) for a local stack and
 [`DEPLOY.md`](../DEPLOY.md) for production requirements.
@@ -187,7 +192,7 @@ the Compose topology; it is not a complete deployment by itself. Use the
 | [`streaming/`](src/vibecanvas_api/streaming/) | Turn buffering and server-sent event delivery |
 | [`storage/`](src/vibecanvas_api/storage/) | PostgreSQL repositories and persistence models |
 | [`authorization/`](src/vibecanvas_api/authorization/) | Authorization manifest, OpenFGA model, and adapters |
-| [`celery_tasks/`](src/vibecanvas_api/celery_tasks/) | Asynchronous and scheduled job entry points |
+| [`background_tasks/`](src/vibecanvas_api/background_tasks/) | Runtime-neutral asynchronous and scheduled job implementations |
 | [`services/sandbox/`](src/vibecanvas_api/services/sandbox/) | Sandbox service contracts, clients, and lifecycle implementation |
 | [`security/`](src/vibecanvas_api/security/) | Production security validation, cryptography, and security controls |
 | [`alembic/`](alembic/) | Database migration environment and revisions |

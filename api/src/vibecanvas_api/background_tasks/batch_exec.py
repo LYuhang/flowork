@@ -1,4 +1,4 @@
-"""Celery entrypoint for user-visible ``batch_exec`` tasks.
+"""Background implementation for user-visible ``batch_exec`` tasks.
 
 The task delegates row execution to ``services.batch_runtime`` so Task-page and
 Workflow-page batch execution share one runtime contract: one task-scoped
@@ -10,24 +10,21 @@ Event ordering: ``INSERT`` the ``task_events`` row first, then best-effort
 fall back to polling if Redis is down. Event types use the unified protocol:
 ``state | progress | log | result | terminal``.
 
-Cancellation: SIGUSR1 sets a per-process ``threading.Event``. The shared batch
-runtime stops waiting for unfinished rows, writes them as ``cancelled``, uploads
-partial artifacts, and leaves the task resumable.
+Cancellation is durable: the Task row is authoritative and a watcher mirrors
+its state into a task-local ``threading.Event``. The shared batch runtime stops
+waiting for unfinished rows, writes them as ``cancelled``, uploads partial
+artifacts, and leaves the task resumable.
 """
 from __future__ import annotations
 
 import asyncio
 import json
-import signal
 import threading
 import uuid
 from contextlib import suppress
 from datetime import datetime, timezone
 
 import redis
-from celery.signals import worker_init
-
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.config import config
 from vibecanvas_api.services.batch_runtime import BatchProgress, run_batch_workflow
 from vibecanvas_api.services.llm_credentials_inject import (
@@ -51,31 +48,6 @@ from vibecanvas_api.storage.sync_session import (
     current_sync_tenant_id,
     run_in_short_session,
 )
-
-# --- soft-cancel plumbing ---------------------------------------------------
-#
-# Cancellation is delivered as SIGUSR1 to the worker
-# process; the handler sets a per-process ``threading.Event`` that the
-# task body polls between rows. ``_CURRENT_STOP_EVENT`` is set at the
-# top of the task body and cleared in its ``finally``.
-
-_CURRENT_STOP_EVENT: threading.Event | None = None
-
-
-@worker_init.connect
-def _install_sigusr1_handler(**_: object) -> None:
-    """Install SIGUSR1 → set the active task's stop event.
-
-    Registered on ``worker_init`` so test runs (which import this
-    module but never start a worker) don't touch process signal
-    state. Inside a worker, exactly one handler is installed per
-    process.
-    """
-    def _handler(signum, frame):  # noqa: ARG001
-        if _CURRENT_STOP_EVENT is not None:
-            _CURRENT_STOP_EVENT.set()
-    signal.signal(signal.SIGUSR1, _handler)
-
 
 # --- best-effort redis publish ---------------------------------------------
 #
@@ -116,7 +88,7 @@ def _publish(
 # Both ``_emit`` and ``_update`` go through ``run_in_short_session`` so
 # each DB write opens its own NullPool engine + async session,
 # transaction-bound to a fresh ``asyncio.run``. This avoids reusing a
-# loop-bound engine: the Celery worker body makes many sequential
+# loop-bound engine: the background worker body makes many sequential
 # writes per task, so reusing a single loop-bound pool would crash on
 # call #2.
 #
@@ -179,11 +151,10 @@ async def _watch_durable_cancel(
 ) -> None:
     """Mirror the durable Task cancellation state into the worker event.
 
-    A non-terminating Celery ``revoke`` records future delivery revocation but
-    does not signal an already-running task.  The database is therefore the
-    authoritative soft-cancel channel; SIGUSR1 remains a low-latency optional
-    hint for worker pools that deliver it.  Polling runs in a thread because
-    the sync short-session bridge owns its own event loop.
+    DBOS cancellation removes queued delivery and marks its workflow cancelled,
+    while the database remains the authoritative business-level soft-cancel
+    channel for partial results. Polling runs in a thread because the sync
+    short-session bridge owns its own event loop.
     """
     while not stop_event.is_set():
         snapshot = await asyncio.to_thread(_task_snapshot, task_id)
@@ -218,9 +189,7 @@ def _task_execution_lease(
 
 # --- the task --------------------------------------------------------------
 
-@celery_app.task(name="batch_exec", bind=True)
 def batch_exec(
-    self,
     *,
     task_id: str,
     tenant_id: str,
@@ -264,9 +233,7 @@ def batch_exec(
         * Uploads ``tasks/{task_id}/results.csv`` to the configured
           object store on success.
     """
-    global _CURRENT_STOP_EVENT
-    _CURRENT_STOP_EVENT = threading.Event()
-    stop_event = _CURRENT_STOP_EVENT
+    stop_event = threading.Event()
 
     t_uuid = uuid.UUID(task_id)
     tn_uuid = uuid.UUID(tenant_id)
@@ -376,7 +343,7 @@ def batch_exec(
         )
         async def _run_on_isolated_worker_loop():
             # A prefork worker process handles many tasks, while each sync
-            # Celery body opens a fresh asyncio.run loop. Detach any pooled
+            # background worker body opens a fresh asyncio.run loop. Detach any pooled
             # connections left by a different task loop, and close this loop's
             # pool before asyncio.run tears the loop down.
             await dispose_engine(close=False)
@@ -522,9 +489,7 @@ def batch_exec(
             })
         except Exception:
             # Last-resort: even the failure-write failed (DB down?).
-            # Re-raise the ORIGINAL exception so Celery records it and
+            # Re-raise the ORIGINAL exception so DBOS records it and
             # the supervisor / reconciler (T11/T15) can clean up.
             pass
         raise
-    finally:
-        _CURRENT_STOP_EVENT = None

@@ -43,13 +43,7 @@ services:
     environment:
       <<: *openfga-production
 
-  celery_worker:
-    image: "${VIBECANVAS_API_IMAGE:?Set VIBECANVAS_API_IMAGE to an attested image@sha256 digest}"
-    pull_policy: always
-    environment:
-      <<: *openfga-production
-
-  celery_beat:
+  background_worker:
     image: "${VIBECANVAS_API_IMAGE:?Set VIBECANVAS_API_IMAGE to an attested image@sha256 digest}"
     pull_policy: always
     environment:

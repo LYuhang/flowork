@@ -1,7 +1,7 @@
 """Synchronous entry point for running a workflow from Postgres state.
 
 ``run_workflow_sandboxed_sync`` is the live sync runner, called from the
-Celery ``batch_exec`` worker body (a synchronous context: no running event
+background worker ``batch_exec`` worker body (a synchronous context: no running event
 loop) and the deployment-invoke path. Workflow loading goes through the
 ``SyncWorkflowRepo`` facade, which opens its own short NullPool async
 session per call. The workflow is executed inside a gVisor OS sandbox, which is
@@ -11,7 +11,7 @@ tuple still falls out byte-identically.
 
 RLS contract: ``current_sync_tenant_id`` must be set
 BEFORE any sync repo call so the short-lived session emits
-``SET LOCAL app.tenant_id``. This module is the sole place the Celery
+``SET LOCAL app.tenant_id``. This module is the sole place the background worker
 worker sets it; the agent's own entry point sets it elsewhere.
 
 ``drain_astream`` and ``load_workflow_version`` support
@@ -72,7 +72,7 @@ def run_workflow_sandboxed_sync(
     """Run the workflow once INSIDE a gVisor OS-sandbox (the sole sync runner).
 
     Returns the canonical ``(previous_outputs, error_dict, execution_time)``
-    tuple (seconds) consumed by the Celery batch worker and deployment-invoke
+    tuple (seconds) consumed by the background worker batch worker and deployment-invoke
     paths.
 
     ``workflow_dict``: when provided, run THAT content directly (skipping the
@@ -96,7 +96,7 @@ def run_workflow_sandboxed_sync(
       (``ENGINE_PURE_NODE_TYPES`` ∪ ``KnowledgeSearchNode``/``SubAgentNode``), so
       this is a defensive guard, not a routine path.
 
-    This synchronous entry is called from sync contexts (a Celery
+    This synchronous entry is called from sync contexts (a background worker
     thread / ``asyncio.to_thread``), so the BLOCKING ``provider.run_workflow``
     is legal (no running loop to deadlock on). We do NOT add any ``asyncio.run``
     on a running loop here.
@@ -312,7 +312,7 @@ async def drain_astream(
 
     Delegates to the shared instrumented consumer
     (:func:`vibecanvas_api.observability.workflow.instrumented_drain`) so the
-    async path gets the same spans/metrics as the sync Celery path. The error
+    async path gets the same spans/metrics as the sync background worker path. The error
     merge there reproduces this function's historical keying exactly.
     ``instrumented_drain`` returns the engine ``execution_time`` in *seconds*;
     this wrapper converts to *milliseconds* to preserve the response contract

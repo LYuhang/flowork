@@ -11,6 +11,8 @@ from typing import Iterable
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from vibecanvas_api.security.content_encryption import content_encryption_service
+
 
 _OPERATIONAL_ERROR_RE = re.compile(r"^[a-z0-9_.:-]{1,128}$")
 
@@ -69,19 +71,33 @@ class DeploymentInvocationsRepo:
         trigger_type: str,
         source: str,
         status: str,
+        inputs: dict | None = None,
     ) -> uuid.UUID:
         invocation_id = invocation_id or uuid.uuid4()
+        private = None
+        if inputs is not None:
+            private = await content_encryption_service().encrypt_json(
+                self.session,
+                tenant_id=tenant_id,
+                resource_type="deployment_invocation",
+                resource_id=str(invocation_id),
+                purpose="deployment_invocation_private",
+                record_id=str(invocation_id),
+                value={"inputs": inputs},
+            )
         await self.session.execute(
             text(
                 """
                 INSERT INTO deployment_invocations (
                     id, tenant_id, deployment_id, wf_id, trigger_type, source,
-                    status, started_at
+                    status, started_at, private_ciphertext, private_nonce,
+                    private_key_id
                 )
                 VALUES (
                     :id, :tenant_id, :deployment_id, :wf_id, :trigger_type,
                     :source, :status,
-                    CASE WHEN :status = 'running' THEN now() ELSE NULL END
+                    CASE WHEN :status = 'running' THEN now() ELSE NULL END,
+                    :private_ciphertext, :private_nonce, :private_key_id
                 )
                 """
             ),
@@ -93,9 +109,64 @@ class DeploymentInvocationsRepo:
                 "trigger_type": trigger_type,
                 "source": source,
                 "status": status,
+                "private_ciphertext": private.ciphertext if private else None,
+                "private_nonce": private.nonce if private else None,
+                "private_key_id": private.key_id if private else None,
             },
         )
         return invocation_id
+
+    async def load_worker_payload(self, invocation_id: uuid.UUID) -> dict | None:
+        """Load one queued invocation and decrypt its executor-only inputs.
+
+        This method is intended for an admin worker session. DBOS receives only
+        the opaque invocation id; user input remains in Flowork's encrypted
+        business storage rather than DBOS workflow arguments.
+        """
+        row = (
+            await self.session.execute(
+                text(
+                    """
+                    SELECT id, tenant_id, deployment_id, private_ciphertext,
+                           private_nonce, private_key_id
+                    FROM deployment_invocations
+                    WHERE id = :id
+                    """
+                ),
+                {"id": invocation_id},
+            )
+        ).mappings().one_or_none()
+        if row is None:
+            return None
+        if not all(
+            (
+                row["private_ciphertext"],
+                row["private_nonce"],
+                row["private_key_id"],
+            )
+        ):
+            raise ValueError("deployment invocation input ciphertext is missing")
+        private = await content_encryption_service().decrypt_json(
+            self.session,
+            key_id=row["private_key_id"],
+            tenant_id=row["tenant_id"],
+            resource_type="deployment_invocation",
+            resource_id=str(row["id"]),
+            purpose="deployment_invocation_private",
+            record_id=str(row["id"]),
+            ciphertext=row["private_ciphertext"],
+            nonce=row["private_nonce"],
+        )
+        if not isinstance(private, dict) or not isinstance(
+            private.get("inputs"), dict
+        ):
+            raise ValueError("deployment invocation ciphertext is invalid")
+        return {
+            "task_id": str(row["id"]),
+            "tenant_id": str(row["tenant_id"]),
+            "deployment_id": str(row["deployment_id"]),
+            "inputs": private["inputs"],
+        }
 
     async def mark_running(self, invocation_id: uuid.UUID) -> None:
         await self.session.execute(

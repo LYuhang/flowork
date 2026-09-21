@@ -1,12 +1,12 @@
 """Cross-process blob sharing through ``FilesystemObjectStore``.
 
 The default ``inmemory`` store keeps blobs in a process-global dict, so a
-blob ``put_bytes`` by the API process is invisible to the Celery worker
+blob ``put_bytes`` by the API process is invisible to the DBOS worker
 process — KB file indexing (api puts blob → worker fetches it) raises
 ``KeyError``, and batch result download is broken cross-container.
 
 ``FilesystemObjectStore`` writes blobs to a directory shared between
-api + celery_worker + celery_beat (a docker named volume in compose;
+API + background worker (a Docker named volume in Compose;
 a shared dir in native multi-process runs). LangFlow/Dify-style local
 backend before S3.
 

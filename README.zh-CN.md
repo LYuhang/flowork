@@ -201,7 +201,7 @@ Flowork 将平台管理与任务执行分为两层。Web 应用提供 Chat、可
           ▼
    FastAPI 控制平面 ─── PostgreSQL / OpenFGA / 对象存储
           │
-          ├── Valkey / Celery Worker
+          ├── DBOS 后台 Worker / 临时 Valkey
           └── sandboxd ─── 每个 Chat 对应的 Agent 运行时与工作流沙盒
 ```
 

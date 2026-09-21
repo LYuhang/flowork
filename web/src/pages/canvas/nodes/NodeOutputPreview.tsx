@@ -2,7 +2,7 @@ import { memo, useId, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useRunNodeResult } from '@/lib/api/queries/vfs';
+import { useRunNodeResult, useVfsRunList } from '@/lib/api/queries/vfs';
 import { useExecStreamStore } from '@/stores/exec-stream';
 import { RenderedPreview } from './RenderedPreview';
 import { parseRenderedResult } from './template-preview-media';
@@ -24,24 +24,31 @@ function WorkflowNodeOutputPreview({ nodeId, nodeType, format, wfId }: NodeOutpu
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const previewId = useId();
-  const ownsRun = useExecStreamStore((s) => s.wfId === wfId && s.status !== 'idle');
   const nodeStatus = useExecStreamStore((s) => s.wfId === wfId ? s.perNode[nodeId]?.status : undefined);
   const liveResult = useExecStreamStore((s) => s.wfId === wfId ? s.perNode[nodeId]?.result : undefined);
-  // Once a new execution owns this workflow, an old file must not flash while
-  // the node is waiting/running/skipped. The stream invalidates these files.
-  const canReadOutput = !ownsRun || nodeStatus === 'completed';
-  const persisted = useRunNodeResult(canReadOutput && liveResult === undefined ? wfId : null, nodeId);
+  const resultPath = `/run/__exec__/nodes/${nodeId}.json`;
+  // One shared directory request discovers which nodes really have persisted
+  // output.  Without this guard every canvas node issued its own guaranteed
+  // 404 before the first run, making large workflows feel frozen.
+  const runFiles = useVfsRunList(wfId);
+  const hasPersistedResult = runFiles.data?.entries.some(
+    (entry) => entry.path === resultPath,
+  ) ?? false;
+  const completedLiveResult = nodeStatus === 'completed' ? liveResult : undefined;
+  const persisted = useRunNodeResult(
+    completedLiveResult === undefined && hasPersistedResult ? wfId : null,
+    nodeId,
+  );
   const savedOutput = persisted?.output;
   const output = useMemo(() => {
-    if (liveResult === undefined) return savedOutput;
-    try { return JSON.parse(liveResult) as unknown; } catch { return liveResult; }
-  }, [liveResult, savedOutput]);
+    if (completedLiveResult === undefined) return savedOutput;
+    try { return JSON.parse(completedLiveResult) as unknown; } catch { return completedLiveResult; }
+  }, [completedLiveResult, savedOutput]);
   const parsed = useMemo(() => nodeType === 'TemplateNode'
     ? parseRenderedResult(typeof output === 'string' ? output : JSON.stringify(output))
     : null, [nodeType, output]);
-  const failed = persisted?.status !== undefined && persisted.status !== 'completed';
   // Explicit null, false, 0, empty strings/objects/arrays are real outputs.
-  if (!canReadOutput || output === undefined || (liveResult === undefined && failed)) return null;
+  if (output === undefined) return null;
 
   return (
     <div

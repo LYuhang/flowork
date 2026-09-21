@@ -4,8 +4,8 @@
 #
 # Use this when the host cannot run Docker (e.g. a k8s pod where CLONE_NEWNS
 # is blocked). It brings up the WHOLE stack end-to-end as native processes —
-# PostgreSQL, Redis, alembic migrate, the FastAPI app, the Celery
-# worker + beat, AND the web frontend (Vite) — using the SAME config code
+# PostgreSQL, Redis, schema migration, the FastAPI app, the DBOS background
+# worker/scheduler, AND the web frontend (Vite) — using the SAME config code
 # paths the docker-compose deploy uses, just each service as a local process.
 #
 # One command: `bash scripts/native_dev_up.sh up` → open http://127.0.0.1:5173
@@ -307,6 +307,8 @@ export PATH="${VIBECANVAS_PY_PREFIX}/bin:\$PATH"
 export PYTHONPATH="${API_DIR}/src:${ENGINE_DIR}/src:${REPO_ROOT}:\${PYTHONPATH:-}"
 export PYTHONNOUSERSITE=1
 export DATABASE_URL="postgresql+asyncpg://vibecanvas_app:vibecanvas_app@localhost:${PGPORT}/vibecanvas"
+export DBOS_SYSTEM_DATABASE_URL="postgresql+psycopg://vibecanvas_app:vibecanvas_app@localhost:${PGPORT}/vibecanvas"
+export DBOS_RUN_MIGRATIONS="false"
 export MAINTENANCE_DATABASE_URL="postgresql+asyncpg://vibecanvas_maintenance:vibecanvas_maintenance@localhost:${PGPORT}/vibecanvas"
 export REDIS_URL="redis://localhost:${REDISPORT}/0"
 export OPENFGA_API_URL="${OPENFGA_API_URL}"
@@ -328,7 +330,8 @@ export OBJECT_STORE_FS_ROOT="${OBJSTORE}"
 export VIBECANVAS_STORAGE_ROOT="${HOME}/.vibecanvas/local_data"
 export MOUNT_PATH=${mount_path_q}
 export MOUNT_SYNC_INTERVAL_SECONDS="${MOUNT_SYNC_INTERVAL_SECONDS:-1.0}"
-export CELERY_QUEUES="interactive,deployments,kb_indexing,maintenance"
+export DBOS_MAX_EXECUTOR_THREADS="${DBOS_MAX_EXECUTOR_THREADS:-2}"
+export BACKGROUND_QUEUE_CONCURRENCY="${BACKGROUND_QUEUE_CONCURRENCY:-1}"
 export PURGE_WORKER_ENABLED="${PURGE_WORKER_ENABLED:-true}"
 export LOG_LEVEL="${LOG_LEVEL:-INFO}"
 # OPENAI_API_KEY is optional and only used by explicitly configured Agent runtimes.
@@ -492,7 +495,11 @@ SQL
     DATABASE_URL="$migration_url" MIGRATION_DATABASE_URL="$migration_url" \
       PYTHONPATH="$API_DIR/src:$ENGINE_DIR/src${PYTHONPATH:+:$PYTHONPATH}" \
       "$VIBECANVAS_PYTHON" \
-      "$REPO_ROOT/scripts/security/migrate_filesystem_object_store.py" )
+      "$REPO_ROOT/scripts/security/migrate_filesystem_object_store.py"
+    local dbos_admin_url="postgresql+psycopg://vibecanvas_migrator:vibecanvas_migrator@localhost:${PGPORT}/vibecanvas"
+    "$VIBECANVAS_PY_PREFIX/bin/dbos" migrate -s "$dbos_admin_url" -r vibecanvas_app
+    DBOS_ADMIN_DATABASE_URL="$dbos_admin_url" "$VIBECANVAS_PYTHON" \
+      "$REPO_ROOT/scripts/security/provision_dbos_roles.py" )
   echo "database and filesystem Object Store at ciphertext-only head"
 }
 
@@ -512,12 +519,7 @@ EOF
     --factory --host 127.0.0.1 --port 8000
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/worker.pid" --log-file "$RUNDIR/worker.log" -- \
-    "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m celery -A vibecanvas_api.celery_app worker \
-    -Q "${CELERY_QUEUES:-interactive,deployments,kb_indexing,maintenance}" --concurrency=2
-  "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
-    --pid-file "$RUNDIR/beat.pid" --log-file "$RUNDIR/beat.log" -- \
-    "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m celery -A vibecanvas_api.celery_app beat \
-    --schedule=/tmp/celerybeat-schedule
+    "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m vibecanvas_api.background_worker
 
   local api_start_timeout_seconds="${API_START_TIMEOUT_SECONDS:-120}"
   for _ in $(seq 1 "$api_start_timeout_seconds"); do
@@ -529,7 +531,6 @@ EOF
   fi
   echo "api    pid=$(cat "$RUNDIR/api.pid")    http://127.0.0.1:8000  (log: $RUNDIR/api.log)"
   echo "worker pid=$(cat "$RUNDIR/worker.pid") (log: $RUNDIR/worker.log)"
-  echo "beat   pid=$(cat "$RUNDIR/beat.pid")   (log: $RUNDIR/beat.log)"
 }
 
 start_sandbox_service() {
@@ -661,7 +662,7 @@ cmd_up() {
   write_env >/dev/null
   migrate
   # sandboxd owns every resident gVisor process and must be ready before any
-  # API or Celery process can accept work. Application startup fails closed if
+  # API or background worker can accept work. Application startup fails closed if
   # this readiness gate is bypassed.
   start_sandbox_service
   start_services
@@ -677,7 +678,7 @@ cmd_up() {
 cmd_down() {
   # Stop request producers first, then let sandboxd drain/terminate its owned
   # sessions. This preserves the process ownership boundary during shutdown.
-  for s in api worker beat web; do
+  for s in api worker web; do
     stop_pidfile "$s"
   done
   stop_pidfile sandboxd
@@ -689,7 +690,7 @@ cmd_down() {
   # Also clean up manually-started dev processes that are outside pidfile
   # tracking. Keep these patterns project-specific enough for local dev.
   kill_dev_processes_by_pattern "uvicorn vibecanvas_api.app:build_app"
-  kill_dev_processes_by_pattern "celery -A vibecanvas_api.celery_app"
+  kill_dev_processes_by_pattern "vibecanvas_api.background_worker"
   kill_dev_processes_by_pattern "vibecanvas_api.services.sandbox.service"
   kill_dev_processes_by_pattern "pnpm --dir .*web exec vite (preview|--host|--port)"
   pkill -f "vite (preview|--port $WEB_PORT)" 2>/dev/null || true   # vite spawns children

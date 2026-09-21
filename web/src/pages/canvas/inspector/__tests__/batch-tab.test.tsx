@@ -501,7 +501,7 @@ describe('<BatchTab> this-workflow task list + inline progress', () => {
       result: null,
       results_uri: null,
       error: null,
-      celery_id: null,
+      background_job_id: null,
     });
     useTaskStreamMock.mockReturnValue({
       events: [{ id: 1, event_type: 'progress', payload: { done: 2, total: 5 } }],

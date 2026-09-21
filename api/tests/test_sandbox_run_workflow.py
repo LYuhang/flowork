@@ -555,7 +555,7 @@ async def test_run_workflow_sandboxed_sync_returns_outputs(
     """A PURE Start->Code->End workflow loaded from Postgres runs INSIDE gVisor
     via ``run_workflow_sandboxed_sync`` → (outputs dict, empty errors, float
     secs >= 0). Driven from a worker thread (no running loop), matching the real
-    Celery/``to_thread`` call context."""
+    DBOS/``to_thread`` call context."""
     import asyncio as _asyncio
 
     from vibecanvas_api.services import workflow_runner as runner_mod

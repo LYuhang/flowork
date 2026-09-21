@@ -21,9 +21,9 @@ patched ``drain_astream`` / the in-process ``Workflow.trigger`` /
 * async-side fail-soft (a release raise doesn't mask the run) →
   ``test_run_workspace.py::test_async_sync_store_raise_still_releases``.
 
-What REMAINS here (still UNIQUE to the genuinely-sync celery shell):
+What REMAINS here (still UNIQUE to the synchronous background shell):
 ``PostgresVfsRunStore.release_sync`` delete/retain against a real DB + the
-celery shell's release_sync(retain=False) + its fail-soft. The celery sync shell
+the shell's release_sync(retain=False) + its fail-soft. The synchronous shell
 ``deployment_invoke`` still owns its own ``release_sync(run_id=task_id)`` in a
 ``finally`` (the ``asyncio.run`` having returned), which RunWorkspace does NOT
 cover (it's the SYNC shell wrapping the to_thread sandbox runner).
@@ -36,7 +36,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-import vibecanvas_api.celery_tasks.deployment_invoke as celery_mod
+import vibecanvas_api.background_tasks.deployment_invoke as background_mod
 import vibecanvas_api.storage.vfs_run_repo as vfs_run_repo_mod
 from vibecanvas_api.services.object_store import FilesystemObjectStore
 from vibecanvas_api.storage.sync_session import current_sync_tenant_id
@@ -112,17 +112,17 @@ def _reset_sync_tenant_cv():
 
 
 # --------------------------------------------------------------------------- #
-# celery _run via the SYNC shell → release_sync(retain=False)                  #
+# background _run via the SYNC shell → release_sync(retain=False)             #
 #                                                                              #
 # This is the ONLY in-process call site that still owns its own release: the   #
-# celery ``deployment_invoke`` task body releases in its genuinely-SYNC shell  #
+# ``deployment_invoke`` releases in its genuinely-SYNC shell                   #
 # (after ``asyncio.run(_run(...))`` returns) — RunWorkspace does NOT cover it  #
 # (the sandbox runner runs INSIDE the to_thread hop; this shell wraps it).     #
 # The deployment ``invoke_sync`` route + the executions ``_produce_execution`` #
 # tests that used to live here were DELETED (sandbox-only; see the module      #
 # docstring for where each contract is now covered).                          #
 # --------------------------------------------------------------------------- #
-def test_celery_shell_releases(monkeypatch):
+def test_background_shell_releases(monkeypatch):
     captured = {}
     t = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
@@ -137,22 +137,20 @@ def test_celery_shell_releases(monkeypatch):
         with pytest.raises(RuntimeError):
             asyncio.get_running_loop()
 
-    monkeypatch.setattr(celery_mod, "_run", _fake_run)
+    monkeypatch.setattr(background_mod, "_run", _fake_run)
     monkeypatch.setattr(
         PostgresVfsRunStore, "release_sync", _fake_release_sync, raising=True)
 
-    # ``.apply`` runs the bound task synchronously (provides ``self``).
-    res = celery_mod.deployment_invoke.apply(kwargs=dict(
+    background_mod.deployment_invoke(**dict(
         task_id=task_id, tenant_id=t,
         deployment_id=str(uuid.uuid4()), inputs={}))
-    res.get()  # propagate any exception
 
     assert captured.get("ran") is True
     assert captured["call"] == (task_id, False)  # resolved run_id == task id
 
 
-def test_celery_shell_release_is_fail_soft(monkeypatch):
-    """A release failure in the celery shell does not crash the task."""
+def test_background_shell_release_is_fail_soft(monkeypatch):
+    """A release failure in the background shell does not crash the task."""
     t = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
 
@@ -162,12 +160,11 @@ def test_celery_shell_release_is_fail_soft(monkeypatch):
     def _boom(self, *, run_id, retain=False):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(celery_mod, "_run", _fake_run)
+    monkeypatch.setattr(background_mod, "_run", _fake_run)
     monkeypatch.setattr(
         PostgresVfsRunStore, "release_sync", _boom, raising=True)
 
     # No exception escapes the task body (fail-soft).
-    res = celery_mod.deployment_invoke.apply(kwargs=dict(
+    background_mod.deployment_invoke(**dict(
         task_id=task_id, tenant_id=t,
         deployment_id=str(uuid.uuid4()), inputs={}))
-    res.get()  # must not raise

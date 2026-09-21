@@ -16,6 +16,16 @@ beforeEach(async () => {
 
 function show(output?: unknown, nodeType = 'TemplateNode', status = 'completed') {
   let reads = 0;
+  server.use(http.get('*/api/v1/vfs/runs/wf-preview', () =>
+    HttpResponse.json({
+      entries: output === undefined ? [] : [{
+        path: '/run/__exec__/nodes/node_3.json',
+        content_type: 'application/json',
+        size_bytes: 10,
+        capabilities: ['read'],
+      }],
+    }),
+  ));
   server.use(http.get('*/api/v1/vfs/content', ({ request }) => {
     const url = new URL(request.url);
     expect(url.searchParams.get('run_id')).toBe('wf-preview');
@@ -39,7 +49,7 @@ function show(output?: unknown, nodeType = 'TemplateNode', status = 'completed')
 describe('Template canvas output', () => {
   it('occupies no space before the node has output', async () => {
     const view = show();
-    await waitFor(() => expect(view.reads()).toBe(1));
+    await waitFor(() => expect(view.reads()).toBe(0));
     expect(view.container).toBeEmptyDOMElement();
   });
 
@@ -70,12 +80,11 @@ describe('Template canvas output', () => {
     expect(screen.queryByText('Wrong workflow')).toBeNull();
   });
 
-  it('hides old output on rerun and displays this node’s new completed output', async () => {
+  it('keeps an existing run file until the new node output completes', async () => {
     show({ rendered: 'Old result', format: 'text' });
     expect(await screen.findByText('Old result')).toBeInTheDocument();
     act(() => useExecStreamStore.getState().begin('wf-preview', new AbortController()));
-    expect(screen.queryByText('Old result')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Output preview' })).toBeNull();
+    expect(screen.getByText('Old result')).toBeInTheDocument();
     act(() => useExecStreamStore.setState({ perNode: {
       node_3: { status: 'completed', result: JSON.stringify({ rendered: '**New result**', format: 'markdown' }) },
     } }));
@@ -83,13 +92,13 @@ describe('Template canvas output', () => {
     expect(screen.queryByText('Old result')).toBeNull();
   });
 
-  it('does not present an errored node’s stale result as successful output', async () => {
+  it('falls back to an existing run file when the latest live attempt errors', async () => {
     useExecStreamStore.setState({ wfId: 'wf-preview', status: 'error', perNode: {
       node_3: { status: 'error', result: JSON.stringify({ rendered: 'Stale', format: 'text' }) },
     } });
-    const view = show({ rendered: 'Old result', format: 'text' });
-    expect(view.container).toBeEmptyDOMElement();
-    expect(view.reads()).toBe(0);
+    show({ rendered: 'Old result', format: 'text' });
+    expect(await screen.findByText('Old result')).toBeInTheDocument();
+    expect(screen.queryByText('Stale')).toBeNull();
   });
 });
 
@@ -144,12 +153,13 @@ describe('Shared canvas output', () => {
     expect(screen.queryByText('"outdated"')).toBeNull();
     act(() => useExecStreamStore.getState().begin('wf-preview', new AbortController()));
     expect(screen.queryByText('42')).toBeNull();
+    expect(await screen.findByText('"outdated"')).toBeInTheDocument();
   });
 
-  it.each(['running', 'error', 'skipped', 'cancelled'])('does not display persisted %s output as a result', async (status) => {
+  it.each(['running', 'error', 'skipped', 'cancelled'])('displays an existing %s run output file', async (status) => {
     const view = show({ answer: 'stale' }, 'CodeNode', status);
     await waitFor(() => expect(view.reads()).toBe(1));
-    expect(screen.queryByRole('button', { name: 'Output preview' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Output preview' })).toBeInTheDocument();
   });
 
   it('collapses JSON content and reopens without a new request', async () => {

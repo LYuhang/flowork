@@ -1,4 +1,4 @@
-"""Celery task wrapping :class:`KbIndexer`.
+"""Background task wrapping :class:`KbIndexer`.
 
 Sync task body. All DB writes go through ``run_in_short_session(lambda
 s: ...)`` because the indexer service is async — the lambda body IS
@@ -12,9 +12,8 @@ Failure contract:
 
 * ``IndexingError`` (terminal indexing failure — bad doc, too many
   chunks, etc.) — clean any partial chunks and set ``kb_files.status
-  = "failed"`` with ``error_message``. Do NOT re-raise — Celery
-  ``max_retries=2`` is reserved for whole-task crashes (broker drop,
-  pod OOM, etc.), not for indexing failures the caller can fix.
+  = "failed"`` with ``error_message``. Do not re-raise; DBOS recovery is
+  reserved for process interruption, not indexing failures the caller can fix.
 * Unknown :class:`Exception` — same cleanup path, generic error
   message, same no-re-raise contract.
 """
@@ -40,7 +39,6 @@ from vibecanvas_api.authorization.types import (
     ResourceRef,
     ResourceType,
 )
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.services.kb_indexer import IndexingError, KbIndexer
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.storage.models_kb import KbFile
@@ -115,14 +113,7 @@ async def _require_captured_user_update(
         if client is not None:
             await client.close()
 
-@celery_app.task(
-    name="kb.index_file",
-    bind=True,
-    max_retries=2,
-    default_retry_delay=30,
-)
 def kb_index_file_task(
-    self,
     task_id: str,
     tenant_id: str,
     file_id: str,
@@ -191,8 +182,8 @@ def kb_index_file_task(
                 fid, status="failed", error_message=error_message))
     except Exception as exc:
         # Unknown failure — same cleanup, generic error_message.
-        # Do NOT re-raise: keeps Celery retries reserved for whole-task
-        # crashes (broker disconnect, worker OOM) that never reach this
+        # Do NOT re-raise: keep DBOS recovery reserved for whole-task
+        # interruption (worker termination/OOM) that never reaches this
         # except block at all.
         error_message = (
             f"unexpected: {type(exc).__name__}: {exc}"

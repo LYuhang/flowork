@@ -1,4 +1,4 @@
-"""Celery tasks for user-facing scheduled workflow runs."""
+"""Background tasks for user-facing scheduled workflow runs."""
 from __future__ import annotations
 
 import asyncio
@@ -11,13 +11,18 @@ import structlog
 from sqlalchemy import select
 
 from vibecanvas_api.authorization.types import ResourceType
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.config import config
+from vibecanvas_api.services.background_queue import (
+    enqueue_background_job_in_transaction,
+)
 from vibecanvas_api.services.llm_credentials_inject import inject_into_run_context_async
 from vibecanvas_api.services.queue_routing import route_for
 from vibecanvas_api.services.redis_channels import (
     task_event_channel,
     task_event_envelope,
+)
+from vibecanvas_api.services.sandbox.coordinator import (
+    dispose_sandbox_rpc_client,
 )
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.scheduled_runs import compute_next_run_at, utc_now
@@ -32,6 +37,7 @@ from vibecanvas_api.storage.repo_service_accounts import (
     ServiceAccountsRepo,
 )
 from vibecanvas_api.storage.sync_repo import SyncWorkflowRepo
+from vibecanvas_api.storage.db import dispose_engine
 from vibecanvas_api.storage.sync_session import (
     current_sync_tenant_id,
     run_in_short_session,
@@ -169,14 +175,12 @@ def _schedule_task_payload(schedule: dict, *, next_run_at: datetime | None = Non
     return payload
 
 
-@celery_app.task(name="scheduled_runs.dispatch_due")
 def dispatch_due_scheduled_runs() -> None:
     asyncio.run(_dispatch_due_scheduled_runs())
 
 
 async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
     now = utc_now()
-    dispatches: list[dict] = []
     async with short_admin_session() as session:
         rows = list((await session.execute(
             select(TaskSchedule)
@@ -273,28 +277,16 @@ async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
             await repo.update_schedule(schedule.id, next_run_at=next_run)
             await repo.update_status(schedule.task_id, payload=task_payload)
             if inserted is not None:
-                dispatches.append({
-                    "task_id": str(schedule.task_id),
-                    "schedule_id": str(schedule.id),
-                    "execution_id": str(execution_id),
-                    "tenant_id": str(schedule.tenant_id),
-                    "user_id": str(schedule.user_id),
-                    "workflow_id": schedule.workflow_id,
-                })
-
-    # The durable execution claim is committed before a worker can observe it.
-    for kwargs in dispatches:
-        celery_app.send_task(
-            "scheduled_runs.execute",
-            task_id=kwargs["execution_id"],
-            queue=route_for("scheduled_run"),
-            kwargs=kwargs,
-        )
+                await enqueue_background_job_in_transaction(
+                    session,
+                    "scheduled_runs.execute",
+                    job_id=str(execution_id),
+                    queue=route_for("scheduled_run"),
+                    kwargs={"execution_id": str(execution_id)},
+                )
 
 
-@celery_app.task(name="scheduled_runs.execute", bind=True)
 def execute_scheduled_run(
-    self,
     *,
     task_id: str,
     schedule_id: str,
@@ -304,14 +296,27 @@ def execute_scheduled_run(
     workflow_id: str,
 ) -> None:
     current_sync_tenant_id.set(tenant_id)
-    asyncio.run(_execute_scheduled_run(
-        task_id=uuid.UUID(task_id),
-        schedule_id=uuid.UUID(schedule_id),
-        execution_id=uuid.UUID(execution_id),
-        tenant_id=tenant_id,
-        user_id=user_id,
-        workflow_id=workflow_id,
-    ))
+
+    async def _run_on_isolated_worker_loop() -> None:
+        # Each DBOS Step gets a fresh ``asyncio.run`` loop. Drop pooled state
+        # left by a previous Step before using async DB/gRPC helpers, then
+        # close this Step's resources before its loop disappears. Otherwise a
+        # second scheduled execution inherits Futures bound to the first loop.
+        await dispose_engine(close=False)
+        try:
+            await _execute_scheduled_run(
+                task_id=uuid.UUID(task_id),
+                schedule_id=uuid.UUID(schedule_id),
+                execution_id=uuid.UUID(execution_id),
+                tenant_id=tenant_id,
+                user_id=user_id,
+                workflow_id=workflow_id,
+            )
+        finally:
+            await dispose_sandbox_rpc_client()
+            await dispose_engine()
+
+    asyncio.run(_run_on_isolated_worker_loop())
 
 
 async def _execute_scheduled_run(
@@ -567,11 +572,3 @@ def _notification_state(policy: dict, status: str) -> dict:
         "channels": list(policy.get("channels") or ["in_app"]),
         "include_detail_link": bool(policy.get("include_detail_link", True)),
     }
-
-
-if not getattr(celery_app.conf, "beat_schedule", None):
-    celery_app.conf.beat_schedule = {}
-celery_app.conf.beat_schedule["scheduled_runs.dispatch_due"] = {
-    "task": "scheduled_runs.dispatch_due",
-    "schedule": SCHEDULED_RUN_DISPATCH_INTERVAL_SEC,
-}

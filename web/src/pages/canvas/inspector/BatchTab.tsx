@@ -6,7 +6,7 @@
  *
  *   1. SUBMIT — the input-source selector (upload / VFS path),
  *      a minimal in-browser CSV/tabular parse, the column-mapping grid, and
- *      Submit (`submitBatch` → Celery, unchanged durable backend). Stable
+ *      Submit (`submitBatch` → durable background queue). Stable
  *      testids preserved for the e2e (`batch-source-selector`, `batch-submit`,
  *      the per-source/per-mapping ids). The submitted batch is a background
  *      job on the Task Center channel — on success we toast + reset.

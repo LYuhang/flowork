@@ -308,7 +308,7 @@ class OpenFgaHttpClient:
 def openfga_client_from_config() -> OpenFgaHttpClient:
     """Build the pinned client used outside the FastAPI lifespan.
 
-    Celery workers and administrative commands do not have ``app.state``.
+    Background workers and administrative commands do not have ``app.state``.
     Keeping their construction here prevents those processes from silently
     selecting a different store/model or interpreting bootstrap files.
     """

@@ -1,6 +1,6 @@
 """Pluggable object store for batch and knowledge-base results.
 
-The Celery ``batch_exec`` task uploads the per-row results CSV here.
+The background worker ``batch_exec`` task uploads the per-row results CSV here.
 Production uses S3 via ``boto3``; the sandbox / test process can't run
 Docker (and thus no LocalStack), so ``InMemoryObjectStore`` is the
 fallback so the sandbox can still exercise the upload code path.
@@ -14,7 +14,7 @@ Design:
   they can introspect what was written. Single-process only: a blob
   written by one process is invisible to another.
 * :class:`FilesystemObjectStore` writes blobs to a
-  directory shared between api + celery_worker + celery_beat (a docker
+  directory shared between API + background worker (a Docker
   named volume / shared dir). The filesystem IS the shared state, so it
   spans the process boundary — fixing KB indexing (api puts → worker
   fetches) and cross-container batch download. LangFlow/Dify-style local
@@ -660,7 +660,7 @@ class S3ObjectStore:
         )
 
     def fetch_bytes(self, key: str) -> bytes:
-        """KB indexer entry point — server-side download (used by Celery
+        """KB indexer entry point — server-side download (used by background worker
         worker; ``signed_url`` is for client-side downloads only)."""
         resp = self.client.get_object(Bucket=self.bucket, Key=key)
         return resp["Body"].read()

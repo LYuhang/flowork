@@ -12,7 +12,7 @@ Flowork is developed as one local stack with four source packages:
 | Package | Responsibility | Primary entry points |
 | --- | --- | --- |
 | [`engine/`](../engine/) | Framework-independent workflow validation and execution | [`workflow.py`](../engine/src/vibecanvas_engine/workflow.py), [`nodes/`](../engine/src/vibecanvas_engine/nodes/) |
-| [`api/`](../api/) | HTTP API, Agent Runtime orchestration, persistence, background work, authorization, and sandbox control | [`app.py`](../api/src/vibecanvas_api/app.py), [`routes/`](../api/src/vibecanvas_api/routes/), [`celery_app.py`](../api/src/vibecanvas_api/celery_app.py) |
+| [`api/`](../api/) | HTTP API, Agent Runtime orchestration, persistence, background work, authorization, and sandbox control | [`app.py`](../api/src/vibecanvas_api/app.py), [`routes/`](../api/src/vibecanvas_api/routes/), [`background_worker.py`](../api/src/vibecanvas_api/background_worker.py) |
 | [`web/`](../web/) | React application and browser-based product flows | [`src/app/`](../web/src/app/), [`src/pages/`](../web/src/pages/) |
 | [`extension/`](../extension/) | Chrome MV3 side panel and controlled-tab browser integration | [`service-worker.ts`](../extension/src/service-worker.ts), [`sidepanel.ts`](../extension/src/sidepanel.ts) |
 
@@ -64,8 +64,8 @@ WEB_MODE=dev ./launch.sh start
 ```
 
 This starts PostgreSQL, Redis, and OpenFGA; applies database migrations; and
-launches `sandboxd`, the FastAPI application, Celery worker and scheduler
-processes, and the Vite Web server. It also builds the Browser Extension for
+launches `sandboxd`, the FastAPI application, one DBOS background worker, and
+the Vite Web server. It also builds the Browser Extension for
 the configured application origin. The application is available at
 <http://localhost:9001> and the API at <http://127.0.0.1:8000> by default.
 

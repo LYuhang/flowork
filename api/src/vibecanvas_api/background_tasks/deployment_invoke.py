@@ -1,4 +1,4 @@
-"""Celery worker for API and webhook Deployment invocations.
+"""Background worker implementation for API and webhook Deployment invocations.
 
 Both external trigger types funnel through this single task. Deployment
 observability belongs to Deployment logs/history, not the Task Center table;
@@ -11,9 +11,8 @@ Architecture choice — async-driven worker (deviation from batch_exec):
   write. That fit the row-by-row CSV use-case where every write opens
   its own short transaction.
 
-  The Celery body remains an async shell — ``_run`` is still ``async def``
-  driven by ``asyncio.run(_run(...))`` (Celery 5.x has no native async task
-  runner). The ENGINE run itself goes through the SANDBOX runner:
+  The DBOS Step body is a sync shell around ``asyncio.run(_run(...))``. The
+  engine run itself goes through the sandbox runner:
   ``_run`` calls the sync+blocking
   ``run_workflow_sandboxed_sync`` (offloaded via ``asyncio.to_thread`` since
   ``_run`` is on a loop), which runs the engine inside gVisor when available and
@@ -29,7 +28,7 @@ Tenant ContextVar invariant:
   ``short_session_scope(tenant_id=...)`` receives that SAME tenant id
   explicitly, so RLS GUC binding is deterministic per transaction.  The
   worker-safe scope owns a NullPool engine on the current ``asyncio.run``
-  loop and disposes it before that loop closes; a Celery invocation never
+  loop and disposes it before that loop closes; a background invocation never
   borrows a connection from the web process' loop-bound global pool.
 
 DB state:
@@ -46,7 +45,6 @@ from time import perf_counter
 
 import structlog
 
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.authorization.types import ResourceType
 from vibecanvas_api.services.tenant_db import tenant_id_var
 from vibecanvas_api.services.workflow_runner import (
@@ -63,18 +61,18 @@ from vibecanvas_api.storage.vfs_run_repo import PostgresVfsRunStore
 logger = structlog.get_logger(__name__)
 
 
-@celery_app.task(name="deployment_invoke", bind=True)
 def deployment_invoke(
-    self,  # noqa: ARG001 — Celery ``bind=True`` passes the task instance.
     *,
     task_id: str,
     tenant_id: str,
     deployment_id: str,
     inputs: dict,
 ) -> None:
-    """Celery entry — sync shell around an asyncio driver.
+    """Durable Step entry — sync shell around an asyncio driver.
 
-    The task message kwargs carry every identifier needed.
+    DBOS carries only an opaque invocation id. The DBOS adapter loads and
+    decrypts these arguments from Flowork's business database before entering
+    this runtime-neutral implementation.
 
     Args:
         task_id: UUID string of the deployment invocation.
@@ -82,9 +80,9 @@ def deployment_invoke(
             the body and forwarded explicitly to every worker-safe session.
         deployment_id: UUID string — looked up via ``DeploymentsRepo.get``
             under the tenant scope (RLS).
-        inputs: Workflow inputs — for ``api`` triggers this is the raw request
-            body; for ``webhook`` triggers it is
-            ``{"payload": <parsed-json>}``.
+        inputs: Decrypted workflow inputs loaded by the adapter. For ``api``
+            triggers this is the raw request body; for ``webhook`` triggers it
+            is ``{"payload": <parsed-json>}``.
 
     Side effects:
       * runs the deployment's pinned workflow version
@@ -107,18 +105,18 @@ def deployment_invoke(
     finally:
         # RE-2 E0: release the run-tier at run-end. ``_run`` has no single
         # try/finally funnel (early ``return`` + multiple ``_finalize``s), so
-        # release here in the genuinely-SYNC Celery shell (the ``asyncio.run``
+        # release here in the genuinely-SYNC background worker shell (the ``asyncio.run``
         # above has returned), where ``release_sync`` (→ its own ``asyncio.run``)
-        # is legal (C1). The run_id is the Celery task_id (the resolved per-run
+        # is legal (C1). The run_id is the background job id (the resolved per-run
         # id). Set the sync tenant CV here in case ``_run`` raised before
         # reaching it. Production batch → retain=False; ``release`` is idempotent
-        # so a Celery retry is safe. Fail-soft: never crash the task.
+        # so recovery is safe. Fail-soft: never crash the task.
         try:
             current_sync_tenant_id.set(tenant_id)
             PostgresVfsRunStore().release_sync(run_id=task_id, retain=False)
         except Exception:  # pragma: no cover - fail-soft, never crash the task
             logger.warning("run_release_failed", run_id=task_id, retain=False,
-                           site="celery_deployment_invoke", exc_info=True)
+                           site="background_deployment_invoke", exc_info=True)
 
 
 async def _run(

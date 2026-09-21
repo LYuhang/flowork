@@ -22,8 +22,8 @@ The architecture follows four principles:
    records its state, while `sandboxd` runs agent and workflow code outside the
    API process.
 3. **Clear storage responsibilities.** PostgreSQL stores application records,
-   object storage holds file content, and Valkey supports queues and temporary
-   coordination.
+   object storage holds file content, DBOS persists durable background work in
+   PostgreSQL, and Valkey provides transient fanout and coordination.
 4. **Server-side authorization.** The backend checks access before database,
    storage, model, or browser operations. A resource identifier supplied by a
    browser or sandbox is never treated as proof of access.
@@ -35,8 +35,8 @@ Chrome extension ── WS ── Web / nginx ──► FastAPI control plane
                                                │
                  ┌─────────────────────────────┼──────────────────────┐
                  ▼                             ▼                      ▼
-       PostgreSQL / OpenFGA /           Valkey / Celery            sandboxd
-          object storage                    workers                   │
+       PostgreSQL / OpenFGA /        DBOS background worker         sandboxd
+      DBOS / object storage          + transient Valkey                │
                                                                        ▼
                                                          gVisor agent runtimes
                                                          and workflow execution
@@ -88,7 +88,7 @@ is responsible for:
 - Chat, Workflow, Task, Deployment, Knowledge, and VFS APIs;
 - Agent Run coordination, approval state, and client event streams;
 - secure handling of credentials and temporary access tokens;
-- communication with Celery workers and `sandboxd`.
+- communication with DBOS workers and `sandboxd`.
 
 The application factory shows the complete router and service composition in
 [`app.py`](../api/src/vibecanvas_api/app.py). HTTP and streaming contracts are
@@ -161,14 +161,30 @@ services.
 
 ### Workers
 
-Celery workers perform batch execution, scheduled Task runs, Deployment invocations,
-derived Knowledge indexing, and maintenance work. Valkey carries Celery jobs and
-short-lived results. PostgreSQL stores the Task and event history shown after a
-page refresh or service restart.
+The DBOS worker performs batch execution, scheduled Task runs, Deployment
+invocations, derived Knowledge indexing, and maintenance work. DBOS persists
+queue and recovery state in PostgreSQL. Valkey remains only for short-lived
+event fanout, rate limits, counters, and locks. PostgreSQL also stores the Task
+and event history shown after a page refresh or service restart.
 
-Queue configuration is defined in
-[`celery_app.py`](../api/src/vibecanvas_api/celery_app.py), with job entry points
-under [`celery_tasks/`](../api/src/vibecanvas_api/celery_tasks/).
+The first DBOS integration preserves at-least-once execution for each whole
+business job. A process failure while a step is in flight can repeat external
+node side effects; integrations that require exactly-once behavior must use an
+idempotency key. User-visible cancellation, partial results, and resume state
+remain owned by Flowork's business tables rather than DBOS internals.
+
+DBOS workflow arguments contain opaque Flowork record identifiers only. Batch
+inputs, Deployment API/Webhook payloads, scheduled inputs, and Knowledge file
+metadata remain in the application database or encrypted object store and are
+loaded by a worker adapter at execution time. DBOS therefore does not become a
+second plaintext store for private content.
+
+The runtime-neutral submission interface is
+[`background_queue.py`](../api/src/vibecanvas_api/services/background_queue.py),
+DBOS registrations are in
+[`background_workflows.py`](../api/src/vibecanvas_api/background_workflows.py),
+and business implementations live under
+[`background_tasks/`](../api/src/vibecanvas_api/background_tasks/).
 
 ### Sandbox service
 
@@ -329,7 +345,7 @@ scheduling and gives scheduled work the Task lifecycle, history, and controls.
 
 A Deployment can track the current Workflow version or pin an explicit major
 and subversion. The invocation endpoint authenticates the caller, resolves the
-configured version, and submits asynchronous work to Celery. Workflow code is
+configured version, and submits asynchronous work to DBOS. Workflow code is
 still executed through the sandbox service rather than inside the worker.
 
 The `/task` and `/deployment` Platform MCPs expose the same observability data
@@ -345,7 +361,7 @@ authorization boundary.
 See the [Task API](../api/src/vibecanvas_api/routes/tasks.py),
 [Deployment API](../api/src/vibecanvas_api/routes/deployments.py),
 [invocation routes](../api/src/vibecanvas_api/routes/deployment_invoke.py), and
-[deployment worker](../api/src/vibecanvas_api/celery_tasks/deployment_invoke.py).
+[deployment worker](../api/src/vibecanvas_api/background_tasks/deployment_invoke.py).
 
 ### Browser control
 
@@ -376,7 +392,8 @@ are listed and when a call is forwarded.
 | **PostgreSQL** | System of record for Organizations, users, Chats, messages, Workflows, versions, runs, approvals, Tasks, Deployments, metadata, and ordered events | Tenant-specific business tables use row-level security |
 | **OpenFGA** | Relationship-based access control (ReBAC) | Evaluates whether a user can perform an action on a resource |
 | **Object storage** | File content for VFS, artifacts, authoritative Knowledge package files, Task outputs, and run files | Filesystem and S3 backends implement the same storage interface |
-| **Valkey** | Message broker and transient coordination | Carries Celery jobs, short-lived notifications, and locks; it is not the system of record |
+| **DBOS / PostgreSQL** | Durable background queue, recovery, and schedules | Uses the existing application PostgreSQL server; business state remains in Flowork tables |
+| **Valkey** | Transient coordination | Carries short-lived notifications, rate limits, counters, and locks; it is not the task broker or system of record |
 | **Runtime state** | SDK-specific Chat state inside authenticated Runtime volumes | Persists independently of live network connections without exposing SDK internals to the API |
 | **Runtime volumes and snapshots** | Chat-specific runtime files and optional gVisor checkpoints | Used to resume execution efficiently, not to determine identity or permissions |
 
@@ -504,7 +521,7 @@ and [`egress_broker.py`](../api/src/vibecanvas_api/services/sandbox/egress_broke
 | [`api/src/vibecanvas_api/services/sandbox/`](../api/src/vibecanvas_api/services/sandbox/) | Sandbox service, lifecycle, gVisor, and egress |
 | [`api/src/vibecanvas_api/storage/`](../api/src/vibecanvas_api/storage/) | Database models and repositories |
 | [`api/src/vibecanvas_api/authorization/`](../api/src/vibecanvas_api/authorization/) | OpenFGA model and enforcement |
-| [`api/src/vibecanvas_api/celery_tasks/`](../api/src/vibecanvas_api/celery_tasks/) | Background and scheduled jobs |
+| [`api/src/vibecanvas_api/background_tasks/`](../api/src/vibecanvas_api/background_tasks/) | Runtime-neutral background job implementations |
 | [`engine/src/vibecanvas_engine/`](../engine/src/vibecanvas_engine/) | Workflow graph and node runtime |
 | [`web/src/`](../web/src/) | React application and visual Workflow editor |
 | [`extension/src/`](../extension/src/) | Chrome MV3 side panel and browser-control bridge |

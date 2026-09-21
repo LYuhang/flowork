@@ -13,22 +13,23 @@ route handlers import one module:
    ``session_scope(tenant_id=...)`` for the rest of the request.
 
 2. ``DeploymentsService.submit`` — the single path through which a
-   deployment dispatches work to Celery. It returns an invocation id and
-   sends a ``deployment_invoke`` task; Deployment-specific logs/history own
-   observability, not the Task Center table. The Celery ``queue=`` comes from
+   deployment dispatches durable background work. It returns an invocation id
+   and enqueues a ``deployment_invoke`` workflow; Deployment-specific
+   logs/history own observability, not the Task Center table. The queue comes from
    ``route_for("deployment_invoke", deployment["id"])`` (Deployments
    T3) — future multi-cluster routing extends the helper, not this
    call site.
 """
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from vibecanvas_api.celery_app import celery_app
+from vibecanvas_api.services.background_queue import (
+    enqueue_background_job_in_transaction,
+)
 from vibecanvas_api.services.queue_routing import route_for
 from vibecanvas_api.services.tenant_db import (
     session_scope_admin, tenant_id_var,
@@ -103,11 +104,7 @@ class DeploymentsService:
         source: str,
         invocation_id: uuid.UUID | None = None,
     ) -> uuid.UUID:
-        """Dispatch a Celery ``deployment_invoke``.
-
-        Returns a new invocation id. ``celery_app.send_task`` is run via
-        ``asyncio.to_thread`` because kombu's broker write is blocking I/O.
-        """
+        """Durably dispatch a ``deployment_invoke`` background workflow."""
         task_id = invocation_id or uuid.uuid4()
         inv_repo = DeploymentInvocationsRepo(self.session)
         await inv_repo.create(
@@ -118,19 +115,15 @@ class DeploymentsService:
             trigger_type=deployment["trigger_type"],
             source=source,
             status="queued",
+            inputs=payload,
         )
         try:
-            await asyncio.to_thread(
-                celery_app.send_task,
+            await enqueue_background_job_in_transaction(
+                self.session,
                 "deployment_invoke",
-                task_id=str(task_id),
+                job_id=str(task_id),
                 queue=route_for("deployment_invoke", deployment["id"]),
-                kwargs=dict(
-                    task_id=str(task_id),
-                    tenant_id=str(deployment["tenant_id"]),
-                    deployment_id=str(deployment["id"]),
-                    inputs=payload,
-                ),
+                kwargs={"invocation_id": str(task_id)},
             )
         except Exception as exc:
             await inv_repo.mark_terminal(

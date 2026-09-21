@@ -1,6 +1,6 @@
-"""FIX-beat regression — periodic beat tasks must survive two ticks.
+"""Periodic DBOS schedule tasks must survive two ticks.
 
-A celery-beat worker is a single long-lived prefork process. Each beat
+A DBOS worker is a single long-lived process. Each schedule
 tick runs a task whose sync body does ``asyncio.run(_async_body())``.
 ``asyncio.run`` creates a fresh event loop, runs the coroutine, then
 CLOSES that loop. If the async body acquires a *process-global pooled*
@@ -18,7 +18,7 @@ all DB work through ``run_in_short_session`` (per-call NullPool engine,
 disposed inside the same ``asyncio.run`` — nothing survives loop
 teardown).
 
-These tests drive the REAL sync Celery entry points twice in a row —
+These tests drive the REAL sync DBOS entry points twice in a row —
 exactly what beat does over two ticks in one process — against the real
 pytest-postgresql DB. They must NOT inject a fixture-owned engine into
 ``db._admin_engine`` (that engine is bound to the test's own loop and
@@ -75,7 +75,7 @@ def _seed_stuck_task(pg_url: str) -> uuid.UUID:
                     workflow_id=None,
                     task_type="batch_exec",
                     payload={},
-                    celery_id=str(task_id),
+                    background_job_id=str(task_id),
                 )
                 task.submitted_at = (
                     datetime.now(timezone.utc) - timedelta(seconds=120)
@@ -106,20 +106,21 @@ def _point_admin_engine_at_test_db(monkeypatch, pg_url: str) -> None:
 def test_reconciler_survives_two_beat_ticks(monkeypatch, pg_url):
     """Two sequential beat ticks of the reconciler must both succeed.
 
-    Calls the SYNC Celery entry point ``resubmit_stuck_queued`` twice —
+    Calls the SYNC DBOS entry point ``resubmit_stuck_queued`` twice —
     each does its own ``asyncio.run(_resubmit())`` (= two beat ticks in
     one long-lived process). On broken code the second call raises a
     loop-bound ``RuntimeError`` / ``InterfaceError``; after the fix both
     return cleanly and re-publish the stuck row on each tick.
     """
-    import vibecanvas_api.celery_tasks.reconciler as recon
+    import vibecanvas_api.background_tasks.reconciler as recon
 
     _point_admin_engine_at_test_db(monkeypatch, pg_url)
     _seed_stuck_task(pg_url)
 
     sent: list[dict] = []
     monkeypatch.setattr(
-        recon.celery_app, "send_task",
+        recon,
+        "enqueue_background_job",
         lambda name, **kw: sent.append({"name": name, **kw}),
     )
 
@@ -142,7 +143,7 @@ def test_kb_gc_sweeper_survives_two_beat_ticks(monkeypatch, pg_url):
     process-global pool on broken code. With no doomed KBs seeded the
     body is a no-op, isolating the engine-lifecycle bug on tick #2.
     """
-    import vibecanvas_api.celery_tasks.kb_gc_sweeper as gc
+    import vibecanvas_api.background_tasks.kb_gc_sweeper as gc
 
     _point_admin_engine_at_test_db(monkeypatch, pg_url)
 
@@ -158,7 +159,7 @@ def test_kb_orphan_reconciler_survives_two_beat_ticks(monkeypatch, pg_url):
     code. With no orphan rows seeded the per-row Case B write loop is
     skipped, isolating the admin-engine lifecycle on tick #2.
     """
-    import vibecanvas_api.celery_tasks.kb_orphan_reconciler as orphan
+    import vibecanvas_api.background_tasks.kb_orphan_reconciler as orphan
 
     _point_admin_engine_at_test_db(monkeypatch, pg_url)
 

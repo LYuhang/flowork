@@ -185,6 +185,11 @@ async def lifespan(app: FastAPI):
     configure_admission(app_config.sandbox_max_concurrent)
 
     async with contextlib.AsyncExitStack() as stack:
+        # The API only owns a lightweight DBOS client for durable enqueue and
+        # cancellation. Close its connection pool after request producers stop.
+        from .services.background_queue import close_background_queue_client
+
+        stack.callback(close_background_queue_client)
         # 2. Main SQLAlchemy async engine (request DI path). Register
         #    dispose FIRST so any later failure still tears it down.
         runtime_engine = init_engine()

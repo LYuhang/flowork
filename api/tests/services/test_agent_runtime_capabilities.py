@@ -162,6 +162,11 @@ async def test_codex_catalog_uses_only_responses_compatible_host_broker_models(
     monkeypatch.setattr(
         capabilities_module.config.agent, "model", "openai:gpt-platform"
     )
+    monkeypatch.setattr(
+        capabilities_module.config,
+        "codex_managed_apis",
+        [],
+    )
 
     capabilities = await codex_capabilities([
         {

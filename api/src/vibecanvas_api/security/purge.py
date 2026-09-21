@@ -252,12 +252,12 @@ def _safe_remove_host_mount(user_id: uuid.UUID) -> None:
 
 async def _purge_runtime_state(lease: PurgeLease) -> None:
     async with session_scope_admin() as session:
-        celery_ids = (
+        background_job_ids = (
             await session.execute(
                 text(
-                    "SELECT celery_id FROM tasks WHERE tenant_id=:tenant_id "
+                    "SELECT background_job_id FROM tasks WHERE tenant_id=:tenant_id "
                     "AND status IN ('queued','running','cancelling','resuming') "
-                    "AND celery_id IS NOT NULL"
+                    "AND background_job_id IS NOT NULL"
                 ),
                 {"tenant_id": lease.tenant_id},
             )
@@ -270,18 +270,13 @@ async def _purge_runtime_state(lease: PurgeLease) -> None:
             ),
             {"tenant_id": lease.tenant_id},
         )
-    if celery_ids:
-        from vibecanvas_api.celery_app import celery_app
+    if background_job_ids:
+        from vibecanvas_api.services.background_queue import cancel_background_job_async
 
-        for celery_id in celery_ids:
-            await asyncio.to_thread(
-                celery_app.control.revoke,
-                str(celery_id),
-                terminate=True,
-                signal="SIGTERM",
-            )
+        for background_job_id in background_job_ids:
+            await cancel_background_job_async(str(background_job_id))
     tenant_ids = await _user_tenant_ids(lease)
-    # Celery workers do not run the FastAPI lifespan, so their process-local
+    # Background workers do not run the FastAPI lifespan, so their process-local
     # manager singleton may not exist yet.  Construct the configured service
     # proxy here instead of treating an uninitialized singleton as “no
     # sandbox”.  The daemon owns these mounted volumes and is the only process

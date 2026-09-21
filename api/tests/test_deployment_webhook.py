@@ -22,7 +22,7 @@ monkeypatched onto ``pg_engine`` so
 ``resolve_deployment_and_bind_tenant``'s ``session_scope_admin``
 can find the row.
 
-Celery ``send_task`` is stubbed: T9 ships the worker; here we
+DBOS ``send_task`` is stubbed: T9 ships the worker; here we
 assert only the API-side row insert + task_id return. We call
 the route handler directly with a stub ``Request`` — the
 webhook reads ``.headers`` and ``.body()`` only, so a minimal
@@ -33,6 +33,7 @@ from __future__ import annotations
 import hmac
 import time
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -191,11 +192,10 @@ async def test_webhook_valid_signature_accepts(
     from vibecanvas_api.storage import db as db_mod
 
     monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
-    # Stub Celery send_task — T9 ships the worker; here we only assert
+    # Stub DBOS send_task — T9 ships the worker; here we only assert
     # the API-side row insert.
     monkeypatch.setattr(
-        deployments_service.celery_app, "send_task",
-        lambda *a, **kw: None,
+        deployments_service, "enqueue_background_job_in_transaction", AsyncMock(),
     )
 
     tenant_id, slug, secret, _ = await _seed_webhook_dep(
@@ -343,9 +343,9 @@ async def test_webhook_replay_returns_original_invocation_without_reenqueue(
     monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
     sent: list[tuple[tuple, dict]] = []
     monkeypatch.setattr(
-        deployments_service.celery_app,
-        "send_task",
-        lambda *args, **kwargs: sent.append((args, kwargs)),
+        deployments_service,
+        "enqueue_background_job_in_transaction",
+        AsyncMock(side_effect=lambda *args, **kwargs: sent.append((args, kwargs))),
     )
     tenant_id, slug, secret, deployment_id = await _seed_webhook_dep(
         pg_engine, app_engine,

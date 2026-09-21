@@ -4,7 +4,7 @@ Why Redis and not :mod:`asyncio.Semaphore`? Workflow execution runs in TWO
 worlds at once:
 
 * the async FastAPI server loop (one event loop, many coroutines), and
-* the Celery batch ThreadPoolExecutor, where **each batch row does its own**
+* the background worker batch ThreadPoolExecutor, where **each batch row does its own**
   ``asyncio.run`` — a fresh event loop per thread.
 
 An ``asyncio.Semaphore`` is bound to ONE event loop, so it cannot bound across

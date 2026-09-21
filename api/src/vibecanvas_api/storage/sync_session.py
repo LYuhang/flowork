@@ -120,7 +120,7 @@ def run_in_short_session(
             await engine.dispose()
 
     # Loop-safe bridge. With NO running loop (the common case — a tool dispatched
-    # via asyncio.to_thread, a Celery task) ``asyncio.run`` is correct. But when
+    # via asyncio.to_thread, a background worker task) ``asyncio.run`` is correct. But when
     # called from WITHIN a running event loop (e.g. the compaction/edit middleware
     # runs inside the agent's async turn), ``asyncio.run`` raises "cannot be called
     # from a running event loop" — which silently no-ops every middleware-side VFS
@@ -140,7 +140,7 @@ def run_in_short_session(
 # Admin short-session / short-connection (FIX-beat — loop-bound engine)
 # ---------------------------------------------------------------------------
 #
-# The celery-BEAT periodic tasks (reconciler, kb gc / orphan sweepers,
+# The background worker-BEAT periodic tasks (reconciler, kb gc / orphan sweepers,
 # invoke-counter flush, concurrency reconciler) run in a
 # single long-lived prefork worker process and each does
 # ``asyncio.run(_async_body())`` per tick. They used the *process-global*

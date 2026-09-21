@@ -55,7 +55,7 @@ export interface Task {
   result: unknown;
   results_uri: string | null;
   error: string | null;
-  celery_id: string | null;
+  background_job_id: string | null;
   sandbox_status?: TaskSandboxStatus | null;
   submitted_at: string;
   started_at: string | null;

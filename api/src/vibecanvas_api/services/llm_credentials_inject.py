@@ -344,7 +344,7 @@ async def inject_into_run_context_async(
     Returns the (mutated) ``run_context`` so the call reads as a pipe at the
     trigger seam. No-op (key absent) when no saved credential is referenced —
     keeps legacy runs byte-identical. Used by the in-API SSE / sync-invoke paths
-    and the async Celery deployment task (all run ON an event loop)."""
+    and the async background worker deployment task (all run ON an event loop)."""
     async with session_scope(tenant_id=tenant_id) as s:
         mapping = await build_llm_credentials_extra(
             workflow_dict,
@@ -376,7 +376,7 @@ def inject_into_run_context_sync(
     principal_id: str | None = None,
     principal_generation: int = 0,
 ) -> dict:
-    """SYNC (Celery worker, no running loop) one-shot. Reads the tenant from the
+    """SYNC (background worker, no running loop) one-shot. Reads the tenant from the
     ``current_sync_tenant_id`` CV (already set by the worker body) via
     ``run_in_short_session`` and merges the mapping into ``run_context``.
 

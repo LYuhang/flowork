@@ -115,7 +115,7 @@ def _get_redis_adm() -> "RedisAdmission | None":
 
 @contextmanager
 def sync_sandbox_admission(*, tenant_id: str, block: bool = True):
-    """Synchronous, cross-process sandbox admission for the Celery batch path.
+    """Synchronous, cross-process sandbox admission for the background worker batch path.
 
     Each batch row runs its own ``asyncio.run`` on a ThreadPoolExecutor thread,
     so the async :func:`sandbox_admission` (bound to one event loop) cannot bound

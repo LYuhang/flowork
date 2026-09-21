@@ -1,6 +1,6 @@
 """Authorized task-result streaming endpoint.
 
-Spec: docs/superpowers/specs/2026-05-23-phase-6-async-celery-design.md §6.3
+See the Task lifecycle in ``docs/architecture.md``.
 (D.3 — frontend detail page download button).
 
 The route is a thin wrapper around :meth:`TasksRepo.get` + the object
@@ -71,7 +71,7 @@ async def test_download_404_if_no_results(pg_engine):
             workflow_id=None,
             task_type="batch_exec",
             payload={},
-            celery_id=str(task_id),
+            background_job_id=str(task_id),
         )
         await repo.update_status(task_id, status="running")
 
@@ -146,7 +146,7 @@ async def test_download_streams_bytes_for_non_s3(pg_engine):
             workflow_id=None,
             task_type="batch_exec",
             payload={},
-            celery_id=str(task_id),
+            background_job_id=str(task_id),
         )
         from datetime import datetime, timezone
         await repo.update_status(
@@ -215,7 +215,7 @@ async def test_download_404_if_blob_missing(pg_engine):
             workflow_id=None,
             task_type="batch_exec",
             payload={},
-            celery_id=str(task_id),
+            background_job_id=str(task_id),
         )
         await repo.update_status(
             task_id,

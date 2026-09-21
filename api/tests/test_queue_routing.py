@@ -5,8 +5,8 @@ import uuid
 
 import pytest
 
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.config import config
+from vibecanvas_api.services.background_queue import QUEUE_SPECS
 from vibecanvas_api.services.queue_routing import route_for
 
 
@@ -37,13 +37,8 @@ def test_cluster_role_default_is_monolith():
     assert config.cluster_role == "monolith"
 
 
-def test_celery_queues_default():
-    assert config.celery_queues == "interactive,deployments"
-
-
-def test_celery_default_queue_is_interactive():
-    assert celery_app.conf.task_default_queue == "interactive"
-
-
-def test_celery_create_missing_queues_enabled():
-    assert celery_app.conf.task_create_missing_queues is True
+def test_background_queues_are_explicit_and_bounded():
+    assert set(QUEUE_SPECS) == {
+        "interactive", "deployments", "kb_indexing", "control", "maintenance",
+    }
+    assert all(spec.worker_concurrency >= 1 for spec in QUEUE_SPECS.values())

@@ -12,7 +12,7 @@ Upload route ordering (spec sec 8 ``Upload route ordering``):
   Step 2: DB INSERT kb_files (status='pending', object_store_key=NULL)
   Step 3: write blob to object_store
   Step 4: UPDATE kb_files.object_store_key
-  Step 5: enqueue Celery index job
+  Step 5: enqueue a durable indexing workflow
 
 If any step fails, ``kb_orphan_reconciler`` (Case A: step 3 failure,
 Case B: enqueue failure) sweeps the orphans on a 5-minute cadence.
@@ -91,7 +91,6 @@ from vibecanvas_api.authorization.types import (
     ResourceRef,
     ResourceType,
 )
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.config import config
 from vibecanvas_api.security.upload_scanner import require_clean_upload
 from vibecanvas_api.schemas.access import (
@@ -108,6 +107,7 @@ from vibecanvas_api.services.kb_search import (
     EncryptedKbSearchLimitError,
     KbSearchService,
 )
+from vibecanvas_api.services.background_queue import enqueue_background_job_async
 from vibecanvas_api.services.knowledge_packages import (
     MAX_PACKAGE_BYTES,
     PackageFile,
@@ -961,21 +961,15 @@ async def upload_file(
     await session.commit()
     await _rebind_tenant_guc(session, ctx.active_organization_id)
 
-    # Step 5: enqueue Celery. KB indexing state is tracked by kb_files, not by
+    # Step 5: enqueue durable work. KB indexing state is tracked by kb_files, not by
     # the platform Task center.
     task_id = uuid.uuid4() if parser_type != "binary" else None
     if task_id is not None:
-        await asyncio.to_thread(
-            celery_app.send_task,
+        await enqueue_background_job_async(
             "kb.index_file",
-            task_id=str(task_id),
+            job_id=str(task_id),
             queue=route_for("kb_index_file"),
-            kwargs=dict(
-                task_id=str(task_id),
-                tenant_id=str(kb.tenant_id),
-                file_id=str(kb_file.id),
-                user_id=ctx.user_id,
-            ),
+            kwargs={"file_id": str(kb_file.id)},
         )
     return {
         "file_id": str(kb_file.id),

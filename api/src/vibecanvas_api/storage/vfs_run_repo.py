@@ -202,7 +202,7 @@ class PostgresVfsRunStore:
         RE-2 C1: this drives ``run_in_short_session`` → ``asyncio.run``, which
         crashes if called from a running event loop. So it is ONLY legal at the
         two genuinely-sync run-end sites (``run_workflow_sync`` after its own
-        ``asyncio.run`` returns, and the Celery ``deployment_invoke`` sync shell
+        ``asyncio.run`` returns, and the background worker ``deployment_invoke`` sync shell
         around ``asyncio.run(_run(...))``). The async sites (``invoke_sync``,
         ``executions._produce_execution``) must use the async ``release`` path
         (see ``services.vfs_run_context.release_run``)."""

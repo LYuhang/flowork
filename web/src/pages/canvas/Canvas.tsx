@@ -32,6 +32,7 @@
  * we do it here at module scope.
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { PanelLeftOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Background,
@@ -62,6 +63,7 @@ import {
 } from '@/stores/workflow-edit';
 import { useUIStore } from '@/stores/ui';
 import { useRegisterViewportCenter } from '@/pages/canvas/CanvasViewportContext';
+import { Button } from '@/components/ui/button';
 
 const nodeTypes = { custom: CustomNode };
 
@@ -262,6 +264,7 @@ export function Canvas({ readOnly = false }: CanvasProps = {}) {
   const removeNodes = useWorkflowEditStore((s) => s.removeNodes);
   const setCanvasInteracting = useUIStore((s) => s.setCanvasInteracting);
   const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
+  const setExplorerOpen = useUIStore((s) => s.setExplorerOpen);
   const { screenToFlowPosition } = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const registerViewportCenter = useRegisterViewportCenter();
@@ -534,11 +537,25 @@ export function Canvas({ readOnly = false }: CanvasProps = {}) {
               {t('canvas.emptyTitle', 'Blank workflow canvas')}
             </p>
             <p className="mt-1 text-sm leading-5 text-content-secondary">
-              {t(
-                'canvas.emptyState',
-                'Right-click to add nodes, or ask the agent to build the first draft.',
-              )}
+              {readOnly
+                ? t('canvas.emptyReadOnly', 'This workflow version has no nodes.')
+                : t(
+                    'canvas.emptyState',
+                    'Open File Explorer to add nodes, or ask the Agent to build the workflow.',
+                  )}
             </p>
+            {!readOnly && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="pointer-events-auto mt-4"
+                onClick={() => setExplorerOpen(true)}
+              >
+                <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+                {t('canvas.openExplorer', 'Open File Explorer')}
+              </Button>
+            )}
           </div>
         </div>
       )}

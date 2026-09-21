@@ -37,7 +37,6 @@ import asyncio
 
 from sqlalchemy import text
 
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.storage.sync_session import short_admin_connection
 
@@ -46,9 +45,8 @@ GC_INTERVAL_SEC = 6 * 60 * 60  # every 6 hours
 RETENTION_DAYS = 30
 
 
-@celery_app.task(name="kb.gc_sweeper")
 def kb_gc_sweeper():
-    """Celery entry point — runs the async sweep on a fresh event loop.
+    """Background entry point — run the async sweep on a fresh event loop.
 
     Same shape as ``kb_orphan_reconciler``: sync wrapper around an
     async ``_sweep`` so the asyncpg-backed admin engine is happy.
@@ -97,14 +95,3 @@ async def _sweep() -> None:
              WHERE deleted_at IS NOT NULL
                AND deleted_at < now() - interval '{RETENTION_DAYS} days'
         """))
-
-
-# celery-beat schedule — merge into ``celery_app.conf.beat_schedule``
-# without clobbering anyone else's entries (reconciler.py and
-# kb_orphan_reconciler.py register their tasks the same way).
-if not getattr(celery_app.conf, "beat_schedule", None):
-    celery_app.conf.beat_schedule = {}
-celery_app.conf.beat_schedule["kb.gc_sweeper"] = {
-    "task": "kb.gc_sweeper",
-    "schedule": GC_INTERVAL_SEC,
-}

@@ -28,7 +28,7 @@ describe('<LoginPage>', () => {
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Build, preview, automate, and deploy with AI agents, visual workflows, tasks, and your browser—all in one platform',
+        'Turn knowledge and ideas into working workflows.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Deployment')).toBeInTheDocument();
@@ -38,7 +38,7 @@ describe('<LoginPage>', () => {
     expect(screen.getByRole('heading', { name: '登录' })).toBeInTheDocument();
     expect(
       screen.getByText(
-        '用 AI Agent、可视化工作流、任务和浏览器，在一个平台完成构建、预览、自动化与部署',
+        '让知识与想法，真正落到工作流中。',
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('部署')).toBeInTheDocument();

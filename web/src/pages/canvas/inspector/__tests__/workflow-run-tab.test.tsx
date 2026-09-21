@@ -284,6 +284,38 @@ describe('WorkflowRunTab', () => {
     });
   });
 
+  it('hydrates persisted inputs once without entering a render loop', async () => {
+    readVfsRunMock.mockResolvedValue({
+      path: '/run/__exec__/inputs.json',
+      content_type: 'application/json',
+      content: '{"query":"stable"}',
+      size_bytes: 18,
+      truncated: false,
+      wf_version: null,
+      stale: false,
+    });
+    useWorkflowEditStore.getState().setDraft(
+      startWith({ query: { type: 'string', value: '', reference: '' } }),
+    );
+    let workflowInputWrites = 0;
+    const unsubscribe = useExecStreamStore.subscribe((state, previous) => {
+      if (state.inputsByWorkflow !== previous.inputsByWorkflow) workflowInputWrites += 1;
+    });
+
+    renderTab();
+    await waitFor(() =>
+      expect((screen.getByTestId('exec-input-query-input') as HTMLInputElement).value).toBe(
+        'stable',
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    unsubscribe();
+
+    // One initial buffer publication plus one hydrated value publication. A
+    // changing fieldNames array used to keep this counter growing indefinitely.
+    expect(workflowInputWrites).toBeLessThanOrEqual(3);
+  });
+
   it('does not overwrite user-edited inputs when the VFS prefill resolves later', async () => {
     let resolveRead: (value: unknown) => void = () => {};
     readVfsRunMock.mockReturnValue(new Promise((resolve) => {

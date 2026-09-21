@@ -1,7 +1,7 @@
 """KB/RAG T11 — 30-day GC sweeper test.
 
 Plan §11.3 specifies a single test that covers the
-:func:`vibecanvas_api.celery_tasks.kb_gc_sweeper._sweep` contract:
+:func:`vibecanvas_api.background_tasks.kb_gc_sweeper._sweep` contract:
 
 1. Create a KB, soft-delete it (Tier 1 — DB row stays around).
 2. Backdate ``deleted_at`` to 31 days ago via raw SQL.
@@ -27,7 +27,7 @@ from sqlalchemy import text
 @pytest.mark.asyncio
 async def test_gc_deletes_after_30d(monkeypatch, pg_engine):
     """A KB soft-deleted >30 days ago must be physically deleted."""
-    from vibecanvas_api.celery_tasks.kb_gc_sweeper import _sweep
+    from vibecanvas_api.background_tasks.kb_gc_sweeper import _sweep
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.repo_kb import KbRepo
     from vibecanvas_api.storage.db import session_scope

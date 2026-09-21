@@ -1,6 +1,6 @@
 """Task detail and cancellation-route branching.
 
-Spec: docs/superpowers/specs/2026-05-23-phase-6-async-celery-design.md §6.3.
+See the Task lifecycle in ``docs/architecture.md``.
 
 Approach: seed tasks rows via the superuser ``pg_engine`` (RLS-bypass)
 into the schema migrated by the autouse ``_migrate`` fixture, then
@@ -53,7 +53,7 @@ async def test_task_to_out_serializes_uuid_and_datetime():
         result = None
         results_uri = None
         error = None
-        celery_id = "cid"
+        background_job_id = "cid"
         submitted_at = datetime(2026, 5, 23, tzinfo=timezone.utc)
         started_at = None
         finished_at = None
@@ -140,7 +140,7 @@ async def _seed_task(
             workflow_id=None,
             task_type="batch_exec",
             payload={},
-            celery_id=str(task_id),
+            background_job_id=str(task_id),
         )
         await repo.update_status(
             task_id,

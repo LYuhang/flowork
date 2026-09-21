@@ -45,7 +45,8 @@ production checks are defined in the
 | **PostgreSQL** | Users, Organizations, memberships, Chats, Workflows, versions, runs, Tasks, Deployments, Knowledge package metadata and derived search chunks, authorization state, and audit records | Tenant-scoped business rows are protected by RLS. Account erasure removes the personal tenant and user-scoped identity data; Organization-owned content follows the rules described below. |
 | **Object storage** | VFS file content, authoritative Knowledge package files, generated artifacts, run files, and Task outputs | Objects use tenant, resource, or Task prefixes. Account erasure removes the personal-tenant prefixes and the user's mounted-file objects. |
 | **Runtime state** | Runtime-owned Chat volumes and session state | Personal-tenant state is removed. State for Chats created by the deleted user in another Organization is removed without deleting that Organization. |
-| **Valkey** | Celery broker data, short-lived event copies, locks, and transient coordination | User and personal-tenant keys are removed where they can be addressed directly. Remaining queue messages are bounded by broker policy and cannot restore a deleted identity or authorization capability. |
+| **DBOS / PostgreSQL** | Durable background workflow, queue, and schedule state; arguments contain opaque business-record IDs only | Background work is cancelled before tenant deletion; private inputs remain encrypted in Flowork storage and application records remain the authoritative lifecycle state. |
+| **Valkey** | Short-lived event copies, counters, locks, rate limits, and transient coordination | User and personal-tenant keys are removed where they can be addressed directly. Transient entries cannot restore a deleted identity or authorization capability. |
 | **Sandbox and host storage** | Live or hibernated runtime state, overlay directories, VFS volumes, SDK state, and user-mounted files | Locally owned sandboxes are closed, file synchronization is stopped, and validated user and personal-tenant directories are removed. Ordinary sandbox leases and TTLs remain a secondary cleanup boundary. |
 | **OpenFGA** | Relationship tuples and the change feed used for resource authorization | Tuples for the user and personal-tenant resources are removed and verified absent. Identity-bearing rows in OpenFGA's retained change feed are then erased through a dedicated database function. Local authorization revisions are deleted or stripped of the erased user identifier. |
 | **Audit log** | Security-relevant action, outcome, time, actor, request, and target context | The row is retained for audit continuity, but fields that identify or correlate the erased account are cleared. Only non-identifying action, outcome, and timestamp information remains. |
@@ -150,7 +151,7 @@ personal tenant, and records a non-identifying purge-completion audit event.
 
 The authoritative phase list and handlers are in the
 [purge state machine](../api/src/vibecanvas_api/security/purge.py). The periodic
-[maintenance task](../api/src/vibecanvas_api/celery_tasks/data_purge.py) claims
+[maintenance task](../api/src/vibecanvas_api/background_tasks/data_purge.py) claims
 due jobs from PostgreSQL.
 
 ### Personal data and Organization-owned content
@@ -205,8 +206,8 @@ physical erasure finished.
 
 Production deployments must:
 
-- keep `PURGE_WORKER_ENABLED=true` and run both Celery Beat and a worker that
-  consumes the `maintenance` queue;
+- keep `PURGE_WORKER_ENABLED=true` and run the DBOS worker that owns the
+  `maintenance` queue and periodic schedules;
 - provide working database, object-store, Valkey, OpenFGA, checkpoint, sandbox,
   and host-storage cleanup paths used by the deployment;
 - provision `public.flowork_erase_changelog` in OpenFGA's PostgreSQL datastore

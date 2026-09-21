@@ -9,21 +9,23 @@ from sqlalchemy import text
 from vibecanvas_api.authorization.openfga_client import (
     openfga_client_from_config,
 )
-from vibecanvas_api.authorization.projection import ReconcileStats, reconcile_all
-from vibecanvas_api.celery_app import celery_app
+from vibecanvas_api.authorization.projection import (
+    ReconcileStats,
+    reconcile_all,
+)
 from vibecanvas_api.storage.sync_session import short_admin_connection
 
 
 RECONCILE_INTERVAL_SECONDS = 30.0
 
 
-@celery_app.task(name="authorization.reconcile")
 def reconcile_authorization() -> dict[str, int]:
+    """Run the low-frequency PostgreSQL/OpenFGA safety audit."""
     return asyncio.run(_run())
 
 
 async def _run() -> dict[str, int]:
-    # Beat may enqueue the next tick while a large tenant inventory is still
+    # The scheduler may enqueue the next tick while a large tenant inventory is still
     # being reconciled. Without a process-independent singleton guard, every
     # overlapping pass walks all tenants and holds its own database session,
     # eventually starving user mutations such as scheduled Task creation.
@@ -57,11 +59,3 @@ async def _run() -> dict[str, int]:
                 {"key": lock_key},
             )
             await connection.commit()
-
-
-if not getattr(celery_app.conf, "beat_schedule", None):
-    celery_app.conf.beat_schedule = {}
-celery_app.conf.beat_schedule["authorization.reconcile"] = {
-    "task": "authorization.reconcile",
-    "schedule": RECONCILE_INTERVAL_SECONDS,
-}

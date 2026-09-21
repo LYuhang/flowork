@@ -3683,7 +3683,7 @@
           "workflows"
         ],
         "summary": "Submit Batch",
-        "description": "Submit a batch atomically.\n\nInserts a ``tasks`` row inside the request transaction, then\n``send_task``s to the broker with ``task_id == tasks.id`` (so the\nCelery message and the DB row share a single identifier — the\nreconciler relies on this for idempotent re-publish).",
+        "description": "Submit a batch atomically.\n\nInserts a ``tasks`` row inside the request transaction, then\nenqueues a durable workflow with ``workflow_id == tasks.id`` (so DBOS and\nthe business row share one idempotency key used by the reconciler).",
         "operationId": "submit_batch_api_v1_workflows__wf_id__batch_post",
         "security": [
           {
@@ -7160,7 +7160,7 @@
           "tasks"
         ],
         "summary": "Cancel Task",
-        "description": "Branch on the task's current status.\n\nOrder of operations within each branch:\n  1. UPDATE the row (so the DB state is the source of truth).\n  2. Emit a ``task_events`` row (audit trail; SSE stream in T13\n     consumes this).\n  3. ``await session.flush()`` to push the writes to the wire —\n     the actual COMMIT happens in ``tenant_db``'s dependency\n     teardown, but we want the rows visible to any concurrent\n     worker checkpoint within this same transaction's WAL.\n  4. Defensive ``celery_app.control.revoke`` — best-effort.\n     The broker call is sync (``kombu``) so push it to a worker\n     thread; swallow any failure (broker unreachable just means\n     we rely on the running worker to notice ``cancelling`` itself,\n     which the batch_exec task body already polls for).",
+        "description": "Branch on the task's current status.\n\nOrder of operations within each branch:\n  1. UPDATE the row (so the DB state is the source of truth).\n  2. Emit a ``task_events`` row (audit trail; SSE stream in T13\n     consumes this).\n  3. Commit the business state so every worker checkpoint sees the cancel.\n  4. Defensive DBOS cancellation — best-effort. The durable business\n     state remains authoritative and the batch body also polls it.",
         "operationId": "cancel_task_api_v1_tasks__task_id__cancel_post",
         "security": [
           {
@@ -8357,7 +8357,7 @@
           "deployments-invoke"
         ],
         "summary": "Invoke Sync",
-        "description": "Spec §6.1 — true sync invoke. Runs the workflow IN the API process\nvia :py:meth:`Workflow.astream`. There is no Celery hop or\nintermediate ``tasks`` row — the caller blocks until completion.\n\nReturns ``{\"outputs\": ..., \"exec_time_ms\": ...}`` on success.\nReturns 502 ``{\"errors\": ..., \"exec_time_ms\": ...}`` when the\nworkflow finished but at least one node produced an error.\n\nWhy every \"not authorized\" case is 404 (not 403 / 401):\napi_key, slug, enabled, and trigger_type are all *existence* axes\nof the same row — leaking which one failed would let an attacker\nprobe slugs by trying random keys against them. The single 404\nresponse collapses them all.",
+        "description": "Spec §6.1 — true sync invoke. Runs the workflow IN the API process\nvia :py:meth:`Workflow.astream`. There is no background queue hop or\nintermediate ``tasks`` row — the caller blocks until completion.\n\nReturns ``{\"outputs\": ..., \"exec_time_ms\": ...}`` on success.\nReturns 502 ``{\"errors\": ..., \"exec_time_ms\": ...}`` when the\nworkflow finished but at least one node produced an error.\n\nWhy every \"not authorized\" case is 404 (not 403 / 401):\napi_key, slug, enabled, and trigger_type are all *existence* axes\nof the same row — leaking which one failed would let an attacker\nprobe slugs by trying random keys against them. The single 404\nresponse collapses them all.",
         "operationId": "invoke_sync_api_v1_deployments__slug__invoke_post",
         "parameters": [
           {
@@ -8426,7 +8426,7 @@
           "deployments-invoke"
         ],
         "summary": "Invoke Async",
-        "description": "Spec §6.2 — async submit. Enqueues a ``deployment_invoke`` Celery\ntask and returns its opaque invocation id immediately.\n\nAuth model is identical to ``invoke_sync`` — Bearer plaintext\napi_key, all \"not authorized\" cases collapse to 404 to avoid\nleaking which axis (api_key / enabled / trigger_type / slug)\nfailed without revealing whether the deployment exists.\n\nThe session remains tenant-bound so future Deployment-specific invocation\nlogs can be written without changing the route boundary.",
+        "description": "Spec §6.2 — async submit. Enqueues a durable ``deployment_invoke``\nworkflow and returns its opaque invocation id immediately.\n\nAuth model is identical to ``invoke_sync`` — Bearer plaintext\napi_key, all \"not authorized\" cases collapse to 404 to avoid\nleaking which axis (api_key / enabled / trigger_type / slug)\nfailed without revealing whether the deployment exists.\n\nThe session remains tenant-bound so future Deployment-specific invocation\nlogs can be written without changing the route boundary.",
         "operationId": "invoke_async_api_v1_deployments__slug__runs_post",
         "parameters": [
           {
@@ -8495,7 +8495,7 @@
           "deployments-invoke"
         ],
         "summary": "Webhook",
-        "description": "Spec §6.3 — webhook receiver with HMAC verification + size guard.\n\nNo Bearer auth: trust comes from a valid signature over\n``timestamp + \".\" + raw_body`` using the deployment's ``hmac_secret``.\nReturns 202 + ``task_id`` once the Celery message is enqueued.\n\nOrder of checks (rejects cheapest first):\n\n1. ``Content-Type`` must be ``application/json`` → 415 otherwise.\n   (We refuse to even sniff non-JSON.)\n2. ``Content-Length`` header is required and capped at 1 MiB → 413\n   otherwise. This is only a cheap pre-filter; the actual streamed bytes\n   are independently capped, so a false header cannot bypass the limit.\n3. The actual streamed bytes are capped before any database/KMS lookup.\n4. ``resolve_deployment_and_bind_tenant`` admin-lookup by globally unique\n   active slug → 404 on miss / disabled / non-webhook trigger_type.\n5. ``X-Vibecanvas-Timestamp`` window check (±300s) → 401 otherwise.\n   This bounds clock skew and receipt retention; it is not by itself a\n   replay defense.\n6. HMAC-SHA256 of ``timestamp + \".\" + raw_body`` with the row's\n   ``hmac_secret`` must match ``X-Vibecanvas-Signature`` (``sha256=``\n   prefix). Compared with ``hmac.compare_digest`` (constant time).\n   Mismatch → 401.\n7. JSON parse of body → 400 on malformed JSON. (Done AFTER HMAC\n   so an attacker can't probe parse errors to differentiate\n   routes — though the size/timestamp/sig layers already\n   neutralise that.)\n8. A durable signature receipt atomically maps the authenticated request\n   to one invocation id. Replays within the timestamp window return the\n   original id and never enqueue a second workflow.",
+        "description": "Spec §6.3 — webhook receiver with HMAC verification + size guard.\n\nNo Bearer auth: trust comes from a valid signature over\n``timestamp + \".\" + raw_body`` using the deployment's ``hmac_secret``.\nReturns 202 + ``task_id`` once the durable workflow is enqueued.\n\nOrder of checks (rejects cheapest first):\n\n1. ``Content-Type`` must be ``application/json`` → 415 otherwise.\n   (We refuse to even sniff non-JSON.)\n2. ``Content-Length`` header is required and capped at 1 MiB → 413\n   otherwise. This is only a cheap pre-filter; the actual streamed bytes\n   are independently capped, so a false header cannot bypass the limit.\n3. The actual streamed bytes are capped before any database/KMS lookup.\n4. ``resolve_deployment_and_bind_tenant`` admin-lookup by globally unique\n   active slug → 404 on miss / disabled / non-webhook trigger_type.\n5. ``X-Vibecanvas-Timestamp`` window check (±300s) → 401 otherwise.\n   This bounds clock skew and receipt retention; it is not by itself a\n   replay defense.\n6. HMAC-SHA256 of ``timestamp + \".\" + raw_body`` with the row's\n   ``hmac_secret`` must match ``X-Vibecanvas-Signature`` (``sha256=``\n   prefix). Compared with ``hmac.compare_digest`` (constant time).\n   Mismatch → 401.\n7. JSON parse of body → 400 on malformed JSON. (Done AFTER HMAC\n   so an attacker can't probe parse errors to differentiate\n   routes — though the size/timestamp/sig layers already\n   neutralise that.)\n8. A durable signature receipt atomically maps the authenticated request\n   to one invocation id. Replays within the timestamp window return the\n   original id and never enqueue a second workflow.",
         "operationId": "webhook_api_v1_deployments__slug__webhook_post",
         "parameters": [
           {
@@ -15409,7 +15409,7 @@
           "column_mapping"
         ],
         "title": "BatchSubmitBody",
-        "description": "Atomic-submit body. ``extra='ignore'`` so a client cannot smuggle\n``tenant_id`` / ``user_id`` / ``celery_id`` into the row — those are\nderived from the authenticated context, never from the request."
+        "description": "Atomic-submit body. ``extra='ignore'`` so a client cannot smuggle\n``tenant_id`` / ``user_id`` / ``background_job_id`` into the row — those are\nderived from the authenticated context, never from the request."
       },
       "Body_create_custom_skill_api_v1_skills_custom_post": {
         "properties": {

@@ -1,27 +1,23 @@
-"""Batch-execution Celery task with ``TasksRepo`` and an object store.
+"""Batch background implementation with ``TasksRepo`` and an object store.
 
 The sandbox has no Docker → no Redis broker, no LocalStack S3. So:
 
 * :class:`InMemoryObjectStore` is the default ``object_store.provider``,
   exposed via the module-level ``_global_inmemory_store`` singleton so
   tests can introspect bytes uploaded by the task body.
-* ``celery_app.conf.task_always_eager = True`` (set in a fixture) makes
-  ``batch_exec.apply()`` / ``.delay()`` run synchronously in the test
-  process — no broker, no worker, no Redis required.
 * The best-effort ``_publish`` swallows any Redis error, so even without
   a broker the task body finishes cleanly.
 
 Coverage in this file:
 
-* ``test_batch_exec_is_a_celery_task`` — module-import side effect
-  registers ``batch_exec`` on the global Celery instance.
+* ``test_batch_exec_is_runtime_neutral`` — business code is a plain callable.
 * ``test_inmemory_object_store_roundtrip`` — :func:`get_object_store`
   honours ``provider="inmemory"`` and ``put_bytes`` / ``get_bytes``
   roundtrip.
 * ``test_tasks_repo_create_update_event`` — :class:`TasksRepo` CRUD
   smoke against the real Postgres test DB.
 * ``test_batch_exec_eager_end_to_end`` — full task run: seed a tenant
-  + user + workflow row, invoke ``batch_exec.apply`` synchronously,
+  + user + workflow row, invoke ``batch_exec`` synchronously,
   assert the ``tasks`` row finishes, ``task_events`` accumulates the
   expected events, and the CSV lands in the in-memory store.
 """
@@ -34,8 +30,7 @@ import uuid
 
 import pytest
 from sqlalchemy import text
-from vibecanvas_api.celery_app import celery_app
-from vibecanvas_api.celery_tasks.batch_exec import (
+from vibecanvas_api.background_tasks.batch_exec import (
     _watch_durable_cancel,
     batch_exec,
 )
@@ -54,28 +49,9 @@ from vibecanvas_api.storage.sync_session import (
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 
-@pytest.fixture
-def eager_celery(monkeypatch):
-    """Run Celery tasks synchronously in the test process.
-
-    ``task_always_eager`` means ``.delay`` / ``.apply_async`` immediately
-    execute the task body in-process — no broker, no worker. With
-    ``task_eager_propagates``, exceptions inside the task surface to
-    the caller of ``.apply`` instead of being captured on the result.
-    """
-    monkeypatch.setattr(celery_app.conf, "task_always_eager", True)
-    monkeypatch.setattr(celery_app.conf, "task_eager_propagates", True)
-    yield
-
-
-def test_batch_exec_is_a_celery_task():
-    """Importing the module side-effect-registers the task."""
-    assert batch_exec.name == "batch_exec"
-    assert hasattr(batch_exec, "delay")
-    assert hasattr(batch_exec, "apply")
-    # Registered on the global Celery instance — autodiscovery /
-    # explicit __init__.py import gates this.
-    assert "batch_exec" in celery_app.tasks
+def test_batch_exec_is_runtime_neutral():
+    assert callable(batch_exec)
+    assert not hasattr(batch_exec, "delay")
 
 
 async def test_durable_cancel_watcher_sets_worker_event(monkeypatch):
@@ -89,7 +65,7 @@ async def test_durable_cancel_watcher_sets_worker_event(monkeypatch):
         return next(snapshots)
 
     monkeypatch.setattr(
-        "vibecanvas_api.celery_tasks.batch_exec._task_snapshot",
+        "vibecanvas_api.background_tasks.batch_exec._task_snapshot",
         _snapshot,
     )
     stop_event = threading.Event()
@@ -148,7 +124,7 @@ async def test_tasks_repo_create_update_event(app_engine):
         task = await repo.create(
             task_id=task_id, tenant_id=t_a, user_id=u_a,
             workflow_id=None, task_type="batch_exec",
-            payload={"hello": "world"}, celery_id="celery-abc",
+            payload={"hello": "world"}, background_job_id="dbos-abc",
         )
         assert task.id == task_id
         assert task.status == "queued"
@@ -234,11 +210,10 @@ def _minimal_workflow_dict(wf_id: str) -> dict:
     }
 
 
-async def test_batch_exec_eager_end_to_end(app_engine, eager_celery, monkeypatch):
-    """Full task run with the in-memory store + eager Celery.
+async def test_batch_exec_eager_end_to_end(app_engine, monkeypatch):
+    """Full task run with the in-memory store.
 
-    Seeds tenant/user/workflow rows, then synchronously invokes the
-    Celery task. Verifies:
+    Seeds tenant/user/workflow rows, then invokes the runtime-neutral body.
 
     * the ``tasks`` row transitions queued → finished,
     * progress hits 1.0,
@@ -315,7 +290,7 @@ async def test_batch_exec_eager_end_to_end(app_engine, eager_celery, monkeypatch
         )
 
     monkeypatch.setattr(
-        "vibecanvas_api.celery_tasks.batch_exec.run_batch_workflow",
+        "vibecanvas_api.background_tasks.batch_exec.run_batch_workflow",
         _fake_batch_runtime,
     )
     t_a = uuid.uuid4()
@@ -370,9 +345,9 @@ async def test_batch_exec_eager_end_to_end(app_engine, eager_celery, monkeypatch
     # the optional pre-task sanity checks in this test process see it.
     token = current_sync_tenant_id.set(str(t_a))
     try:
-        result = await asyncio.to_thread(
-            batch_exec.apply,
-            kwargs={
+        await asyncio.to_thread(
+            batch_exec,
+            **{
                 "task_id": str(task_id),
                 "tenant_id": str(t_a),
                 "user_id": str(u_a),
@@ -382,8 +357,6 @@ async def test_batch_exec_eager_end_to_end(app_engine, eager_celery, monkeypatch
                 "concurrency": 2,  # exercise the parallel thread-pool path
             },
         )
-        # ``.apply`` returns an EagerResult; surfaces task exceptions.
-        result.get(disable_sync_subtasks=False)
     finally:
         current_sync_tenant_id.reset(token)
 

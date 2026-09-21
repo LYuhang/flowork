@@ -19,7 +19,7 @@ route and are dropped.
 
 The legacy ``task_manager`` slot was deleted along with
 the file-backed task manager (workers/* + managers/task_manager.py);
-batch execution now goes through Celery + the Postgres ``tasks`` table
+batch execution now goes through DBOS + the Postgres ``tasks`` table
 (routes/tasks.py).
 """
 

@@ -19,7 +19,7 @@ Coverage includes:
 4. ``test_unindexed_type_is_stored`` — files outside the parser registry are
    retained as authoritative package content without a derived index.
 
-Upload cases also patch ``celery_app.send_task`` and ``get_object_store``
+Upload cases also patch the background enqueue boundary and ``get_object_store``
 so the test doesn't actually hit the broker / boto3 client.
 """
 from __future__ import annotations
@@ -195,7 +195,7 @@ async def test_upload_duplicate_content_as_distinct_files(pg_engine):
     blob = b"hello world content here"
     sent: list[dict] = []
     with patch(
-        "vibecanvas_api.routes.kb.celery_app.send_task",
+        "vibecanvas_api.routes.kb.enqueue_background_job_async",
         side_effect=lambda *a, **kw: sent.append({"args": a, "kwargs": kw}),
     ):
         # First upload — succeeds, returns pending.
@@ -219,6 +219,8 @@ async def test_upload_duplicate_content_as_distinct_files(pg_engine):
     assert r2["status"] == "pending"
     assert r2["file_id"] != r1["file_id"]
     assert len(sent) == 2
+    assert sent[0]["kwargs"]["kwargs"] == {"file_id": r1["file_id"]}
+    assert sent[1]["kwargs"]["kwargs"] == {"file_id": r2["file_id"]}
 
 
 @pytest.mark.asyncio
@@ -229,7 +231,7 @@ async def test_import_folder_creates_one_authoritative_package(pg_engine):
     ctx = _StubCtx(tenant_id, user_id)
 
     with patch(
-        "vibecanvas_api.services.knowledge_packages.celery_app.send_task",
+        "vibecanvas_api.services.knowledge_packages.enqueue_background_job_async",
     ):
         async with session_scope(tenant_id=str(tenant_id)) as s:
             created = await import_kb(
@@ -338,7 +340,7 @@ async def test_unindexed_type_is_stored(pg_engine):
 
     sent: list[dict] = []
     with patch(
-        "vibecanvas_api.routes.kb.celery_app.send_task",
+        "vibecanvas_api.routes.kb.enqueue_background_job_async",
         side_effect=lambda *a, **kw: sent.append({"args": a, "kwargs": kw}),
     ):
         async with session_scope(tenant_id=str(tenant_id)) as s:

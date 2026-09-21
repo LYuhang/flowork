@@ -6,7 +6,7 @@ first bound to.
 THE BUG (root cause): ``storage/db.py``'s global ``_engine`` (built by
 ``init_engine`` and used by ``session_scope``) binds its asyncpg connections to
 whatever event loop FIRST created it. The codebase has several places that drive
-their own loop (sync repo facades / Celery ticks / the frozen-agent bridge), so a
+their own loop (sync repo facades / DBOS ticks / the frozen-agent bridge), so a
 run/session-lifecycle write-back can execute on a loop OTHER than the one the
 singleton is bound to. Reusing a connection across loops raises
 ``RuntimeError: ... attached to a different loop`` / ``Event loop is closed`` /

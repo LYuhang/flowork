@@ -6,14 +6,14 @@ S3 orphans (spec sec 8 ``Upload route ordering``):
   Step 2: INSERT kb_files (status='pending', object_store_key=NULL)
   Step 3: write blob to object_store
   Step 4: UPDATE kb_files.object_store_key
-  Step 5: send_task
+  Step 5: enqueue durable indexing work
 
 A failure at step 3 leaves a ``kb_files`` row with
 ``object_store_key IS NULL`` and ``status='pending'`` — Case A here.
 A failure at step 5 leaves a ``kb_files`` row WITH ``object_store_key`` set,
 but no worker processing it — Case B here.
 
-This celery-beat task runs every 5 minutes:
+This DBOS-scheduled task runs every 5 minutes:
 
 Both cases become an explicit failed state with a user-facing diagnostic. The
 platform never silently retries work: a user or Agent starts a new operation
@@ -30,7 +30,6 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_kb import KbRepo
 from vibecanvas_api.storage.sync_session import short_admin_connection
@@ -40,9 +39,8 @@ ORPHAN_THRESHOLD_SEC = 60
 INTERVAL_SEC = 300  # 5 minutes — frequent enough that orphans surface
 
 
-@celery_app.task(name="kb.orphan_reconciler")
 def kb_orphan_reconciler():
-    """Celery entry point — runs the async sweep on a fresh event loop."""
+    """Background entry point — run the async sweep on a fresh event loop."""
     asyncio.run(_sweep())
 
 
@@ -82,14 +80,3 @@ async def _sweep() -> None:
                 older_than=cutoff,
                 error_message=message,
             )
-
-
-# celery-beat schedule — merge into ``celery_app.conf.beat_schedule``
-# without clobbering anyone else's entries (reconciler.py registers
-# ``phase6.reconciler`` the same way).
-if not getattr(celery_app.conf, "beat_schedule", None):
-    celery_app.conf.beat_schedule = {}
-celery_app.conf.beat_schedule["kb.orphan_reconciler"] = {
-    "task": "kb.orphan_reconciler",
-    "schedule": INTERVAL_SEC,
-}

@@ -100,6 +100,14 @@ describe('CustomNode — output preview wiring for every node type', () => {
 
   it.each(Object.keys(NODE_LABELS))('attaches a same-width output area to %s', (nodeType) => {
     const client = new QueryClient();
+    client.setQueryData(['vfs', 'run-list', 'wf-preview'], {
+      entries: [{
+        path: '/run/__exec__/nodes/node_1.json',
+        content_type: 'application/json',
+        size_bytes: 10,
+        capabilities: ['read'],
+      }],
+    });
     client.setQueryData(['vfs', 'run-node-result', 'wf-preview', 'node_1'], {
       status: 'completed', output: { message: 'Preview wired' },
     });

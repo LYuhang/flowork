@@ -20,7 +20,7 @@ local run, reuses:
 - the FastAPI process on `127.0.0.1:8000`; and
 - the Vite development server on `127.0.0.1:5173`.
 
-These managed processes do not provide PostgreSQL, Redis, OpenFGA, Celery, or
+These managed processes do not provide PostgreSQL, Redis, OpenFGA, DBOS, or
 the sandbox service. Focused route tests can use this mode when those
 dependencies are already available through the supplied environment. Tests
 that exercise execution, Tasks, Deployments, Agent Runtimes, or sandbox state

@@ -229,7 +229,11 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
   const { t } = useTranslation();
   const draft = useWorkflowEditStore((s) => s.draft);
   const dirty = useWorkflowEditStore((s) => s.dirty);
-  const fields = getStartNodeFields(draft);
+  // `getStartNodeFields` returns a new array. Keeping that array unstable made
+  // `fieldNames` change on every render; once persisted inputs existed, the
+  // hydration effect below kept writing an equivalent `buffers` object and
+  // caused a permanent render loop on the canvas.
+  const fields = useMemo(() => getStartNodeFields(draft), [draft]);
   const fieldNames = useMemo(() => fields.map((f) => f.name), [fields]);
   const lastRunInputs = useRunWorkflowInputs(fieldNames.length > 0 ? wfId : null);
 
@@ -275,8 +279,11 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
       const next = { ...prev };
       for (const name of fieldNames) {
         if (Object.prototype.hasOwnProperty.call(lastRunInputs, name)) {
-          next[name] = lastRunInputs[name];
-          changed = true;
+          const value = lastRunInputs[name];
+          if (!Object.is(prev[name], value)) {
+            next[name] = value;
+            changed = true;
+          }
         }
       }
       return changed ? next : prev;

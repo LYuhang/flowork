@@ -1,6 +1,6 @@
-"""Celery queue routing — forward-compat hook #1 (spec).
+"""Background queue routing — runtime-neutral forward-compatibility hook.
 
-All ``send_task`` calls go through ``route_for(task_kind, deployment_id)``.
+All durable background submissions go through ``route_for``.
 Today: ``interactive`` vs ``deployments`` split.
 Future: multi-cluster — extend signature with tenant_id / cluster_hint and
 select a cluster-scoped queue.
@@ -21,7 +21,7 @@ _KIND_TO_QUEUE: dict[str, str] = {
 
 
 def route_for(task_kind: str, deployment_id: Optional[uuid.UUID] = None) -> str:
-    """Return the Celery queue name for the given task kind.
+    """Return the background queue name for the given task kind.
 
     ``deployment_id`` is unused today but accepted for forward-compat
     (multi-cluster routing will use it to pick a cluster-scoped queue).

@@ -5,7 +5,6 @@ import asyncio
 
 from sqlalchemy import text
 
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.services.rate_limit import _get_redis
 from vibecanvas_api.services.tenant_db import session_scope_admin
 
@@ -13,7 +12,6 @@ from vibecanvas_api.services.tenant_db import session_scope_admin
 RECONCILE_INTERVAL_SEC = 86400.0
 
 
-@celery_app.task(name="deployments.concurrency_reconciler")
 def reconcile_concurrency():
     asyncio.run(_reconcile())
 
@@ -34,11 +32,3 @@ async def _reconcile() -> None:
             await r.set(f"cc:tenant:{row.tenant_id}", row.n)
         except Exception:
             continue
-
-
-if not getattr(celery_app.conf, "beat_schedule", None):
-    celery_app.conf.beat_schedule = {}
-celery_app.conf.beat_schedule["deployments.concurrency_reconciler"] = {
-    "task": "deployments.concurrency_reconciler",
-    "schedule": RECONCILE_INTERVAL_SEC,
-}

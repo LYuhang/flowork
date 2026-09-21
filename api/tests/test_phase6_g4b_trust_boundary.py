@@ -1,4 +1,4 @@
-"""Request body tenant, user, and Celery identifiers must be ignored.
+"""Request body tenant, user, and DBOS identifiers must be ignored.
 
 The route's Pydantic body model has ``extra="ignore"``; verifying both at
 the schema layer (``model_validate``) AND at the persistence layer (a row
@@ -27,7 +27,7 @@ def test_body_drops_tenant_id_at_schema():
 
     The dumped body must carry ONLY the model's declared fields and MUST NOT
     contain any of the smuggled trust-boundary fields (``tenant_id`` /
-    ``user_id`` / ``celery_id`` / ``status``). The set of legitimately-declared
+    ``user_id`` / ``background_job_id`` / ``status``). The set of legitimately-declared
     fields has grown over time (``output`` / ``output_columns`` /
     ``concurrency`` for batch output shaping), so assert against the model's
     own declared field set rather than a hardcoded whitelist.
@@ -37,7 +37,7 @@ def test_body_drops_tenant_id_at_schema():
     smuggled = {
         "tenant_id": str(uuid.uuid4()),
         "user_id": str(uuid.uuid4()),
-        "celery_id": "evil",
+        "background_job_id": "evil",
         "status": "finished",
     }
     body = BatchSubmitBody.model_validate({
@@ -53,7 +53,7 @@ def test_body_drops_tenant_id_at_schema():
     )
     # And none of the smuggled trust-boundary fields leaked through.
     assert not (set(smuggled) & set(dumped.keys())), (
-        "Body MUST drop tenant_id/user_id/celery_id/status — "
+        "Body MUST drop tenant_id/user_id/background_job_id/status — "
         "request trust boundary"
     )
 
@@ -102,10 +102,10 @@ async def test_persisted_tenant_id_is_auth_ctx_not_body(pg_engine):
             workflow_id=None,
             task_type="batch_exec",
             # Body fields go in payload — and even payload here doesn't
-            # carry the smuggled tenant/user/celery (BatchSubmitBody
+            # carry the smuggled tenant/user/dbos (BatchSubmitBody
             # would have stripped them upstream).
             payload={"data_source": {}, "column_mapping": {}},
-            celery_id=str(task_id),
+            background_job_id=str(task_id),
         )
 
     async with pg_engine.connect() as c:

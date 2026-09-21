@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -92,6 +93,18 @@ def _isolate_local_auth_rate_limiter(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_sync_tenant_context():
+    """Prevent one sync-worker test from leaking its RLS tenant to another."""
+    from vibecanvas_api.storage.sync_session import current_sync_tenant_id
+
+    token = current_sync_tenant_id.set(None)
+    try:
+        yield
+    finally:
+        current_sync_tenant_id.reset(token)
+
+
+@pytest.fixture(autouse=True)
 def _explicit_test_agent_runtime(monkeypatch):
     """Give integration tests an explicit fake platform model connection.
 
@@ -102,6 +115,22 @@ def _explicit_test_agent_runtime(monkeypatch):
     """
     monkeypatch.setattr(_live_config.agent, "model", "openai:test-model")
     monkeypatch.setattr(_live_config.agent, "api_key", "test-provider-key")
+    # Managed Codex profiles are parsed once when AppConfig starts. Updating
+    # only the legacy AgentConfig fields no longer creates a selectable Runtime
+    # model, so install the explicit host-brokered test profile as well.
+    monkeypatch.setattr(
+        _live_config,
+        "codex_managed_apis",
+        [
+            {
+                "id": "test-managed",
+                "name": "Test OpenAI",
+                "base_url": "https://api.openai.test/v1",
+                "api_key": "test-provider-key",
+                "models": ("test-model",),
+            }
+        ],
+    )
 
 
 @pytest.fixture
@@ -369,6 +398,29 @@ def _migrate(pg_url, monkeypatch_session):
     cfg = AlembicConfig(str(ALEMBIC_INI))
     cfg.set_main_option("script_location", str(ALEMBIC_DIR))
     command.upgrade(cfg, "head")
+    # DBOS is part of the product's PostgreSQL contract.  Build its system
+    # schema in the same disposable database so transactionally-enqueued
+    # domain events (including authorization grants/revocations) are exercised
+    # by integration tests instead of being silently mocked out.
+    dbos_url = make_url(app_url).set(
+        drivername="postgresql+psycopg"
+    ).render_as_string(hide_password=False)
+    monkeypatch_session.setenv("DBOS_SYSTEM_DATABASE_URL", dbos_url)
+    _live_config.dbos_system_database_url = dbos_url
+    subprocess.run(
+        [
+            str(Path(sys.executable).with_name("dbos")),
+            "migrate",
+            "-s",
+            dbos_url,
+            "-r",
+            "vibecanvas_app",
+        ],
+        check=True,
+        cwd=API_DIR,
+        capture_output=True,
+        text=True,
+    )
     yield
 
 

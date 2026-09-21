@@ -74,7 +74,6 @@ from vibecanvas_api.authorization.types import (
     ResourceRef,
     ResourceType,
 )
-from vibecanvas_api.celery_app import celery_app
 from vibecanvas_api.config import config as _config
 from vibecanvas_api.schemas.access import (
     DirectBindingGrantIn,
@@ -83,6 +82,10 @@ from vibecanvas_api.schemas.access import (
     DirectBindingOut,
     access_from_decision,
     decision_allows_content,
+)
+from vibecanvas_api.services.background_queue import (
+    cancel_background_job_async,
+    enqueue_background_job_in_transaction,
 )
 from vibecanvas_api.services.batch_output import serialize_results
 from vibecanvas_api.services.access_presentation import direct_binding_out
@@ -205,7 +208,7 @@ async def _task_to_out(
         "result": t.result if can_view_content else None,
         "results_uri": t.results_uri if can_view_content else None,
         "error": t.error if can_view_content else None,
-        "celery_id": t.celery_id if can_view_content else None,
+        "background_job_id": t.background_job_id if can_view_content else None,
         "sandbox_status": (
             (t.payload or {}).get("sandbox_status")
             if can_view_content else None
@@ -364,6 +367,7 @@ def _require_sharing_enabled() -> None:
 
 async def _send_scheduled_execution(
     *,
+    session: AsyncSession,
     task_id: uuid.UUID,
     schedule_id: uuid.UUID,
     execution_id: uuid.UUID,
@@ -371,19 +375,12 @@ async def _send_scheduled_execution(
     user_id: str,
     workflow_id: str,
 ) -> None:
-    await asyncio.to_thread(
-        celery_app.send_task,
+    await enqueue_background_job_in_transaction(
+        session,
         "scheduled_runs.execute",
-        task_id=str(execution_id),
+        job_id=str(execution_id),
         queue=route_for("scheduled_run"),
-        kwargs={
-            "task_id": str(task_id),
-            "schedule_id": str(schedule_id),
-            "execution_id": str(execution_id),
-            "tenant_id": tenant_id,
-            "user_id": user_id,
-            "workflow_id": workflow_id,
-        },
+        kwargs={"execution_id": str(execution_id)},
     )
 
 
@@ -901,9 +898,10 @@ async def run_scheduled_now(
         },
         uuid.UUID(ctx.tenant_id),
     )
-    await repo.update_status(task_id, status="running", celery_id=str(execution_id))
+    await repo.update_status(task_id, status="running", background_job_id=str(execution_id))
     await session.flush()
     await _send_scheduled_execution(
+        session=session,
         task_id=task_id,
         schedule_id=schedule.id,
         execution_id=execution_id,
@@ -1364,15 +1362,9 @@ async def cancel_task(
       1. UPDATE the row (so the DB state is the source of truth).
       2. Emit a ``task_events`` row (audit trail; SSE stream in T13
          consumes this).
-      3. ``await session.flush()`` to push the writes to the wire —
-         the actual COMMIT happens in ``tenant_db``'s dependency
-         teardown, but we want the rows visible to any concurrent
-         worker checkpoint within this same transaction's WAL.
-      4. Defensive ``celery_app.control.revoke`` — best-effort.
-         The broker call is sync (``kombu``) so push it to a worker
-         thread; swallow any failure (broker unreachable just means
-         we rely on the running worker to notice ``cancelling`` itself,
-         which the batch_exec task body already polls for).
+      3. Commit the business state so every worker checkpoint sees the cancel.
+      4. Defensive DBOS cancellation — best-effort. The durable business
+         state remains authoritative and the batch body also polls it.
     """
     await _authorize_task(
         request=request,
@@ -1430,18 +1422,17 @@ async def cancel_task(
             },
             tenant_uuid,
         )
-        await session.flush()
+        await session.commit()
+        await _rebind_request_organization(session, ctx)
         # Defensive revoke: a worker could grab this row between our
         # SELECT and our UPDATE (race window is short, since we're
-        # inside one transaction, but the worker pulls from the broker
-        # which is external to our DB transaction). Best-effort: a
-        # broker outage here is harmless — the row is already
+        # inside one transaction, but a worker may claim the DBOS row
+        # outside our business transaction). Best-effort: a queue-client
+        # outage here is harmless — the row is already
         # ``cancelled`` in the DB.
-        if t.celery_id:
+        if t.background_job_id:
             try:
-                await asyncio.to_thread(
-                    celery_app.control.revoke, t.celery_id,
-                )
+                await cancel_background_job_async(t.background_job_id)
             except Exception:
                 pass
         return {"status": "cancelled"}
@@ -1468,17 +1459,11 @@ async def cancel_task(
             },
             tenant_uuid,
         )
-        await session.flush()
-        sig = "SIGTERM" if body.mode == "force" else "SIGUSR1"
-        terminate = body.mode == "force"
-        if t.celery_id:
+        await session.commit()
+        await _rebind_request_organization(session, ctx)
+        if t.background_job_id:
             try:
-                await asyncio.to_thread(
-                    celery_app.control.revoke,
-                    t.celery_id,
-                    terminate=terminate,
-                    signal=sig,
-                )
+                await cancel_background_job_async(t.background_job_id)
             except Exception:
                 pass
         return {"status": "cancelling"}
@@ -1549,16 +1534,13 @@ async def resume_task(
         action=Action.RESUME,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    # A cancelled delivery id remains in Celery workers' revoke memory. Reusing
-    # it would make the broker accept this message while every worker silently
-    # discards it, leaving the durable Task stuck in ``resuming`` forever.
-    # Keep the user-visible Task id stable and allocate a fresh internal
-    # delivery id for this resume attempt.
+    # A DBOS workflow id is immutable/idempotent. Keep the user-visible Task id
+    # stable and allocate a fresh workflow id for this resume attempt.
     resume_delivery_id = str(uuid.uuid4())
     await repo.update_status(
         task_id,
         status="resuming",
-        celery_id=resume_delivery_id,
+        background_job_id=resume_delivery_id,
         error=None,
         progress=0,
     )
@@ -1582,22 +1564,12 @@ async def resume_task(
     )
     await session.flush()
 
-    await asyncio.to_thread(
-        celery_app.send_task,
+    await enqueue_background_job_in_transaction(
+        session,
         "batch_exec",
-        task_id=resume_delivery_id,
-        kwargs=dict(
-            task_id=str(task_id),
-            tenant_id=ctx.tenant_id,
-            user_id=str(t.user_id),
-            workflow_id=t.workflow_id,
-            data_source=data_source,
-            column_mapping=column_mapping,
-            output=payload.get("output"),
-            output_columns=payload.get("output_columns"),
-            concurrency=payload.get("concurrency", 1),
-            resume=True,
-        ),
+        job_id=resume_delivery_id,
+        queue="interactive",
+        kwargs={"task_id": str(task_id)},
     )
     return {"status": "resuming", "task_id": str(task_id)}
 

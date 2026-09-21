@@ -226,13 +226,7 @@ async function restartNativeControlPlane() {
   await startManaged('worker', [
     PYTHON,
     '-m',
-    'celery',
-    '-A',
-    'vibecanvas_api.celery_app',
-    'worker',
-    '-Q',
-    'interactive,deployments,kb_indexing',
-    '--concurrency=2',
+    'vibecanvas_api.background_worker',
   ]);
 }
 

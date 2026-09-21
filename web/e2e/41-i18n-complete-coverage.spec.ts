@@ -122,7 +122,7 @@ const taskFixture = {
   result: null,
   results_uri: null,
   error: null,
-  celery_id: TASK_ID,
+  background_job_id: TASK_ID,
   submitted_at: '2026-08-23T08:00:00Z',
   started_at: '2026-08-23T08:00:01Z',
   finished_at: null,

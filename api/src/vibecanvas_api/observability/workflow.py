@@ -72,7 +72,7 @@ async def instrumented_drain(
     """Shared instrumented consumer of ``wf.astream()``. Returns
     ``(final_outputs, error_dict, execution_time)`` — same contract as
     ``Workflow._trigger_inner`` (the body of ``Workflow.trigger``). Used by
-    BOTH the async API path (``drain_astream``) and the sync Celery path
+    BOTH the async API path (``drain_astream``) and the sync background worker path
     (``run_workflow_sync``).
 
     The error merge mirrors ``_trigger_inner`` exactly so this is

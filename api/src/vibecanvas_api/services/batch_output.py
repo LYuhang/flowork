@@ -1,6 +1,6 @@
 """Batch-result output destinations + format serialization.
 
-The batch runner (``celery_tasks/batch_exec.py``) aggregates every row into a
+The batch runner (``background_tasks/batch_exec.py``) aggregates every row into a
 normalized results table (columns ``i / input / output / error``). TWO things are
 abstracted here so new behavior plugs in without touching the task:
 
@@ -12,7 +12,7 @@ abstracted here so new behavior plugs in without touching the task:
 
 The sink fully owns "write these rows to this destination in the right format":
 the task hands it the structured rows and gets back the written location. The
-Postgres/object-store write runs inside ``run_in_short_session`` (the Celery
+Postgres/object-store write runs inside ``run_in_short_session`` (the background worker
 worker is sync), tenant-scoped via the ``current_sync_tenant_id`` CV the task
 sets at its top.
 """

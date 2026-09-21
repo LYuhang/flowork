@@ -2,7 +2,7 @@
 
 Caller owns the transaction: every public method ``flush()``-es but does
 NOT ``commit()``. The DI request session commits at request end; the
-Celery indexer commits explicitly via ``session_scope`` /
+background worker indexer commits explicitly via ``session_scope`` /
 ``run_in_short_session``.
 
 Tenant scoping is delegated to Postgres FORCE RLS — the session must be

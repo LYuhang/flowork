@@ -120,7 +120,7 @@ const workflow = {
 const task = {
   id: TASK_ID, status: 'running', progress: 0.42, task_type: 'batch_exec',
   workflow_id: WF_ID, payload: {}, result: null, results_uri: null, error: null,
-  celery_id: 'celery-review', submitted_at: now, started_at: now,
+  background_job_id: 'background-review', submitted_at: now, started_at: now,
   finished_at: null, access,
 };
 

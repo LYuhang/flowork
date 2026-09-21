@@ -166,6 +166,11 @@ export async function streamExecution(args: StreamExecutionArgs): Promise<void> 
       execStreamDebug('sse frame', { event: ev.event, id: ev.id, payload });
       if (ev.event === 'started') {
         useExecStreamStore.getState().begin(args.wfId, args.ac);
+        // The server has now cleared the stable /run tier. Refresh the one
+        // shared directory listing that gates every canvas node preview.
+        queryClient.removeQueries({
+          queryKey: ['vfs', 'run-list', args.wfId],
+        });
         return;
       }
       if (ev.event === 'EXEC_UPDATE') {

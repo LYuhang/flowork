@@ -211,6 +211,12 @@ backfill_env() {
   ensure_env_value ENABLE_TEST_USER false
   ensure_env_value ENTERPRISE_SSO_ENABLED false
   ensure_env_value AGENT_RUNTIME_TYPES codex
+  # The LangChain Chat Runtime was removed. Existing installations may still
+  # carry the old comma-separated value and would otherwise fail before the
+  # migration process can start.
+  if [[ "$(env_value AGENT_RUNTIME_TYPES)" != "codex" ]]; then
+    set_env_value AGENT_RUNTIME_TYPES codex
+  fi
   ensure_env_value CODEX_RUNTIME_AUTH_METHODS chatgpt,managed_api,personal_api
   ensure_env_value CODEX_MANAGED_APIS_JSON '[]'
   ensure_env_value AGENT_DEBUG_VIEW_ENABLED false

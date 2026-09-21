@@ -10,7 +10,7 @@ reconciler with zero orphan rows. This test seeds Case-B orphans for two
 tenants and proves the outbound jobs retain the correct tenant identity,
 without leaking the retired Task Center representation back into the model.
 
-The public test remains synchronous because the Celery entry point owns its
+The public test remains synchronous because the DBOS entry point owns its
 event loop. Encrypted rows are created through ``KbRepo`` in a short setup loop
 and the SQLAlchemy engine is disposed before the beat tick starts a new loop.
 
@@ -88,7 +88,7 @@ def test_stale_orphans_fail_without_implicit_new_task(
     monkeypatch, pg_url,
 ):
     """Each tenant is updated through ciphertext storage without retry."""
-    import vibecanvas_api.celery_tasks.kb_orphan_reconciler as orphan
+    import vibecanvas_api.background_tasks.kb_orphan_reconciler as orphan
 
     sync_dsn = pg_url.replace("+asyncpg", "")  # superuser DSN, RLS-bypass.
 
@@ -106,7 +106,7 @@ def test_stale_orphans_fail_without_implicit_new_task(
     with psycopg.connect(sync_dsn, autocommit=True) as conn:
         task_count_before = conn.execute("SELECT count(*) FROM tasks").fetchone()[0]
 
-    # Drive the real sync Celery entry point (its own asyncio.run loop = a
+    # Drive the real sync DBOS entry point (its own asyncio.run loop = a
     # beat tick). This must NOT run inside a running loop, hence a sync test.
     orphan.kb_orphan_reconciler()
 

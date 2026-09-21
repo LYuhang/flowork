@@ -497,6 +497,20 @@ class AuthzMutationCoordinator:
                 },
             )
         await session.flush()
+        # Flowork and DBOS share PostgreSQL, so persist delivery in the same
+        # transaction as the mutation intent.  Creation, update, deletion and
+        # sharing now drive OpenFGA directly; no inventory polling is needed.
+        from vibecanvas_api.services.background_queue import (
+            enqueue_background_job_in_transaction,
+        )
+
+        await enqueue_background_job_in_transaction(
+            session,
+            "authorization.apply_mutation",
+            job_id=f"authz-{mutation.mutation_id}",
+            queue="control",
+            kwargs={"mutation_id": str(mutation.mutation_id)},
+        )
         return mutation
 
 

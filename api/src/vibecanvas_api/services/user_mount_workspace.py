@@ -459,7 +459,7 @@ async def hydrate_user_mount(
 def hydrate_user_mount_sync(
     *, destination: str, user_id: str, tenant_id: str, overwrite: bool = True
 ) -> int:
-    """Synchronous mount hydration for Celery/deployment worker threads.
+    """Synchronous mount hydration for background worker/deployment worker threads.
 
     This uses the NullPool-backed sync VFS facade. It must not drive the API's
     shared async SQLAlchemy engine from a new ``asyncio.run`` event loop.

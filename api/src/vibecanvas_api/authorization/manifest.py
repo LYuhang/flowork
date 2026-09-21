@@ -829,7 +829,12 @@ def route_permission_manifest(app: FastAPI) -> tuple[RoutePermission, ...]:
 
 WORKER_PERMISSION_MANIFEST = (
     WorkerPermission(
-        "authorization.reconcile", "platform_worker",
+        "authorization.apply_mutation", "platform_worker",
+        ResourceType.ORGANIZATION, Action.MANAGE_POLICY,
+        "authorization_projection_inventory",
+    ),
+    WorkerPermission(
+        "authorization.audit", "platform_worker",
         ResourceType.ORGANIZATION, Action.MANAGE_POLICY,
         "authorization_projection_inventory",
     ),
@@ -845,10 +850,6 @@ WORKER_PERMISSION_MANIFEST = (
     WorkerPermission(
         "deployment_invoke", "service_account", ResourceType.DEPLOYMENT,
         Action.EXECUTE, "invocation_to_deployment",
-    ),
-    WorkerPermission(
-        "build_env_overlay", "captured_user", ResourceType.RUNTIME_STATE,
-        Action.UPDATE, "environment_to_owning_resource",
     ),
     WorkerPermission(
         "data_purge.run_due", "platform_worker", ResourceType.ORGANIZATION,
@@ -873,7 +874,7 @@ WORKER_PERMISSION_MANIFEST = (
         "kb_file_to_knowledge_base",
     ),
     WorkerPermission(
-        "phase6.reconciler.resubmit_stuck_queued", "platform_worker",
+        "background.reconcile_queued", "platform_worker",
         ResourceType.TASK, Action.RESUME, "task_inventory",
     ),
     WorkerPermission(

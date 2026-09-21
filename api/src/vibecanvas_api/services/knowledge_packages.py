@@ -18,7 +18,7 @@ from zipfile import BadZipFile, ZipFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from vibecanvas_api.celery_app import celery_app
+from vibecanvas_api.services.background_queue import enqueue_background_job_async
 from vibecanvas_api.services.file_format import content_type_for
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.services.parsers import detect_parser_type
@@ -257,17 +257,11 @@ async def enqueue_package_indexing(
 ) -> None:
     for file_id in file_ids:
         task_id = uuid.uuid4()
-        await asyncio.to_thread(
-            celery_app.send_task,
+        await enqueue_background_job_async(
             "kb.index_file",
-            task_id=str(task_id),
+            job_id=str(task_id),
             queue=route_for("kb_index_file"),
-            kwargs={
-                "task_id": str(task_id),
-                "tenant_id": tenant_id,
-                "file_id": str(file_id),
-                "user_id": user_id,
-            },
+            kwargs={"file_id": str(file_id)},
         )
 
 

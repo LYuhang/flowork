@@ -2,8 +2,8 @@
 
 T6 ships POST ``/api/v1/deployments/{slug}/invoke`` — the true sync path
 that runs the workflow IN the API process via ``Workflow.astream``
-without a Celery hop. POST ``/api/v1/deployments/{slug}/runs``
-— async submit; enqueues a ``deployment_invoke`` Celery task and returns
+without a background queue hop. POST ``/api/v1/deployments/{slug}/runs``
+— async submit; enqueues a durable ``deployment_invoke`` workflow and returns
 ``task_id`` as an opaque deployment invocation id.
 T8 will add ``/webhook`` (HMAC verified).
 
@@ -185,7 +185,7 @@ async def invoke_sync(
     authorization: Optional[str] = Header(default=None),
 ):
     """Spec §6.1 — true sync invoke. Runs the workflow IN the API process
-    via :py:meth:`Workflow.astream`. There is no Celery hop or
+    via :py:meth:`Workflow.astream`. There is no background queue hop or
     intermediate ``tasks`` row — the caller blocks until completion.
 
     Returns ``{"outputs": ..., "exec_time_ms": ...}`` on success.
@@ -326,8 +326,8 @@ async def invoke_async(
     body: dict,
     authorization: Optional[str] = Header(default=None),
 ):
-    """Spec §6.2 — async submit. Enqueues a ``deployment_invoke`` Celery
-    task and returns its opaque invocation id immediately.
+    """Spec §6.2 — async submit. Enqueues a durable ``deployment_invoke``
+    workflow and returns its opaque invocation id immediately.
 
     Auth model is identical to ``invoke_sync`` — Bearer plaintext
     api_key, all "not authorized" cases collapse to 404 to avoid
@@ -377,7 +377,7 @@ async def webhook(slug: str, request: Request):
 
     No Bearer auth: trust comes from a valid signature over
     ``timestamp + "." + raw_body`` using the deployment's ``hmac_secret``.
-    Returns 202 + ``task_id`` once the Celery message is enqueued.
+    Returns 202 + ``task_id`` once the durable workflow is enqueued.
 
     Order of checks (rejects cheapest first):
 

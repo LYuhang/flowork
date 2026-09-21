@@ -780,12 +780,11 @@ class DatabaseConfig:
 
 
 class RedisConfig:
-    """Redis connection used by the Celery broker and result backend.
+    """Redis connection used for transient rate limits and event fan-out.
 
     URL from ``REDIS_URL`` env var or yaml; default points at a local
-    dev instance. Both Celery's broker and result backend share the
-    same URL (separate DB indices can be encoded in the URL path if
-    operators want isolation).
+    dev instance. Durable background work is stored in PostgreSQL by DBOS;
+    Redis is not a task broker or source of truth.
     """
 
     def __init__(self, raw: Dict[str, Any]):
@@ -804,7 +803,7 @@ class ObjectStoreConfig:
       breaks any cross-process flow (KB indexing: api puts → worker fetches;
       batch download). Used by the test sandbox and single-process dev runs.
     * ``"filesystem"`` — blobs written under ``OBJECT_STORE_FS_ROOT``, a
-      directory shared between api + celery_worker + celery_beat (a docker
+      directory shared between api + background worker (a Docker
       named volume in compose; a shared dir in native multi-process runs).
       The OSS-standard local backend (LangFlow/Dify ship this before S3).
       **The recommended default for any multi-process deploy.**
@@ -1155,6 +1154,29 @@ class AppConfig:
         )
         self.database = DatabaseConfig(raw.get("database") or {})
         self.redis = RedisConfig(raw.get("redis") or {})
+        self.dbos_system_database_url: str = (
+            os.environ.get("DBOS_SYSTEM_DATABASE_URL")
+            or self.database.url.replace(
+                "postgresql+asyncpg://", "postgresql+psycopg://", 1
+            )
+        )
+        self.dbos_run_migrations: bool = _as_bool(
+            raw.get("dbos_run_migrations"),
+            os.environ.get("DBOS_RUN_MIGRATIONS"),
+            default=self.environment != "production",
+        )
+        self.dbos_client_pool_size: int = max(
+            5, int(os.environ.get("DBOS_CLIENT_POOL_SIZE", "5"))
+        )
+        self.dbos_worker_pool_size: int = max(
+            5, int(os.environ.get("DBOS_WORKER_POOL_SIZE", "5"))
+        )
+        self.dbos_max_executor_threads: int = max(
+            1, int(os.environ.get("DBOS_MAX_EXECUTOR_THREADS", "2"))
+        )
+        self.background_queue_concurrency: int = max(
+            1, int(os.environ.get("BACKGROUND_QUEUE_CONCURRENCY", "1"))
+        )
         self.object_store = ObjectStoreConfig(raw.get("object_store") or {})
         self.web_search = WebSearchConfig(raw.get("web_search") or {})
         self.mcp = McpConfig(raw.get("mcp") or {})
@@ -1503,11 +1525,6 @@ class AppConfig:
         #   'control_plane'      — API only, no worker
         #   'data_plane'         — worker only, no HTTP routes
         self.cluster_role: str = os.environ.get("CLUSTER_ROLE", "monolith")
-        # Worker queue subscription list (comma-separated). Workers read
-        # this on startup; producers pass ``queue=`` via ``route_for()``.
-        self.celery_queues: str = os.environ.get(
-            "CELERY_QUEUES", "interactive,deployments"
-        )
         # RE-6 P1 — path to the ``runsc`` (gVisor) binary for the OS-sandbox
         # provider. Located at runtime (env > yaml > PATH); not a pip dep.
         self.runsc_path: str | None = (
@@ -1515,7 +1532,7 @@ class AppConfig:
         )
         # Sandbox control-plane ownership. ``service`` keeps every resident
         # gVisor process and broker in the separately supervised sandboxd
-        # process; API and Celery processes only hold serializable proxies.
+        # process; API and background-worker processes hold serializable proxies.
         # ``embedded`` remains available for isolated unit tests only.
         self.sandbox_service_mode: str = (
             os.environ.get("SANDBOX_SERVICE_MODE")

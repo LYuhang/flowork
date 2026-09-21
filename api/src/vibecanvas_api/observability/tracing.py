@@ -54,12 +54,11 @@ def init_tracing() -> None:
 def _install_auto_instrumentors() -> None:
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # noqa
     from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-    from opentelemetry.instrumentation.celery import CeleryInstrumentor
     from opentelemetry.instrumentation.redis import RedisInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     # FastAPIInstrumentor is applied per-app in install_http_observability with
     # excluded_urls; here we cover the process-global instrumentors.
-    for inst in (SQLAlchemyInstrumentor, RedisInstrumentor, HTTPXClientInstrumentor, CeleryInstrumentor):
+    for inst in (SQLAlchemyInstrumentor, RedisInstrumentor, HTTPXClientInstrumentor):
         try:
             inst().instrument()
         except Exception:

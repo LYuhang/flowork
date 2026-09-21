@@ -69,7 +69,7 @@ class Task(Base):
     result: Optional[dict]
     error: Optional[str]
     results_uri: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    celery_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    background_job_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     deployment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("deployments.id", ondelete="SET NULL"),

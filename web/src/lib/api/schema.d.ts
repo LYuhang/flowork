@@ -1196,9 +1196,8 @@ export interface paths {
          * @description Submit a batch atomically.
          *
          *     Inserts a ``tasks`` row inside the request transaction, then
-         *     ``send_task``s to the broker with ``task_id == tasks.id`` (so the
-         *     Celery message and the DB row share a single identifier — the
-         *     reconciler relies on this for idempotent re-publish).
+         *     enqueues a durable workflow with ``workflow_id == tasks.id`` (so DBOS and
+         *     the business row share one idempotency key used by the reconciler).
          */
         post: operations["submit_batch_api_v1_workflows__wf_id__batch_post"];
         delete?: never;
@@ -2219,15 +2218,9 @@ export interface paths {
          *       1. UPDATE the row (so the DB state is the source of truth).
          *       2. Emit a ``task_events`` row (audit trail; SSE stream in T13
          *          consumes this).
-         *       3. ``await session.flush()`` to push the writes to the wire —
-         *          the actual COMMIT happens in ``tenant_db``'s dependency
-         *          teardown, but we want the rows visible to any concurrent
-         *          worker checkpoint within this same transaction's WAL.
-         *       4. Defensive ``celery_app.control.revoke`` — best-effort.
-         *          The broker call is sync (``kombu``) so push it to a worker
-         *          thread; swallow any failure (broker unreachable just means
-         *          we rely on the running worker to notice ``cancelling`` itself,
-         *          which the batch_exec task body already polls for).
+         *       3. Commit the business state so every worker checkpoint sees the cancel.
+         *       4. Defensive DBOS cancellation — best-effort. The durable business
+         *          state remains authoritative and the batch body also polls it.
          */
         post: operations["cancel_task_api_v1_tasks__task_id__cancel_post"];
         delete?: never;
@@ -2549,7 +2542,7 @@ export interface paths {
         /**
          * Invoke Sync
          * @description Spec §6.1 — true sync invoke. Runs the workflow IN the API process
-         *     via :py:meth:`Workflow.astream`. There is no Celery hop or
+         *     via :py:meth:`Workflow.astream`. There is no background queue hop or
          *     intermediate ``tasks`` row — the caller blocks until completion.
          *
          *     Returns ``{"outputs": ..., "exec_time_ms": ...}`` on success.
@@ -2580,8 +2573,8 @@ export interface paths {
         put?: never;
         /**
          * Invoke Async
-         * @description Spec §6.2 — async submit. Enqueues a ``deployment_invoke`` Celery
-         *     task and returns its opaque invocation id immediately.
+         * @description Spec §6.2 — async submit. Enqueues a durable ``deployment_invoke``
+         *     workflow and returns its opaque invocation id immediately.
          *
          *     Auth model is identical to ``invoke_sync`` — Bearer plaintext
          *     api_key, all "not authorized" cases collapse to 404 to avoid
@@ -2613,7 +2606,7 @@ export interface paths {
          *
          *     No Bearer auth: trust comes from a valid signature over
          *     ``timestamp + "." + raw_body`` using the deployment's ``hmac_secret``.
-         *     Returns 202 + ``task_id`` once the Celery message is enqueued.
+         *     Returns 202 + ``task_id`` once the durable workflow is enqueued.
          *
          *     Order of checks (rejects cheapest first):
          *
@@ -4731,7 +4724,7 @@ export interface components {
         /**
          * BatchSubmitBody
          * @description Atomic-submit body. ``extra='ignore'`` so a client cannot smuggle
-         *     ``tenant_id`` / ``user_id`` / ``celery_id`` into the row — those are
+         *     ``tenant_id`` / ``user_id`` / ``background_job_id`` into the row — those are
          *     derived from the authenticated context, never from the request.
          */
         BatchSubmitBody: {

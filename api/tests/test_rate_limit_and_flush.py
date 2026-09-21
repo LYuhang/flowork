@@ -71,7 +71,7 @@ async def test_bump_counter_calls_incr(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_flush_no_redis_no_op(monkeypatch):
-    from vibecanvas_api.celery_tasks import invoke_counter_flush
+    from vibecanvas_api.background_tasks import invoke_counter_flush
     monkeypatch.setattr(invoke_counter_flush, "_get_redis", lambda: None)
     await invoke_counter_flush._flush()  # must not raise
 
@@ -79,7 +79,7 @@ async def test_flush_no_redis_no_op(monkeypatch):
 @pytest.mark.asyncio
 async def test_flush_writes_postgres(pg_engine, app_engine, monkeypatch, pg_url):
     """Seed a deployment + a Redis counter; flush; verify deployments.invoke_count."""
-    from vibecanvas_api.celery_tasks import invoke_counter_flush
+    from vibecanvas_api.background_tasks import invoke_counter_flush
     from vibecanvas_api.storage import db as db_mod
     monkeypatch.setattr(db_mod, "_admin_engine", None)
     monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
@@ -162,15 +162,13 @@ async def test_concurrency_cap_none_means_unlimited(monkeypatch):
     fake.incr.assert_not_called()
 
 
-# ----- beat schedule registration -----
+# ----- durable schedule registration -----
 
 def test_flush_task_registered():
-    import vibecanvas_api.celery_tasks.invoke_counter_flush  # noqa: F401
-    from vibecanvas_api.celery_app import celery_app
-    assert "deployments.flush_invoke_counters" in celery_app.conf.beat_schedule
+    from vibecanvas_api.background_workflows import SCHEDULE_WORKFLOWS
+    assert "deployments.flush_invoke_counters" in SCHEDULE_WORKFLOWS
 
 
 def test_reconciler_task_registered():
-    import vibecanvas_api.celery_tasks.concurrency_reconciler  # noqa: F401
-    from vibecanvas_api.celery_app import celery_app
-    assert "deployments.concurrency_reconciler" in celery_app.conf.beat_schedule
+    from vibecanvas_api.background_workflows import SCHEDULE_WORKFLOWS
+    assert "deployments.concurrency_reconciler" in SCHEDULE_WORKFLOWS

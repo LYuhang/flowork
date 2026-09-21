@@ -2,7 +2,7 @@
 
 The daemon is the only process that owns :class:`SandboxManager` and therefore
 the only process that owns gVisor handles, brokers and resident session locks.
-API and Celery processes use the classes in this module as serializable gRPC
+API and background worker processes use the classes in this module as serializable gRPC
 proxies. Local deployments use a Unix socket; the same protobuf contract can
 be exposed over mTLS TCP by a remote Sandbox Service deployment.
 """
@@ -337,7 +337,7 @@ class RemoteSandboxManager:
 
     def _get_stub(self) -> pb_grpc.SandboxServiceStub:
         # grpc.aio channels are bound to the event loop that created them.
-        # Celery's synchronous task wrappers use asyncio.run(), so a worker
+        # background worker's synchronous task wrappers use asyncio.run(), so a worker
         # process receives a fresh loop for each task. Never reuse a stub from a
         # previous (usually already closed) loop; API processes keep reusing the
         # same channel because their running loop is stable.

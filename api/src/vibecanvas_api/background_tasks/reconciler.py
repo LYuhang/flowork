@@ -1,17 +1,15 @@
 """Resubmit stuck queued tasks through the admin engine.
 
 The atomic-submit route (POST /workflows/{wf_id}/batch) inserts the
-``tasks`` row inside the request transaction, then does a best-effort
-``celery_app.send_task`` after commit. If the broker call fails — or
-the broker temporarily drops the delivery — the row stays ``queued``
+``tasks`` row inside the request transaction, then does a best-effort DBOS
+enqueue after commit. If delivery fails, the row stays ``queued``
 forever and no worker picks it up.
 
-A celery-beat scheduled job (registered below) sweeps every 30s for
+A low-frequency DBOS safety schedule sweeps every five minutes for
 ``status='queued' AND submitted_at < now() - 60s`` and re-publishes the
-task to the broker. Celery dedupes on ``task_id`` (== ``celery_id`` ==
-``tasks.id`` per §6.3), so:
+task. DBOS uses ``background_job_id`` as its workflow id, so:
 
-* a duplicate of a still-pending message is a broker-side no-op;
+* a duplicate of a still-pending workflow is an idempotent no-op;
 * a lost delivery triggers a fresh pick-up.
 
 Uses the admin engine (RLS-bypassing) because this is a system-owned
@@ -27,27 +25,27 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from vibecanvas_api.celery_app import celery_app
+from vibecanvas_api.services.background_queue import enqueue_background_job
+from vibecanvas_api.services.queue_routing import route_for
 from vibecanvas_api.storage.models_tasks import Task
-from vibecanvas_api.storage.repo_tasks import TasksRepo
 from vibecanvas_api.storage.sync_session import short_admin_session
 
 
-RECONCILER_INTERVAL_SEC = 30
+RECONCILER_INTERVAL_SEC = 300
 STUCK_THRESHOLD_SEC = 60
 
 
-_TASK_TYPE_TO_CELERY_NAME: dict[str, str] = {
+_TASK_TYPE_TO_WORKFLOW_NAME: dict[str, str] = {
     "batch_exec": "batch_exec",
 }
 
 
 def _build_kwargs_for(task_type: str, row, payload: dict) -> dict:
-    """Build the Celery ``kwargs`` dict for a stuck row by ``task_type``.
+    """Build the background workflow arguments for a stuck Task row.
 
     Each task's worker signature is its own — they share NO kwargs
     contract, so the dispatch is explicit per branch. Keep this in
-    lockstep with :data:`_TASK_TYPE_TO_CELERY_NAME`.
+    lockstep with :data:`_TASK_TYPE_TO_WORKFLOW_NAME`.
 
     Raises ``ValueError`` for an unknown ``task_type`` — the caller
     (:func:`_resubmit`) gates this via the dispatch table so it can
@@ -55,22 +53,14 @@ def _build_kwargs_for(task_type: str, row, payload: dict) -> dict:
     that bypass the dispatch table.
     """
     if task_type == "batch_exec":
-        return dict(
-            task_id=row.celery_id,
-            tenant_id=str(row.tenant_id),
-            user_id=str(row.user_id),
-            workflow_id=row.workflow_id,
-            data_source=payload.get("data_source", {}),
-            column_mapping=payload.get("column_mapping", {}),
-        )
+        return {"task_id": str(row.id)}
     raise ValueError(
         f"reconciler: no kwargs builder for task_type={task_type!r}"
     )
 
 
-@celery_app.task(name="phase6.reconciler.resubmit_stuck_queued")
 def resubmit_stuck_queued():
-    """Celery entry point — runs the async sweep on a fresh event loop."""
+    """Background entry point — run the async sweep on a fresh event loop."""
     asyncio.run(_resubmit())
 
 
@@ -82,7 +72,7 @@ async def _resubmit() -> None:
 
     The SELECT clause includes ``task_type`` (added in KB/RAG T6); the
     dispatch table + ``_build_kwargs_for`` together turn each row into
-    the correct ``celery_app.send_task(name, ..., kwargs={...})`` call.
+    the correct durable enqueue call.
     Unmapped types are skipped silently — see the module docstring TODO.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=STUCK_THRESHOLD_SEC)
@@ -93,30 +83,15 @@ async def _resubmit() -> None:
                 Task.submitted_at < cutoff,
             )
         )).scalars().all())
-        repo = TasksRepo(session)
-        for row in rows:
-            await repo.materialize_task(row)
     for row in rows:
-        name = _TASK_TYPE_TO_CELERY_NAME.get(row.task_type)
+        name = _TASK_TYPE_TO_WORKFLOW_NAME.get(row.task_type)
         if name is None:
             # Unmapped task_type — sibling bug, out of scope; skip.
             continue
-        payload = row.payload or {}
-        kwargs = _build_kwargs_for(row.task_type, row, payload)
-        celery_app.send_task(
+        kwargs = _build_kwargs_for(row.task_type, row, {})
+        enqueue_background_job(
             name,
-            task_id=row.celery_id,
+            job_id=row.background_job_id,
+            queue=route_for(row.task_type),
             kwargs=kwargs,
         )
-
-
-# celery-beat schedule — picked up when the beat process boots with
-# ``-A vibecanvas_api.celery_app``. Importing this module registers it
-# on the global ``celery_app.conf`` (the celery_tasks package __init__
-# imports this file, so the schedule is always present after app boot).
-if not getattr(celery_app.conf, "beat_schedule", None):
-    celery_app.conf.beat_schedule = {}
-celery_app.conf.beat_schedule["phase6.reconciler"] = {
-    "task": "phase6.reconciler.resubmit_stuck_queued",
-    "schedule": RECONCILER_INTERVAL_SEC,
-}

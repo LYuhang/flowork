@@ -1,10 +1,10 @@
 """KB indexer orchestrator — parse → chunk → encrypted write.
 
-Async orchestrator called from the Celery task body via
+Async orchestrator called from the background worker task body via
 ``run_in_short_session(lambda s: KbIndexer(s, ...).index_file(file_id))``.
 The lambda body IS async (it receives an ``AsyncSession``) because
 ``run_in_short_session`` does ``asyncio.run(coro)`` internally; the
-caller (the Celery task) stays sync.
+caller (the background worker task) stays sync.
 
 ``MAX_CHUNKS_PER_FILE`` bounds parse/chunk memory and encrypted search cost.
 """
@@ -34,7 +34,7 @@ MAX_CHUNKS_PER_FILE = 5000
 
 
 class IndexingError(Exception):
-    """Aggregate failure that the Celery task catches and writes as
+    """Aggregate failure that the background worker task catches and writes as
     ``error_message`` on the KbFile. ``i18n_key`` maps to stable
     error codes so the frontend can localise the user-facing message.
 
@@ -67,7 +67,7 @@ def map_parse_exception(exc: Exception) -> IndexingError:
 
 
 class KbIndexer:
-    """Async orchestrator. Called from the Celery task body via
+    """Async orchestrator. Called from the background worker task body via
     ``run_in_short_session``.
 
     Parsed chunks are encrypted directly.  Retrieval uses Agent-native
@@ -89,7 +89,7 @@ class KbIndexer:
         """Parse → chunk → encrypted write. Returns chunk_count on
         success; raises :class:`IndexingError` on any terminal failure.
 
-        The Celery task body catches ``IndexingError``, cleans any
+        The background worker task body catches ``IndexingError``, cleans any
         partial chunks via ``delete_chunks_for_file``, and writes
         ``error_message`` to the ``kb_files`` row. Unknown exceptions
         propagate up — same cleanup path, different error_message."""

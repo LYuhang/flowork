@@ -1,7 +1,8 @@
-"""Celery worker-side observability initialization. The worker is a separate
-process (prefork, concurrency=2) and initializes independently. Prometheus uses
-multiprocess mode: PROMETHEUS_MULTIPROC_DIR (tmpfs), cleared on init; the parent
-serves /metrics. Fail-safe."""
+"""Background-worker observability initialization.
+
+The DBOS worker is a separate process and initializes independently. Metrics
+are exposed from that single process on a dedicated endpoint. Fail-safe.
+"""
 from __future__ import annotations
 
 import glob
@@ -32,7 +33,7 @@ def init_worker_observability() -> None:
     try:
         _clear_multiproc_dir()
         configure_logging()
-        init_tracing()  # installs SQLAlchemy/Celery/Redis/httpx instrumentors
+        init_tracing()  # installs SQLAlchemy/Redis/httpx instrumentors
     except Exception:
         _log.exception("init_worker_observability failed; worker continues")
 

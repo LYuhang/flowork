@@ -95,16 +95,14 @@ def test_every_session_protected_http_route_resolves_current_user():
                 )
 
 
-def test_worker_manifest_matches_registered_celery_task_names():
-    import vibecanvas_api.celery_tasks  # noqa: F401 - register task decorators
-    from vibecanvas_api.celery_app import celery_app
+def test_worker_manifest_matches_registered_background_workflows():
+    from vibecanvas_api.background_workflows import (
+        SCHEDULE_WORKFLOWS,
+        TASK_WORKFLOWS,
+    )
 
     expected = {item.task_name for item in WORKER_PERMISSION_MANIFEST}
-    registered = {
-        name
-        for name in celery_app.tasks
-        if not name.startswith("celery.")
-    }
+    registered = set(TASK_WORKFLOWS) | set(SCHEDULE_WORKFLOWS)
     assert expected == registered
     assert all(item.parent_resolver for item in WORKER_PERMISSION_MANIFEST)
 

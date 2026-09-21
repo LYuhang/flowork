@@ -90,7 +90,7 @@ def test_local_server_init_backfills_missing_upgrade_settings(tmp_path: Path) ->
 
 def test_compose_published_ports_default_to_loopback() -> None:
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
-    for service_name in ("postgres", "redis", "openfga", "api", "celery_worker"):
+    for service_name in ("postgres", "redis", "openfga", "api", "background_worker"):
         for port in compose["services"][service_name].get("ports", []):
             assert "${VIBECANVAS_INTERNAL_BIND_ADDRESS:-127.0.0.1}:" in port
     for port in compose["services"]["web"].get("ports", []):
@@ -121,7 +121,7 @@ def test_only_sandboxd_is_privileged_and_owns_snapshot_storage() -> None:
             assert snapshot_mount not in service.get("volumes", [])
     for name in (
         "openfga_bootstrap", "migrate", "sandbox_prewarm", "api",
-        "celery_worker", "celery_beat",
+        "background_worker",
     ):
         assert services[name]["user"] == "10001:10001"
         assert (
@@ -149,7 +149,7 @@ def test_compose_networks_separate_edge_control_data_and_authorization() -> None
     assert services["postgres"]["networks"] == ["data"]
     assert services["redis"]["networks"] == ["data"]
     assert services["openfga_postgres"]["networks"] == ["authorization_data"]
-    assert set(services["celery_worker"]["networks"]) == {
+    assert set(services["background_worker"]["networks"]) == {
         "data",
         "authorization",
         "authorization_data",
@@ -232,18 +232,37 @@ def test_interactive_preview_has_a_dedicated_response_sandbox() -> None:
     assert "localStorage" not in loader
 
 
-def test_runtime_state_schema_precedes_strict_content_backfill() -> None:
+def test_business_schema_precedes_dbos_schema_migration() -> None:
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
     migrate_command = compose["services"]["migrate"]["command"][-1]
-    setup = "setup_runtime_checkpointer.py"
     strict = "migrate_strict_content_encryption.py"
-    assert migrate_command.index(setup) < migrate_command.index(strict)
+    compose_dbos = "dbos migrate"
+    assert migrate_command.index(strict) < migrate_command.index(compose_dbos)
+    assert migrate_command.count("dbos migrate") == 1
+    assert "-r vibecanvas_app" in migrate_command
+    assert "provision_dbos_roles.py" in migrate_command
 
     native = (REPO_ROOT / "scripts/native_dev_up.sh").read_text()
     migrate_function = native.split("migrate() {", 1)[1].split(
         "start_services() {", 1
     )[0]
-    assert migrate_function.index(setup) < migrate_function.index(strict)
+    native_dbos = 'bin/dbos" migrate'
+    assert migrate_function.index(strict) < migrate_function.index(native_dbos)
+    assert migrate_function.count('bin/dbos" migrate') == 1
+    assert "-r vibecanvas_app" in migrate_function
+    assert "provision_dbos_roles.py" in migrate_function
+
+
+def test_dbos_roles_are_reprovisioned_for_transactional_enqueue() -> None:
+    script = (
+        REPO_ROOT / "scripts/security/provision_dbos_roles.py"
+    ).read_text()
+    assert '_ROLES = ("vibecanvas_app", "vibecanvas_maintenance")' in script
+    assert 'GRANT USAGE ON SCHEMA "dbos"' in script
+    assert 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA "dbos"' in script
+    assert 'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "dbos"' in script
+    assert 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA "dbos"' in script
+    assert "DBOS schema is missing; run dbos migrate first" in script
 
 
 def test_local_verifier_bypasses_host_proxy_for_loopback_health() -> None:
@@ -272,7 +291,7 @@ def test_openfga_erasure_role_cannot_access_live_tuples() -> None:
     services = compose["services"]
     sql = (REPO_ROOT / "scripts/security/openfga_erasure.sql").read_text()
 
-    worker = services["celery_worker"]
+    worker = services["background_worker"]
     assert "OPENFGA_ERASURE_DATABASE_URL" in worker["environment"]
     assert "openfga_erasure_bootstrap" in worker["depends_on"]
     assert "SECURITY DEFINER" in sql

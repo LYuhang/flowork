@@ -112,7 +112,7 @@ async def short_session_scope(
 
     WHY (cross-loop write-back data-loss): the global ``_engine`` binds its
     asyncpg connections to whichever event loop first built it (a request
-    loop, an early ``asyncio.run`` from a sync repo facade / Celery tick /
+    loop, an early ``asyncio.run`` from a sync repo facade / background worker tick /
     the frozen-agent bridge). The VFS write-back / release functions can run
     on a DIFFERENT loop than the one the singleton was bound to. Reusing a
     connection across loops raises ``RuntimeError: ... attached to a different

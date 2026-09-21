@@ -26,8 +26,10 @@ pytestmark = pytest.mark.asyncio
 class _TupleStore:
     def __init__(self) -> None:
         self.tuples: set[OpenFgaTuple] = set()
+        self.read_calls = 0
 
     async def read(self, *, tuple_key, continuation_token="", **_kwargs):
+        self.read_calls += 1
         assert not continuation_token
         matches = tuple(
             item
@@ -202,8 +204,10 @@ async def test_reconciler_repairs_missing_and_removes_unexplained_tuples(
     assert first.repairs_requested > 0
     assert first.repairs_requested == first.repairs_applied
 
+    store.read_calls = 0
     clean = await reconcile_organization(store, organization_id)
     assert clean.repairs_requested == 0
+    assert store.read_calls == 1
 
     owner_tuple = OpenFgaTuple(
         f"user:{user_id}",

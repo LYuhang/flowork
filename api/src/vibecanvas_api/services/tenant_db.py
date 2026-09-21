@@ -54,7 +54,7 @@ async def session_scope_admin() -> AsyncIterator[AsyncSession]:
     Never call from a user-request route handler — its session must be
     tenant-scoped so RLS applies.
 
-    FIX-beat (loop-bound engine): the celery-BEAT periodic tasks
+    FIX-beat (loop-bound engine): the background worker-BEAT periodic tasks
     (invoke-counter flush and concurrency reconciler) call
     this inside ``asyncio.run`` once per tick, in a single long-lived
     worker process. The old implementation bound the *process-global*

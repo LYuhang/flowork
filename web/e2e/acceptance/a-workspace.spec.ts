@@ -42,8 +42,10 @@ test('A2 create workflow lands on an empty onboarding canvas', async ({
     timeout: 15_000,
   });
   await expect(
-    page.getByText(/Right-click to add nodes/i),
+    page.getByText(/Open File Explorer to add nodes/i),
   ).toBeVisible();
+  await page.getByRole('button', { name: /^Open File Explorer$/i }).click();
+  await expect(page.getByText(/^Nodes$/i).first()).toBeVisible();
   await screenshot(page, '02-create-workflow');
 });
 

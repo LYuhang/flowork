@@ -315,6 +315,9 @@ async def test_delete_chat_session_deletes_runtime_volume(
     )
     runtime_marker = Path(runtime_volume.path) / "prepared-before-first-runtime"
     runtime_marker.write_text("delete with Chat", encoding="utf-8")
+    # Match the real Runtime lifecycle: the turn boundary persists the
+    # encrypted volume, then releases its plaintext materialization.
+    get_chat_runtime_volume_provider().release(runtime_volume)
 
     r = await client.delete(
         f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}",

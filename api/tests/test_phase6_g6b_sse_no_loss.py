@@ -74,7 +74,7 @@ async def test_sse_strict_order_no_gaps(pg_engine):
             workflow_id=None,
             task_type="batch_exec",
             payload={},
-            celery_id=str(task_id),
+            background_job_id=str(task_id),
         )
         await repo.update_status(task_id, status="running")
         for i in range(99):
@@ -144,7 +144,7 @@ async def test_sse_last_event_id_resume(pg_engine):
             workflow_id=None,
             task_type="batch_exec",
             payload={},
-            celery_id=str(task_id),
+            background_job_id=str(task_id),
         )
         await repo.update_status(task_id, status="running")
         for i in range(10):

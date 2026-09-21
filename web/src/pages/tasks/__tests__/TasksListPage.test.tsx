@@ -54,7 +54,7 @@ function makeTask(over: Partial<Task> & { id: string; status: TaskStatus }): Tas
     result: null,
     results_uri: null,
     error: null,
-    celery_id: 'celery-1',
+    background_job_id: 'background-1',
     submitted_at: '2026-05-24T00:00:00Z',
     started_at: null,
     finished_at: null,

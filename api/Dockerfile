@@ -21,7 +21,7 @@ ARG DRAWIO_DESKTOP_ARM64_SHA256=62a9ea636accada76076bd5a20f61b707e0e8093d3fd28c6
 # Node-based runtime assets share a digest-pinned Node/npm base, but are built
 # in independent stages. Updating Playwright core therefore cannot invalidate
 # the Codex or draw.io dependency caches.
-FROM node:22.23.2-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS node-runtime-base
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS node-runtime-base
 ARG NPM_VERSION
 RUN set -eux; \
     npm install --global --ignore-scripts --no-audit --no-fund "npm@${NPM_VERSION}"; \
@@ -51,11 +51,29 @@ RUN set -eux; \
 # The official 0.147.0 executable can lose early unified-exec output events.
 # Build the reviewed fix, retaining the same-version official companion bundle.
 # Keep Rust and build dependencies out of the final API/sandbox image.
-FROM rust:1.95.0-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1 AS codex-assets
+# Install the exact compiler on a maintained minimal OS, rather than carrying
+# the old Rust buildpack image's unrelated development libraries.
+FROM debian:bookworm-20260918-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS codex-assets
 ARG CODEX_BUILD_JOBS=4
+ARG TARGETARCH
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo \
+    RUSTUP_TOOLCHAIN=1.95.0 PATH=/opt/cargo/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 pkg-config libssl-dev cmake clang binutils && \
+        ca-certificates curl git build-essential python3 pkg-config libssl-dev cmake clang binutils && \
     rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+        amd64|x86_64) rust_target=x86_64-unknown-linux-gnu; rustup_sha=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c ;; \
+        arm64|aarch64) rust_target=aarch64-unknown-linux-gnu; rustup_sha=e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c ;; \
+        *) echo "Unsupported Rust architecture: ${TARGETARCH:-unknown}" >&2; exit 1 ;; \
+    esac; \
+    curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
+        "https://static.rust-lang.org/rustup/archive/1.28.2/${rust_target}/rustup-init" -o /tmp/rustup-init; \
+    echo "${rustup_sha}  /tmp/rustup-init" | sha256sum -c -; \
+    chmod 0700 /tmp/rustup-init; \
+    /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.95.0; \
+    rm /tmp/rustup-init; \
+    rustc --version | grep '^rustc 1\.95\.0 '
 WORKDIR /build
 COPY scripts/build_codex_runtime.py /build/scripts/build_codex_runtime.py
 COPY scripts/patches/codex-0.147.0-output-subscription.candidate.patch /build/scripts/patches/
@@ -87,7 +105,7 @@ COPY api/drawio-runtime/search.mjs /opt/drawio-mcp/search.mjs
 RUN chmod 0755 /opt/drawio-mcp/search.mjs && \
     test "$(node /opt/drawio-mcp/search.mjs --version)" = "1.5.0"
 
-FROM python:3.11.16-slim-trixie@sha256:9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7
+FROM python:3.11.16-slim-trixie@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e
 ARG CODEX_CLI_VERSION
 ARG PLAYWRIGHT_CORE_VERSION
 ARG DRAWIO_DESKTOP_VERSION
@@ -103,7 +121,7 @@ COPY --from=codex-assets /opt/codex /opt/codex
 COPY --from=node-runtime-base /usr/local/bin/node /usr/local/bin/node
 RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" && \
-    test "$(node --version)" = "v22.23.2"
+    test "$(node --version)" = "v24.21.0"
 
 # gVisor (runsc) — workflow execution is sandbox-ONLY since P2 (no in-process
 # fallback), so the runtime image MUST carry the runsc binary. Fetch the SAME

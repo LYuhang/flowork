@@ -37,12 +37,25 @@ the bubblewrap backend, and creates `.env.launch.local`. Its implementation
 is available in
 [`bootstrap_native_linux.sh`](../scripts/bootstrap_native_linux.sh).
 
-The supported toolchain follows the versions used by CI:
+The supported toolchain is:
 
 - Python 3.11.16 in `.venv/`;
-- Node.js 22 (CI pins 22.23.2) and pnpm 10.34.4;
+- Node.js 22 or 24 (CI and container builds pin 24.21.0) and pnpm 10.34.4;
 - PostgreSQL server binaries, a Redis-compatible local server, and bubblewrap; and
 - OpenFGA, started automatically with the local stack.
+
+Plan installation memory separately from steady-state service memory. The
+native bootstrap compiles the managed runtime from source with four Rust build
+jobs by default; this can require substantially more memory than running the
+installed services. `CODEX_BUILD_JOBS=1` reduces build concurrency, but does not
+guarantee that a single compiler process fits a small machine. A 2 GiB host is
+not currently a verified target for a complete source installation.
+
+For service-only operation, the launcher's default `WEB_MODE=preview` serves a
+production Web build. Use `WEB_MODE=dev` only when developing the frontend: its
+live compilation and dependency graph have a different memory profile. Agent
+sessions, workflow concurrency, and office rendering add workload-dependent
+memory on top of the idle services.
 
 Do not install the Python packages into the system interpreter or a Conda
 environment. When dependency declarations change, refresh the prepared

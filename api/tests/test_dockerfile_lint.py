@@ -33,9 +33,9 @@ def test_dockerfile_uses_python_3_10_or_later_base():
         "expected shared Node, Codex vendor/build, Playwright, draw.io, and Python stages, "
         f"got {from_lines}"
     )
-    assert from_lines[0].startswith("FROM node:22.23.2-bookworm-slim@sha256:")
+    assert from_lines[0].startswith("FROM node:24.21.0-bookworm-slim@sha256:")
     assert from_lines[1] == "FROM node-runtime-base AS codex-vendor"
-    assert from_lines[2].startswith("FROM rust:1.95.0-bookworm@sha256:")
+    assert from_lines[2].startswith("FROM debian:bookworm-20260918-slim@sha256:")
     assert from_lines[2].endswith(" AS codex-assets")
     assert from_lines[3] == "FROM node-runtime-base AS playwright-assets"
     assert from_lines[4] == "FROM node-runtime-base AS drawio-assets"
@@ -45,6 +45,21 @@ def test_dockerfile_uses_python_3_10_or_later_base():
     )
     minor = int(m.group(1))
     assert minor >= 10
+
+
+def test_codex_builder_keeps_exact_verified_compiler_without_old_buildpack():
+    text = DOCKERFILE_PATH.read_text()
+    native = (REPO_ROOT / "scripts/prepare_codex_runtime.sh").read_text()
+    builder = text.split(" AS codex-assets", 1)[1].split("FROM node-runtime-base", 1)[0]
+    assert "FROM rust:" not in text
+    assert "--profile minimal --default-toolchain 1.95.0" in builder
+    assert "RUSTUP_TOOLCHAIN=1.95.0" in builder
+    assert "rustup/archive/1.28.2/" in builder
+    assert "sha256sum -c -" in builder
+    for digest in re.findall(r"rustup_sha=([0-9a-f]{64})", native):
+        assert f"rustup_sha={digest}" in builder
+    assert "COPY --from=codex-assets /opt/codex /opt/codex" in text
+    assert "COPY --from=codex-assets /opt/rustup" not in text
 
 
 def test_dockerfile_pins_and_verifies_external_runtime_assets():

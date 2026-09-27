@@ -7,7 +7,7 @@
 # engine package remains installable. Product workflow execution is owned by
 # the API-managed sandbox runtime, not a container CLI.
 
-FROM python:3.11.16-slim-trixie@sha256:9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7
+FROM python:3.11.16-slim-trixie@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e
 
 WORKDIR /app
 

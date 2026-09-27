@@ -191,6 +191,12 @@ bootstrap separately installs the pinned official npm package for its companion
 programs. This source build can
 take tens of minutes and consume substantial build-cache disk space on its
 first run. `CODEX_BUILD_JOBS` controls compilation parallelism (default: 4).
+Installation memory is not the same as idle service memory: concurrent Rust
+compilers can exceed the running application's footprint by several times.
+Reducing `CODEX_BUILD_JOBS` to `1` reduces concurrency, but does not cap the
+memory of an individual compiler process. A complete source installation on
+a 2 GiB host has not been validated; do not infer support from idle-service
+measurements. The Docker resource table above is not a source-build memory cap.
 Docker builds the same patch in a separate Rust stage, without shipping the
 compiler in the final image.
 

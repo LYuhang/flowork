@@ -11,7 +11,7 @@
 # convention and keep room for future sibling assets.
 
 # ---------- Stage 1: build the static bundle ----------
-FROM node:22.23.2-alpine3.23@sha256:46825fbbd4e996a78b7a2cdc08d75e38a5a505bdab95dcda55605359bf124bc6 AS build
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS build
 
 WORKDIR /app
 
@@ -42,7 +42,7 @@ RUN pnpm codegen:api:offline && pnpm build
 # Build the companion browser extension from its independent frozen graph.
 # The public Web origin is compiled into the MV3 allowlist, so deployments
 # reached through a non-local origin must pass the same canonical URL here.
-FROM node:22.23.2-alpine3.23@sha256:46825fbbd4e996a78b7a2cdc08d75e38a5a505bdab95dcda55605359bf124bc6 AS extension-build
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS extension-build
 
 WORKDIR /app/extension
 RUN corepack enable && corepack prepare pnpm@10.34.4 --activate
@@ -59,7 +59,7 @@ RUN pnpm build && test -f dist/manifest.json && test -f dist/sidepanel.html
 
 # Python's standard library creates the deployment-local ZIP without adding a
 # package manager or archive utility to the final nginx runtime image.
-FROM python:3.11.16-slim-trixie@sha256:9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7 AS extension-package
+FROM python:3.11.16-slim-trixie@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e AS extension-package
 COPY --from=extension-build /app/extension/dist /extension
 RUN mkdir -p /out && \
     cd /extension && \

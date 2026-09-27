@@ -31,6 +31,7 @@ validate_release_inputs() {
     VIBECANVAS_API_IMAGE \
     VIBECANVAS_SANDBOX_IMAGE \
     VIBECANVAS_WEB_IMAGE \
+    VIBECANVAS_POSTGRES_IMAGE \
     RELEASE_REPOSITORY \
     RELEASE_SHA \
     RELEASE_REF \
@@ -46,6 +47,7 @@ validate_release_inputs() {
   [[ "${VIBECANVAS_API_IMAGE%@*}" == "$prefix-api" ]] || fail "API image must use the api release repository"
   [[ "${VIBECANVAS_SANDBOX_IMAGE%@*}" == "$prefix-sandboxd" ]] || fail "sandboxd image must use the sandboxd release repository"
   [[ "${VIBECANVAS_WEB_IMAGE%@*}" == "$prefix-web" ]] || fail "Web image must use the web release repository"
+  [[ "${VIBECANVAS_POSTGRES_IMAGE%@*}" == "$prefix-postgres" ]] || fail "Postgres image must use the postgres release repository"
   [[ -f "$PRODUCTION_EVIDENCE_MANIFEST" ]] || \
     fail "PRODUCTION_EVIDENCE_MANIFEST is not a regular file"
   [[ -f "$ENV_FILE" ]] || fail "production env file does not exist: $ENV_FILE"
@@ -55,7 +57,7 @@ validate_release_inputs() {
 verify_release() {
   validate_release_inputs
   local release_image
-  for release_image in "$VIBECANVAS_API_IMAGE" "$VIBECANVAS_SANDBOX_IMAGE" "$VIBECANVAS_WEB_IMAGE"; do
+  for release_image in "$VIBECANVAS_API_IMAGE" "$VIBECANVAS_SANDBOX_IMAGE" "$VIBECANVAS_WEB_IMAGE" "$VIBECANVAS_POSTGRES_IMAGE"; do
     "$ATTESTATION_VERIFIER" \
       "$release_image" \
       "$RELEASE_REPOSITORY" \

@@ -62,6 +62,13 @@ def test_codex_builder_keeps_exact_verified_compiler_without_old_buildpack():
     assert "COPY --from=codex-assets /opt/rustup" not in text
 
 
+def test_runtime_os_dependencies_do_not_wait_for_codex_compilation():
+    text = DOCKERFILE_PATH.read_text()
+    assert text.index("libreoffice-writer-nogui=") < text.index(
+        "COPY --from=codex-assets /opt/codex /opt/codex"
+    )
+
+
 def test_dockerfile_pins_and_verifies_external_runtime_assets():
     text = DOCKERFILE_PATH.read_text()
     assert "ARG CODEX_CLI_VERSION=0.147.0" in text

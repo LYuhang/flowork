@@ -1,6 +1,6 @@
 # Production release overlay. The base Compose file deliberately keeps local
 # build definitions for development. Production MUST combine this overlay with
-# ``--no-build --pull always`` after verifying all three exact digest references with
+# ``--no-build --pull always`` after verifying all four exact digest references with
 # scripts/security/verify_release_attestations.sh.
 x-openfga-production: &openfga-production
   VIBECANVAS_ENV: production
@@ -15,6 +15,10 @@ x-openfga-production: &openfga-production
   OPENFGA_MODEL_SHA256: "${OPENFGA_MODEL_SHA256:?Pin the reviewed model SHA256}"
 
 services:
+  postgres:
+    image: "${VIBECANVAS_POSTGRES_IMAGE:?Set VIBECANVAS_POSTGRES_IMAGE to an attested postgres image@sha256 digest}"
+    pull_policy: always
+
   openfga_bootstrap:
     image: "${VIBECANVAS_API_IMAGE:?Set VIBECANVAS_API_IMAGE to an attested image@sha256 digest}"
     pull_policy: always

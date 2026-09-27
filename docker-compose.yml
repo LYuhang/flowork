@@ -6,7 +6,10 @@ services:
 
   # ─────── infra ───────
   postgres:
-    image: pgvector/pgvector:0.8.6-pg15-bookworm@sha256:a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da
+    image: flowork-postgres:local
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
     environment:
       POSTGRES_DB: vibecanvas
       POSTGRES_USER: dev

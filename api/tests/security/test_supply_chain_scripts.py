@@ -28,7 +28,7 @@ _CLAMAV_LIVE_PY = _ROOT / "scripts/security/verify_clamav_live.py"
 
 def _deployment_image_references() -> set[str]:
     references: set[str] = set()
-    for relative_path in ("api/Dockerfile", "engine/Dockerfile", "web/Dockerfile"):
+    for relative_path in ("api/Dockerfile", "engine/Dockerfile", "web/Dockerfile", "postgres/Dockerfile"):
         text = (_ROOT / relative_path).read_text(encoding="utf-8")
         references.update(
             re.findall(r"^FROM\s+(\S+@sha256:[0-9a-f]{64})", text, re.MULTILINE)
@@ -59,12 +59,14 @@ def test_every_pinned_deployment_image_is_scanned() -> None:
 
 def test_actual_application_images_are_built_and_scanned() -> None:
     scanner = _SCANNER.read_text(encoding="utf-8")
+    assert "build_image postgres postgres/Dockerfile ." in scanner
+    assert "scripts/security/verify_postgres_image.sh" in scanner
     assert "build_image api api/Dockerfile ." in scanner
     assert "build_image sandboxd api/Dockerfile . --build-arg VIBECANVAS_RUNTIME_ENV_BUILDER=1" in scanner
     assert "flowork-sandboxd:security-scan -m pip --version" in scanner
     assert "build_image web web/Dockerfile ." in scanner
     assert "build_image engine engine/Dockerfile engine" in scanner
-    for image in ("api", "sandboxd", "web", "engine"):
+    for image in ("api", "sandboxd", "web", "engine", "postgres"):
         assert f"'{image}|flowork-{image}:security-scan'" in scanner
 
 
@@ -113,6 +115,7 @@ def test_supply_chain_shell_scripts_parse() -> None:
         _SCANNER,
         _CLAMAV_LIVE,
         _RELEASE_ATTESTATION_GATE,
+        _ROOT / "scripts/security/verify_postgres_image.sh",
     ):
         subprocess.run(["bash", "-n", str(script)], check=True)
     compile(
@@ -125,6 +128,59 @@ def test_supply_chain_shell_scripts_parse() -> None:
         str(_CLAMAV_LIVE_PY),
         "exec",
     )
+
+
+def test_postgres_image_retains_storage_contract_and_verified_sources() -> None:
+    dockerfile = (_ROOT / "postgres/Dockerfile").read_text()
+    assert "FROM debian:bookworm-20260918-slim@sha256:" in dockerfile
+    assert "PG_MAJOR=15 PG_VERSION=15.19-1.pgdg12+2" in dockerfile
+    assert "PGDATA=/var/lib/postgresql/data LANG=en_US.utf8" in dockerfile
+    assert "VOLUME /var/lib/postgresql/data" in dockerfile
+    assert "STOPSIGNAL SIGINT" in dockerfile
+    assert "EXPOSE 5432" in dockerfile
+    assert "--gid=999" in dockerfile and "--uid=999" in dockerfile
+    assert "/docker-entrypoint-initdb.d" in dockerfile
+    assert dockerfile.count("sha256sum -c -") == 5
+    assert "8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c" in dockerfile
+    assert "COPY --from=vector-build /out/ /" in dockerfile
+    assert "exec setpriv --reuid=postgres --regid=postgres --init-groups" in dockerfile
+    assert "signed-by=/usr/local/share/keyrings/postgres.asc" in dockerfile
+    workflow = _RELEASE_WORKFLOW.read_text()
+    assert "label: postgres" in workflow
+    assert 'bash scripts/security/verify_postgres_image.sh "$image_ref"' in workflow
+    release = _PRODUCTION_RELEASE.read_text()
+    assert '"$VIBECANVAS_POSTGRES_IMAGE"' in release
+
+
+@pytest.mark.parametrize("fail_sql", [False, True])
+def test_postgres_smoke_cleans_only_its_anonymous_volume(tmp_path: Path, fail_sql: bool) -> None:
+    docker = tmp_path / "docker"
+    log = tmp_path / "docker.log"
+    docker.write_text(
+        '#!/usr/bin/env bash\n'
+        'printf "%s\\n" "$*" >> "$DOCKER_LOG"\n'
+        'case "$*" in\n'
+        '  *"cat /proc/1/comm"*) echo postgres ;;\n'
+        '  *"SELECT count(*)"*) echo 2 ;;\n'
+        '  *"SHOW server_version_num"*) echo 150019 ;;\n'
+        '  *"ON_ERROR_STOP=1"*) cat >/dev/null; exit "$FAIL_SQL" ;;\n'
+        'esac\n',
+    )
+    docker.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(_ROOT / "scripts/security/verify_postgres_image.sh"), "flowork-postgres:test"],
+        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+             "DOCKER_LOG": str(log), "FAIL_SQL": "1" if fail_sql else "0"},
+        capture_output=True, text=True,
+    )
+    assert result.returncode == (1 if fail_sql else 0)
+    calls = log.read_text().splitlines()
+    assert "--network none" in calls[0]
+    assert " -p " not in calls[0] and " -v " not in calls[0]
+    name = calls[0].split("--name ", 1)[1].split()[0]
+    assert name.startswith("flowork-postgres-check-")
+    assert calls[-1] == f"rm -fv {name}"
+    assert any(line.startswith("restart --timeout 30 ") for line in calls) is not fail_sql
 
 
 def test_security_workflow_runs_the_container_gate_and_pins_actions() -> None:
@@ -193,7 +249,9 @@ def test_release_compose_uses_a_separate_verified_sandbox_builder_image() -> Non
         "api",
         "background_worker",
     }
-    assert set(services) == api_consumers | {"web", "sandboxd"}
+    assert set(services) == api_consumers | {"web", "sandboxd", "postgres"}
+    assert services["postgres"]["image"].startswith("${VIBECANVAS_POSTGRES_IMAGE:?")
+    assert services["postgres"]["pull_policy"] == "always"
     assert services["sandboxd"]["image"].startswith("${VIBECANVAS_SANDBOX_IMAGE:?")
     assert services["sandboxd"]["pull_policy"] == "always"
     for service_name in api_consumers:
@@ -229,7 +287,7 @@ def test_release_compose_uses_a_separate_verified_sandbox_builder_image() -> Non
     assert "scripts/security/verify_production_evidence.py" in production_release
 
 
-@pytest.mark.parametrize("label", ["api", "sandboxd", "web", "engine"])
+@pytest.mark.parametrize("label", ["api", "sandboxd", "web", "engine", "postgres"])
 def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
     tmp_path: Path, label: str,
 ) -> None:
@@ -271,6 +329,31 @@ def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
         assert "--source-ref refs/tags/v1.2.3" in call
         assert "--deny-self-hosted-runners" in call
     assert "--predicate-type https://spdx.dev/Document/v2.3" in calls[1]
+
+
+@pytest.mark.parametrize("postgres_image,expected", [
+    (None, "VIBECANVAS_POSTGRES_IMAGE is required"),
+    ("ghcr.io/example/other-postgres@sha256:" + "a" * 64,
+     "Postgres image must use the postgres release repository"),
+])
+def test_production_gate_requires_its_reviewed_postgres_image(
+    tmp_path: Path, postgres_image: str | None, expected: str,
+) -> None:
+    docker = tmp_path / "docker"
+    docker.write_text("#!/usr/bin/env bash\nexit 0\n")
+    docker.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+           "RELEASE_REPOSITORY": "Example/flowork", "RELEASE_SHA": "b" * 40,
+           "RELEASE_REF": "refs/tags/v1.2.3", "PRODUCTION_EVIDENCE_MANIFEST": "unused"}
+    for name, label in (("API", "api"), ("SANDBOX", "sandboxd"), ("WEB", "web")):
+        env[f"VIBECANVAS_{name}_IMAGE"] = f"ghcr.io/example/flowork-{label}@sha256:{'a' * 64}"
+    env.pop("VIBECANVAS_POSTGRES_IMAGE", None)
+    if postgres_image is not None:
+        env["VIBECANVAS_POSTGRES_IMAGE"] = postgres_image
+    result = subprocess.run(["bash", str(_PRODUCTION_RELEASE), "verify"],
+                            env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert expected in result.stderr
 
 
 def test_release_attestation_gate_rejects_tags_and_unknown_images(

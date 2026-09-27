@@ -82,6 +82,8 @@ scan_image() {
 cd "$repo_root"
 gate_failed=0
 
+build_image postgres postgres/Dockerfile .
+bash "$repo_root/scripts/security/verify_postgres_image.sh" flowork-postgres:security-scan
 build_image api api/Dockerfile .
 build_image sandboxd api/Dockerfile . --build-arg VIBECANVAS_RUNTIME_ENV_BUILDER=1
 "$docker_bin" run --rm --entrypoint python flowork-sandboxd:security-scan -m pip --version
@@ -97,7 +99,6 @@ readonly pinned_images=(
   'node-runtime|node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6'
   'node-build|node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2'
   'nginx-runtime|nginx:1.30.5-trixie@sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442'
-  'pgvector|pgvector/pgvector:0.8.6-pg15-bookworm@sha256:a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da'
   'valkey|valkey/valkey:9.1.2-alpine3.24@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11'
   'openfga-postgres|postgres:17.11-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f'
   'openfga|openfga/openfga:v1.18.3@sha256:01a6000aa6040a4d0bde6ea1d3359ac3b9f21dc972ac6103a87b38659a836776'
@@ -114,6 +115,7 @@ for entry in "${pinned_images[@]}"; do
 done
 
 for entry in \
+  'postgres|flowork-postgres:security-scan' \
   'api|flowork-api:security-scan' \
   'sandboxd|flowork-sandboxd:security-scan' \
   'web|flowork-web:security-scan' \
@@ -128,7 +130,7 @@ done
 sha256sum "$output_dir"/sbom/*.json "$output_dir"/vulnerabilities/*.json \
   > "$output_dir/report-checksums.sha256"
 if [[ "$gate_failed" -ne 0 ]]; then
-  printf 'container_supply_chain_gate=fail images=%s output=%s\n' "$((${#pinned_images[@]} + 4))" "$output_dir" >&2
+  printf 'container_supply_chain_gate=fail images=%s output=%s\n' "$((${#pinned_images[@]} + 5))" "$output_dir" >&2
   exit 2
 fi
-printf 'container_supply_chain_gate=pass images=%s output=%s\n' "$((${#pinned_images[@]} + 4))" "$output_dir"
+printf 'container_supply_chain_gate=pass images=%s output=%s\n' "$((${#pinned_images[@]} + 5))" "$output_dir"

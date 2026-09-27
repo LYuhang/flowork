@@ -39,6 +39,9 @@ jobs:
           - label: engine
             dockerfile: engine/Dockerfile
             context: engine
+          - label: postgres
+            dockerfile: postgres/Dockerfile
+            context: .
     steps:
       - name: Check out the complete release ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -81,6 +84,9 @@ jobs:
             --tag "$image_ref" "${build_args[@]}" "$BUILD_CONTEXT"
           if [[ "$IMAGE_LABEL" == sandboxd ]]; then
             docker run --rm --entrypoint python "$image_ref" -m pip --version
+          fi
+          if [[ "$IMAGE_LABEL" == postgres ]]; then
+            bash scripts/security/verify_postgres_image.sh "$image_ref"
           fi
           {
             printf 'subject-name=%s\n' "$subject_name"
@@ -328,7 +334,7 @@ jobs:
                   "digest": data["digest"],
                   "immutable_ref": data["immutable_ref"],
               }
-          if set(images) != {"api", "sandboxd", "engine", "web"}:
+          if set(images) != {"api", "sandboxd", "engine", "web", "postgres"}:
               raise SystemExit(f"incomplete image manifest: {sorted(images)}")
 
           extension = pathlib.Path(os.environ["EXTENSION_DIR"]) / (

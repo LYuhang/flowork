@@ -117,12 +117,6 @@ ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 
 WORKDIR /app
 
-COPY --from=codex-assets /opt/codex /opt/codex
-COPY --from=node-runtime-base /usr/local/bin/node /usr/local/bin/node
-RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
-    test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" && \
-    test "$(node --version)" = "v24.21.0"
-
 # gVisor (runsc) — workflow execution is sandbox-ONLY since P2 (no in-process
 # fallback), so the runtime image MUST carry the runsc binary. Fetch the SAME
 # pinned, sha512-verified release as scripts/get_runsc.sh (keep the pin in sync)
@@ -200,6 +194,14 @@ RUN set -eux; \
     ! ldd /opt/drawio/drawio | grep -q "not found"; \
     rm -f "/tmp/${drawio_deb}"; \
     rm -rf /var/lib/apt/lists/*
+
+# Resolve OS packages before depending on the lengthy native runtime build.
+# This also keeps the OS layer reusable when only the runtime patch changes.
+COPY --from=codex-assets /opt/codex /opt/codex
+COPY --from=node-runtime-base /usr/local/bin/node /usr/local/bin/node
+RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
+    test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" && \
+    test "$(node --version)" = "v24.21.0"
 
 # Install reviewed, hash-locked build tooling and runtime dependencies before
 # local source. Local packages disable build isolation so no undeclared package

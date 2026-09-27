@@ -12,6 +12,39 @@ permissions:
   contents: read
 
 jobs:
+  postgres-image-live:
+    name: PostgreSQL vector image and restart contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build and test the maintained database image
+        run: |
+          set -o pipefail
+          docker build --pull -f postgres/Dockerfile -t flowork-postgres:live . 2>&1 | tee "$RUNNER_TEMP/postgres-build.log"
+          bash scripts/security/verify_postgres_image.sh flowork-postgres:live 2>&1 | tee "$RUNNER_TEMP/postgres-live.log"
+      - name: Install pinned image scanners
+        run: scripts/security/install_sbom_tools.sh "$RUNNER_TEMP/postgres-tools"
+      - name: Scan the tested database image
+        env:
+          GRYPE_DB_CACHE_DIR: ${{ runner.temp }}/postgres-grype-db
+        run: |
+          "$RUNNER_TEMP/postgres-tools/syft" docker:flowork-postgres:live -o "syft-json=$RUNNER_TEMP/postgres-sbom.json"
+          "$RUNNER_TEMP/postgres-tools/grype" "sbom:$RUNNER_TEMP/postgres-sbom.json" -o "json=$RUNNER_TEMP/postgres-vulnerabilities.json"
+          python3 scripts/security/evaluate_container_vulnerabilities.py --label postgres --report "$RUNNER_TEMP/postgres-vulnerabilities.json"
+      - name: Retain database build and live-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: postgres-live-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/postgres-*.log
+            ${{ runner.temp }}/postgres-*.json
+          retention-days: 14
+
   production-evidence-contract:
     name: Production evidence contract
     runs-on: ubuntu-latest

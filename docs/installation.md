@@ -52,6 +52,13 @@ automatically before the API begins accepting traffic.
 Docker installation does not require Python, Node.js, or pnpm on the host. All
 application dependencies are built into the project images.
 
+The application database image is built from `postgres/Dockerfile`: PostgreSQL
+15 on Debian bookworm with pgvector 0.8.6, preserving the existing data-volume
+path and initialization hooks. Building it independently allows OS security
+updates without waiting for an upstream pgvector image rebuild. Production
+releases publish and verify this image alongside API, sandbox service, and Web
+images; see the [production deployment guide](../DEPLOY.md).
+
 #### Fresh Ubuntu server
 
 On a fresh Ubuntu host, install Docker Engine and Compose from Docker's official

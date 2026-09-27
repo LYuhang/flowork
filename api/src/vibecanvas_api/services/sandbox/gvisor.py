@@ -634,7 +634,12 @@ def _workflow_python_binds() -> "list[str]":
 
 
 def _workflow_python_env() -> dict[str, str]:
-    env: dict[str, str] = {}
+    # Bare python/pip commands must select the same mounted interpreter as
+    # the worker, not a host system Python with a different dependency set.
+    # Use only the selected runtime and trusted system paths, not host PATH.
+    env: dict[str, str] = {
+        "PATH": os.path.dirname(sys.executable) + os.pathsep + _DEFAULT_PATH,
+    }
     source_paths = _workflow_python_paths()
     dep_paths = _workflow_python_dependency_paths()
     # Only editable application source roots belong on PYTHONPATH: Python puts

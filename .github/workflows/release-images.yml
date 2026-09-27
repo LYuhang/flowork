@@ -30,6 +30,9 @@ jobs:
           - label: api
             dockerfile: api/Dockerfile
             context: .
+          - label: sandboxd
+            dockerfile: api/Dockerfile
+            context: .
           - label: web
             dockerfile: web/Dockerfile
             context: .
@@ -70,7 +73,15 @@ jobs:
           repository="${GITHUB_REPOSITORY,,}"
           subject_name="ghcr.io/${repository}-${IMAGE_LABEL}"
           image_ref="${subject_name}:${GITHUB_SHA}"
-          docker build --pull --file "$DOCKERFILE" --tag "$image_ref" "$BUILD_CONTEXT"
+          build_args=()
+          if [[ "$IMAGE_LABEL" == sandboxd ]]; then
+            build_args+=(--build-arg VIBECANVAS_RUNTIME_ENV_BUILDER=1)
+          fi
+          docker build --platform linux/amd64 --pull --file "$DOCKERFILE" \
+            --tag "$image_ref" "${build_args[@]}" "$BUILD_CONTEXT"
+          if [[ "$IMAGE_LABEL" == sandboxd ]]; then
+            docker run --rm --entrypoint python "$image_ref" -m pip --version
+          fi
           {
             printf 'subject-name=%s\n' "$subject_name"
             printf 'image-ref=%s\n' "$image_ref"
@@ -317,7 +328,7 @@ jobs:
                   "digest": data["digest"],
                   "immutable_ref": data["immutable_ref"],
               }
-          if set(images) != {"api", "engine", "web"}:
+          if set(images) != {"api", "sandboxd", "engine", "web"}:
               raise SystemExit(f"incomplete image manifest: {sorted(images)}")
 
           extension = pathlib.Path(os.environ["EXTENSION_DIR"]) / (

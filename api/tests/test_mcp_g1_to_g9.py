@@ -250,26 +250,18 @@ async def test_g3_cross_tenant_rls_isolation(pg_engine):
 
 @pytest.mark.asyncio
 async def test_g4_tool_name_namespacing_preserves_builtins(pg_engine):
-    """Spec §5: prefixed MCP tool names use ``{prefix}__{name}``. A
-    third-party MCP server can expose a tool literally named
-    ``get_workflow`` — but because the loader namespaces it as
-    ``notion__get_workflow``, the built-in canvas reader ``read_file`` in
-    ``vibecanvas_api.tools.TOOLS`` is unaffected and remains the
-    canonical canvas-reader. (``get_workflow`` itself was retired as a
-    built-in in VFS 2a T5 — the agent now reads via ``read_file`` — so a
-    third-party MCP tool named ``get_workflow`` does not even shadow a
-    surviving built-in; the namespacing invariant is what this gate checks.)
+    """Namespaced remote tools do not replace Workflow SubAgent built-ins.
 
-    This test seeds such a server, asserts the built-in TOOLS list still
-    contains the canonical ``read_file`` tool, and asserts the create
-    succeeded (so the bare-name collision pre-check does NOT mis-fire
-    on the namespaced form)."""
+    File operations now use the built-in bash tool; read_file and get_workflow
+    are retired built-ins. A remote get_workflow remains independently usable
+    as notion__get_workflow without changing the built-in tool registry.
+    """
     from vibecanvas_api.agents.tools import builtin_tool_names
 
     # Built-in remains present and identifiable by bare name (no ``__``).
     builtin_names = builtin_tool_names()
-    assert "read_file" in builtin_names, (
-        "built-in read_file must remain in TOOLS regardless of MCP "
+    assert "bash" in builtin_names, (
+        "built-in bash must remain in TOOLS regardless of MCP "
         "third-party tools"
     )
     # And no built-in name itself contains ``__`` — the invariant the
@@ -307,6 +299,7 @@ async def test_g4_tool_name_namespacing_preserves_builtins(pg_engine):
     # Create succeeded — the namespacing means no bare-name collision.
     assert resp["last_handshake_status"] == "ok"
     assert resp["tool_prefix"] == "notion"
+    assert builtin_tool_names() == builtin_names
 
 
 # ====================================================================

@@ -5,11 +5,11 @@ umask 077
 # Bootstrap a fresh Debian/Ubuntu/WSL host for the native (non-Docker) stack.
 # The script is intentionally idempotent. It installs host packages, creates a
 # repo-local uv Python environment, installs pinned project dependencies,
-# prepares Node/pnpm, fetches the pinned gVisor binary, and starts the app.
+# prepares Node/pnpm and the selected sandbox backend, and starts the app.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PREPARE_ONLY=0
-UV_VERSION="${UV_VERSION:-0.11.32}"
+UV_VERSION="${UV_VERSION:-0.12.19}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.147.0}"
 PLAYWRIGHT_CORE_VERSION="${PLAYWRIGHT_CORE_VERSION:-1.63.0-alpha-2026-08-05}"
@@ -116,7 +116,7 @@ node_is_compatible() {
   command -v node >/dev/null || return 1
   node -e '
     const [major, minor] = process.versions.node.split(".").map(Number);
-    process.exit(major > 22 || major === 22 || (major === 20 && minor >= 19) ? 0 : 1);
+    process.exit(major > 22 || (major === 22 && minor >= 12) || (major === 20 && minor >= 19) ? 0 : 1);
   '
 }
 
@@ -124,52 +124,67 @@ if ! node_is_compatible; then
   echo "[2/7] Installing Node.js ${NODE_MAJOR}.x"
   node_setup="$(mktemp)"
   curl -fsSL --retry 3 "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o "$node_setup"
-  sudo -E bash "$node_setup"
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+  # APT source/key metadata is public and must remain readable by _apt.
+  # Do not propagate the bootstrap's secret-file umask into repository setup.
+  sudo -E bash -c 'umask 022; exec bash "$1"' bash "$node_setup"
+  # Hosts may pin distribution packages above NodeSource's priority. Select
+  # the requested major explicitly, never silently accept Debian's Node 18.
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "nodejs=${NODE_MAJOR}.*"
 else
   echo "[2/7] Reusing compatible Node.js $(node --version)"
 fi
+node_is_compatible || {
+  echo "ERROR: installed Node.js is incompatible with the frontend toolchain" >&2
+  exit 1
+}
+command -v npm >/dev/null || {
+  echo "ERROR: npm is required; install the complete Node.js distribution" >&2
+  exit 1
+}
 
 echo "[3/7] Installing the project-pinned pnpm, Codex CLI, Browser CLI runtime, and draw.io CLI runtime"
+install_public_npm_package() {
+  # Executable packages are public assets, unlike the private .env below.
+  sudo bash -c 'umask 022; exec npm install --global --ignore-scripts --no-audit --no-fund "$@"' bash "$@"
+}
 if command -v corepack >/dev/null; then
   sudo corepack enable
   corepack prepare pnpm@10.34.4 --activate
 else
-  sudo npm install --global pnpm@10.34.4
+  install_public_npm_package pnpm@10.34.4
 fi
 if [[ "$(codex --version 2>/dev/null || true)" != "codex-cli ${CODEX_CLI_VERSION}" ]]; then
-  sudo npm install --global --ignore-scripts --no-audit --no-fund \
-    "@openai/codex@${CODEX_CLI_VERSION}"
+  install_public_npm_package "@openai/codex@${CODEX_CLI_VERSION}"
 fi
 [[ "$(codex --version)" == "codex-cli ${CODEX_CLI_VERSION}" ]] || {
   echo "ERROR: expected codex-cli ${CODEX_CLI_VERSION}, got $(codex --version 2>/dev/null || echo missing)" >&2
   exit 1
 }
 if [[ "$(flowork-browser-runtime --version 2>/dev/null || true)" != "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})" ]]; then
-  sudo npm install --global --ignore-scripts --no-audit --no-fund \
-    "$REPO_ROOT/api/playwright-runtime"
+  npm --prefix "$REPO_ROOT/api/playwright-runtime" ci --ignore-scripts --no-audit --no-fund
+  install_public_npm_package "$REPO_ROOT/api/playwright-runtime"
 fi
 [[ "$(flowork-browser-runtime --version)" == "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})" ]] || {
   echo "ERROR: expected Browser CLI runtime 0.4.0 with Playwright core ${PLAYWRIGHT_CORE_VERSION}" >&2
   exit 1
 }
 if ! flowork-diagram-search --version 2>/dev/null | grep -qx "1.5.0"; then
-  sudo npm install --global --ignore-scripts --no-audit --no-fund \
-    "$REPO_ROOT/api/drawio-runtime"
+  npm --prefix "$REPO_ROOT/api/drawio-runtime" ci --ignore-scripts --no-audit --no-fund
+  install_public_npm_package "$REPO_ROOT/api/drawio-runtime"
 fi
 [[ "$(flowork-diagram-search --version)" == "1.5.0" ]] || {
   echo "ERROR: expected official draw.io search libraries 1.5.0" >&2
   exit 1
 }
 
-if ! command -v uv >/dev/null; then
+if [[ "$(uv --version 2>/dev/null | awk '{print $2}')" != "$UV_VERSION" ]]; then
   echo "[4/7] Installing uv ${UV_VERSION}"
   uv_installer="$(mktemp)"
   curl -LsSf --retry 3 "https://astral.sh/uv/${UV_VERSION}/install.sh" -o "$uv_installer"
   UV_NO_MODIFY_PATH=1 sh "$uv_installer"
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 else
-  echo "[4/7] Reusing uv $(uv --version)"
+  echo "[4/7] Reusing pinned $(uv --version)"
 fi
 command -v uv >/dev/null || {
   echo "ERROR: uv was installed but is not on PATH; add ~/.local/bin and retry" >&2
@@ -202,30 +217,41 @@ echo "[6/7] Installing Web and extension packages"
 pnpm --dir web install --frozen-lockfile
 pnpm --dir extension install --frozen-lockfile
 
-echo "[7/7] Preparing the pinned gVisor runtime and local config"
-# Populate the verified per-user cache. The launcher resolves this path on each
-# start, so moving the checkout cannot leave a stale repository path behind.
-bash scripts/get_runsc.sh >/dev/null
-launch_env="$REPO_ROOT/.env.launch.local"
+echo "[7/7] Preparing local config and the selected sandbox runtime"
+launch_env="${VIBECANVAS_LAUNCH_ENV:-$REPO_ROOT/.env.launch.local}"
 if [[ ! -e "$launch_env" ]]; then
-  cat >"$launch_env" <<EOF
+  mkdir -p "$(dirname "$launch_env")"
+  cat >"$launch_env" <<'EOF'
 # Local native deployment. This file is mode 0600 and is never committed.
-WEB_HOST="::"
-WEB_PORT=9001
-VIBECANVAS_PUBLIC_URL="http://localhost:9001/"
-WEB_ALLOWED_HOSTS="localhost,127.0.0.1,::1"
-VIBECANVAS_API_CORS_ORIGINS="http://localhost:9001,http://127.0.0.1:9001,http://[::1]:9001"
-ENABLE_TEST_USER=false
-ENTERPRISE_SSO_ENABLED=false
-AGENT_RUNTIME_TYPES="codex"
-CODEX_RUNTIME_AUTH_METHODS="chatgpt,managed_api,personal_api"
-CODEX_MANAGED_APIS_JSON='[]'
+# Defaults only: deployment-specific values are supplied by the operator.
+# You may export overrides when invoking bootstrap/launch, or edit this file.
+WEB_HOST="${WEB_HOST:-::}"
+WEB_PORT="${WEB_PORT:-9001}"
+VIBECANVAS_PUBLIC_URL="${VIBECANVAS_PUBLIC_URL:-http://localhost:${WEB_PORT}/}"
+SANDBOX_RUNTIME="${SANDBOX_RUNTIME:-bubblewrap}"
+SANDBOX_TYPE="${SANDBOX_TYPE:-rootless-warm}"
+ENABLE_TEST_USER="${ENABLE_TEST_USER:-false}"
+ENTERPRISE_SSO_ENABLED="${ENTERPRISE_SSO_ENABLED:-false}"
+AGENT_RUNTIME_TYPES="${AGENT_RUNTIME_TYPES:-codex}"
+CODEX_RUNTIME_AUTH_METHODS="${CODEX_RUNTIME_AUTH_METHODS:-chatgpt,managed_api,personal_api}"
+CODEX_MANAGED_APIS_JSON="${CODEX_MANAGED_APIS_JSON:-[]}"
 EOF
   chmod 600 "$launch_env"
   echo "Created $launch_env"
 else
   echo "Kept existing $launch_env unchanged"
 fi
+
+# bubblewrap is installed with the host packages. Only an explicit gVisor
+# deployment needs runsc; source the same operator config used by launch.sh.
+(
+  source "$launch_env"
+  case "${SANDBOX_RUNTIME:-bubblewrap}" in
+    bubblewrap) command -v bwrap >/dev/null ;;
+    gvisor) bash "$REPO_ROOT/scripts/get_runsc.sh" >/dev/null ;;
+    *) echo "ERROR: SANDBOX_RUNTIME must be bubblewrap or gvisor" >&2; exit 1 ;;
+  esac
+)
 
 if [[ "$PREPARE_ONLY" == "1" ]]; then
   echo "Preparation complete. Start later with: ./launch.sh start"

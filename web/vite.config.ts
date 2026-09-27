@@ -16,6 +16,7 @@ import { interactiveBootstrapScriptSource } from './src/components/agent-sidebar
 // who hits `/stats.html`. Gate on `ANALYZE=1` so `pnpm build:analyze`
 // opts in explicitly while regular `pnpm build` keeps it out.
 const enableVisualizer = process.env.ANALYZE === '1';
+const nativeApiTarget = `http://127.0.0.1:${process.env.API_PORT || '8000'}`;
 
 // Extra dev/preview hosts are deployment-owned. Values are comma-separated
 // host names; a leading dot allows the domain and all of its subdomains,
@@ -203,8 +204,8 @@ export default defineConfig({
       // Keep the local proxy on the same IPv4 interface as native_dev_up.sh.
       // Node 24 may resolve `localhost` to ::1 first while uvicorn listens on
       // 127.0.0.1, which otherwise turns every browser API request into 502.
-      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true, ws: true },
-      '/healthz': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      '/api': { target: nativeApiTarget, changeOrigin: true, ws: true },
+      '/healthz': { target: nativeApiTarget, changeOrigin: true },
     },
   },
   preview: {
@@ -214,8 +215,8 @@ export default defineConfig({
     headers: { 'Content-Security-Policy': EMBED_FRAME_ANCESTORS_CSP },
     allowedHosts,
     proxy: {
-      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true, ws: true },
-      '/healthz': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      '/api': { target: nativeApiTarget, changeOrigin: true, ws: true },
+      '/healthz': { target: nativeApiTarget, changeOrigin: true },
     },
   },
   // The application can be mounted below an arbitrary reverse-proxy prefix

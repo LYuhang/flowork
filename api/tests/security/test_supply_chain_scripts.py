@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import yaml
+import pytest
 
 _ROOT = Path(__file__).resolve().parents[3]
 _INSTALLER = _ROOT / "scripts/security/install_sbom_tools.sh"
@@ -59,9 +60,11 @@ def test_every_pinned_deployment_image_is_scanned() -> None:
 def test_actual_application_images_are_built_and_scanned() -> None:
     scanner = _SCANNER.read_text(encoding="utf-8")
     assert "build_image api api/Dockerfile ." in scanner
+    assert "build_image sandboxd api/Dockerfile . --build-arg VIBECANVAS_RUNTIME_ENV_BUILDER=1" in scanner
+    assert "flowork-sandboxd:security-scan -m pip --version" in scanner
     assert "build_image web web/Dockerfile ." in scanner
     assert "build_image engine engine/Dockerfile engine" in scanner
-    for image in ("api", "web", "engine"):
+    for image in ("api", "sandboxd", "web", "engine"):
         assert f"'{image}|flowork-{image}:security-scan'" in scanner
 
 
@@ -180,18 +183,19 @@ def test_release_workflow_pushes_digest_attested_images_only_from_tags() -> None
     assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", ref) for ref in action_refs)
 
 
-def test_release_compose_reuses_only_the_verified_api_and_web_images() -> None:
+def test_release_compose_uses_a_separate_verified_sandbox_builder_image() -> None:
     overlay = yaml.safe_load(_RELEASE_COMPOSE.read_text(encoding="utf-8"))
     services = overlay["services"]
     api_consumers = {
         "openfga_bootstrap",
         "migrate",
-        "sandboxd",
         "sandbox_prewarm",
         "api",
         "background_worker",
     }
-    assert set(services) == api_consumers | {"web"}
+    assert set(services) == api_consumers | {"web", "sandboxd"}
+    assert services["sandboxd"]["image"].startswith("${VIBECANVAS_SANDBOX_IMAGE:?")
+    assert services["sandboxd"]["pull_policy"] == "always"
     for service_name in api_consumers:
         service = services[service_name]
         assert service["image"].startswith("${VIBECANVAS_API_IMAGE:?")
@@ -225,8 +229,9 @@ def test_release_compose_reuses_only_the_verified_api_and_web_images() -> None:
     assert "scripts/security/verify_production_evidence.py" in production_release
 
 
+@pytest.mark.parametrize("label", ["api", "sandboxd", "web", "engine"])
 def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
-    tmp_path: Path,
+    tmp_path: Path, label: str,
 ) -> None:
     gh_log = tmp_path / "gh.log"
     fake_gh = tmp_path / "gh"
@@ -243,7 +248,7 @@ def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
     subprocess.run(
         [
             str(_RELEASE_ATTESTATION_GATE),
-            f"ghcr.io/example/flowork-api@{digest}",
+            f"ghcr.io/example/flowork-{label}@{digest}",
             repository,
             f"{repository}/.github/workflows/release-images.yml",
             source_sha,
@@ -257,7 +262,7 @@ def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
     calls = gh_log.read_text(encoding="utf-8").splitlines()
     assert len(calls) == 2
     for call in calls:
-        assert f"oci://ghcr.io/example/flowork-api@{digest}" in call
+        assert f"oci://ghcr.io/example/flowork-{label}@{digest}" in call
         assert "--repo Example/flowork" in call
         assert (
             "--signer-workflow Example/flowork/.github/workflows/release-images.yml"

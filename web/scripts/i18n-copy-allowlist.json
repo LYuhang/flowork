@@ -1,11 +1,5 @@
 [
   {
-    "path": "src/pages/canvas/inspector/config-editors/PromptNodeEditor.tsx",
-    "kind": "jsx-placeholder",
-    "text": "sk-…",
-    "reason": "Credential-prefix example, not natural-language copy; translating it would make the expected API-key format inaccurate."
-  },
-  {
     "path": "src/pages/canvas/inspector/config-editors/TransformNodeEditor.tsx",
     "kind": "jsx-placeholder",
     "text": "0 or \"n/a\" or [1,2]",

@@ -63,7 +63,8 @@ import {
   type TaskType,
 } from '@/lib/api/tasks';
 import { useWorkspaceList } from '@/lib/api/queries/workflows';
-import { TaskWorkflowVersion, useTaskWorkflowVersion } from './TaskWorkflowVersion';
+import { TaskWorkflowVersion } from './TaskWorkflowVersion';
+import { useTaskWorkflowVersion } from './useTaskWorkflowVersion';
 import { getStartNodeFields } from '@/lib/workflow/start-node';
 import { useFormatDateTime } from '@/lib/timezone';
 import { TIMEZONE_GROUPS } from '@/lib/timezone-list';

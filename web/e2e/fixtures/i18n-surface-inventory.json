@@ -58,6 +58,7 @@
     { "id": "workflow-settings", "routeId": "workflow", "source": "src/pages/canvas/WorkflowSettingsModal.tsx", "tabs": ["timeouts", "code", "egress"], "selectorPrefix": "settings-tab-", "requiresFixture": true, "evidence": "visible-browser" }
   ],
   "modals": [
+    { "id": "chat-share", "routeIds": ["chat", "embed-chat"], "source": "src/components/agent-sidebar/ChatShareDialog.tsx", "dialogCount": 1, "variants": ["share-chat-snapshot"], "requiresFixture": true, "evidence": "focused-component" },
     { "id": "shell-chat-actions", "routeId": "chat", "source": "src/app/AppSidebar.tsx", "dialogCount": 2, "variants": ["rename-chat", "delete-chat"], "requiresFixture": true, "evidence": "visible-browser" },
     { "id": "command-palette", "routeId": "root", "source": "src/components/command-palette/CommandPalette.tsx", "dialogCount": 0, "variants": ["command-palette"], "wrappedBy": "src/components/ui/command.tsx", "requiresFixture": true, "evidence": "visible-browser" },
     { "id": "agent-settings", "routeId": "chat", "source": "src/components/agent-sidebar/AgentSettingsModal.tsx", "dialogCount": 1, "variants": ["agent-settings"], "requiresFixture": true, "reachable": false, "evidence": "focused-component", "note": "The only production mount is EmbedShell, which intentionally passes showEmbeddedSettingsButton=false. Restore an explicit product entry point before visible acceptance." },

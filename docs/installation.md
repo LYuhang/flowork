@@ -92,7 +92,9 @@ On the first run, the launcher:
 6. applies database migrations and initializes OpenFGA; and
 7. verifies the Web, API, `sandboxd`, and gVisor checkpoint/restore path.
 
-The first build can take several minutes. When verification succeeds, open
+The first build includes a patched Codex Rust build and can take tens of
+minutes; compilation also needs additional disk space for intermediate layers.
+When verification succeeds, open
 <http://localhost:9001>.
 
 The supported entry point is
@@ -170,8 +172,8 @@ cd flowork
 ```
 
 The bootstrap installs the required system packages, Node.js, pnpm, Codex CLI,
-uv, Python dependencies, frontend dependencies, the pinned gVisor runtime,
-bubblewrap for the optional native sandbox backend,
+uv, Python dependencies, frontend dependencies, bubblewrap for the default
+native sandbox backend (or pinned gVisor when explicitly selected),
 headless LibreOffice, Poppler, and the checksum-verified draw.io Desktop CLI.
 LibreOffice renders Word and PowerPoint files and provides headless office-file
 conversion and validation for document-generation workflows; native XLSX files
@@ -267,8 +269,39 @@ These repository-local files are ignored by Git. Do not point
 `VIBECANVAS_PYTHON` to Conda or a system interpreter; the launcher expects the
 environment created under this checkout.
 
+`launch.sh` uses this checkout's uv `.venv` directly for the API, background
+worker and sandbox service. Sandboxes mount the selected Python environment
+read-only; no second Python environment is copied or independently maintained.
+
 Set `VIBECANVAS_NATIVE_RUNTIME_DIR` before running `launch.sh` if process state
 and logs should be stored somewhere other than `/tmp/vibecanvas-native`.
+
+### Deployment-specific native configuration
+
+Scripts derive the checkout from their own location; they do not assume a
+particular user's checkout path. Supply machine-specific settings when invoking
+the scripts, or in a protected shell configuration selected with
+`VIBECANVAS_LAUNCH_ENV` (default: this checkout's `.env.launch.local`). The
+bootstrap and launcher use the same configuration path. Existing configuration
+is preserved; explicit assignments in that file override inherited variables.
+The generated Web defaults honor inherited overrides.
+
+| Setting | Purpose |
+| --- | --- |
+| `WEB_HOST`, `WEB_PORT`, `VIBECANVAS_PUBLIC_URL` | Listener and actual browser-facing URL |
+| `API_PORT` | Loopback API listener and native Web proxy target (default `8000`) |
+| `PGPORT`, `REDISPORT` | Native database and queue ports |
+| `OPENFGA_HTTP_PORT`, `OPENFGA_GRPC_PORT`, `OPENFGA_METRICS_PORT` | Authorization listeners |
+| `PGDATA`, `OBJSTORE` | Persistent database and object-store locations |
+| `AGENT_RUNTIME_ROOT`, `VFS_VOLUME_ROOT`, `VIBECANVAS_STORAGE_ROOT` | Persistent application/runtime storage |
+| `VIBECANVAS_LOCAL_SECRET_DIR` | Local encryption-key directory |
+| `VIBECANVAS_NATIVE_RUNTIME_DIR` | Per-instance process/log directory |
+
+When running more than one instance, choose distinct ports **and** distinct
+data, secret, and runtime directories. Do not reuse another instance's
+PID files or databases. Keep all local configuration and credentials outside
+version control. `status` returns a nonzero exit code if a required service is
+unhealthy; a successful install alone does not mean the services have started.
 
 ### Manage the native stack
 
@@ -286,13 +319,13 @@ continue with the [development guide](development.md).
 ### Sandbox backend and lifecycle
 
 `SANDBOX_RUNTIME` selects the execution backend; `SANDBOX_TYPE` selects its
-privilege and lifecycle profile. The default backend is `gvisor`. Docker Compose
-uses `rootful-snapshot`, while the native launcher uses `rootless-warm`.
+privilege and lifecycle profile. Native deployment defaults to `bubblewrap`
+with `rootless-warm`. The separate Docker Compose profile uses `gvisor` with
+`rootful-snapshot`.
 Checkpoint/restore belongs to the rootful gVisor snapshot profile; a warm native
 session does not imply that its process state can be checkpointed.
 
-Native development can explicitly select `SANDBOX_RUNTIME=bubblewrap` with
-`SANDBOX_TYPE=rootless-warm` in `.env.launch.local`. The bootstrap installs
+The native bootstrap installs
 `bwrap`, and startup probes whether the actual host can run it. This backend
 supports resident workers and Agent/Workflow execution, but has no real
 checkpoint/restore or post-start dynamic mount support. It shares the host
@@ -300,6 +333,15 @@ kernel and the current implementation binds the host `/proc` read-only, so its
 isolation differs from gVisor. It is not an equivalent replacement for the
 Docker or production snapshot configuration. See
 [Sandbox lifecycle](architecture.md#sandbox-lifecycle) for the capability boundary.
+
+Installing `runsc` is not proof that the host supports the full sandbox profile.
+Native deployments may explicitly select `SANDBOX_RUNTIME=gvisor`; the
+bootstrap then also installs the pinned `runsc` executable.
+Nested cloud containers and some WSL kernels can reject gVisor even when
+ordinary user namespaces work. Startup must pass the actual sandbox prewarm
+check. On an unsuitable host, choose a supported host or explicitly select the
+reduced-capability native bubblewrap backend; the installer does not silently
+change the isolation backend to make a health check pass.
 
 ## First-run setup
 
@@ -359,7 +401,7 @@ following runtime settings are occasionally changed independently:
 | --- | --- | --- |
 | `VIBECANVAS_HTTP_PORT` | `9001` | Docker Web application port |
 | `WEB_PORT` | `9001` | Native launcher Web application port |
-| `SANDBOX_RUNTIME` | `gvisor` | Sandbox backend; native development also supports explicit `bubblewrap` selection with reduced capabilities |
+| `SANDBOX_RUNTIME` | Native: `bubblewrap`; Docker: `gvisor` | Sandbox backend; native gVisor is an explicit alternative |
 | `SANDBOX_TYPE` | Docker: `rootful-snapshot`; native: `rootless-warm` | Sandbox privilege and lifecycle profile |
 | `OBJECT_STORE_PROVIDER` | `filesystem` | Local file-backed object storage; production deployments normally use `s3` |
 | `SANDBOX_EGRESS_MODE` | `proxy` | Routes sandbox HTTP(S) and WebSocket traffic through the controlled egress proxy |
@@ -391,8 +433,39 @@ For the design behind the sandbox modes and network controls, see
 
 ## Updating a source installation
 
-Flowork is currently in alpha. Review release notes and back up PostgreSQL,
-object storage, and the environment secret file before updating.
+Flowork is currently in alpha. Review release notes and take a consistent backup
+before updating. Protect both authoritative data and the keys needed to read it:
+
+| State | Docker Compose | Native installation |
+| --- | --- | --- |
+| Application database, DBOS tasks and schedules | PostgreSQL persistent volume | `PGDATA` (default `~/.vibecanvas/pgdata`) |
+| Authorization database | OpenFGA PostgreSQL persistent volume | OpenFGA database in the same native PostgreSQL cluster |
+| Encrypted objects | Object-store volume or configured S3 bucket | `OBJSTORE` (default `~/.vibecanvas/objectstore`) |
+| Chat/runtime and VFS data | Runtime/VFS persistent volumes | `AGENT_RUNTIME_ROOT` and `VFS_VOLUME_ROOT` under `~/.vibecanvas/` by default |
+| Configuration and encryption keys | Protected `.env` and any external secret/key provider | `.env.launch.local` **and** local key files |
+
+Native keys default to `~/.vibecanvas/secrets/kms-master.key` and
+`~/.vibecanvas/secrets/content-lookup-hmac.key`. Back up the actual paths selected
+by `KMS_LOCAL_MASTER_KEY_FILE`, `CONTENT_LOOKUP_HMAC_KEY_FILE`, or
+`VIBECANVAS_LOCAL_SECRET_DIR` when overridden. Keep key backups separately
+protected, and never regenerate them to repair an existing installation.
+An environment-file-only backup is insufficient for native encrypted data.
+Use PostgreSQL backup tools or a clean shutdown; copying a live data directory
+is not a consistent database backup. Test restoration before relying on it.
+
+Schedule a maintenance window: stop new submissions at your ingress, pause
+scheduled tasks, and wait for active Chat turns, Workflow runs, and queued/running
+background tasks to finish or cancel them explicitly. Neither launcher performs
+an application-level drain. `launch.sh start` also stops an existing native
+stack; Docker's `--wait` checks service health, not completion of user work.
+After restart, inspect interrupted tasks and external side effects before
+retrying them, then resume schedules and traffic.
+
+Stop a native installation with its existing launcher before replacing that
+launcher during an upgrade. New launchers refuse to signal processes whose PID
+files do not carry their instance ownership marker; they never kill unrelated
+processes by a shared service name. If upgrading from an older launcher, do not
+delete live PID files to bypass this check—verify and stop the old processes first.
 
 For Docker Compose:
 
@@ -407,6 +480,7 @@ resulting stack.
 For a native installation:
 
 ```bash
+./launch.sh stop
 git pull --ff-only
 ./scripts/bootstrap_native_linux.sh --prepare-only
 ./launch.sh restart

@@ -32,8 +32,8 @@ global CLI packages, and executable wrappers:
 ```
 
 The bootstrap installs the required host tools, creates the repository-local
-Python environment, installs the locked Python and pnpm dependencies, downloads
-the verified gVisor runtime, and creates `.env.launch.local`. Its implementation
+Python environment, installs the locked Python and pnpm dependencies, prepares
+the bubblewrap backend, and creates `.env.launch.local`. Its implementation
 is available in
 [`bootstrap_native_linux.sh`](../scripts/bootstrap_native_linux.sh).
 
@@ -41,7 +41,7 @@ The supported toolchain follows the versions used by CI:
 
 - Python 3.11.16 in `.venv/`;
 - Node.js 22 (CI pins 22.23.2) and pnpm 10.34.4;
-- PostgreSQL server binaries, a Redis-compatible local server, and gVisor; and
+- PostgreSQL server binaries, a Redis-compatible local server, and bubblewrap; and
 - OpenFGA, started automatically with the local stack.
 
 Do not install the Python packages into the system interpreter or a Conda
@@ -76,9 +76,9 @@ part of the background worker, not another daemon. An execution whose worker
 is lost is stopped and reported with an unknown outcome rather than automatically
 rerunning potentially completed external effects.
 
-The native defaults are `SANDBOX_RUNTIME=gvisor` and
-`SANDBOX_TYPE=rootless-warm`. An explicit `bubblewrap` backend is available for
-native development with different isolation and no checkpoint/restore support.
+The native defaults are `SANDBOX_RUNTIME=bubblewrap` and
+`SANDBOX_TYPE=rootless-warm`. It uses Linux namespace isolation without
+checkpoint/restore support. gVisor is available through explicit configuration.
 See [Sandbox backend and lifecycle](installation.md#sandbox-backend-and-lifecycle)
 before changing these settings; Docker uses the separate `rootful-snapshot`
 profile.

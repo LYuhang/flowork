@@ -195,7 +195,9 @@ def _op_grep(pattern: str, path: str, glob: str = "", context: int = 0) -> dict:
 def _op_exec(op: dict, roots: list[str]) -> dict:
     started = time.perf_counter()
     proc = subprocess.run(
-        ["bash", "-lc", op["command"]],
+        # A login shell can reset PATH through /etc/profile, losing the
+        # mounted uv interpreter selected by the sandbox environment.
+        ["bash", "-c", op["command"]],
         cwd=op.get("cwd") or roots[0],
         capture_output=True,
         text=True,

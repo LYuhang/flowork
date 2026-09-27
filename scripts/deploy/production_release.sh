@@ -29,6 +29,7 @@ validate_release_inputs() {
 
   for name in \
     VIBECANVAS_API_IMAGE \
+    VIBECANVAS_SANDBOX_IMAGE \
     VIBECANVAS_WEB_IMAGE \
     RELEASE_REPOSITORY \
     RELEASE_SHA \
@@ -41,6 +42,10 @@ validate_release_inputs() {
     fail "RELEASE_SHA must be an exact lowercase 40-character Git SHA"
   [[ "$RELEASE_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || \
     fail "RELEASE_REF must be an exact semantic refs/tags/v* ref"
+  local prefix="ghcr.io/${RELEASE_REPOSITORY,,}"
+  [[ "${VIBECANVAS_API_IMAGE%@*}" == "$prefix-api" ]] || fail "API image must use the api release repository"
+  [[ "${VIBECANVAS_SANDBOX_IMAGE%@*}" == "$prefix-sandboxd" ]] || fail "sandboxd image must use the sandboxd release repository"
+  [[ "${VIBECANVAS_WEB_IMAGE%@*}" == "$prefix-web" ]] || fail "Web image must use the web release repository"
   [[ -f "$PRODUCTION_EVIDENCE_MANIFEST" ]] || \
     fail "PRODUCTION_EVIDENCE_MANIFEST is not a regular file"
   [[ -f "$ENV_FILE" ]] || fail "production env file does not exist: $ENV_FILE"
@@ -50,7 +55,7 @@ validate_release_inputs() {
 verify_release() {
   validate_release_inputs
   local release_image
-  for release_image in "$VIBECANVAS_API_IMAGE" "$VIBECANVAS_WEB_IMAGE"; do
+  for release_image in "$VIBECANVAS_API_IMAGE" "$VIBECANVAS_SANDBOX_IMAGE" "$VIBECANVAS_WEB_IMAGE"; do
     "$ATTESTATION_VERIFIER" \
       "$release_image" \
       "$RELEASE_REPOSITORY" \

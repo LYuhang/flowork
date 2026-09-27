@@ -6,7 +6,9 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/__tests__/msw-handlers';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MessageActions } from '../MessageActions';
+import { ChatShareDialog } from '../ChatShareDialog';
 import { Markdown } from '../Markdown';
+import type { ChatShare } from '@/lib/api/chat-engagement';
 import { SharedChatPage } from '@/pages/chat/SharedChatPage';
 import i18n from '@/lib/i18n';
 
@@ -20,6 +22,40 @@ function actions() {
 }
 
 describe('message engagement', () => {
+  it.each(['en', 'zh'])('creates, copies and revokes a conversation share in %s', async (language) => {
+    await i18n.changeLanguage(language);
+    let items: ChatShare[] = [];
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    server.use(
+      http.get('*/api/v1/chats/engagement-chat/shares', () => HttpResponse.json({ items })),
+      http.post('*/api/v1/chats/engagement-chat/shares', async ({ request }) => {
+        expect(await request.json()).toEqual({ message_id: null });
+        items = [{ id: 'conversation-share', message_id: null, path: '/share/test',
+          url: 'https://example.org/prefix/share/test', created_at: '2026-01-01T00:00:00Z',
+          expires_at: null, message_count: 2 }];
+        return HttpResponse.json(items[0]);
+      }),
+      http.delete('*/api/v1/chats/engagement-chat/shares/conversation-share', () => {
+        items = [];
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ChatShareDialog chatId="engagement-chat" /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('chat.share.title') }));
+    expect(await screen.findByRole('dialog', { name: i18n.t('chat.share.title') })).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('chat.share.description'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('chat.share.exclusions'))).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: i18n.t('chat.share.create') }));
+    expect(await screen.findByRole('textbox', { name: i18n.t('chat.share.link') })).toHaveValue('https://example.org/prefix/share/test');
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('chat.share.copy') }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://example.org/prefix/share/test'));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('chat.share.revoke') }));
+    expect(await screen.findByRole('button', { name: i18n.t('chat.share.create') })).toBeEnabled();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
   it('restores the rating, toggles it off, and rolls back failed saves', async () => {
     let rating: string | null = 'up';
     server.use(

@@ -14,6 +14,7 @@ from vibecanvas_api.background_tasks.scheduled_runs import (
     _scheduled_execution_lease,
 )
 from vibecanvas_api.config import config
+from vibecanvas_api.security.secret_service import secret_service
 from vibecanvas_api.routes.runtime_model_broker import (
     _authorize_and_resolve_workflow_target,
 )
@@ -26,6 +27,7 @@ from vibecanvas_api.services.agent_runtime.workflow_model_capability import (
     verify_runtime_workflow_model_capability,
 )
 from vibecanvas_api.storage.db import session_scope
+from vibecanvas_api.storage.repo_llm_credentials import LlmCredentialsRepo
 from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 from vibecanvas_api.storage.sync_session import current_sync_tenant_id
@@ -292,22 +294,45 @@ async def test_model_broker_revalidates_service_account_generation(
         generation = account.generation
         account_id = account.service_account_id
 
-    monkeypatch.setattr(config.agent, "model", "openai:gpt-service-account-test")
-    monkeypatch.setattr(config.agent, "api_key", "host-only-test-key")
-    monkeypatch.setattr(config.agent, "base_url", "https://provider.example/v1")
+    # Workflow leases require a user-owned manual API, not the Chat default.
+    credential_id = uuid.uuid4()
+    async with session_scope(str(tenant_id)) as session:
+        secret_ref = await secret_service().put_text(
+            session,
+            tenant_id=tenant_id,
+            purpose="llm_api_key",
+            resource_type="llm_credential",
+            resource_id=credential_id,
+            plaintext="service-account-test-key",
+        )
+        credentials = LlmCredentialsRepo(session)
+        await credentials.insert(
+            id=credential_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            name="service-account-test",
+            provider="openai",
+            connection_kind="manual",
+            model_name="gpt-service-account-test",
+            api_url="https://provider.example/v1",
+            secret_ref=secret_ref,
+            enabled=True,
+        )
+        credential = await credentials.get(credential_id)
+    monkeypatch.setattr(config, "runtime_model_egress_policy", "host")
     token = mint_runtime_workflow_model_capability(
         organization_id=str(tenant_id),
         user_id=str(user_id),
         workflow_id=workflow_id,
         execution_id=str(task_id),
         execution_resource_type="task",
-        credential_id=None,
+        credential_id=str(credential_id),
         provider="openai",
         model="gpt-service-account-test",
         config_revision=model_config_revision(
             provider="openai",
             model="gpt-service-account-test",
-            updated_at="platform-process-config",
+            updated_at=credential["updated_at"],
         ),
         authorization_generation=authorization_model_generation(
             model_id=config.openfga_authorization_model_id,
@@ -338,6 +363,7 @@ async def test_model_broker_revalidates_service_account_generation(
         capability,
     )
     assert target.model == "gpt-service-account-test"
+    assert target.api_key == "service-account-test-key"
 
     async with session_scope(str(tenant_id)) as session:
         await ServiceAccountsRepo(session).set_status(

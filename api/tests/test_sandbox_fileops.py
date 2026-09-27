@@ -8,11 +8,28 @@ sandbox boot, no async — plain pytest asserting the real return dicts.
 
 import json
 import os
+import sys
 import threading
 import time
 
 from vibecanvas_api.sandbox_entry import serve_loop_parallel, serve_once_api
 from vibecanvas_api.services.sandbox.fileops import run_fileop
+from vibecanvas_api.services.sandbox.gvisor import _workflow_python_env
+
+
+def test_exec_uses_selected_python_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", "/unrelated/host/tools")
+    env = _workflow_python_env()
+    assert env["PATH"].split(os.pathsep)[0] == os.path.dirname(sys.executable)
+    assert "/unrelated/host/tools" not in env["PATH"]
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    result = run_fileop(
+        {"op": "exec", "command": "python -c 'import sys; print(sys.prefix)'"},
+        [str(tmp_path)],
+    )
+    assert result["exit_code"] == 0, result
+    assert result["stdout"].strip() == sys.prefix
 
 
 def test_read_text(tmp_path):

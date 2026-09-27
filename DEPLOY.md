@@ -35,7 +35,7 @@ external database and Valkey URLs through the verified release entry point.
 | Build, scan, and publish release images | Implemented in GitHub Actions |
 | Generate provenance and SPDX SBOM attestations | Implemented |
 | Verify independently reviewed production evidence | Implemented |
-| Require digest-pinned API and Web images | Implemented |
+| Require digest-pinned API, sandboxd, and Web images | Implemented |
 | Validate the production security profile at process startup | Implemented |
 | Configure compliant external PostgreSQL and Valkey through the release overlay | Not yet implemented |
 | Automatically provision TLS, KMS, S3, audit, backup, and monitoring services | Operator responsibility |
@@ -120,7 +120,7 @@ protected `production-release` GitHub environment.
 
 For each release, the workflow:
 
-1. builds the API, Web, and Engine images from the tagged commit;
+1. builds the API, sandboxd, Web, and Engine images from the tagged commit;
 2. generates Syft SBOMs;
 3. rejects High or Critical vulnerabilities according to the reviewed policy;
 4. publishes immutable commit-tagged images to GitHub Container Registry;
@@ -135,8 +135,16 @@ extension ZIP, an immutable image manifest, consolidated security reports, and
 one SHA-256 checksum file. If the tag does not have a Release yet, the workflow
 creates a draft so that the notes can be reviewed before publication.
 
-The production Compose deployment uses the API and Web image digests recorded
-in the manifest. The separate Engine image is a release artifact but is not a
+The published images target **Linux amd64**; this release pipeline does not
+publish an ARM64 manifest. Native/source architecture support does not imply
+that a prebuilt image exists for that architecture.
+
+The production Compose deployment uses the API, sandboxd, and Web image digests
+recorded in the manifest. sandboxd has its own image built with
+`VIBECANVAS_RUNTIME_ENV_BUILDER=1`, retaining pip to build Workflow dependency
+environments. API and background workers use the installer-free API image.
+Do not substitute that image for sandboxd: `--no-build` does not apply Compose
+build arguments to a pulled image. The separate Engine image is a release artifact but is not a
 service in the current Compose topology. GitHub Actions artifacts remain
 available for retained build evidence; user-facing downloads come from the
 GitHub Release and are not tied to the Actions retention period.
@@ -195,7 +203,7 @@ The deployment host needs:
 - access to the reviewed evidence manifest and production environment file.
 
 The GitHub CLI must be able to verify attestations for the release repository.
-The Docker daemon must be able to pull both images by digest.
+The Docker daemon must be able to pull all three deployment images by digest.
 
 ### Environment file
 
@@ -232,6 +240,7 @@ Set the exact release identity and digest-pinned images:
 
 ```bash
 export VIBECANVAS_API_IMAGE='ghcr.io/owner/repository-api@sha256:...'
+export VIBECANVAS_SANDBOX_IMAGE='ghcr.io/owner/repository-sandboxd@sha256:...'
 export VIBECANVAS_WEB_IMAGE='ghcr.io/owner/repository-web@sha256:...'
 export RELEASE_REPOSITORY='owner/repository'
 export RELEASE_SHA='0123456789abcdef0123456789abcdef01234567'
@@ -258,7 +267,7 @@ Run the release gate without changing the running deployment:
 The command:
 
 1. validates all required release metadata;
-2. verifies provenance and SPDX attestations for the API and Web images;
+2. verifies provenance and SPDX attestations for the API, sandboxd, and Web images;
 3. verifies that production evidence matches the repository, commit, and tag;
    and
 4. validates the merged Compose configuration.
@@ -315,6 +324,13 @@ customer content in deployment smoke tests.
 
 Treat every upgrade as a new release promotion:
 
+First arrange a maintenance window. Stop new user submissions at the ingress,
+pause scheduled tasks, and wait for active Chat/Workflow work and queued/running
+tasks to finish (or explicitly cancel them). `production_release.sh up` does
+not implement application-level draining: Compose `--wait` waits for container
+health, not user work. Inspect interrupted executions and any external side
+effects before retrying; reopen traffic and schedules only after verification.
+
 1. back up the database, object storage, runtime state, and configuration;
 2. review the new release notes and database migrations;
 3. build and attest a new semantic version tag;
@@ -329,8 +345,8 @@ reviewed tag, commit, digest, attestations, and evidence.
 
 ## Rollback
 
-Application rollback means redeploying a previously verified API and Web image
-pair with the matching repository, commit, tag, and evidence. Do not rebuild an
+Application rollback means redeploying the previously verified API, sandboxd,
+and Web images with the matching repository, commit, tag, and evidence. Do not rebuild an
 old checkout on the production host.
 
 Database migrations and authorization-model changes require separate rollback

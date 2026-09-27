@@ -208,9 +208,9 @@ execution through its private service interface rather than launching sandboxes
 themselves. `SANDBOX_RUNTIME` selects the backend; `SANDBOX_TYPE` selects its
 session mode. These are separate settings.
 
-gVisor is the default backend. The Compose profile uses rootful snapshot mode,
-where `sandboxd` is the only privileged application service; native development
-defaults to rootless warm sessions. The optional bubblewrap backend uses Linux
+Native deployment defaults to bubblewrap with rootless warm sessions. The
+separate Compose profile uses gVisor in rootful snapshot mode, where `sandboxd`
+is the only privileged application service. The bubblewrap backend uses Linux
 namespaces and shares the host kernel rather than providing gVisor's
 userspace-kernel boundary. It supports resident workers and Agent/Workflow
 execution, but not process checkpoint/restore or post-start dynamic mounts.

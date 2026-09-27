@@ -24,16 +24,21 @@ class ProcessSupervisor:
         min_backoff_s: float = 0.5,
         max_backoff_s: float = 10.0,
         stable_after_s: float = 30.0,
+        stop_timeout_s: float = 30.0,
     ) -> None:
         self.command = command
         self.min_backoff_s = max(0.05, min_backoff_s)
         self.max_backoff_s = max(self.min_backoff_s, max_backoff_s)
         self.stable_after_s = max(1.0, stable_after_s)
+        self.stop_timeout_s = max(0.0, stop_timeout_s)
+        self.stop_deadline: float | None = None
         self.child: subprocess.Popen | None = None
         self.stopping = False
 
     def request_stop(self, _signum: int, _frame: object) -> None:
         self.stopping = True
+        if self.stop_deadline is None:
+            self.stop_deadline = time.monotonic() + self.stop_timeout_s
         child = self.child
         if child is not None and child.poll() is None:
             try:
@@ -57,7 +62,21 @@ class ProcessSupervisor:
                 env=os.environ,
                 start_new_session=True,
             )
-            return_code = self.child.wait()
+            # A stop can arrive between the loop guard and Popen completing.
+            if self.stopping:
+                self.request_stop(signal.SIGTERM, None)
+            while True:
+                try:
+                    return_code = self.child.wait(timeout=0.1)
+                    break
+                except subprocess.TimeoutExpired:
+                    if self.stop_deadline is not None and time.monotonic() >= self.stop_deadline:
+                        try:
+                            os.killpg(self.child.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        return_code = self.child.wait()
+                        break
             runtime = time.monotonic() - started_at
             self.child = None
             if self.stopping:
@@ -81,6 +100,7 @@ def main() -> int:
     parser.add_argument("--min-backoff", type=float, default=0.5)
     parser.add_argument("--max-backoff", type=float, default=10.0)
     parser.add_argument("--stable-after", type=float, default=30.0)
+    parser.add_argument("--stop-timeout", type=float, default=30.0)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command
@@ -93,6 +113,7 @@ def main() -> int:
         min_backoff_s=args.min_backoff,
         max_backoff_s=args.max_backoff,
         stable_after_s=args.stable_after,
+        stop_timeout_s=args.stop_timeout,
     ).run()
 
 

@@ -4,11 +4,9 @@
 #   cd /path/to/flowork
 #   docker build -f api/Dockerfile -t vibecanvas-api:dev .
 #
-# Run:
-#   docker run --rm -p 8000:8000 \
-#     -e VIBECANVAS_API_DEV_TOKEN=$(python -c 'import secrets; print(secrets.token_urlsafe(24))') \
-#     -e VIBECANVAS_API_CORS_ORIGINS=http://localhost:3000 \
-#     vibecanvas-api:dev
+# Run with the supported Compose stack, including its database, authorization
+# and sandbox services. Follow docs/installation.md for setup and startup;
+# see DEPLOY.md for verified release images. This image is not standalone.
 #
 # Build context is the repository root (NOT api/) so the Dockerfile can COPY
 # the engine package from ../engine.

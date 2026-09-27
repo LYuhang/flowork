@@ -16,7 +16,7 @@
 # RESET=1 to force a clean slate (wipe the db + re-provision).
 #
 #   bash scripts/native_dev_up.sh up         # bring everything up (keep data)
-#   bash scripts/native_dev_up.sh down       # stop api/worker/beat + pg + redis
+#   bash scripts/native_dev_up.sh down       # stop tracked services + pg + redis
 #   bash scripts/native_dev_up.sh status     # health-check what is running
 #   RESET=1 bash scripts/native_dev_up.sh up # nuke the db and start fresh
 #
@@ -24,6 +24,7 @@
 #   VIBECANVAS_PYTHON repository-local uv Python (default: .venv/bin/python)
 #   BACKEND_INSTALL 1=install api+engine wheels before up (default: 1)
 #   PGPORT     postgres port                         (default: 5433)
+#   API_PORT   loopback API port                     (default: 8000)
 #   REDISPORT  redis port                            (default: 6379)
 #   RESET      1=wipe + re-provision the db on up    (default: 0, data persists)
 #   PGDATA     postgres data dir                     (default: $HOME/.vibecanvas/pgdata)
@@ -52,6 +53,7 @@ SUPERVISOR="$REPO_ROOT/scripts/supervise_process.py"
 
 PGBIN="${PGBIN:-$(pg_config --bindir 2>/dev/null || true)}"
 PGPORT="${PGPORT:-5433}"
+export API_PORT="${API_PORT:-8000}"
 REDISPORT="${REDISPORT:-6379}"
 OPENFGA_HTTP_PORT="${OPENFGA_HTTP_PORT:-8080}"
 OPENFGA_GRPC_PORT="${OPENFGA_GRPC_PORT:-8081}"
@@ -71,6 +73,8 @@ WEB_MODE="${WEB_MODE:-preview}"
 WEB="${WEB:-1}"
 RUNDIR="${VIBECANVAS_NATIVE_RUNTIME_DIR:-/tmp/vibecanvas-native}"
 mkdir -p "$RUNDIR" "$OBJSTORE"
+RUNDIR="$(cd "$RUNDIR" && pwd -P)"
+export VIBECANVAS_NATIVE_RUNTIME_DIR="$RUNDIR"
 # The directory can predate the current umask (for example from an older
 # launcher version).  It contains the effective process environment, including
 # OpenFGA and signing credentials, so repair permissions on every invocation
@@ -82,22 +86,6 @@ WEB_INSTALL_LOG="$RUNDIR/web-install.log"
 WEB_URL_FILE="$RUNDIR/web.url"
 WEB_RUNTIME_ENV="$RUNDIR/web.env"
 WEB_RUNTIME_DIST="$RUNDIR/web-dist"
-
-cleanup_vibecanvas_sandboxes() {
-  # gVisor workers are intentionally long-lived while the app is running, but
-  # dev restarts must never leave orphaned runsc/gofer/sandbox processes behind.
-  # Match only this platform's temporary bundle/state roots.
-  local pattern='(/tmp/vc-sbx-|--root=/tmp/vc-sbx-|/proc/self/exe --root=/tmp/vc-sbx-|runsc-(gofer|sandbox).*vc-sbx)'
-  if pgrep -f "$pattern" >/dev/null 2>&1; then
-    echo "stopping vibecanvas sandboxes"
-    pkill -TERM -f "$pattern" 2>/dev/null || true
-    sleep 0.5
-    pkill -KILL -f "$pattern" 2>/dev/null || true
-  fi
-  # Bundle dirs are disposable runtime state. Persistent user/workflow/chat data
-  # lives under OBJECT_STORE_FS_ROOT, not under /tmp/vc-sbx-*.
-  rm -rf /tmp/vc-sbx-* 2>/dev/null || true
-}
 
 cleanup_dead_object_store_materializations() {
   # Encrypted Object Store projections are process-private plaintext caches.
@@ -130,26 +118,31 @@ stop_pidfile() {
   [[ -f "$pidfile" ]] || return 0
   local pid
   pid="$(cat "$pidfile" 2>/dev/null || true)"
-  [[ -n "$pid" ]] || return 0
+  [[ "$pid" =~ ^[1-9][0-9]*$ && "$pid" -gt 1 ]] || return 1
   if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null || true
-    for _ in $(seq 1 20); do
-      kill -0 "$pid" 2>/dev/null || break
+    # A stale PID file must not stop another instance (or an unrelated process).
+    if ! tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null |
+        grep -Fx "VIBECANVAS_NATIVE_RUNTIME_DIR=$RUNDIR" >/dev/null; then
+      echo "ERROR: refusing to stop unowned $name PID $pid; inspect the stale PID file" >&2
+      return 1
+    fi
+    local pgid own_pgid
+    pgid="$(ps -o pgid= -p "$pid" | tr -d ' ')"
+    own_pgid="$(ps -o pgid= -p $$ | tr -d ' ')"
+    [[ "$pgid" =~ ^[1-9][0-9]*$ && "$pgid" != "$own_pgid" ]] || return 1
+    kill -TERM -- "-$pgid" 2>/dev/null || true
+    # The DBOS worker has a 30-second graceful shutdown budget. Give it time
+    # before escalation; this does not replace application-level draining.
+    for _ in $(seq 1 350); do
+      kill -0 -- "-$pgid" 2>/dev/null || break
       sleep 0.1
     done
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -KILL "$pid" 2>/dev/null || true
+    if kill -0 -- "-$pgid" 2>/dev/null; then
+      kill -KILL -- "-$pgid" 2>/dev/null || true
     fi
     echo "stopped $name"
   fi
   rm -f "$pidfile"
-}
-
-kill_dev_processes_by_pattern() {
-  local pattern="$1"
-  pkill -TERM -f "$pattern" 2>/dev/null || true
-  sleep 0.2
-  pkill -KILL -f "$pattern" 2>/dev/null || true
 }
 
 web_deps_need_install() {
@@ -214,10 +207,10 @@ import sys
 print(sys.prefix)
 PY
 )"
-  [[ "$VIBECANVAS_PY_PREFIX" == "$REPO_ROOT/.venv" ]] || {
-    echo "ERROR: native installation requires $REPO_ROOT/.venv/bin/python" >&2
+  if [[ "$VIBECANVAS_PY_PREFIX" != "$REPO_ROOT/.venv" ]]; then
+    echo "ERROR: native installation requires this checkout's uv environment: $REPO_ROOT/.venv" >&2
     exit 1
-  }
+  fi
   export VIBECANVAS_PYTHON VIBECANVAS_PY_PREFIX PYTHONNOUSERSITE=1
   export PATH="$VIBECANVAS_PY_PREFIX/bin:$PATH"
 }
@@ -233,7 +226,7 @@ backend_deps_need_install() {
 install_backend_packages() {
   backend_deps_need_install || return 0
   echo "backend: refreshing api + engine source packages in $VIBECANVAS_PYTHON"
-  # Dependency resolution belongs to prepare_runtime_environment.sh. Keeping
+  # Dependency installation belongs to bootstrap_native_linux.sh. Keeping
   # this step source-only makes repeated native starts fast without allowing a
   # newly declared dependency to be silently skipped.
   "$VIBECANVAS_PYTHON" -m pip install --upgrade --force-reinstall \
@@ -269,7 +262,7 @@ resolve_codex_runtime() {
   fi
 }
 
-# ─── shared env (api + worker + beat MUST share these — esp. OBJECT_STORE_FS_ROOT) ──
+# ─── shared env (API + DBOS worker + sandboxd) ──────────────────────────────
 write_env() {
   # Persist the effective Runtime credentials/configuration, not merely the
   # short shell alias.  Replacement API/worker processes are launched through
@@ -319,6 +312,8 @@ export VIBECANVAS_API_ROOT="${API_DIR}"
 export PATH="${VIBECANVAS_PY_PREFIX}/bin:\$PATH"
 export PYTHONPATH="${API_DIR}/src:${ENGINE_DIR}/src:${REPO_ROOT}:\${PYTHONPATH:-}"
 export PYTHONNOUSERSITE=1
+export API_PORT="${API_PORT}"
+export PLATFORM_MCP_INTERNAL_BASE_URL="${PLATFORM_MCP_INTERNAL_BASE_URL:-http://127.0.0.1:$API_PORT}"
 export DATABASE_URL="postgresql+asyncpg://vibecanvas_app:vibecanvas_app@localhost:${PGPORT}/vibecanvas"
 export DBOS_SYSTEM_DATABASE_URL="postgresql+psycopg://vibecanvas_app:vibecanvas_app@localhost:${PGPORT}/vibecanvas"
 export DBOS_RUN_MIGRATIONS="false"
@@ -340,7 +335,7 @@ export DISTRIBUTED_AUTH_RATE_LIMIT_ENABLED="${DISTRIBUTED_AUTH_RATE_LIMIT_ENABLE
 export RESOURCE_SHARING_ENABLED="${RESOURCE_SHARING_ENABLED:-1}"
 export OBJECT_STORE_PROVIDER="filesystem"
 export OBJECT_STORE_FS_ROOT="${OBJSTORE}"
-export VIBECANVAS_STORAGE_ROOT="${HOME}/.vibecanvas/local_data"
+export VIBECANVAS_STORAGE_ROOT="${VIBECANVAS_STORAGE_ROOT:-$HOME/.vibecanvas/local_data}"
 export MOUNT_PATH=${mount_path_q}
 export MOUNT_SYNC_INTERVAL_SECONDS="${MOUNT_SYNC_INTERVAL_SECONDS:-1.0}"
 export DBOS_MAX_EXECUTOR_THREADS="${DBOS_MAX_EXECUTOR_THREADS:-2}"
@@ -354,6 +349,7 @@ export SANDBOX_NETWORK="${SANDBOX_NETWORK:-}"
 export SANDBOX_SERVICE_MODE="service"
 export SANDBOX_SERVICE_SOCKET="${SANDBOX_SERVICE_SOCKET:-$RUNDIR/sandboxd.sock}"
 export SANDBOX_TYPE="${SANDBOX_TYPE:-rootless-warm}"
+export SANDBOX_RUNTIME="${SANDBOX_RUNTIME:-bubblewrap}"
 export AGENT_DEBUG_VIEW_ENABLED="${AGENT_DEBUG_VIEW_ENABLED:-0}"
 export ENABLE_TEST_USER="${ENABLE_TEST_USER:-0}"
 export ENTERPRISE_SSO_ENABLED="${ENTERPRISE_SSO_ENABLED:-0}"
@@ -382,6 +378,10 @@ start_pg() {
     return 1
   }
   if "$PGBIN/pg_isready" -h localhost -p "$PGPORT" >/dev/null 2>&1; then
+    "$PGBIN/pg_ctl" -D "$PGDATA" status >/dev/null 2>&1 || {
+      echo "ERROR: PostgreSQL port $PGPORT is occupied by another instance" >&2
+      return 1
+    }
     echo "postgres already up on :$PGPORT"; return
   fi
   # RESET=1 forces a clean slate (wipe + re-init); otherwise an already-
@@ -417,9 +417,25 @@ SQL
 }
 
 start_redis() {
-  redis-cli -p "$REDISPORT" ping >/dev/null 2>&1 && { echo "redis already up on :$REDISPORT"; return; }
+  if redis-cli -p "$REDISPORT" ping >/dev/null 2>&1; then
+    local redis_dir
+    redis_dir="$(redis-cli -p "$REDISPORT" --raw CONFIG GET dir | tail -n 1)"
+    [[ -s "$RUNDIR/redis.pid" && "$redis_dir" == "$RUNDIR" ]] || {
+      echo "ERROR: Redis port $REDISPORT is occupied by an untracked instance" >&2
+      return 1
+    }
+    echo "redis already up on :$REDISPORT"; return
+  fi
   command -v redis-server >/dev/null || { echo "installing redis-server"; sudo apt-get install -y redis-server; }
-  redis-server --daemonize yes --port "$REDISPORT" --dir /tmp
+  "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
+    --pid-file "$RUNDIR/redis.pid" --log-file "$RUNDIR/redis.log" -- \
+    "$VIBECANVAS_PYTHON" "$SUPERVISOR" -- \
+    redis-server --daemonize no --bind 127.0.0.1 --port "$REDISPORT" --dir "$RUNDIR"
+  for _ in $(seq 1 30); do
+    redis-cli -p "$REDISPORT" ping >/dev/null 2>&1 && break
+    sleep 0.1
+  done
+  redis-cli -p "$REDISPORT" ping >/dev/null 2>&1 || return 1
   echo "redis up on :$REDISPORT"
 }
 
@@ -538,20 +554,20 @@ EOF
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/api.pid" --log-file "$RUNDIR/api.log" -- \
     "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m uvicorn vibecanvas_api.app:build_app \
-    --factory --host 127.0.0.1 --port 8000
+    --factory --host 127.0.0.1 --port "$API_PORT"
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/worker.pid" --log-file "$RUNDIR/worker.log" -- \
     "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m vibecanvas_api.background_worker
 
   local api_start_timeout_seconds="${API_START_TIMEOUT_SECONDS:-120}"
   for _ in $(seq 1 "$api_start_timeout_seconds"); do
-    curl --noproxy '*' -fsS http://127.0.0.1:8000/healthz >/dev/null 2>&1 && break; sleep 1
+    curl --noproxy '*' -fsS "http://127.0.0.1:$API_PORT/healthz" >/dev/null 2>&1 && break; sleep 1
   done
-  if ! curl --noproxy '*' -fsS http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
+  if ! curl --noproxy '*' -fsS "http://127.0.0.1:$API_PORT/healthz" >/dev/null 2>&1; then
     echo "ERROR: API did not become healthy; see $RUNDIR/api.log"
     return 1
   fi
-  echo "api    pid=$(cat "$RUNDIR/api.pid")    http://127.0.0.1:8000  (log: $RUNDIR/api.log)"
+  echo "api    pid=$(cat "$RUNDIR/api.pid")    http://127.0.0.1:$API_PORT  (log: $RUNDIR/api.log)"
   echo "worker pid=$(cat "$RUNDIR/worker.pid") (log: $RUNDIR/worker.log)"
 }
 
@@ -588,7 +604,7 @@ EOF
     return 1
   fi
   if [[ "${SANDBOX_PREWARM_ON_START:-1}" == "1" ]]; then
-    echo "sandboxd: prewarming the base gVisor/Python file-operation runtime"
+      echo "sandboxd: prewarming the base sandbox/Python file-operation runtime"
     if ! "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" \
         -m vibecanvas_api.services.sandbox.service \
         --socket "${SANDBOX_SERVICE_SOCKET:-$RUNDIR/sandboxd.sock}" --prewarm \
@@ -607,7 +623,7 @@ EOF
 # forwards /api + /healthz to the api on :8000, same as the dev server.
 start_web() {
   [[ "$WEB" == "1" ]] || { echo "web: skipped (WEB=0)"; return; }
-  command -v pnpm >/dev/null || { echo "web: pnpm not found — skipping"; return; }
+  command -v pnpm >/dev/null || { echo "ERROR: web: pnpm not found" >&2; return 1; }
   ( cd "$WEB_DIR"
     # Fixed deployments may opt into explicit build-time coordinates. The
     # default remains empty so short-lived workspace proxy prefixes are
@@ -617,14 +633,14 @@ start_web() {
     if web_deps_need_install; then
       echo "web: ensuring dependencies (log: $WEB_INSTALL_LOG)"
       CI=true pnpm install --frozen-lockfile > "$WEB_INSTALL_LOG" 2>&1 \
-        || { echo "web: install FAILED (see $WEB_INSTALL_LOG)"; return; }
+        || { echo "web: install FAILED (see $WEB_INSTALL_LOG)" >&2; return 1; }
     else
       echo "web: dependencies unchanged; skipping install"
     fi
     if [[ "$WEB_MODE" == "dev" ]]; then
       "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
         --pid-file "$RUNDIR/web.pid" --log-file "$RUNDIR/web.log" -- \
-        pnpm exec vite --port "$WEB_PORT" --host "${WEB_HOST:-127.0.0.1}"
+        pnpm exec vite --strictPort --port "$WEB_PORT" --host "${WEB_HOST:-127.0.0.1}"
     else
       if web_build_needed; then
         echo "web: building (vite build, ~1-2 min)… log: $WEB_BUILD_LOG"
@@ -633,7 +649,7 @@ start_web() {
           RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" \
           pnpm exec vite build > "$WEB_BUILD_LOG" 2>&1 \
           && pnpm run lint:deployment-paths >> "$WEB_BUILD_LOG" 2>&1 \
-          || { echo "web: build FAILED (see $WEB_BUILD_LOG)"; return; }
+          || { echo "web: build FAILED (see $WEB_BUILD_LOG)" >&2; return 1; }
       else
         echo "web: frontend inputs unchanged; reusing dist"
       fi
@@ -644,7 +660,7 @@ start_web() {
       # runtime disk before starting Vite Preview. No user data or secrets are
       # stored here; this directory is disposable and rebuilt on every start.
       [[ "$WEB_RUNTIME_DIST" == "$RUNDIR/"* ]] || {
-        echo "web: unsafe runtime dist path: $WEB_RUNTIME_DIST"; return;
+        echo "web: unsafe runtime dist path: $WEB_RUNTIME_DIST" >&2; return 1;
       }
       rm -rf -- "$WEB_RUNTIME_DIST"
       mkdir -p "$WEB_RUNTIME_DIST"
@@ -653,17 +669,22 @@ start_web() {
       "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
         --pid-file "$RUNDIR/web.pid" --log-file "$RUNDIR/web.log" -- \
         pnpm exec vite preview --outDir "$WEB_RUNTIME_DIST" \
-          --port "$WEB_PORT" --host "${WEB_HOST:-127.0.0.1}"
+          --strictPort --port "$WEB_PORT" --host "${WEB_HOST:-127.0.0.1}"
     fi )
   # Loopback host for the health-check + printed URL. When WEB_HOST is an
   # IPv6/all-interfaces bind (:: / ::0 / 0.0.0.0), curl the IPv6 loopback.
   local _check="${WEB_HOST:-127.0.0.1}"
   case "$_check" in
-    ::|::0|0.0.0.0|"") _check="[::1]" ;;
+    ::|::0) _check="[::1]" ;;
+    0.0.0.0|"") _check="127.0.0.1" ;;
   esac
   for _ in $(seq 1 30); do
     curl --noproxy '*' -fsS "http://$_check:$WEB_PORT/" >/dev/null 2>&1 && break; sleep 1
   done
+  if ! curl --noproxy '*' -fsS "http://$_check:$WEB_PORT/" >/dev/null 2>&1; then
+    echo "ERROR: web did not become healthy; see $RUNDIR/web.log" >&2
+    return 1
+  fi
   echo "http://$_check:$WEB_PORT/" > "$WEB_URL_FILE"
   cat > "$WEB_RUNTIME_ENV" <<EOF
 WEB_HOST="${WEB_HOST:-127.0.0.1}"
@@ -684,13 +705,13 @@ cmd_up() {
   start_openfga
   write_env >/dev/null
   migrate
-  # sandboxd owns every resident gVisor process and must be ready before any
+  # sandboxd owns every resident sandbox process and must be ready before any
   # API or background worker can accept work. Application startup fails closed if
   # this readiness gate is bypassed.
   start_sandbox_service
   start_services
   start_web
-  echo "--- up. healthz:"; curl --noproxy '*' -s http://127.0.0.1:8000/healthz; echo
+  echo "--- up. healthz:"; curl --noproxy '*' -fsS "http://127.0.0.1:$API_PORT/healthz"; echo
   if [[ "$WEB" == "1" ]]; then
     local web_url="http://127.0.0.1:$WEB_PORT/"
     [[ -f "$WEB_URL_FILE" ]] && web_url="$(cat "$WEB_URL_FILE")"
@@ -710,36 +731,30 @@ cmd_down() {
     # shellcheck disable=SC1090
     source "$WEB_RUNTIME_ENV"
   fi
-  # Also clean up manually-started dev processes that are outside pidfile
-  # tracking. Keep these patterns project-specific enough for local dev.
-  kill_dev_processes_by_pattern "uvicorn vibecanvas_api.app:build_app"
-  kill_dev_processes_by_pattern "vibecanvas_api.background_worker"
-  kill_dev_processes_by_pattern "vibecanvas_api.services.sandbox.service"
-  kill_dev_processes_by_pattern "pnpm --dir .*web exec vite (preview|--host|--port)"
-  pkill -f "vite (preview|--port $WEB_PORT)" 2>/dev/null || true   # vite spawns children
-  # One more pass after processes receive TERM in case a still-running API/worker
-  # spawned or retained a sandbox while shutting down.
-  cleanup_vibecanvas_sandboxes
+  # sandboxd owns sandbox cleanup. Never kill processes or delete /tmp bundles
+  # by a global name pattern: another native instance may still be using them.
   cleanup_dead_object_store_materializations
   "$PGBIN/pg_ctl" -D "$PGDATA" stop >/dev/null 2>&1 && echo "stopped postgres" || true
-  redis-cli -p "$REDISPORT" shutdown nosave 2>/dev/null && echo "stopped redis" || true
+  stop_pidfile redis
 }
 
 cmd_status() {
+  local unhealthy=0
   if [[ -f "$RUNDIR/.env.native" ]]; then
     # shellcheck disable=SC1090
     source "$RUNDIR/.env.native"
   fi
-  "$PGBIN/pg_isready" -h localhost -p "$PGPORT" || true
-  redis-cli -p "$REDISPORT" ping || true
-  curl --noproxy '*' -s http://127.0.0.1:8000/healthz && echo " <- api" || echo "api down"
+  "$PGBIN/pg_isready" -h localhost -p "$PGPORT" || unhealthy=1
+  redis-cli -p "$REDISPORT" ping || unhealthy=1
+  curl --noproxy '*' -fsS "http://127.0.0.1:$API_PORT/healthz" && echo " <- api" || { echo "api down"; unhealthy=1; }
   if [[ -x "$RUNDIR/run.sh" ]]; then
     "$RUNDIR/run.sh" "${VIBECANVAS_PYTHON:-$REPO_ROOT/.venv/bin/python}" \
       -m vibecanvas_api.services.sandbox.service \
       --socket "${SANDBOX_SERVICE_SOCKET:-$RUNDIR/sandboxd.sock}" --health \
-      2>/dev/null && echo " <- sandboxd" || echo "sandboxd down"
+      2>/dev/null && echo " <- sandboxd" || { echo "sandboxd down"; unhealthy=1; }
   else
     echo "sandboxd down"
+    unhealthy=1
   fi
   local web_url="http://127.0.0.1:$WEB_PORT/"
   if [[ -f "$WEB_RUNTIME_ENV" ]]; then
@@ -749,11 +764,15 @@ cmd_status() {
   elif [[ -f "$WEB_URL_FILE" ]]; then
     web_url="$(cat "$WEB_URL_FILE")"
   fi
-  curl --noproxy '*' -fsS "$web_url" >/dev/null 2>&1 && echo "web alive $web_url" || echo "web down"
-  for s in sandboxd api worker beat web openfga; do
+  if [[ "$WEB" == "1" ]]; then
+    curl --noproxy '*' -fsS "$web_url" >/dev/null 2>&1 && echo "web alive $web_url" || { echo "web down"; unhealthy=1; }
+  fi
+  for s in sandboxd api worker web openfga; do
+    [[ "$s" == web && "$WEB" != "1" ]] && continue
     [[ -f "$RUNDIR/$s.pid" ]] && kill -0 "$(cat "$RUNDIR/$s.pid")" 2>/dev/null \
-      && echo "$s alive (pid $(cat "$RUNDIR/$s.pid"))" || echo "$s down"
+      && echo "$s alive (pid $(cat "$RUNDIR/$s.pid"))" || { echo "$s down"; unhealthy=1; }
   done
+  return "$unhealthy"
 }
 
 case "${1:-up}" in

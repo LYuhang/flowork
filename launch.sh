@@ -4,7 +4,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 NATIVE_LAUNCHER="$REPO_ROOT/scripts/native_dev_up.sh"
-RUNTIME_PREPARER="$REPO_ROOT/scripts/prepare_runtime_environment.sh"
 LOCAL_ENV="${VIBECANVAS_LAUNCH_ENV:-$REPO_ROOT/.env.launch.local}"
 NATIVE_RUNTIME_DIR="${VIBECANVAS_NATIVE_RUNTIME_DIR:-/tmp/vibecanvas-native}"
 
@@ -16,6 +15,7 @@ source_local_env() {
     source "$LOCAL_ENV"
     set +a
   fi
+  NATIVE_RUNTIME_DIR="${VIBECANVAS_NATIVE_RUNTIME_DIR:-/tmp/vibecanvas-native}"
 }
 
 load_local_env() {
@@ -44,8 +44,6 @@ configure_debug_stack() {
     echo "Run ./scripts/bootstrap_native_linux.sh --prepare-only first." >&2
     exit 1
   }
-  local runtime_cache_root="${VIBECANVAS_RUNTIME_CACHE_ROOT:-/tmp/vibecanvas-runtime-python}"
-  local runtime_cache_prefix="$runtime_cache_root/env"
   local local_secret_dir="${VIBECANVAS_LOCAL_SECRET_DIR:-$HOME/.vibecanvas/secrets}"
   local local_kms_key_file="${KMS_LOCAL_MASTER_KEY_FILE:-$local_secret_dir/kms-master.key}"
   local local_lookup_key_file="${CONTENT_LOOKUP_HMAC_KEY_FILE:-$local_secret_dir/content-lookup-hmac.key}"
@@ -57,23 +55,10 @@ configure_debug_stack() {
   export OPENFGA_GRPC_PORT="${OPENFGA_GRPC_PORT:-18081}"
   export OPENFGA_METRICS_PORT="${OPENFGA_METRICS_PORT:-12112}"
 
-  # gVisor imports thousands of small Python dependency files. The configured
-  # development environment lives on NFS, so a cold Chat otherwise pays remote
-  # metadata latency for every import. Keep an immutable, process-local SSD
-  # mirror and mount that prefix read-only into every sandbox. Refresh only
-  # when the source environment or dependency manifests change.
-  if [[ "${VIBECANVAS_LOCAL_RUNTIME_CACHE:-1}" == "1" ]]; then
-    VIBECANVAS_SOURCE_PYTHON="$configured_python" \
-      VIBECANVAS_RUNTIME_CACHE_ROOT="$runtime_cache_root" \
-      bash "$RUNTIME_PREPARER" prepare
-    export VIBECANVAS_PYTHON="$runtime_cache_prefix/bin/python"
-    # The preparer mirrors the current api/engine source into this prefix.
-    # Sandboxes import that local read-only copy instead of walking NFS.
-    export VIBECANVAS_SANDBOX_USE_INSTALLED_APP=1
-  else
-    export VIBECANVAS_PYTHON="$configured_python"
-    export VIBECANVAS_SANDBOX_USE_INSTALLED_APP=0
-  fi
+  # Bootstrap owns this checkout's uv environment. Reuse it directly for
+  # services and read-only sandbox mounts; no second environment to maintain.
+  export VIBECANVAS_PYTHON="$configured_python"
+  export VIBECANVAS_SANDBOX_USE_INSTALLED_APP=0
 
   # Public proxies forward to the machine's IPv6 port 9001. Keep the browser
   # path dynamic: index.html infers an opaque path prefix when present and the
@@ -160,8 +145,7 @@ PY
 }
 
 stop_stack() {
-  # native_dev_up.sh performs PID-file shutdown, project-scoped fallback kills,
-  # gVisor sandbox cleanup, and finally stops the local PostgreSQL and Redis.
+  # Stop only this instance's tracked services, then its PostgreSQL and Redis.
   WEB_PORT="${WEB_PORT:-9001}" bash "$NATIVE_LAUNCHER" down
 }
 
@@ -220,6 +204,8 @@ start_stack() {
   # A missing/damaged replacement runtime must fail before stopping the live stack.
   bash "$NATIVE_LAUNCHER" check-runtime
   configure_debug_stack
+  # Validate the selected interpreter before stopping services.
+  bash "$NATIVE_LAUNCHER" check-runtime
   stop_stack
   build_extension
   # Dev mode serves web/public directly; preview mode's Vite build copies the
@@ -242,13 +228,11 @@ show_logs() {
   echo "Sandbox: $NATIVE_RUNTIME_DIR/sandboxd.log"
   echo "API:    $NATIVE_RUNTIME_DIR/api.log"
   echo "Worker: $NATIVE_RUNTIME_DIR/worker.log"
-  echo "Beat:   $NATIVE_RUNTIME_DIR/beat.log"
   echo "Web:    $NATIVE_RUNTIME_DIR/web.log"
   tail -n 80 \
     "$NATIVE_RUNTIME_DIR/sandboxd.log" \
     "$NATIVE_RUNTIME_DIR/api.log" \
     "$NATIVE_RUNTIME_DIR/worker.log" \
-    "$NATIVE_RUNTIME_DIR/beat.log" \
     "$NATIVE_RUNTIME_DIR/web.log"
 }
 
@@ -257,8 +241,8 @@ case "${1:-restart}" in
     start_stack
     ;;
   stop|down)
-    # Stopping must happen immediately. Do not refresh the Python runtime cache
-    # while old API/sandbox processes are still alive.
+    # Stopping does not install or rebuild anything.
+    load_local_env
     export WEB_PORT="${WEB_PORT:-9001}"
     stop_stack
     ;;
@@ -269,13 +253,8 @@ case "${1:-restart}" in
     echo "public URL: ${VIBECANVAS_PUBLIC_URL:-http://localhost:${WEB_PORT}/}"
     ;;
   logs)
+    source_local_env
     show_logs
-    ;;
-  prepare-runtime)
-    load_local_env
-    configure_debug_stack
-    VIBECANVAS_SOURCE_PYTHON="${VIBECANVAS_SOURCE_PYTHON:-$VIBECANVAS_PYTHON}" \
-      bash "$RUNTIME_PREPARER" status
     ;;
   extension)
     # Updating the downloadable extension must not interrupt active Agent runs.
@@ -285,7 +264,7 @@ case "${1:-restart}" in
     publish_extension_archive
     ;;
   *)
-    echo "usage: $0 {start|restart|stop|status|logs|prepare-runtime|extension}" >&2
+    echo "usage: $0 {start|restart|stop|status|logs|extension}" >&2
     exit 2
     ;;
 esac

@@ -27,7 +27,7 @@ if [[ -z "$python_bin" || ! -x "$python_bin" ]]; then
   exit 2
 fi
 
-mkdir -p "$output_dir/sbom" "$output_dir/vulnerabilities"
+mkdir -p "$output_dir/sbom" "$output_dir/vulnerabilities" "$output_dir/build"
 manifest="$output_dir/image-manifest.tsv"
 printf 'label\tsource\timage_id\trepo_digests\n' > "$manifest"
 
@@ -35,8 +35,10 @@ build_image() {
   local label="$1"
   local dockerfile="$2"
   local context="$3"
+  shift 3
   local tag="flowork-${label}:security-scan"
-  "$docker_bin" build --pull --file "$dockerfile" --tag "$tag" "$context"
+  "$docker_bin" build --pull --file "$dockerfile" --tag "$tag" "$@" "$context" \
+    2>&1 | tee "$output_dir/build/$label.log"
 }
 
 scan_image() {
@@ -81,6 +83,8 @@ cd "$repo_root"
 gate_failed=0
 
 build_image api api/Dockerfile .
+build_image sandboxd api/Dockerfile . --build-arg VIBECANVAS_RUNTIME_ENV_BUILDER=1
+"$docker_bin" run --rm --entrypoint python flowork-sandboxd:security-scan -m pip --version
 build_image web web/Dockerfile .
 build_image engine engine/Dockerfile engine
 
@@ -88,6 +92,7 @@ build_image engine engine/Dockerfile engine
 # this list synchronized through test_supply_chain_scripts.py so a newly added
 # deployment image cannot silently bypass SBOM/vulnerability scanning.
 readonly pinned_images=(
+  'rust-build|rust:1.95.0-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1'
   'python-base|python:3.11.16-slim-trixie@sha256:9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7'
   'node-runtime|node:22.23.2-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436'
   'node-build|node:22.23.2-alpine3.23@sha256:46825fbbd4e996a78b7a2cdc08d75e38a5a505bdab95dcda55605359bf124bc6'
@@ -110,6 +115,7 @@ done
 
 for entry in \
   'api|flowork-api:security-scan' \
+  'sandboxd|flowork-sandboxd:security-scan' \
   'web|flowork-web:security-scan' \
   'engine|flowork-engine:security-scan'; do
   label="${entry%%|*}"
@@ -122,7 +128,7 @@ done
 sha256sum "$output_dir"/sbom/*.json "$output_dir"/vulnerabilities/*.json \
   > "$output_dir/report-checksums.sha256"
 if [[ "$gate_failed" -ne 0 ]]; then
-  printf 'container_supply_chain_gate=fail images=12 output=%s\n' "$output_dir" >&2
+  printf 'container_supply_chain_gate=fail images=%s output=%s\n' "$((${#pinned_images[@]} + 4))" "$output_dir" >&2
   exit 2
 fi
-printf 'container_supply_chain_gate=pass images=12 output=%s\n' "$output_dir"
+printf 'container_supply_chain_gate=pass images=%s output=%s\n' "$((${#pinned_images[@]} + 4))" "$output_dir"

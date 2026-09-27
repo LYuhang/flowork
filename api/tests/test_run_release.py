@@ -122,14 +122,16 @@ def _reset_sync_tenant_cv():
 # tests that used to live here were DELETED (sandbox-only; see the module      #
 # docstring for where each contract is now covered).                          #
 # --------------------------------------------------------------------------- #
-def test_background_shell_releases(monkeypatch):
+@pytest.mark.parametrize("snapshot", [None, {"workflow_version": 1, "workflow_subversion": 2}])
+def test_background_shell_releases(monkeypatch, snapshot):
     captured = {}
     t = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
 
-    async def _fake_run(*, task_id, tenant_id, deployment_id, inputs):
+    async def _fake_run(*, task_id, tenant_id, deployment_id, inputs, snapshot):
         # the async driver ran fine; release happens in the sync shell after.
         captured["ran"] = True
+        captured["snapshot"] = snapshot
 
     def _fake_release_sync(self, *, run_id, retain=False):
         captured["call"] = (run_id, retain)
@@ -143,9 +145,10 @@ def test_background_shell_releases(monkeypatch):
 
     background_mod.deployment_invoke(**dict(
         task_id=task_id, tenant_id=t,
-        deployment_id=str(uuid.uuid4()), inputs={}))
+        deployment_id=str(uuid.uuid4()), inputs={}, snapshot=snapshot))
 
     assert captured.get("ran") is True
+    assert captured["snapshot"] == snapshot
     assert captured["call"] == (task_id, False)  # resolved run_id == task id
 
 
@@ -154,7 +157,7 @@ def test_background_shell_release_is_fail_soft(monkeypatch):
     t = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
 
-    async def _fake_run(*, task_id, tenant_id, deployment_id, inputs):
+    async def _fake_run(*, task_id, tenant_id, deployment_id, inputs, snapshot=None):
         return None
 
     def _boom(self, *, run_id, retain=False):

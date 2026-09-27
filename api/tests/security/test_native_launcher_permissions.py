@@ -151,7 +151,12 @@ def test_shutdown_only_signals_owned_process_groups(tmp_path, owned):
 
 def test_bootstrap_installs_locked_local_npm_dependencies_and_supported_tools():
     source = (ROOT / "scripts/bootstrap_native_linux.sh").read_text()
-    assert 'nodejs=${NODE_MAJOR}.*' in source
+    assert 'NODE_VERSION="${NODE_VERSION:-22.23.3}"' in source
+    assert 'nodejs=${NODE_VERSION}-1nodesource1' in source
+    assert '[[ "$(node --version)" == "v${NODE_VERSION}" ]]' in source
+    assert '"fast-uri": "4.2.1"' in source
+    assert '"hono": "4.13.9"' in source
+    assert '"qs": "6.16.0"' in source
     assert "umask 022; exec npm install" in source
     assert 'UV_VERSION="${UV_VERSION:-0.12.19}"' in source
     for runtime in ("playwright-runtime", "drawio-runtime"):

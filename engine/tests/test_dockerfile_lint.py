@@ -29,6 +29,7 @@ from pathlib import Path
 
 DOCKERFILE_PATH = Path(__file__).resolve().parents[1] / "Dockerfile"
 ENGINE_ROOT = DOCKERFILE_PATH.parent
+REPO_ROOT = ENGINE_ROOT.parent
 
 
 def _dockerfile_instructions() -> list[str]:
@@ -82,7 +83,7 @@ def test_dockerfile_has_no_deprecated_cli_entrypoint():
 
 
 def test_dockerfile_copy_paths_exist_on_disk():
-    """Every COPY source path (relative to engine/) must exist on disk —
+    """Every COPY source path (relative to the repository) must exist —
     otherwise `docker build` would fail with `path not found`."""
     missing: list[str] = []
     for ln in _dockerfile_instructions():
@@ -97,7 +98,7 @@ def test_dockerfile_copy_paths_exist_on_disk():
         for src in sources:
             if src.startswith("/"):
                 continue  # absolute paths are inside the image, not in the build context
-            full = ENGINE_ROOT / src
+            full = REPO_ROOT / src
             if not full.exists():
                 missing.append(src)
     assert not missing, (

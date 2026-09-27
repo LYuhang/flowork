@@ -243,9 +243,10 @@ def _find_test_pg_ctl() -> str:
     )
 
 
-# port=None lets pytest-postgresql choose an available local port. WSL hosts
-# with a mirrored Windows/VPN network can make port-for's localhost probe hang;
-# CI or a developer may pin an isolated port without changing the fixture.
+# port=None lets pytest-postgresql choose an available local port. Its port
+# allocator probes 127.0.0.1, so the server must use that same default or the
+# executor can mistake its own freshly started process for a conflicting one.
+# A WSL/VPN host may still override both host and port explicitly.
 _TEST_POSTGRESQL_PORT = os.environ.get("FLOWORK_TEST_PG_PORT", "").strip()
 if os.environ.get("FLOWORK_TEST_PG_URL", "").strip():
     @pytest.fixture(scope="session")
@@ -256,15 +257,12 @@ if os.environ.get("FLOWORK_TEST_PG_URL", "").strip():
 else:
     postgresql_proc = factories.postgresql_proc(
         executable=_find_test_pg_ctl(),
-        # 127.0.0.1 may be intercepted by a mirrored Windows VPN and leave a
-        # closed-port probe in SYN_SENT until timeout. Another loopback address
-        # is still local-only but fails/accepts immediately on Linux and WSL.
-        host=os.environ.get("FLOWORK_TEST_PG_HOST", "127.0.0.2"),
+        host=os.environ.get("FLOWORK_TEST_PG_HOST", "127.0.0.1"),
         port=int(_TEST_POSTGRESQL_PORT) if _TEST_POSTGRESQL_PORT else None,
         unixsocketdir=os.environ.get("FLOWORK_TEST_PG_SOCKET_DIR", "/tmp"),
         postgres_options=(
             "-c listen_addresses="
-            + os.environ.get("FLOWORK_TEST_PG_HOST", "127.0.0.2")
+            + os.environ.get("FLOWORK_TEST_PG_HOST", "127.0.0.1")
         ),
     )
 

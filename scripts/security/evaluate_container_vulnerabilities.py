@@ -74,7 +74,12 @@ def _validate_policy(policy: dict[str, Any], *, today: dt.date) -> None:
         ):
             raise ValueError(f"{context}.labels must be a non-empty string array")
         condition = rule.get("condition")
-        if condition not in {"all", "locations-only", "python-no-same-minor-fix"}:
+        if condition not in {
+            "all",
+            "locations-only",
+            "python-no-same-minor-fix",
+            "verified-python-tarfile-backport",
+        }:
             raise ValueError(f"{context}.condition is unsupported")
         vulnerabilities = rule.get("vulnerabilities")
         if (
@@ -113,7 +118,12 @@ def _same_python_minor_fix(match: dict[str, Any]) -> bool:
     )
 
 
-def _matches_rule(label: str, match: dict[str, Any], rule: dict[str, Any]) -> bool:
+def _matches_rule(
+    label: str,
+    match: dict[str, Any],
+    rule: dict[str, Any],
+    verified_conditions: set[str],
+) -> bool:
     if label not in rule["labels"]:
         return False
     vulnerability = match.get("vulnerability") or {}
@@ -139,13 +149,21 @@ def _matches_rule(label: str, match: dict[str, Any], rule: dict[str, Any]) -> bo
             if isinstance(location, dict)
         }
         return bool(actual) and actual <= allowed
+    if condition == "verified-python-tarfile-backport":
+        return condition in verified_conditions
     return True
 
 
 def evaluate(
-    *, label: str, report: dict[str, Any], policy: dict[str, Any], today: dt.date
+    *,
+    label: str,
+    report: dict[str, Any],
+    policy: dict[str, Any],
+    today: dt.date,
+    verified_conditions: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[tuple[dict[str, Any], str]], int]:
     _validate_policy(policy, today=today)
+    verified_conditions = verified_conditions or set()
     severities = set(policy["blocking_severities"])
     fixed: list[dict[str, Any]] = []
     observed_unfixed = 0
@@ -165,7 +183,7 @@ def evaluate(
             (
                 rule
                 for rule in policy["exceptions"]
-                if _matches_rule(label, match, rule)
+                if _matches_rule(label, match, rule, verified_conditions)
             ),
             None,
         )
@@ -195,7 +213,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--label", required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
+    parser.add_argument(
+        "--verified-python-tarfile-backport",
+        action="store_true",
+        help="accept the exact tarfile CVE only after the image regression probe passed",
+    )
     args = parser.parse_args(argv)
+
+    if args.verified_python_tarfile_backport and args.label not in {
+        "api",
+        "sandboxd",
+        "engine",
+    }:
+        parser.error(
+            "--verified-python-tarfile-backport is only valid for api, sandboxd, or engine"
+        )
+
+    verified_conditions = set()
+    if args.verified_python_tarfile_backport:
+        verified_conditions.add("verified-python-tarfile-backport")
 
     today = dt.datetime.now(dt.timezone.utc).date()
     try:
@@ -204,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
             report=_load_object(args.report),
             policy=_load_object(args.policy),
             today=today,
+            verified_conditions=verified_conditions,
         )
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         print(

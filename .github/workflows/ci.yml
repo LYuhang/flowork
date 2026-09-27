@@ -37,17 +37,8 @@ jobs:
           fi
       - name: Install pinned Python dependencies in a local environment
         run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install --upgrade pip==26.2.1
-          .venv/bin/python -m pip install --require-hashes \
-            --requirement requirements-build.txt
-          .venv/bin/python -m pip install --requirement requirements-dev.txt
-          .venv/bin/python -m pip install --require-hashes \
-            --requirement requirements-sandbox.txt
-          .venv/bin/python -m pip install --no-build-isolation --no-deps \
-            --editable ./engine --editable ./api
-          .venv/bin/python scripts/verify_dependency_locks.py
-          .venv/bin/python -m pip check
+          python -m pip install uv==0.12.19
+          scripts/sync_python_env.sh
       - name: Run engine tests
         run: |
           set -o pipefail

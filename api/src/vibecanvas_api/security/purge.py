@@ -51,7 +51,7 @@ PHASES = (
 
 _DELETED_ACTOR_NAMESPACE = uuid.UUID("3cb170d4-f98d-4967-b45e-cda7fe668a76")
 
-# OpenFGA 1.18 requires the object type when Read filters by user. Keep this
+# The OpenFGA API requires the object type when Read filters by user. Keep this
 # set aligned with the checked-in authorization model so erasure also removes
 # user tuples that drifted out of the SQL projection or belong to a shared
 # organization outside the personal tenant.

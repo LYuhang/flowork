@@ -89,10 +89,20 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     assert "COPY --from=playwright-assets /opt/flowork-browser-runtime" in text
     assert "flowork-diagram-search --version" in text
     assert 'node_modules/@drawio/mcp/package.json' in text
+    drawio_package = json.loads((API_ROOT / "drawio-runtime/package.json").read_text())
+    drawio_lock = json.loads((API_ROOT / "drawio-runtime/package-lock.json").read_text())
+    assert drawio_package["overrides"] == {
+        "fast-uri": "4.2.1",
+        "hono": "4.13.9",
+        "qs": "6.16.0",
+    }
+    assert drawio_lock["packages"]["node_modules/fast-uri"]["version"] == "4.2.1"
+    assert drawio_lock["packages"]["node_modules/hono"]["version"] == "4.13.9"
+    assert drawio_lock["packages"]["node_modules/qs"]["version"] == "6.16.0"
     assert "github.com/jgraph/drawio-desktop/releases/download" in text
     assert 'dpkg-deb -f' in text
     assert 'sha256sum -c -' in text
-    assert "xvfb=" in text
+    assert "xvfb=2:21.1.16-1.3+deb13u4" in text
     assert "xauth=" in text
     assert "ln -s /opt/drawio/drawio /usr/local/bin/drawio" in text
     assert "COPY api/drawio-runtime/export.sh /usr/local/bin/flowork-drawio-export" in text
@@ -108,6 +118,8 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     assert "libreoffice-calc-nogui=4:25.2.3-2+deb13u7" in text
     assert "poppler-utils=25.03.0-5+deb13u4" in text
     assert "USER 10001:10001" in text
+    assert "patch_python_tarfile.py" in text
+    assert "verify_python_tarfile_fix.py" in text
 
 
 def test_browser_cli_package_has_no_mcp_runtime_dependency():

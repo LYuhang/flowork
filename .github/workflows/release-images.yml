@@ -38,7 +38,7 @@ jobs:
             context: .
           - label: engine
             dockerfile: engine/Dockerfile
-            context: engine
+            context: .
           - label: postgres
             dockerfile: postgres/Dockerfile
             context: .
@@ -115,9 +115,16 @@ jobs:
             printf 'Grype scan failed with status %s.\n' "$grype_status" >&2
             exit "$grype_status"
           fi
+          policy_args=()
+          if [[ "$IMAGE_LABEL" == api || "$IMAGE_LABEL" == sandboxd || "$IMAGE_LABEL" == engine ]]; then
+            docker run --rm --entrypoint python "$IMAGE_REF" \
+              /usr/local/lib/flowork/verify_python_tarfile_fix.py
+            policy_args+=(--verified-python-tarfile-backport)
+          fi
           python3 scripts/security/evaluate_container_vulnerabilities.py \
             --label "$IMAGE_LABEL" \
-            --report "$output/vulnerabilities.json"
+            --report "$output/vulnerabilities.json" \
+            "${policy_args[@]}"
           sha256sum "$output"/*.json > "$output/checksums.sha256"
 
       - name: Push the immutable commit-tagged image

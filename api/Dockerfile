@@ -117,6 +117,15 @@ ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 
 WORKDIR /app
 
+# CPython 3.11.16 has no same-branch image containing the upstream tarfile
+# hard-link fix yet. Apply the minimal upstream change and prove the historical
+# escape no longer works before adding any application code.
+COPY scripts/security/patch_python_tarfile.py /tmp/patch_python_tarfile.py
+COPY scripts/security/verify_python_tarfile_fix.py /usr/local/lib/flowork/verify_python_tarfile_fix.py
+RUN python /tmp/patch_python_tarfile.py && \
+    python /usr/local/lib/flowork/verify_python_tarfile_fix.py && \
+    rm /tmp/patch_python_tarfile.py
+
 # gVisor (runsc) — workflow execution is sandbox-ONLY since P2 (no in-process
 # fallback), so the runtime image MUST carry the runsc binary. Fetch the SAME
 # pinned, sha512-verified release as scripts/get_runsc.sh (keep the pin in sync)
@@ -151,7 +160,7 @@ RUN set -eux; \
         zip=3.0-15+deb13u1 \
         fonts-dejavu-core=2.37-8 \
         fonts-wqy-zenhei=0.9.45-8 \
-        xvfb=2:21.1.16-1.3+deb13u3 \
+        xvfb=2:21.1.16-1.3+deb13u4 \
         xauth=1:1.1.2-1.1 \
         libgtk-3-0t64=3.24.49-3 \
         libnotify4=0.8.6-1 \

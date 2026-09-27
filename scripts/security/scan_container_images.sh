@@ -47,6 +47,7 @@ scan_image() {
   local image_id
   local repo_digests
   local scan_status
+  local policy_args=()
 
   image_id="$($docker_bin image inspect --format '{{.Id}}' "$source")"
   repo_digests="$($docker_bin image inspect --format '{{join .RepoDigests ","}}' "$source")"
@@ -70,9 +71,18 @@ scan_image() {
     cat "$output_dir/vulnerabilities/$label.txt" >&2
     return "$scan_status"
   fi
+  if [[ "$label" == api || "$label" == sandboxd || "$label" == engine ]]; then
+    if ! "$docker_bin" run --rm --entrypoint python "$source" \
+        /usr/local/lib/flowork/verify_python_tarfile_fix.py; then
+      printf 'Python tarfile regression probe failed for %s.\n' "$label" >&2
+      return 2
+    fi
+    policy_args+=(--verified-python-tarfile-backport)
+  fi
   if ! "$python_bin" "$policy_evaluator" \
       --label "$label" \
-      --report "$output_dir/vulnerabilities/$label.json"; then
+      --report "$output_dir/vulnerabilities/$label.json" \
+      "${policy_args[@]}"; then
     printf 'Container vulnerability gate failed for %s.\n' "$label" >&2
     cat "$output_dir/vulnerabilities/$label.txt" >&2
     return 2
@@ -88,7 +98,7 @@ build_image api api/Dockerfile .
 build_image sandboxd api/Dockerfile . --build-arg VIBECANVAS_RUNTIME_ENV_BUILDER=1
 "$docker_bin" run --rm --entrypoint python flowork-sandboxd:security-scan -m pip --version
 build_image web web/Dockerfile .
-build_image engine engine/Dockerfile engine
+build_image engine engine/Dockerfile .
 
 # These are the exact tag+digest references used by Dockerfiles/Compose. Keep
 # this list synchronized through test_supply_chain_scripts.py so a newly added
@@ -101,7 +111,7 @@ readonly pinned_images=(
   'nginx-runtime|nginx:1.30.5-trixie@sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442'
   'valkey|valkey/valkey:9.1.2-alpine3.24@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11'
   'openfga-postgres|postgres:17.11-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f'
-  'openfga|openfga/openfga:v1.18.3@sha256:01a6000aa6040a4d0bde6ea1d3359ac3b9f21dc972ac6103a87b38659a836776'
+  'openfga|openfga/openfga:v1.20.0@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38'
   'clamav|clamav/clamav:1.5.4-debian13-slim@sha256:df80497be841a8ad57f95e04f978216241457f8f8ad608f1f682e3cd0fe63c45'
 )
 

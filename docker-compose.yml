@@ -71,7 +71,7 @@ services:
       - authorization_data
 
   openfga_migrate:
-    image: openfga/openfga:v1.18.3@sha256:01a6000aa6040a4d0bde6ea1d3359ac3b9f21dc972ac6103a87b38659a836776
+    image: openfga/openfga:v1.20.0@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38
     command: ["migrate"]
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
@@ -104,7 +104,7 @@ services:
       - authorization_data
 
   openfga:
-    image: openfga/openfga:v1.18.3@sha256:01a6000aa6040a4d0bde6ea1d3359ac3b9f21dc972ac6103a87b38659a836776
+    image: openfga/openfga:v1.20.0@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38
     command: ["run"]
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres

@@ -24,6 +24,8 @@ _PRODUCTION_RELEASE = _ROOT / "scripts/deploy/production_release.sh"
 _RELEASE_COMPOSE = _ROOT / "docker-compose.release.yml"
 _CLAMAV_LIVE = _ROOT / "scripts/security/verify_clamav_live.sh"
 _CLAMAV_LIVE_PY = _ROOT / "scripts/security/verify_clamav_live.py"
+_PYTHON_VERSION = _ROOT / ".python-version"
+_PYTHON_SYNC = _ROOT / "scripts/sync_python_env.sh"
 
 
 def _deployment_image_references() -> set[str]:
@@ -65,9 +67,19 @@ def test_actual_application_images_are_built_and_scanned() -> None:
     assert "build_image sandboxd api/Dockerfile . --build-arg VIBECANVAS_RUNTIME_ENV_BUILDER=1" in scanner
     assert "flowork-sandboxd:security-scan -m pip --version" in scanner
     assert "build_image web web/Dockerfile ." in scanner
-    assert "build_image engine engine/Dockerfile engine" in scanner
+    assert "build_image engine engine/Dockerfile ." in scanner
     for image in ("api", "sandboxd", "web", "engine", "postgres"):
         assert f"'{image}|flowork-{image}:security-scan'" in scanner
+
+
+def test_local_python_environment_is_repository_pinned() -> None:
+    assert _PYTHON_VERSION.read_text(encoding="utf-8").strip() == "3.11.16"
+    sync = _PYTHON_SYNC.read_text(encoding="utf-8")
+    assert 'uv_version="0.12.19"' in sync
+    assert "uv venv --clear" in sync
+    assert "scripts/security/patch_python_tarfile.py" in sync
+    assert "scripts/security/verify_python_tarfile_fix.py" in sync
+    assert "--editable ./engine --editable ./api" in sync
 
 
 def test_container_gate_emits_sboms_and_does_not_hide_high_vulnerabilities() -> None:
@@ -78,6 +90,9 @@ def test_container_gate_emits_sboms_and_does_not_hide_high_vulnerabilities() -> 
     assert "--only-fixed" not in scanner
     assert "--ignore-states" not in scanner
     assert "evaluate_container_vulnerabilities.py" in scanner
+    assert "/usr/local/lib/flowork/verify_python_tarfile_fix.py" in scanner
+    assert "--verified-python-tarfile-backport" in scanner
+    assert "Python tarfile regression probe failed for %s" in scanner
     assert "container_supply_chain_gate=pass" in scanner
 
 
@@ -209,8 +224,10 @@ def test_python_ci_probes_rootless_gvisor_without_retired_elk_setup() -> None:
     assert "SANDBOX_GVISOR_PLATFORM: ptrace" in workflow
     assert "rootless_gvisor_full_profile=" in workflow
     assert "_gvisor_runnable()" in workflow
-    assert "requirements-build.txt" in workflow
-    assert "--no-build-isolation" in workflow
+    assert "scripts/sync_python_env.sh" in workflow
+    sync = _PYTHON_SYNC.read_text(encoding="utf-8")
+    assert "requirements-build.txt" in sync
+    assert "--no-build-isolation" in sync
 
 
 def test_release_workflow_pushes_digest_attested_images_only_from_tags() -> None:

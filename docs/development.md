@@ -40,7 +40,8 @@ is available in
 The supported toolchain is:
 
 - Python 3.11.16 in `.venv/`;
-- Node.js 22.12+ or 24 (CI and container builds pin 24.21.0) and pnpm 10.34.4;
+- Node.js 22.23.3 for native installation (CI and container builds pin
+  24.21.0) and pnpm 10.34.4;
 - PostgreSQL server binaries, a Redis-compatible local server, and bubblewrap; and
 - OpenFGA, started automatically with the local stack.
 
@@ -161,6 +162,7 @@ the primary gates in [continuous integration](../.github/workflows/ci.yml).
 ### Engine and API
 
 ```bash
+./scripts/sync_python_env.sh
 source .venv/bin/activate
 python -m pytest -q engine/tests
 python -m pytest -q api/tests
@@ -168,6 +170,11 @@ ruff check api/src engine/src scripts
 python scripts/verify_dependency_locks.py
 python -m pip check
 ```
+
+The synchronization script enforces the repository's `.python-version`
+(Python 3.11.16), uv 0.12.19, locked dependencies, and editable installs from
+this checkout. Run it after dependency changes or when switching checkouts;
+this prevents tests from importing a stale globally installed Flowork package.
 
 Engine tests are self-contained. API tests start an isolated PostgreSQL server
 through `pytest-postgresql`; PostgreSQL server binaries, including `pg_ctl`,

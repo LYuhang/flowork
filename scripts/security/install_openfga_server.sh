@@ -3,17 +3,17 @@ set -euo pipefail
 
 # Native-development/test fallback for hosts without a container runtime.
 # Production uses the independently pinned container image in docker-compose.
-version="1.18.1"
+version="1.20.0"
 destination="${1:-${TMPDIR:-/tmp}/flowork-tools/openfga}"
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64)
     artifact="openfga_${version}_linux_amd64.tar.gz"
-    digest="a5b53556d47b80226190aa0087561ea114a2487f68cc2210dbfc1c11d21bcbe4"
+    digest="1974ea836894e4638be6f302f5dd80a87b24a387f3b8d0068b1fb0c62e7033d5"
     ;;
   Linux:aarch64|Linux:arm64)
     artifact="openfga_${version}_linux_arm64.tar.gz"
-    digest="864325fc98aaa10c006d4841c0911e901cd8c5eb564af3e242075f19da331d92"
+    digest="20ef76aff5629e87a69003b11fb6cfd3de3f7472d250f603d113bcb9eec2c90b"
     ;;
   *)
     printf 'Unsupported platform for pinned OpenFGA server: %s:%s\n' \

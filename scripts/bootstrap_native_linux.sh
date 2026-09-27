@@ -10,7 +10,8 @@ umask 077
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PREPARE_ONLY=0
 UV_VERSION="${UV_VERSION:-0.12.19}"
-NODE_MAJOR="${NODE_MAJOR:-22}"
+NODE_VERSION="${NODE_VERSION:-22.23.3}"
+NODE_MAJOR="${NODE_VERSION%%.*}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.147.0}"
 PLAYWRIGHT_CORE_VERSION="${PLAYWRIGHT_CORE_VERSION:-1.63.0-alpha-2026-08-05}"
 DRAWIO_DESKTOP_VERSION="${DRAWIO_DESKTOP_VERSION:-31.1.8}"
@@ -114,27 +115,26 @@ pdftoppm -v
 
 node_is_compatible() {
   command -v node >/dev/null || return 1
-  node -e '
-    const [major, minor] = process.versions.node.split(".").map(Number);
-    process.exit(major > 22 || (major === 22 && minor >= 12) || (major === 20 && minor >= 19) ? 0 : 1);
-  '
+  [[ "$(node --version)" == "v${NODE_VERSION}" ]]
 }
 
 if ! node_is_compatible; then
-  echo "[2/7] Installing Node.js ${NODE_MAJOR}.x"
+  echo "[2/7] Installing Node.js ${NODE_VERSION}"
   node_setup="$(mktemp)"
   curl -fsSL --retry 3 "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o "$node_setup"
   # APT source/key metadata is public and must remain readable by _apt.
   # Do not propagate the bootstrap's secret-file umask into repository setup.
   sudo -E bash -c 'umask 022; exec bash "$1"' bash "$node_setup"
   # Hosts may pin distribution packages above NodeSource's priority. Select
-  # the requested major explicitly, never silently accept Debian's Node 18.
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "nodejs=${NODE_MAJOR}.*"
+  # the exact reviewed release, never silently accept Debian's Node 18 or a
+  # newer NodeSource package that appeared after this checkout was published.
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    "nodejs=${NODE_VERSION}-1nodesource1"
 else
   echo "[2/7] Reusing compatible Node.js $(node --version)"
 fi
 node_is_compatible || {
-  echo "ERROR: installed Node.js is incompatible with the frontend toolchain" >&2
+  echo "ERROR: expected Node.js v${NODE_VERSION}, got $(node --version 2>/dev/null || echo missing)" >&2
   exit 1
 }
 command -v npm >/dev/null || {
@@ -168,12 +168,29 @@ fi
   echo "ERROR: expected Browser CLI runtime 0.4.0 with Playwright core ${PLAYWRIGHT_CORE_VERSION}" >&2
   exit 1
 }
-if ! flowork-diagram-search --version 2>/dev/null | grep -qx "1.5.0"; then
+drawio_runtime_is_compatible() {
+  [[ "$(flowork-diagram-search --version 2>/dev/null || true)" == "1.5.0" ]] || return 1
+  local global_root
+  global_root="$(npm root --global)"
+  node - "$global_root/flowork-drawio-runtime" <<'JS'
+const root = process.argv[2];
+const expected = {
+  "fast-uri": "4.2.1",
+  "hono": "4.13.9",
+  "qs": "6.16.0",
+};
+for (const [name, version] of Object.entries(expected)) {
+  const actual = require(`${root}/node_modules/${name}/package.json`).version;
+  if (actual !== version) process.exit(1);
+}
+JS
+}
+if ! drawio_runtime_is_compatible; then
   npm --prefix "$REPO_ROOT/api/drawio-runtime" ci --ignore-scripts --no-audit --no-fund
   install_public_npm_package "$REPO_ROOT/api/drawio-runtime"
 fi
-[[ "$(flowork-diagram-search --version)" == "1.5.0" ]] || {
-  echo "ERROR: expected official draw.io search libraries 1.5.0" >&2
+drawio_runtime_is_compatible || {
+  echo "ERROR: expected draw.io search 1.5.0 with reviewed transitive dependencies" >&2
   exit 1
 }
 
@@ -193,17 +210,7 @@ command -v uv >/dev/null || {
 
 echo "[5/7] Creating the repo-local Python 3.11.16 environment"
 cd "$REPO_ROOT"
-uv python install 3.11.16
-if [[ ! -x .venv/bin/python ]]; then
-  uv venv --python 3.11.16 --seed .venv
-fi
-uv pip install --python .venv/bin/python --require-hashes \
-  --requirement requirements-build.txt
-uv pip install --python .venv/bin/python --requirement requirements-dev.txt
-uv pip install --python .venv/bin/python --require-hashes \
-  --requirement requirements-sandbox.txt
-uv pip install --python .venv/bin/python --no-build-isolation --no-deps \
-  --editable ./engine --editable ./api
+bash "$REPO_ROOT/scripts/sync_python_env.sh"
 .venv/bin/python -c \
   'import fastapi, jsonlines, matplotlib, networkx, numpy, pandas, psycopg, seaborn, sqlalchemy, tabulate, vibecanvas_api, vibecanvas_engine; print("Python environment: ok")'
 

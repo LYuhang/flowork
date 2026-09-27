@@ -1,7 +1,7 @@
 # vibecanvas-engine — pure-Python package image
 #
 # Build:
-#   docker build -t vibecanvas-engine:dev .
+#   docker build -f engine/Dockerfile -t vibecanvas-engine:dev .
 #
 # This image is built by the supply-chain gate to verify that the standalone
 # engine package remains installable. Product workflow execution is owned by
@@ -11,15 +11,21 @@ FROM python:3.11.16-slim-trixie@sha256:e41613d42d4891e4930f79523f93f81bbc7632584
 
 WORKDIR /app
 
+COPY scripts/security/patch_python_tarfile.py /tmp/patch_python_tarfile.py
+COPY scripts/security/verify_python_tarfile_fix.py /usr/local/lib/flowork/verify_python_tarfile_fix.py
+RUN python /tmp/patch_python_tarfile.py && \
+    python /usr/local/lib/flowork/verify_python_tarfile_fix.py && \
+    rm /tmp/patch_python_tarfile.py
+
 # Install reviewed, hash-locked build tooling and runtime dependencies first.
-COPY requirements-build.txt /app/requirements-build.txt
-COPY requirements-runtime.txt /app/requirements-runtime.txt
+COPY engine/requirements-build.txt /app/requirements-build.txt
+COPY engine/requirements-runtime.txt /app/requirements-runtime.txt
 RUN pip install --no-cache-dir --require-hashes -r requirements-build.txt && \
     pip install --no-cache-dir --require-hashes -r requirements-runtime.txt
 
 # Copy the package metadata and source.
-COPY pyproject.toml README.md /app/
-COPY src/ /app/src/
+COPY engine/pyproject.toml engine/README.md /app/
+COPY engine/src/ /app/src/
 
 # Install the package itself (resolves jsonschema, json_repair, jinja2, requests).
 # --no-cache-dir keeps the image lean.

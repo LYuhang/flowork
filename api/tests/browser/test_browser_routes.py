@@ -93,6 +93,9 @@ def test_ws_echo_with_valid_scoped_token(monkeypatch):
         headers={"origin": f"chrome-extension://{config.browser_extension_id}"},
     ) as ws:
         assert ws.accepted_subprotocol == BROWSER_WS_PROTOCOL
+        authenticated = ws.receive_json()
+        assert authenticated["data"]["type"] == "auth_status"
+        assert isinstance(authenticated["data"]["expires_at"], int)
         ws.send_text(
             '{"v":1,"kind":"ping","id":"c1","channel":"chat:1",'
             '"transport":"x","data":{"hi":1}}'

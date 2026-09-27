@@ -66,16 +66,20 @@ Knowledge library. The Agent can:
 - read `README.md`, then progressively list and open relevant files, using
   derived search only when it helps;
 - prepare a new package locally and publish it;
-- update a materialized package with optimistic version checks; and
+- publish a complete replacement package as a new version; and
 - delete a package only after an explicit user request.
 
-The Knowledge tools move complete packages between platform storage and the
+The Agent's built-in commands move complete packages between platform storage and the
 Chat sandbox. Ordinary filesystem tools handle reading, searching, editing,
 and reorganizing local files. This keeps file operations transparent and
 prevents the Knowledge integration from duplicating the Agent's file tools.
 
-When an update reports a version conflict, fetch the latest package and
-reconcile the changes before publishing again.
+Publication replaces the entire file tree and increments the current version;
+files absent from the submitted package are removed. There is no expected-version
+guard: concurrent publications serialize, and the last commit wins. Fetch the
+latest package and reconcile changes before publishing to avoid overwriting
+someone else's work. Search indexing is asynchronous; a pending or failed index
+does not mean the saved files need to be uploaded again.
 
 By default, each fetched version is materialized in its own versioned local
 directory. This prevents files removed in a newer package version from being

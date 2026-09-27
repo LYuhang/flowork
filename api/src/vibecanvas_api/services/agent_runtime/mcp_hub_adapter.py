@@ -9,8 +9,6 @@ resident Chat Runtime and retain their protocol session across Turns.
 from __future__ import annotations
 
 import asyncio
-import os
-import secrets
 from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -24,17 +22,12 @@ from pydantic import TypeAdapter
 from mcp.shared.message import SessionMessage
 
 from vibecanvas_api.agents.tools import builtin_tool_names
-from vibecanvas_api.browser.playwright_contract import filter_playwright_tools
 from vibecanvas_api.config import config
 
 from .mcp_runtime_protocol import (
     McpDesiredServer,
     McpExecutionContext,
     McpStdioLaunch,
-)
-from .mcp_browser_transport import (
-    BrowserCdpRelay,
-    start_browser_cdp_relay,
 )
 
 
@@ -52,7 +45,6 @@ McpGatewayCallback = Callable[
 class _LocalSession:
     stack: AsyncExitStack
     session: ClientSession
-    browser_relay: BrowserCdpRelay | None = None
 
 
 @dataclass(slots=True)
@@ -147,36 +139,18 @@ class SandboxMcpRuntimeAdapter:
         server: McpDesiredServer,
         launch: McpStdioLaunch,
     ) -> tuple[dict[str, Any], ...]:
+        if launch.environment_profile != "sandbox-default":
+            raise RuntimeError("Unsupported MCP environment profile")
         async with self._lock:
             if server.id in self._local:
                 raise RuntimeError(f"MCP server {server.id!r} is already running")
             stack = AsyncExitStack()
-            browser_relay: BrowserCdpRelay | None = None
             try:
-                child_env: dict[str, str] | None = None
-                if launch.environment_profile == "browser-gateway":
-                    local_bearer = secrets.token_urlsafe(32)
-                    browser_relay = await start_browser_cdp_relay(
-                        local_bearer=local_bearer,
-                    )
-                    playwright_home = "/tmp/flowork-playwright-mcp"
-                    playwright_cache = f"{playwright_home}/cache"
-                    os.makedirs(playwright_cache, mode=0o700, exist_ok=True)
-                    child_env = {
-                        "HOME": playwright_home,
-                        "XDG_CACHE_HOME": playwright_cache,
-                        "TMPDIR": "/tmp",
-                        "FLOWORK_PLAYWRIGHT_CDP_ENDPOINT": (
-                            browser_relay.endpoint
-                        ),
-                        "FLOWORK_PLAYWRIGHT_CDP_BEARER": local_bearer,
-                    }
                 read, write = await stack.enter_async_context(stdio_client(
                     StdioServerParameters(
                         command=launch.command,
                         args=list(launch.args),
                         cwd=launch.cwd,
-                        env=child_env,
                     )
                 ))
                 session = await stack.enter_async_context(
@@ -186,13 +160,10 @@ class SandboxMcpRuntimeAdapter:
                 listed = await session.list_tools()
             except BaseException:
                 await stack.aclose()
-                if browser_relay is not None:
-                    await browser_relay.close()
                 raise
             self._local[server.id] = _LocalSession(
                 stack=stack,
                 session=session,
-                browser_relay=browser_relay,
             )
         return tuple(_tool_manifest(tool) for tool in listed.tools)
 
@@ -296,8 +267,6 @@ class SandboxMcpRuntimeAdapter:
             remote = self._remote.pop(server.id, None)
         if local is not None:
             await local.stack.aclose()
-            if local.browser_relay is not None:
-                await local.browser_relay.close()
         if remote is not None:
             await remote.stack.aclose()
             remote.owner_task.cancel()
@@ -321,6 +290,9 @@ class SandboxMcpRuntimeAdapter:
     ) -> Any:
         del execution_context  # The Hub validates and owns the live context.
         if server.connection.kind == "platform_facade":
+            if server.name == "interactive" and tool_name == "render_choices":
+                from .choice_wait import wait_for_choices
+                return await wait_for_choices(self._gateway, server, dict(arguments))
             return await self._gateway(
                 "call",
                 server,
@@ -352,39 +324,10 @@ class SandboxMcpRuntimeAdapter:
         server: McpDesiredServer,
         execution_context: McpExecutionContext,
     ) -> None:
-        del execution_context
-        if (
-            server.connection.kind != "stdio"
-            or server.connection.environment_profile != "browser-gateway"
-        ):
-            return
-        local = self._local.get(server.id)
-        if local is None or local.browser_relay is None:
-            raise RuntimeError("Browser MCP relay is not running")
-        response = await self._gateway("launch", server, None, {})
-        environment = response.get("environment")
-        if not isinstance(environment, dict):
-            raise RuntimeError(
-                "Host Gateway returned no Browser launch environment"
-            )
-        await local.browser_relay.activate(
-            upstream_url=str(
-                environment.get("FLOWORK_PLAYWRIGHT_CDP_ENDPOINT") or ""
-            ),
-            upstream_bearer=str(
-                environment.get("FLOWORK_PLAYWRIGHT_CDP_BEARER") or ""
-            ),
-        )
+        del server, execution_context
 
     async def deactivate(self, server: McpDesiredServer) -> None:
-        if (
-            server.connection.kind != "stdio"
-            or server.connection.environment_profile != "browser-gateway"
-        ):
-            return
-        local = self._local.get(server.id)
-        if local is not None and local.browser_relay is not None:
-            await local.browser_relay.deactivate()
+        del server
 
     def manifest(self, server_id: str) -> tuple[dict[str, Any], ...]:
         return self._manifests.get(server_id, ())
@@ -435,7 +378,7 @@ async def project_hub_tools(
     server_list = sorted(
         desired_servers,
         key=lambda item: (
-            0 if item.source in {"platform", "builtin_local"} else 1,
+            0 if item.source == "platform" else 1,
             item.name,
         ),
     )
@@ -464,13 +407,11 @@ async def project_hub_tools(
                     f"tenant MCP tool limit {tenant_cap} would be exceeded"
                 )
             mcp_tools = [types.Tool.model_validate(item) for item in manifest]
-            if server.name == "browser":
-                mcp_tools = filter_playwright_tools(mcp_tools)
             for mcp_tool in mcp_tools:
                 raw_name = str(mcp_tool.name or "")
                 if not raw_name:
                     raise RuntimeError("server exported a tool without a name")
-                if server.source in {"platform", "builtin_local"}:
+                if server.source == "platform":
                     if raw_name in direct_mcp_names:
                         raise RuntimeError(
                             f"duplicate MCP tool name: {raw_name}"
@@ -508,7 +449,7 @@ async def project_hub_tools(
             "loaded": error is None,
             "source": (
                 "platform"
-                if server.source in {"platform", "builtin_local"}
+                if server.source == "platform"
                 else "custom"
             ),
             "tool_count": len(projected),

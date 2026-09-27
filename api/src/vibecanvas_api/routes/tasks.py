@@ -43,9 +43,6 @@ from vibecanvas_api.authorization.dependencies import (
     principal_for_auth,
 )
 from vibecanvas_api.authorization.mutations import AuthzMutationError
-from vibecanvas_api.authorization.openfga_client import (
-    OpenFgaUnavailableError,
-)
 from vibecanvas_api.authorization.share_resolution import (
     binding_from_share_resolution,
 )
@@ -139,6 +136,8 @@ class ScheduledRunCreateBody(BaseModel):
 
     name: str
     workflow_id: str
+    major: str | None = None
+    version: str | None = None
     enabled: bool = True
     schedule_type: str = "interval"
     interval_seconds: int | None = None
@@ -155,6 +154,8 @@ class ScheduledRunPatchBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str | None = None
+    major: str | None = None
+    version: str | None = None
     enabled: bool | None = None
     schedule_type: str | None = None
     interval_seconds: int | None = None
@@ -493,6 +494,9 @@ async def create_scheduled_run(
     meta = await WorkflowRepo(session, ctx.user_id).get_meta(body.workflow_id)
     if not meta:
         raise HTTPException(status_code=404, detail=f"workflow {body.workflow_id} not found")
+    from vibecanvas_api.services.task_snapshots import freeze_workflow
+    snapshot = await freeze_workflow(session, ctx.user_id, body.workflow_id,
+                                     major=body.major, version=body.version)
     try:
         next_run_at = (
             compute_next_run_at(
@@ -532,16 +536,14 @@ async def create_scheduled_run(
             owner_resource_type="task",
             owner_resource_id=str(task_id),
             created_by=uuid.UUID(ctx.user_id),
-            status="active" if body.enabled else "disabled",
+            status="active",  # Pausing dispatch must not revoke a live execution.
         )
         credential_ids = await bind_workflow_credentials(
             session,
             tenant_id=uuid.UUID(ctx.tenant_id),
             service_account_id=service_account_id,
             created_by=ctx.user_id,
-            workflow=await WorkflowRepo(
-                session, ctx.user_id
-            ).get_current_workflow(body.workflow_id),
+            workflow=snapshot["workflow"],
         )
         task, schedule = await repo.create_schedule(
             task_id=task_id,
@@ -561,6 +563,8 @@ async def create_scheduled_run(
             next_run_at=next_run_at,
             end_at=normalized_end_at,
             service_account_id=service_account_id,
+            workflow_selector={key: value for key, value in {"major": body.major, "version": body.version}.items() if value},
+            start_at=body.start_at.isoformat() if body.start_at else None,
         )
     except IntegrityError as exc:
         raise HTTPException(status_code=404, detail=f"workflow {body.workflow_id} not found") from exc
@@ -615,30 +619,39 @@ async def create_scheduled_run(
         source="scheduled-task-create",
     )
     await session.commit()
-    await apply_committed_structural_mutations(coordinator, mutation_ids)
-    await _rebind_request_organization(session, ctx)
-    decision = await service.check(
-        principal_for_auth(ctx),
-        Action.VIEW_METADATA,
-        _task_resource(ctx, task_id),
-        context_for_auth(
-            ctx,
-            request,
-            consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
-        ),
-    )
-    if not decision.allowed:
-        raise OpenFgaUnavailableError(
-            "authorization_projection_not_visible"
-        )
-    return {
-        "task": await _task_to_out(
-            task,
-            decision,
-            ResourceProvenanceBuilder(session),
-        ),
+    accepted = {
+        "task": {"id": str(task_id), "task_type": "scheduled_run", "workflow_id": body.workflow_id, "status": task.status},
         "schedule": schedule_to_out(schedule),
+        "authorization_pending": True,
     }
+    try:
+        await apply_committed_structural_mutations(coordinator, mutation_ids)
+        await _rebind_request_organization(session, ctx)
+    except Exception:
+        return accepted
+    try:
+        decision = await service.check(
+            principal_for_auth(ctx),
+            Action.VIEW_METADATA,
+            _task_resource(ctx, task_id),
+            context_for_auth(
+                ctx,
+                request,
+                consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
+            ),
+        )
+        if not decision.allowed:
+            return accepted
+        return {
+            "task": await _task_to_out(
+                task,
+                decision,
+                ResourceProvenanceBuilder(session),
+            ),
+            "schedule": schedule_to_out(schedule),
+        }
+    except Exception:
+        return accepted
 
 
 @router.get("/scheduled-runs/{task_id}")
@@ -694,28 +707,37 @@ async def update_scheduled_run(
         raise HTTPException(status_code=404, detail=f"scheduled run {task_id} not found")
     fields = {}
     for key in ("name", "schedule_type", "interval_seconds", "cron_expr", "timezone", "input_preset", "mount_enabled", "end_at"):
-        value = getattr(body, key)
-        if value is not None:
-            fields[key] = value
+        if key in body.model_fields_set:
+            value = getattr(body, key)
+            if value is not None or key in {"end_at", "interval_seconds", "cron_expr"}:
+                fields[key] = value
     if body.notification_policy is not None:
         fields["notification_policy"] = merge_notification_policy(body.notification_policy)
+    if "start_at" in body.model_fields_set:
+        fields["start_at"] = body.start_at.isoformat() if body.start_at else None
+    if body.major or body.version:
+        from vibecanvas_api.services.task_snapshots import freeze_workflow
+        await _authorize_workflow_use(request=request, ctx=ctx, service=service, workflow_id=schedule.workflow_id)
+        await freeze_workflow(session, ctx.user_id, schedule.workflow_id, major=body.major, version=body.version)
+        fields["workflow_selector"] = {key: value for key, value in {"major": body.major, "version": body.version}.items() if value}
     enabled = schedule.enabled if body.enabled is None else body.enabled
     schedule_type = fields.get("schedule_type", schedule.schedule_type)
-    interval_seconds = fields.get("interval_seconds", schedule.interval_seconds)
-    cron_expr = fields.get("cron_expr", schedule.cron_expr)
-    timezone_name = fields.get("timezone", schedule.timezone)
+    if "schedule_type" in fields:
+        fields["cron_expr" if schedule_type == "interval" else "interval_seconds"] = None
+    timing_changed = bool(body.model_fields_set & {"schedule_type", "interval_seconds", "cron_expr", "timezone", "start_at", "end_at", "enabled"})
+    next_run_at = schedule.next_run_at
     try:
-        next_run_at = (
-            compute_next_run_at(
-                schedule_type=schedule_type,
-                timezone_name=timezone_name,
-                interval_seconds=interval_seconds,
-                cron_expr=cron_expr,
-                start_at=body.start_at,
-            )
-            if enabled
-            else None
-        )
+        if timing_changed:
+            saved_start = fields.get("start_at", getattr(schedule, "start_at", None))
+            next_run_at = compute_next_run_at(
+                schedule_type=schedule_type, timezone_name=fields.get("timezone", schedule.timezone),
+                interval_seconds=fields.get("interval_seconds", schedule.interval_seconds),
+                cron_expr=fields.get("cron_expr", schedule.cron_expr),
+                start_at=datetime.fromisoformat(saved_start) if saved_start else None,
+            ) if enabled else None
+        end_at = fields.get("end_at", schedule.end_at)
+        if end_at is not None and next_run_at is not None and end_at < next_run_at:
+            raise ValueError("end_at must not be earlier than the next scheduled run")
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     fields["enabled"] = enabled
@@ -732,7 +754,7 @@ async def update_scheduled_run(
     if task.service_account_id is not None:
         await ServiceAccountsRepo(session).set_status(
             task.service_account_id,
-            status="active" if enabled else "disabled",
+            status="active",
         )
     await repo.update_status(
         task_id,
@@ -779,12 +801,6 @@ async def pause_scheduled_run(
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
     schedule = await repo.update_schedule(schedule.id, enabled=False, next_run_at=None)
-    task = await repo.get(task_id)
-    if task is not None and task.service_account_id is not None:
-        await ServiceAccountsRepo(session).set_status(
-            task.service_account_id,
-            status="disabled",
-        )
     await repo.update_status(task_id, status="paused", payload=_schedule_task_payload(schedule))
     return {"status": "paused", "schedule": schedule_to_out(schedule)}
 
@@ -814,7 +830,10 @@ async def resume_scheduled_run(
             timezone_name=schedule.timezone,
             interval_seconds=schedule.interval_seconds,
             cron_expr=schedule.cron_expr,
+            start_at=datetime.fromisoformat(schedule.start_at) if getattr(schedule, "start_at", None) else None,
         )
+        if schedule.end_at is not None and next_run_at > schedule.end_at:
+            raise ValueError("Schedule end time has passed; update it before resuming.")
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     await _authorize_task(
@@ -853,11 +872,10 @@ async def run_scheduled_now(
     )
     repo = TasksRepo(session)
     task = await repo.get(task_id)
-    schedule = await repo.get_schedule_by_task(task_id)
+    schedule = await repo.get_schedule_by_task(task_id, for_update=True)
     if task is None or schedule is None:
         raise HTTPException(status_code=404, detail=f"scheduled run {task_id} not found")
-    active, _ = await repo.list_scheduled_executions(schedule_id=schedule.id, limit=10)
-    if any(ex.status in {"queued", "running"} for ex in active):
+    if await repo.has_active_scheduled_execution(schedule.id):
         raise HTTPException(status_code=409, detail="a scheduled execution is already active")
     await _authorize_task(
         request=request,
@@ -929,11 +947,10 @@ async def delete_scheduled_run(
     )
     repo = TasksRepo(session)
     task = await repo.get(task_id)
-    schedule = await repo.get_schedule_by_task(task_id)
+    schedule = await repo.get_schedule_by_task(task_id, for_update=True)
     if task is None or schedule is None:
         raise HTTPException(status_code=404, detail=f"scheduled run {task_id} not found")
-    active, _ = await repo.list_scheduled_executions(schedule_id=schedule.id, limit=10)
-    if any(ex.status in {"queued", "running"} for ex in active):
+    if await repo.has_active_scheduled_execution(schedule.id):
         raise HTTPException(status_code=409, detail="cancel active execution before deleting schedule")
     await _authorize_task(
         request=request,
@@ -943,6 +960,30 @@ async def delete_scheduled_run(
         action=Action.DELETE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
+    return await _delete_task_record(task_id, task, request, ctx, session)
+
+
+@router.delete("/{task_id}")
+async def delete_batch_task(
+    task_id: uuid.UUID,
+    request: Request,
+    ctx: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id, action=Action.DELETE)
+    task = await TasksRepo(session).get(task_id, for_update=True)
+    if task is None or task.task_type != "batch_exec":
+        raise HTTPException(status_code=404, detail="Batch task not found.")
+    if task.status not in {"finished", "finished_with_errors", "failed", "interrupted", "cancelled"} or task.worker_recovery_pending:
+        raise HTTPException(status_code=409, detail="Stop the active execution and wait for a terminal state before deleting this task.")
+    await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id,
+        action=Action.DELETE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    return await _delete_task_record(task_id, task, request, ctx, session)
+
+
+async def _delete_task_record(task_id, task, request, ctx, session):
+    """Delete tracking/history and revoke its service identity, not Workflow exports."""
     account_before = frozenset()
     if task.service_account_id is not None:
         account_repo = ServiceAccountsRepo(session)
@@ -988,11 +1029,30 @@ async def delete_scheduled_run(
         ),
         after=frozenset(),
         operation_id=uuid.uuid4().hex,
-        source="scheduled-task-delete",
+        source="task-delete",
     )
     await session.commit()
     await apply_committed_structural_mutations(coordinator, mutation_ids)
     return {"status": "deleted"}
+
+
+@router.get("/scheduled-runs/{task_id}/executions/{execution_id}/download")
+async def download_scheduled_execution_results(
+    task_id: uuid.UUID,
+    execution_id: uuid.UUID,
+    request: Request,
+    ctx: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id, action=Action.EXPORT)
+    execution = await get_scheduled_run_execution(task_id, execution_id, request=request, ctx=ctx, session=session, service=service)
+    if execution["status"] not in {"succeeded", "failed", "cancelled", "skipped"} or execution.get("result") is None:
+        raise HTTPException(status_code=409, detail="Execution results are not available. Inspect status and logs; do not resubmit.")
+    body = {"task_id": str(task_id), "execution_id": str(execution_id), "status": execution["status"],
+            "version": execution.get("version"), "result": execution["result"], "execution_error": execution.get("error")}
+    return Response(json.dumps(body, ensure_ascii=False), media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="execution-{execution_id}.json"'})
 
 
 @router.get("/scheduled-runs/{task_id}/executions")
@@ -1104,11 +1164,11 @@ async def cancel_scheduled_run_execution(
         action=Action.CANCEL,
     )
     repo = TasksRepo(session)
-    schedule = await repo.get_schedule_by_task(task_id)
-    execution = await repo.get_scheduled_execution(execution_id)
+    schedule = await repo.get_schedule_by_task(task_id, for_update=True)
+    execution = await repo.get_scheduled_execution(execution_id, for_update=True)
     if schedule is None or execution is None or execution.schedule_id != schedule.id:
         raise HTTPException(status_code=404, detail=f"execution {execution_id} not found")
-    if execution.status not in {"queued", "running"}:
+    if execution.status not in {"queued", "running", "cancelling"}:
         raise HTTPException(status_code=409, detail=f"execution is {execution.status}, cannot cancel")
     await _authorize_task(
         request=request,
@@ -1118,28 +1178,29 @@ async def cancel_scheduled_run_execution(
         action=Action.CANCEL,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
+    if execution.status == "cancelling":
+        return {"status": "cancelling"}
+    queued = execution.status == "queued"
+    state = "cancelled" if queued else "cancelling"
     cancelled_at = datetime.now(timezone.utc)
     await repo.update_scheduled_execution(
         execution_id,
-        status="cancelled",
-        finished_at=cancelled_at,
+        status=state,
+        finished_at=cancelled_at if queued else None,
         error="Cancelled by user.",
     )
-    await repo.update_schedule(
-        schedule.id,
-        last_run_at=cancelled_at,
-        last_status="cancelled",
-    )
+    if queued:
+        await repo.update_schedule(schedule.id, last_run_at=cancelled_at, last_status="cancelled")
     await repo.insert_event(
         task_id,
-        "terminal",
+        "terminal" if queued else "state",
         {
             "schema_version": 1,
             "level": "warning",
             "category": "scheduled_run",
-            "action": "scheduled_run.cancelled",
+            "action": f"scheduled_run.{state}",
             "message": "Scheduled execution cancellation requested.",
-            "task_status": "enabled" if schedule.enabled else "paused",
+            "task_status": ("enabled" if schedule.enabled else "paused") if queued else "cancelling",
             "sandbox_status": "releasing",
             "scope": {"type": "scheduled_run_execution", "id": str(execution_id), "name": None},
             "progress": None,
@@ -1148,8 +1209,8 @@ async def cancel_scheduled_run_execution(
         },
         uuid.UUID(ctx.tenant_id),
     )
-    await repo.update_status(task_id, status="enabled" if schedule.enabled else "paused")
-    return {"status": "cancelled"}
+    await repo.update_status(task_id, status=("enabled" if schedule.enabled else "paused") if queued else "cancelling")
+    return {"status": state}
 
 
 @router.get(
@@ -1494,7 +1555,7 @@ async def resume_task(
         action=Action.RESUME,
     )
     repo = TasksRepo(session)
-    t = await repo.get(task_id)
+    t = await repo.get(task_id, for_update=True)
     if t is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1512,6 +1573,9 @@ async def resume_task(
         )
 
     result = t.result or {}
+    if result.get("can_resume") is False:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+            detail="This attempt cannot be resumed safely. Inspect its error and external side effects before submitting new work.")
     if not (result.get("artifact_uris") or {}).get("jsonl"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

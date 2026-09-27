@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.security.content_encryption import content_encryption_service
@@ -90,6 +90,45 @@ class HitlRepo:
             "interaction_result_json",
         ):
             setattr(row, name, value.get(name))
+        correlation = row.runtime_correlation_json or {}
+        if row.status == "pending" and correlation.get("source") in {"flowork_cli", "render_choices", "browser_transfer"}:
+            method = str(correlation.get("runtime_method", ""))
+            is_resource = method.startswith(("task.", "deployment.", "knowledge."))
+            table = "knowledge_cli_leases" if method.startswith("knowledge.") else ("deployment_cli_leases" if method.startswith("deployment.") else ("task_cli_leases" if is_resource else "workflow_cli_leases"))
+            operation_filter = "" if is_resource else "AND l.operation='delete'"
+            is_choices = correlation.get("source") == "render_choices"
+            if is_choices or correlation.get("source") == "browser_transfer":
+                table, operation_filter = "interactive_call_leases", ""
+            live = (await self.session.execute(text(f"""SELECT 1 FROM {table} l
+                JOIN agent_runs r ON r.run_id=l.run_id
+                WHERE l.call_id=:id AND l.run_id=:run {operation_filter}
+                  AND l.expires_at>now() AND r.status='running' AND r.cancel_requested_at IS NULL"""),
+                {"id": str(correlation.get("runtime_request_id", "")), "run": row.run_id})).first()
+            if not live:
+                changed = (await self.session.execute(text("""UPDATE hitl_requests SET status='cancelled',
+                    is_interacted=true, resolved_at=now(), updated_at=now()
+                    WHERE hitl_request_id=:id AND status='pending' RETURNING hitl_request_id"""),
+                    {"id": row.hitl_request_id})).first()
+                if changed:
+                    row.status = "cancelled"
+                    row.is_interacted = True
+                    row.resolved_at = _now()
+                    row.decision_payload_json = {"reason": "The tool call ended." if is_choices else "The CLI command is no longer active."}
+                    if is_choices:
+                        row.interaction_result_json = {"status": "expired", "selected_ids": [],
+                            "message": "No user selection was received before the tool call ended."}
+                        if row.artifact_id:
+                            artifact = await self.get_artifact(row.artifact_id)
+                            if artifact is not None:
+                                artifact.is_interacted = True
+                                artifact.interaction_result_json = row.interaction_result_json
+                                await self._store_artifact_private(artifact)
+                    await self._store_request_private(row)
+                else:
+                    # Another worker resolved it while expiry was checked.
+                    # Do not project the stale in-memory pending status.
+                    await self.session.refresh(row)
+                    return await self._materialize_request(row)
         return row
 
     async def _store_artifact_private(self, row: InteractiveArtifact) -> None:
@@ -468,7 +507,7 @@ class HitlRepo:
         ).scalars().all())
         for row in rows:
             await self._materialize_request(row)
-        return rows
+        return [row for row in rows if row.status == "pending"]
 
     async def list_pending_for_run(self, run_id: str) -> list[HitlRequest]:
         rows = list((
@@ -509,6 +548,18 @@ class HitlRepo:
         await self._materialize_request(req)
         if req.status != "pending":
             return req, False
+        if (req.runtime_correlation_json or {}).get("source") == "render_choices":
+            from vibecanvas_api.services.platform_mcp.interactive_tools.render_choices import ChoicesInput
+            if decision not in {"submit", "submitted", "cancel", "cancelled"}:
+                raise ValueError("A choice accepts only confirmation or cancellation.")
+            selected = []
+            if decision in {"submit", "submitted"}:
+                selected = ChoicesInput.model_validate(req.agent_payload_json).selected(
+                    _safe_json(decision_payload.get("widget_state")).get("selected_ids"))
+            # Never accept the caller's claimed status/receipt or arbitrary result.
+            interaction_result = {"selected_ids": selected,
+                "status": "selected" if selected else ("expired" if decision_payload.get("reason") else "cancelled")}
+            decision_payload = {**decision_payload, "widget_state": {"selected_ids": selected}}
         now = _now()
         status = {
             "approve": "approved",

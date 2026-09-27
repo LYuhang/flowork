@@ -48,6 +48,7 @@ _SCHEDULE_PRIVATE_FIELDS = frozenset({
     "name",
     "input_preset",
     "notification_policy",
+    "workflow_selector", "start_at",
 })
 _EXECUTION_PRIVATE_FIELDS = frozenset({
     "input_snapshot", "result", "error", "run_state", "notification_state",
@@ -181,6 +182,8 @@ class TasksRepo:
         schedule.name = str(value.get("name") or "")
         schedule.input_preset = value.get("input_preset") or {}
         schedule.notification_policy = value.get("notification_policy") or {}
+        schedule.workflow_selector = value.get("workflow_selector") or {}
+        schedule.start_at = value.get("start_at")
         return schedule
 
     async def _store_schedule_private(
@@ -203,6 +206,8 @@ class TasksRepo:
         schedule.name = str(value.get("name") or "")
         schedule.input_preset = value.get("input_preset") or {}
         schedule.notification_policy = value.get("notification_policy") or {}
+        schedule.workflow_selector = value.get("workflow_selector") or {}
+        schedule.start_at = value.get("start_at")
 
     async def _materialize_execution(
         self,
@@ -223,6 +228,7 @@ class TasksRepo:
         execution.error = value.get("error")
         execution.run_state = value.get("run_state") or {}
         execution.notification_state = value.get("notification_state") or {}
+        execution.workflow_snapshot = value.get("workflow_snapshot") or {}
         return execution
 
     async def _store_execution_private(
@@ -246,6 +252,7 @@ class TasksRepo:
         execution.error = value.get("error")
         execution.run_state = value.get("run_state") or {}
         execution.notification_state = value.get("notification_state") or {}
+        execution.workflow_snapshot = value.get("workflow_snapshot") or {}
 
     async def create(
         self,
@@ -289,8 +296,8 @@ class TasksRepo:
         task.error = None
         return task
 
-    async def get(self, task_id: uuid.UUID) -> Optional[Task]:
-        task = await self.session.get(Task, task_id)
+    async def get(self, task_id: uuid.UUID, *, for_update: bool = False) -> Optional[Task]:
+        task = await self.session.get(Task, task_id, with_for_update=for_update, populate_existing=for_update)
         return await self._materialize_task(task) if task is not None else None
 
     async def update_status(self, task_id: uuid.UUID, **fields: Any) -> None:
@@ -582,6 +589,8 @@ class TasksRepo:
         next_run_at: datetime | None,
         end_at: datetime | None = None,
         service_account_id: uuid.UUID | None = None,
+        workflow_selector: dict | None = None,
+        start_at: str | None = None,
     ) -> tuple[Task, TaskSchedule]:
         task_private = {
             "payload": {
@@ -611,6 +620,8 @@ class TasksRepo:
             "name": name,
             "input_preset": input_preset,
             "notification_policy": notification_policy,
+            "workflow_selector": workflow_selector or {},
+            "start_at": start_at,
         }
         schedule_encrypted = await self._encrypt_document(
             tenant_id=tenant_id,
@@ -663,11 +674,16 @@ class TasksRepo:
         schedule.input_preset = input_preset
         schedule.notification_policy = notification_policy
         schedule.name = name
+        schedule.workflow_selector = workflow_selector or {}
+        schedule.start_at = start_at
         return task, schedule
 
-    async def get_schedule_by_task(self, task_id: uuid.UUID) -> TaskSchedule | None:
+    async def get_schedule_by_task(self, task_id: uuid.UUID, *, for_update: bool = False) -> TaskSchedule | None:
+        statement = select(TaskSchedule).where(TaskSchedule.task_id == task_id)
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         result = await self.session.execute(
-            select(TaskSchedule).where(TaskSchedule.task_id == task_id)
+            statement
         )
         schedule = result.scalar_one_or_none()
         return (
@@ -689,6 +705,7 @@ class TasksRepo:
             "name", "enabled", "schedule_type", "cron_expr", "interval_seconds",
             "timezone", "input_preset", "mount_enabled", "notification_policy",
             "next_run_at", "end_at", "last_run_at", "last_status",
+            "workflow_selector", "start_at",
         }
         unknown = set(fields) - allowed
         if unknown:
@@ -703,6 +720,8 @@ class TasksRepo:
                 "name": schedule.name,
                 "input_preset": schedule.input_preset,
                 "notification_policy": schedule.notification_policy,
+                "workflow_selector": schedule.workflow_selector,
+                "start_at": schedule.start_at,
             }
             private.update({key: fields[key] for key in private_updates})
             await self._store_schedule_private(schedule, private)
@@ -733,8 +752,16 @@ class TasksRepo:
         )
         if existing.scalar_one_or_none() is not None:
             return None
+        from vibecanvas_api.services.task_snapshots import freeze_workflow
+        schedule = await self.get_schedule(schedule_id)
+        if schedule is None:
+            raise LookupError("Schedule not found.")
+        snapshot = await freeze_workflow(self.session, schedule.user_id, workflow_id,
+                                        **schedule.workflow_selector)
+        snapshot["mount_enabled"] = bool(schedule.mount_enabled)
         private = {
             "input_snapshot": input_snapshot,
+            "workflow_snapshot": snapshot,
             "result": None,
             "error": None,
             "run_state": {},
@@ -767,13 +794,26 @@ class TasksRepo:
         execution.error = None
         execution.run_state = {}
         execution.notification_state = {}
+        execution.workflow_snapshot = snapshot
         return execution
+
+    async def has_active_scheduled_execution(self, schedule_id: uuid.UUID) -> bool:
+        return (await self.session.execute(
+            select(ScheduledRunExecution.id).where(
+                ScheduledRunExecution.schedule_id == schedule_id,
+                ScheduledRunExecution.status.in_(("queued", "running", "cancelling")),
+            ).limit(1)
+        )).first() is not None
 
     async def get_scheduled_execution(
         self,
         execution_id: uuid.UUID,
+        *,
+        for_update: bool = False,
     ) -> ScheduledRunExecution | None:
-        execution = await self.session.get(ScheduledRunExecution, execution_id)
+        execution = await self.session.get(ScheduledRunExecution, execution_id,
+                                          with_for_update=for_update,
+                                          populate_existing=for_update)
         return (
             await self._materialize_execution(execution)
             if execution is not None
@@ -826,6 +866,7 @@ class TasksRepo:
                 "error": execution.error,
                 "run_state": execution.run_state,
                 "notification_state": execution.notification_state,
+                "workflow_snapshot": execution.workflow_snapshot,
             }
             private.update({key: fields[key] for key in private_updates})
             await self._store_execution_private(execution, private)

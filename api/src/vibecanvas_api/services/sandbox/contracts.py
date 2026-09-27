@@ -57,6 +57,7 @@ class SandboxSpec(BaseModel):
     snapshot_policy: str = "disabled"
     expose_run: bool = True
     expose_runtime: bool = False
+    expose_mount: bool = True
 
 
 class SandboxRef(BaseModel):

@@ -2,7 +2,7 @@
 
 The BUILD command context carries compact specs for core graph nodes and a
 lightweight catalog for extended nodes. Full node definitions remain available
-on demand through the ``get_node_spec`` tool.
+on demand through ``flowork-cli workflow get-spec``.
 """
 from __future__ import annotations
 
@@ -124,7 +124,7 @@ def available_node_types() -> list[str]:
 
 
 def build_node_spec(node_type: str, runtime_vars: dict | None = None) -> dict:
-    """Return the exact node definition used by get_node_spec."""
+    """Return the canonical node definition used by the CLI and prompt catalog."""
 
     node_cls = node_registry._module_dict.get(node_type)
     if not node_cls or node_type in _HIDDEN_AGENT_NODE_TYPES:
@@ -218,7 +218,7 @@ def format_node_catalog_for_prompt(runtime_vars: dict | None = None) -> str:
 
     Core flow nodes are embedded because they are frequent and structurally
     error-prone. Extended/specialized nodes remain one-line catalog entries and
-    should be loaded through get_node_spec before use.
+    should be loaded through flowork-cli workflow get-spec before use.
     """
 
     core = set(core_build_node_types())
@@ -246,7 +246,7 @@ def format_node_catalog_for_prompt(runtime_vars: dict | None = None) -> str:
     if extended_parts:
         sections.append(
             "#### Extended node catalog\n"
-            "For these specialized node types, use this catalog for orientation and call `get_node_spec(node_type=...)` for exact schema, constraints, and examples before use.\n\n"
+            "For these specialized node types, use this catalog for orientation and run `flowork-cli workflow get-spec --type <NodeType>` for exact schema, constraints, and examples before use.\n\n"
             + "\n".join(extended_parts)
         )
     return "\n\n".join(sections)

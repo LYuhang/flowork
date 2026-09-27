@@ -1042,6 +1042,9 @@ async def _resolve_model_material(
     """Resolve provider material only after the caller's root authorization."""
     pinned: dict[str, tuple[str, ...]] = {}
     managed_profile_id = getattr(capability, "managed_profile_id", None)
+    is_workflow = isinstance(capability, RuntimeWorkflowModelCapability)
+    if is_workflow and (managed_profile_id is not None or capability.credential_id is None):
+        raise HTTPException(403, detail={"code": "workflow_manual_api_required"})
     if managed_profile_id is not None:
         profile = next(
             (
@@ -1113,6 +1116,10 @@ async def _resolve_model_material(
                 status_code=403,
                 detail={"code": "runtime_model_credential_unavailable"},
             )
+        if is_workflow:
+            from vibecanvas_api.services.workflow_model_policy import is_workflow_credential
+            if not is_workflow_credential(row) or str(row.get("user_id")) != capability.user_id:
+                raise HTTPException(403, detail={"code": "workflow_manual_api_required"})
         provider = _normalized_provider(row.get("provider"))
         model = str(row.get("model_name") or "").strip()
         if row.get("connection_kind") == "openrouter_oauth":

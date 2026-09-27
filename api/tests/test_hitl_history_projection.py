@@ -1,11 +1,23 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
+import pytest
 
 from vibecanvas_api.routes.chats import (
     _hitl_history_projection,
     _merge_hitl_history_projections,
 )
 from vibecanvas_api.schemas.chat import HistoryMessage
+
+
+@pytest.mark.parametrize("call_id", ["cli_123", "transfer_123"])
+def test_cli_approval_restores_without_native_mcp_tool_call(call_id):
+    projection = HistoryMessage(id="hitl:cli:projection", role="tool", content="Waiting",
+                                tool_call_id=call_id, ts=123, artifact={"pending": True})
+    result = _merge_hitl_history_projections([], [(call_id, projection)])
+    assert len(result) == 2
+    assert result[0].tool_calls[0]["id"] == call_id
+    assert result[1] is projection
+    assert _merge_hitl_history_projections(result, [(call_id, projection)]) == result
 
 
 def _rows(
@@ -70,6 +82,18 @@ def test_hitl_history_projection_preserves_pending_card():
     assert message.artifact["payload"]["pending_approval"] is True
     state = message.artifact["payload"]["artifact"]["interaction_state"]
     assert state == {"is_interacted": False, "status": "pending", "result": {}}
+
+
+@pytest.mark.parametrize("method", ["workflow.delete", "task.create", "deployment.delete", "deployment.update"])
+def test_cli_history_restores_actual_command_and_arguments(method):
+    artifact, hitl = _rows(status="approved", interacted=True, result={"decision": "approve"})
+    hitl.ui_payload_json["projection_event"]["tool_call_id"] = "cli_123"
+    hitl.runtime_correlation_json = {"source": "flowork_cli", "runtime_method": method}
+    hitl.agent_payload_json = {"arguments": {"deployment_id": "target"}}
+    projected = _hitl_history_projection(artifact, hitl)
+    messages = _merge_hitl_history_projections([], [projected])
+    assert messages[0].tool_calls[0] == {"id": "cli_123", "name": "flowork-cli " + method.replace(".", " "),
+                                        "args": {"deployment_id": "target"}}
 
 
 def test_hitl_history_projection_freezes_resolved_result():

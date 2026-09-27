@@ -49,3 +49,9 @@ def test_stdlib_logging_redacts_before_json_render(capsys):
     rendered = json.dumps(row)
     assert "do-not-log" not in rendered
     assert REDACTED in rendered
+
+
+def test_public_share_capabilities_are_removed_from_log_urls():
+    token = "a" * 43
+    for path in ("/prefix/share/", "/api/v1/public/chat-shares/"):
+        assert token not in redact_text(f'GET https://example.org{path}{token} HTTP/1.1')

@@ -105,6 +105,7 @@ function taskStatusTone(s: TaskStatus): SemanticStatus {
 export interface BatchTabProps {
   wfId: string;
   workflow?: Record<string, unknown> | null;
+  versionTarget?: { major?: string; version?: string };
   showTaskList?: boolean;
   active?: boolean;
   onSubmitted?: (taskId: string) => void;
@@ -113,6 +114,7 @@ export interface BatchTabProps {
 export function BatchTab({
   wfId,
   workflow,
+  versionTarget,
   showTaskList = true,
   active = true,
   onSubmitted,
@@ -162,6 +164,7 @@ export function BatchTab({
   const [outputSheet, setOutputSheet] = useState<string>(() => saved?.outputSheet ?? '');
   // Rows to run in parallel (thread pool; server clamps to 1..16).
   const [concurrency, setConcurrency] = useState<number>(() => saved?.concurrency ?? 1);
+  const [mountEnabled, setMountEnabled] = useState(false);
   const [dataPath, setDataPath] = useState<string>('');
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string>('');
@@ -348,6 +351,9 @@ export function BatchTab({
     // Optional output destination — only sent when the user typed a path. An
     // Excel path (.xlsx/.xls) also carries the sheet name to write into.
     const trimmedOutput = outputPath.trim();
+    const workflowMetadata = workflowForBatch?.__meta__ as { workflow_version?: number } | undefined;
+    const batchTarget = versionTarget ?? (workflowMetadata?.workflow_version
+      ? { major: `v${workflowMetadata.workflow_version}` } : {});
     const trimmedSheet = outputSheet.trim();
     const output: BatchOutputSpec | null = trimmedOutput
       ? {
@@ -370,10 +376,12 @@ export function BatchTab({
         ),
       run: () =>
         mutation.mutateAsync({
+          ...batchTarget,
           data_source: { rows },
           column_mapping,
           output,
           concurrency,
+          mount_enabled: mountEnabled,
           output_columns: toWireColumns(columnsState),
         }),
     }).catch(() => {
@@ -609,7 +617,7 @@ export function BatchTab({
         <p className="text-meta">
           {t(
             'canvas.batch.outputHint',
-            'Optional — write the results table to a path under /data in the Agent sandbox. The file extension picks the format (.csv / .tsv / .jsonl / .xlsx). Leave blank to keep results only in the task’s downloadable file.',
+            'Optional — write the results table under /data in Workflow storage, not the Chat workspace. The file extension selects the format (.csv / .tsv / .jsonl / .xlsx). Leave blank to keep only the downloadable task result.',
           )}
         </p>
         {isExcelPath(outputPath) && (
@@ -664,6 +672,23 @@ export function BatchTab({
           )}
         </p>
       </section>
+
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={mountEnabled}
+          onChange={(event) => setMountEnabled(event.target.checked)}
+          disabled={mutation.isPending || commit.isPending}
+          className="mt-0.5"
+          data-testid="batch-mount"
+        />
+        <span>
+          <span className="block">{t('tasks.scheduled.mountUserStorage', 'Mount user storage')}</span>
+          <span className="block text-xs text-muted-foreground">
+            {t('tasks.scheduled.mountUserStorageHint', 'Allow each run to access files under /mount.')}
+          </span>
+        </span>
+      </label>
 
       <Button
         className="w-full"

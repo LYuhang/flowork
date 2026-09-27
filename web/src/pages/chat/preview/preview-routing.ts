@@ -6,6 +6,8 @@ const FILE_TYPE_ROUTES: Record<string, {
 }> = {
   text: { renderer: 'text', detectedType: 'text' },
   txt: { renderer: 'text', detectedType: 'text' },
+  json: { renderer: 'text', detectedType: 'text' },
+  code: { renderer: 'text', detectedType: 'text' },
   markdown: { renderer: 'markdown', detectedType: 'markdown' },
   md: { renderer: 'markdown', detectedType: 'markdown' },
   html: { renderer: 'html', detectedType: 'html' },

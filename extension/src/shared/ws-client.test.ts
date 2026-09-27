@@ -24,6 +24,60 @@ describe("reconnect backoff", () => {
 });
 
 describe("credential-safe WebSocket handshake", () => {
+  it("requests renewal before server expiry without disconnecting pending work", async () => {
+    vi.useFakeTimers();
+    let socket: FakeWebSocket;
+    class FakeWebSocket {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      close = vi.fn(); send = vi.fn();
+      constructor() { socket = this; }
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const client = new WsClient("wss://app.example/ws", ["token"]);
+    const renew = vi.fn(); client.onAuthRequired(renew); client.connect();
+    socket!.onmessage!({ data: JSON.stringify({ v: 1, kind: "echo", id: "browser_auth", channel: "system", transport: "t",
+      data: { type: "auth_status", expires_at: Date.now() / 1000 + 120 } }) } as MessageEvent);
+    await vi.advanceTimersByTimeAsync(59000); expect(renew).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000); expect(renew).toHaveBeenCalledTimes(1);
+    expect(socket!.close).not.toHaveBeenCalled(); expect(client.isActive()).toBe(true);
+    client.disconnect();
+  });
+  it("renews credentials only after server acknowledgement without opening another socket", async () => {
+    const sockets: FakeWebSocket[] = [];
+    class FakeWebSocket {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      sent: string[] = [];
+      constructor(public url: string, public protocols: string[]) { sockets.push(this); }
+      send(raw: string) { this.sent.push(raw); }
+      close() { this.readyState = 3; }
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const client = new WsClient("wss://app.example/ws", ["old"]); client.connect();
+    const pending = client.refreshAuthentication("new-token", ["new"]);
+    expect(sockets).toHaveLength(1);
+    const frame = JSON.parse(sockets[0].sent[0]);
+    expect(frame.kind).toBe("auth_refresh");
+    expect(frame.data).toEqual({ token: "new-token" });
+    sockets[0].onmessage!({ data: JSON.stringify({ ...frame, kind: "echo", data: { type: "auth_refresh", ok: true } }) } as MessageEvent);
+    expect(await pending).toBe(true);
+    expect(sockets).toHaveLength(1);
+    client.disconnect(); client.connect();
+    expect(sockets[1].protocols).toEqual(["new"]);
+    const cancelled = client.refreshAuthentication("other-user", ["other"]);
+    client.disconnect(); expect(await cancelled).toBe(false);
+    client.connect(); expect(sockets[2].protocols).toEqual(["new"]);
+    client.disconnect();
+  });
   it("keeps the scoped credential and browser id out of the URL", () => {
     const calls: unknown[][] = [];
     class FakeWebSocket {

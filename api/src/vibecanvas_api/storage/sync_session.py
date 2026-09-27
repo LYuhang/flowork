@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 
 from sqlalchemy import NullPool, text
@@ -132,8 +132,9 @@ def run_in_short_session(
     except RuntimeError:
         return asyncio.run(_runner())  # no running loop — direct
     import concurrent.futures
+    context = copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
-        return _ex.submit(lambda: asyncio.run(_runner())).result()
+        return _ex.submit(context.run, lambda: asyncio.run(_runner())).result()
 
 
 # ---------------------------------------------------------------------------

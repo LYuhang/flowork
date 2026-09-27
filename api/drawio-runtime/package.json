@@ -4,7 +4,7 @@
   "version": "0.3.0",
   "type": "module",
   "bin": {
-    "flowork-diagram-mcp": "./launch.mjs"
+    "flowork-diagram-search": "./search.mjs"
   },
   "dependencies": {
     "@drawio/mcp": "1.5.0"

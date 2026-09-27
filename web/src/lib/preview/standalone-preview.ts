@@ -6,6 +6,18 @@ export interface StandalonePreviewTarget {
   fileType: string;
 }
 
+export function standaloneWorkflowPreviewHref(workflowId: string, version: string): string {
+  return `${getBasePath()}/preview?${new URLSearchParams({ type: 'workflow', workflowId, version })}`;
+}
+
+export function standaloneWorkflowPreviewTarget(search: URLSearchParams): { workflowId: string; version: string } | null {
+  if (search.get('type') !== 'workflow') return null;
+  const workflowId = search.get('workflowId')?.trim() ?? '';
+  const version = search.get('version') ?? '';
+  if (!workflowId || !/^v[1-9]\d*\.sv\d+$/.test(version)) return null;
+  return { workflowId, version };
+}
+
 function safePath(path: string, prefix: string): boolean {
   return (
     path.startsWith(prefix)
@@ -34,6 +46,7 @@ export function standalonePreviewHref(
 export function standalonePreviewTarget(
   search: URLSearchParams,
 ): StandalonePreviewTarget | null {
+  if (search.has('type') && search.get('type') !== 'file') return null;
   const scope = search.get('scope');
   const path = search.get('path') ?? '';
   const fileType = search.get('fileType')?.trim() || 'auto';

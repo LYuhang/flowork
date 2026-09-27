@@ -42,6 +42,28 @@ async def _register(client, label: str) -> tuple[str, dict]:
     return token, me
 
 
+@pytest.mark.asyncio
+async def test_workflow_model_catalog_only_returns_own_enabled_manual_apis(client, pg_engine):
+    token, me = await _register(client, "workflow_model_catalog")
+    headers = _headers(token)
+    ids = {}
+    for name in ("manual", "account", "disabled"):
+        response = await client.post("/api/v1/llm-credentials", headers=headers, json=_body(name=name))
+        assert response.status_code == 201, response.text
+        ids[name] = response.json()["id"]
+    async with pg_engine.begin() as connection:
+        await connection.execute(text("UPDATE llm_credentials SET connection_kind='openrouter_oauth' WHERE id=:id"), {"id": uuid.UUID(ids["account"])})
+        await connection.execute(text("UPDATE llm_credentials SET enabled=false WHERE id=:id"), {"id": uuid.UUID(ids["disabled"])})
+    result = await client.get("/api/v1/llm-credentials/workflow-models", headers=headers)
+    assert result.status_code == 200, result.text
+    assert set(result.json()["models"]) == {"manual"}
+    assert set(result.json()["models"]["manual"]) == {"provider", "description", "context_window_tokens"}
+    assert "fixture-key" not in result.text and "api_url" not in result.text
+    other_token, _ = await _register(client, "workflow_model_other")
+    other = await client.get("/api/v1/llm-credentials/workflow-models", headers=_headers(other_token))
+    assert other.status_code == 200 and other.json() == {"models": {}}
+
+
 async def _join_active_organization(
     pg_engine,
     *,

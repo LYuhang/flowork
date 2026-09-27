@@ -76,6 +76,10 @@ def test_parse_mid_message_slash_is_noop():
 
 
 def test_registry_shape():
+    assert COMMAND_MODES["workflow"].tools == []
+    assert "run" in COMMAND_MODES["workflow"].context_prompt and "--node" in COMMAND_MODES["workflow"].context_prompt
+    assert COMMAND_MODES["task"].tools == []
+    assert "flowork-cli task" in COMMAND_MODES["task"].context_prompt
     assert COMMAND_MODES["workflow"].kind == "additive"
     assert COMMAND_MODES["workflow"].sticky is True
     # /browser is ADDITIVE (control is a tool, not a routes handoff) AND
@@ -93,20 +97,10 @@ def test_registry_shape():
     assert "plan" not in COMMAND_MODES
     assert "build" not in COMMAND_MODES
     assert COMMAND_MODES["diagram"].tools == [
-        "open_drawio_xml",
-        "open_drawio_csv",
-        "open_drawio_mermaid",
-        "list_pages",
-        "get_page",
-        "set_page",
-        "search_shapes",
-        "save_drawio_file",
-        "render_interactive",
+        "render_preview",
     ]
     assert COMMAND_MODES["document"].tools == [
-        "review_document",
-        "render_document_feedback",
-        "render_interactive",
+        "render_preview",
     ]
     assert COMMAND_MODES["document"].kind == "additive"
     assert COMMAND_MODES["document"].sticky is True
@@ -118,6 +112,20 @@ def test_registry_shape():
 # ---------------------------------------------------------------------------
 # get/set_active_modes — Postgres round-trip + meta-key preservation
 # ---------------------------------------------------------------------------
+
+def test_document_guidance_checks_metric_labels_not_only_formulas():
+    prompt = COMMAND_MODES["document"].context_prompt
+    assert "metric labels, units and comparison periods" in prompt
+    assert "including summaries and charts" in prompt
+    assert "Independently recompute key metrics" in prompt
+
+
+def test_diagram_guidance_checks_terminal_route_segments():
+    prompt = COMMAND_MODES["diagram"].context_prompt
+    assert "Orthogonal routing does not guarantee obstacle avoidance" in prompt
+    assert "inspect each complete path" in prompt
+    assert "endpoints" in prompt
+
 
 TENANT = uuid.uuid4()
 USER = uuid.uuid5(uuid.NAMESPACE_DNS, "command-modes-user")

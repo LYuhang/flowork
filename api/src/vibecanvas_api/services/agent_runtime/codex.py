@@ -17,17 +17,25 @@ from collections.abc import Hashable
 from dataclasses import dataclass
 from functools import lru_cache
 from time import perf_counter
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit
 
 from vibecanvas_engine.sandbox_bus import MSG_RUNTIME_CONTROL
 
-from vibecanvas_api.services.agent_runtime.approval import requires_user_approval
+from vibecanvas_api.services.agent_runtime.cli_gateway import (
+    CliGateway,
+    mark_guidance_loaded,
+    needs_guidance_update,
+    platform_guidance,
+    prepare_platform_guidance,
+)
 from vibecanvas_api.services.agent_runtime.codex_app_server import (
     CodexAppServer,
     CodexAppServerError,
 )
 from vibecanvas_api.services.agent_runtime.codex_debug_snapshot import (
+    capture_codex_command_output_observations,
     capture_codex_debug_snapshot,
 )
 from vibecanvas_api.services.agent_runtime.codex_mcp_hub_gateway import (
@@ -236,6 +244,8 @@ class _ToolCompletionEvidence:
 
 
 def _completion_file_path(tool_input: dict[str, Any]) -> str:
+    if "type" in tool_input and "source" in tool_input:
+        return str(tool_input["source"]).strip() if tool_input["type"] == "file" else ""
     return str(
         tool_input.get("path")
         or tool_input.get("file_path")
@@ -291,6 +301,121 @@ def _latest_evidence(
     )
 
 
+def _workflow_cli_events(operation: str, arguments: dict, result: dict) -> list[dict]:
+    """Project confirmed writes to the explicitly targeted canvas."""
+    if operation == "workflow.operation":
+        # A prefix can commit even though the command exits with a business error.
+        if type(result.get("applied")) is not int or result["applied"] <= 0 or result.get("error") == "result_unknown":
+            return []
+    elif operation not in {"workflow.upload", "workflow.layout", "workflow.version.create"} or result.get("error"):
+        return []
+    if operation == "workflow.layout" and result.get("changed") is not True:
+        return []
+    version = re.fullmatch(r"v(\d+)\.sv(\d+)", str(result.get("version", "")))
+    if not version or not result.get("id"):
+        return []
+    meta = {"workflow_id": result["id"], "workflow_version": int(version[1]), "workflow_subversion": int(version[2])}
+    return [
+        {"event_type": "VIBE_ACTION", "payload": {
+            **meta,
+            "updates": [{"kind": "file_update_canvas" if operation == "workflow.upload" else operation.replace(".", "_"), "note": arguments.get("note", "")}],
+            "apply_auto_layout": operation == "workflow.upload",
+        }},
+        {"event_type": "META_SYNC", "payload": {"meta": meta}},
+    ]
+
+
+def _latest_preview_evidence(
+    evidence: dict[str, list[_ToolCompletionEvidence]],
+    *,
+    path: str | None,
+) -> _ToolCompletionEvidence | None:
+    # Older in-flight turns may still publish through the retired file tool.
+    return _latest_evidence(evidence, "render_preview", path=path) or _latest_evidence(
+        evidence, "render_interactive", path=path,
+    )
+
+
+def _record_workflow_cli_completion(
+    evidence: dict[str, list[_ToolCompletionEvidence]], operation: str, result: dict,
+) -> None:
+    """Publication follows actual graph writes, never mere mode/branch selection."""
+    if operation == "workflow.delete":
+        if result.get("deleted") is True and result.get("id") and not result.get("error"):
+            # A confirmed deletion cannot be delivered through Preview. Keep
+            # other saved resources so a temporary create/delete does not
+            # discard the real deliverable's publication requirement.
+            for key in ("workflow.saved", "workflow.upload", "workflow.preview"):
+                evidence[key] = [item for item in evidence.get(key, [])
+                                 if item.tool_input.get("id") != result["id"]]
+        return
+    if operation not in {"workflow.create", "workflow.upload", "workflow.operation", "workflow.layout", "workflow.version.create"}:
+        return
+    if result.get("error") == "result_unknown":
+        # An unknown write must be reconciled, not followed by a forced upload
+        # or a claim that the last confirmed snapshot is the new result.
+        evidence.pop("workflow.saved", None)
+        evidence.pop("workflow.upload", None)
+        return
+    if operation == "workflow.layout" and result.get("changed") is not True:
+        return
+    if operation == "workflow.operation":
+        if type(result.get("applied")) is not int or result["applied"] <= 0:
+            return
+    elif result.get("error"):
+        return
+    if not result.get("id") or not re.fullmatch(r"v[1-9]\d*\.sv\d+", str(result.get("version", ""))):
+        return
+    saved = _ToolCompletionEvidence(
+        tool_input={"id": result["id"], "version": result["version"]}, path="", sha256=None,
+    )
+    evidence["workflow.saved"] = [item for item in evidence.get("workflow.saved", [])
+                                  if item.tool_input.get("id") != result["id"]] + [saved]
+    evidence.pop("workflow.upload", None)
+    if operation == "workflow.upload":
+        evidence["workflow.upload"] = [saved]
+
+
+def _record_document_cli_completion(evidence, operation, arguments, result):
+    """Called only by the local CLI worker channel, never shell stdout or MCP."""
+    if operation not in {"document.review", "document.render", "diagram.review", "diagram.render"}:
+        return
+    path = str(result.get("file") or arguments.get("file") or "")
+    source_hash = str(result.get("source_hash") or "").removeprefix("sha256:")
+    if not re.fullmatch(r"[0-9a-f]{64}", source_hash):
+        source_hash = None
+    evidence.setdefault(operation, []).append(_ToolCompletionEvidence(
+        tool_input=dict(result), path=path, sha256=source_hash,
+    ))
+
+
+def _document_visual_coverage(evidence, path, source_hash, *, operation="document.render"):
+    viewed = {(item.path, item.sha256) for item in evidence.get("view_image", [])}
+    rendered, inspected = set(), set()
+    total = 0
+    for item in evidence.get(operation, []):
+        if item.path != path or item.sha256 != source_hash:
+            continue
+        result = item.tool_input
+        count = result.get("total_pages", 0)
+        if not isinstance(count, int) or count <= 0:
+            continue
+        # Do not combine distinct pagination layouts even for the same bytes.
+        if total and total != count:
+            rendered.clear()
+            inspected.clear()
+        total = count
+        for image in result.get("images", []):
+            page = image.get("page")
+            image_path = image.get("file")
+            image_hash = result.get("_image_hashes", {}).get(image_path)
+            if type(page) is int and 1 <= page <= total and image_hash:
+                rendered.add(page)
+                if (image_path, image_hash) in viewed:
+                    inspected.add(page)
+    return bool(total and len(rendered) == total), bool(total and len(inspected) == total)
+
+
 def _missing_command_completion_tools(
     request: RuntimeTurnRequest,
     evidence: dict[str, list[_ToolCompletionEvidence]],
@@ -306,7 +431,7 @@ def _missing_command_completion_tools(
     activated = set(request.command_context.activated_this_turn)
     missing: list[str] = []
     if "document" in activated:
-        review = _latest_evidence(evidence, "review_document")
+        review = _latest_evidence(evidence, "document.review")
         current_hash = (
             _completion_file_hash(review.path)
             if review is not None and review.path
@@ -316,29 +441,23 @@ def _missing_command_completion_tools(
             review is not None
             and review.sha256 is not None
             and review.sha256 == current_hash
+            and review.tool_input.get("status") == "passed"
         )
         if not current_review:
-            missing.append("review_document")
+            missing.append("flowork-cli document review")
         visual = bool(
             review is not None
             and os.path.splitext(review.path)[1].lower()
             in _DOCUMENT_VISUAL_EXTENSIONS
         )
         if visual:
-            feedback = _latest_evidence(
-                evidence,
-                "render_document_feedback",
-                path=review.path if review is not None else None,
-            )
-            if not (
-                current_review
-                and feedback is not None
-                and feedback.sha256 == current_hash
-            ):
-                missing.append("render_document_feedback")
-        preview = _latest_evidence(
+            rendered, viewed = _document_visual_coverage(evidence, review.path, current_hash)
+            if not current_review or not rendered:
+                missing.append("flowork-cli document render")
+            if not current_review or not viewed:
+                missing.append("view_image (every rendered page of the current document)")
+        preview = _latest_preview_evidence(
             evidence,
-            "render_interactive",
             path=review.path if review is not None else None,
         )
         if not (
@@ -346,9 +465,9 @@ def _missing_command_completion_tools(
             and preview is not None
             and preview.sha256 == current_hash
         ):
-            missing.append("render_interactive")
+            missing.append("render_preview")
     if "diagram" in activated:
-        saved = _latest_evidence(evidence, "save_drawio_file")
+        saved = _latest_evidence(evidence, "diagram.review")
         current_hash = (
             _completion_file_hash(saved.path)
             if saved is not None and saved.path
@@ -358,12 +477,17 @@ def _missing_command_completion_tools(
             saved is not None
             and saved.sha256 is not None
             and saved.sha256 == current_hash
+            and saved.tool_input.get("status") == "passed"
         )
         if not current_save:
-            missing.append("save_drawio_file")
-        preview = _latest_evidence(
+            missing.append("flowork-cli diagram review")
+        rendered, viewed = _document_visual_coverage(evidence, saved.path if saved else "", current_hash, operation="diagram.render")
+        if not current_save or not rendered:
+            missing.append("flowork-cli diagram render")
+        if not current_save or not viewed:
+            missing.append("view_image (every rendered page of the current diagram)")
+        preview = _latest_preview_evidence(
             evidence,
-            "render_interactive",
             path=saved.path if saved is not None else None,
         )
         if not (
@@ -371,20 +495,18 @@ def _missing_command_completion_tools(
             and preview is not None
             and preview.sha256 == current_hash
         ):
-            missing.append("render_interactive")
+            missing.append("render_preview")
     if "workflow" in activated:
-        checked = _latest_evidence(evidence, "check_workflow")
-        published = _latest_evidence(evidence, "update_canvas")
-        publish_is_valid = bool(
-            published is not None
-            and published.path
-            and published.tool_input.get("require_valid", True) is not False
-        )
-        target_path = published.path if publish_is_valid and published else ""
-        if checked is None or (target_path and checked.path != target_path):
-            missing.append("check_workflow")
-        if not publish_is_valid:
-            missing.append("update_canvas")
+        # /workflow also serves inspection, execution and Chat selection tasks.
+        # Its activation is not authorization to upload/create anything. Only
+        # verify publication when the private gateway confirmed a graph write.
+        # Saved versions are not proof of validation or of fulfilling all intent.
+        published = _latest_evidence(evidence, "workflow.saved") or _latest_evidence(evidence, "workflow.upload")
+        previews = evidence.get("workflow.preview", [])
+        if published is not None and not any(
+            item.tool_input == published.tool_input for item in previews
+        ):
+            missing.append("render_preview")
     return tuple(dict.fromkeys(missing))
 
 
@@ -393,29 +515,39 @@ def _command_completion_reminder(
     evidence: dict[str, list[_ToolCompletionEvidence]],
 ) -> str:
     tool_list = ", ".join(f"`{name}`" for name in missing)
-    reviewed = _latest_evidence(evidence, "review_document")
-    saved = _latest_evidence(evidence, "save_drawio_file")
+    reviewed = _latest_evidence(evidence, "document.review")
+    saved = _latest_evidence(evidence, "diagram.review")
     candidate_path = (reviewed.path if reviewed is not None else "") or (
         saved.path if saved is not None else ""
     )
     publication_instruction = ""
-    if "render_interactive" in missing and candidate_path:
+    if "flowork-cli workflow upload" in missing:
+        publication_instruction += (
+            " If the last upload or version change returned result_unknown, do not blindly repeat it or upload again. "
+            "Inspect workflow get ID/version list ID and download ID --major vN to a separate file to reconcile first; "
+            "report an unresolved service/permission blocker instead of claiming delivery."
+        )
+    uploaded = _latest_evidence(evidence, "workflow.saved") or _latest_evidence(evidence, "workflow.upload")
+    if "render_preview" in missing and uploaded is not None:
+        reference = json.dumps({"type": "workflow", "source": uploaded.tool_input["id"], "version": uploaded.tool_input["version"]}, ensure_ascii=True)
+        publication_instruction += f" Publish the saved workflow with render_preview arguments {reference}. Do not upload again just to publish a preview."
+    if "render_preview" in missing and candidate_path:
         safe_path = (
             json.dumps(candidate_path, ensure_ascii=False)
             .replace("`", "\\u0060")
             .replace("<", "\\u003c")
             .replace(">", "\\u003e")
         )
-        publication_instruction = (
+        publication_instruction += (
             " The current candidate file path is "
             f"{safe_path}. After every other listed step succeeds for "
-            "that exact current revision, call `render_interactive` with exactly "
-            f"`path={safe_path}`; do not merely describe the call."
+            "that exact current revision, call `render_preview` with exactly "
+            f'`type="file", source={safe_path}`; do not merely describe the call.'
         )
-        if missing == ("render_interactive",):
+        if missing == ("render_preview",):
             publication_instruction += (
                 " This is the only remaining action: your very next action must "
-                "be that `render_interactive` tool call. Do not inspect, edit, "
+                "be that `render_preview` tool call. Do not inspect, edit, "
                 "review, render feedback, or call any other tool first. After it "
                 "succeeds, send the concise final answer without changing the file."
             )
@@ -1173,7 +1305,7 @@ def _interactive_artifact_from_item(item: dict[str, Any]) -> dict[str, Any] | No
     item_tool = _canonical_completion_tool_name(str(item.get("tool") or ""))
     publisher_tool = (
         item_tool
-        if item_tool in {"render_interactive", "render_url_preview"}
+        if item_tool in {"render_preview", "render_interactive", "render_url_preview"}
         else "render_interactive"
     )
     queue: deque[Any] = deque(
@@ -1204,7 +1336,7 @@ def _interactive_artifact_from_item(item: dict[str, Any]) -> dict[str, Any] | No
         payload = value.get("payload")
         if (
             isinstance(meta, dict)
-            and meta.get("tool") in {"render_interactive", "render_url_preview"}
+            and meta.get("tool") in {"render_preview", "render_interactive", "render_url_preview"}
             and isinstance(payload, dict)
             and payload.get("kind") == "interactive_artifact"
         ):
@@ -1848,6 +1980,7 @@ async def run_codex_turn(
     if not os.path.isdir("/runtime"):
         raise RuntimeError("Codex Runtime requires the private /runtime mount")
     os.makedirs(request.runtime_root, mode=0o700, exist_ok=True)
+    prepare_platform_guidance(request.runtime_root)
     account_mode = _uses_chatgpt_account(request)
     if account_mode:
         if not os.path.isfile(os.path.join(request.runtime_root, "auth.json")):
@@ -1914,8 +2047,16 @@ async def run_codex_turn(
             tool_input = invocation.get("input")
             tool_input = dict(tool_input) if isinstance(tool_input, dict) else {}
             path = _completion_file_path(tool_input)
-            if not path and name in {"check_workflow", "update_canvas"}:
+            if not path and name == "check_workflow":
                 path = _DEFAULT_WORKFLOW_COMPLETION_PATH
+            if name == "render_preview":
+                artifact = payload.get("artifact")
+                meta = artifact.get("meta", {}) if isinstance(artifact, dict) else {}
+                reference = meta.get("workflow_preview") if isinstance(meta, dict) else None
+                if isinstance(reference, dict) and reference.get("id") and reference.get("version"):
+                    successful_tool_evidence["workflow.preview"].append(
+                        _ToolCompletionEvidence(tool_input={"id": reference["id"], "version": reference["version"]}, path="", sha256=None)
+                    )
             successful_tool_evidence[name].append(
                 _ToolCompletionEvidence(
                     tool_input=tool_input,
@@ -1923,10 +2064,9 @@ async def run_codex_turn(
                     sha256=(
                         _completion_file_hash(path)
                         if name in {
-                            "render_document_feedback",
+                            "view_image",
+                            "render_preview",
                             "render_interactive",
-                            "review_document",
-                            "save_drawio_file",
                         }
                         else None
                     ),
@@ -1947,6 +2087,7 @@ async def run_codex_turn(
     mcp_item_correlator = _McpItemCorrelator()
     stop_event = asyncio.Event()
     active_hub_gateway: CodexMcpHubGateway | None = None
+    cli_gateway: CliGateway | None = None
     debug_snapshot_task: asyncio.Task[str | None] | None = None
 
     async def finish_debug_snapshot() -> None:
@@ -1989,81 +2130,6 @@ async def run_codex_turn(
                 continue
             control_router.deliver(response)
 
-    async def request_platform_approval(
-        tool_name: str,
-        arguments: dict[str, Any],
-        runtime_request_id: str,
-    ) -> str:
-        runtime_item_id = await mcp_item_correlator.wait(tool_name, arguments)
-        approval_seed = uuid.uuid5(
-            uuid.NAMESPACE_URL,
-            ":".join(
-                (
-                    "vibecanvas",
-                    "codex-platform-mcp-approval",
-                    request.chat_id,
-                    request.turn_id,
-                    runtime_request_id,
-                )
-            ),
-        ).hex
-        hitl_id = f"hitl_{approval_seed[:16]}"
-        correlation = {
-            "source": "platform_mcp",
-            "runtime_request_id": runtime_request_id,
-            "runtime_method": "tools/call",
-            "runtime_thread_id": current["thread_id"],
-            "runtime_turn_id": current["turn_id"],
-            "runtime_item_id": runtime_item_id,
-        }
-        reason = str(arguments.get("approval_reason") or "").strip()
-        prompt = reason or f"Allow the agent to execute {tool_name}?"
-        waiter = asyncio.create_task(
-            control_router.wait("platform_mcp", runtime_request_id)
-        )
-        try:
-            await emit(
-                "approval.requested",
-                {
-                    "hitl_request_id": hitl_id,
-                    "hitl_type": "pre_tool_approval",
-                    "title": f"Approve {tool_name}",
-                    "prompt_text": prompt,
-                    "actions": [
-                        {"id": "approve", "label": "Approve", "variant": "primary"},
-                        {"id": "deny", "label": "Deny", "variant": "secondary"},
-                    ],
-                    "agent_payload": {
-                        "tool": tool_name,
-                        "arguments": arguments,
-                        "reason": reason,
-                    },
-                    "policy": {
-                        "phase": "pre_tool",
-                        "native_required": False,
-                    },
-                    "runtime_correlation": correlation,
-                },
-            )
-            response = await waiter
-            action = str(response.get("action") or "deny")
-            if bool(response.get("persisted")):
-                await emit(
-                    "approval.resolved",
-                    {
-                        "hitl_request_id": hitl_id,
-                        "status": {
-                            "approve": "approved",
-                            "deny": "denied",
-                            "cancel": "cancelled",
-                        }.get(action, "denied"),
-                    },
-                )
-            return action
-        finally:
-            if not waiter.done():
-                waiter.cancel()
-            await asyncio.gather(waiter, return_exceptions=True)
 
     async def request_mcp_gateway(
         operation: str,
@@ -2072,6 +2138,9 @@ async def run_codex_turn(
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
         request_id = f"mcpgw_{uuid.uuid4().hex}"
+        if operation == "interaction" and arguments.get("action") == "start":
+            arguments = {**arguments, "item_id": await mcp_item_correlator.wait(
+                str(tool_name), dict(arguments.get("input") or {}))}
         correlation = {
             "source": "mcp_hub",
             "runtime_request_id": request_id,
@@ -2110,6 +2179,9 @@ async def run_codex_turn(
                 raise RuntimeError(
                     "Host MCP Gateway returned an invalid payload"
                 )
+            if operation in {"interaction", "browser_transfer"}:
+                for projection in payload.pop("_events", []):
+                    await emit("projection", projection)
             return payload
         finally:
             if not waiter.done():
@@ -2149,11 +2221,7 @@ async def run_codex_turn(
         )
         if (
             kind == "mcpToolCall"
-            and requires_user_approval(
-                name,
-                structured_arguments,
-                request.approval_mode,
-            )
+            and name == "render_choices"
         ):
             mcp_item_correlator.register(
                 name,
@@ -2201,17 +2269,17 @@ async def run_codex_turn(
         """
         if active_hub_gateway is None:
             return False
-        arguments = {"path": path}
+        arguments = {"type": "file", "source": path}
         item_id = f"completion-preview-{uuid.uuid4().hex}"
         item: dict[str, Any] = {
             "id": item_id,
             "type": "mcpToolCall",
-            "tool": "render_interactive",
+            "tool": "render_preview",
             "arguments": arguments,
         }
         await start_visible_tool(item, native_turn_id)
         result = await active_hub_gateway.call_tool(
-            "render_interactive",
+            "render_preview",
             arguments,
         )
         result_payload = result.model_dump(
@@ -2263,6 +2331,57 @@ async def run_codex_turn(
         ):
             raise RuntimeError("Codex MCP Hub contracts are incomplete")
         mcp_adapter.set_gateway(request_mcp_gateway)
+        cli_gateway = (
+            hub_gateway_registry.get("cli")
+            if hub_gateway_registry is not None else None
+        )
+        if cli_gateway is None:
+            cli_gateway = CliGateway()
+            if hub_gateway_registry is not None:
+                hub_gateway_registry["cli"] = cli_gateway
+
+        async def invoke_cli(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
+            result = await request_mcp_gateway(
+                "cli_call", SimpleNamespace(name="cli"), operation, arguments,
+            )
+            transport_result = result
+            if operation == "cli.poll":
+                event = result.get("event")
+                if isinstance(event, dict):
+                    for projection in event.pop("_cli_events", []):
+                        await emit("projection", projection)
+                    if event.get("terminal"):
+                        operation = event.pop("_operation")
+                        arguments = event.pop("_arguments")
+                        result = event["result"]
+            for projection in result.pop("_cli_events", []):
+                await emit("projection", projection)
+            try:
+                _record_workflow_cli_completion(successful_tool_evidence, operation, result)
+                for projection in _workflow_cli_events(operation, arguments, result):
+                    await emit("projection", projection)
+            except Exception:
+                # Projection is not the commit acknowledgement. A UI refresh
+                # failure must never turn a confirmed write into result_unknown.
+                print("[flowork-cli] workflow projection failed; version change remains committed")
+            return transport_result
+
+        async def authorize_browser_cli(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
+            return await request_mcp_gateway("browser_authorize", SimpleNamespace(name="browser"), operation, arguments)
+
+        async def commit_browser_cli(operation: str, arguments: dict[str, Any], artifacts: list) -> dict[str, Any]:
+            return await request_mcp_gateway("browser_commit", SimpleNamespace(name="browser"), operation,
+                                             {"arguments": arguments, "artifacts": artifacts})
+
+        async def approve_browser_transfer(arguments: dict[str, Any]) -> dict[str, Any]:
+            return await request_mcp_gateway("browser_transfer", SimpleNamespace(name="browser"), "download", arguments)
+
+        cli_env = await cli_gateway.activate(invoke_cli,
+            browser_authorize=authorize_browser_cli if "browser" in request.active_platform_mcps else None,
+            browser_commit=commit_browser_cli if "browser" in request.active_platform_mcps else None,
+            browser_transfer=approve_browser_transfer if "browser" in request.active_platform_mcps else None,
+            document_complete=lambda operation, arguments, result:
+            _record_document_cli_completion(successful_tool_evidence, operation, arguments, result))
         await mcp_hub.reconcile(request.mcp_desired_state)
         await mcp_hub.activate(request.mcp_execution_context)
         active_hub_gateway = (
@@ -2276,18 +2395,11 @@ async def run_codex_turn(
                 hub_gateway_registry["aggregate"] = active_hub_gateway
         runtime_mcp_catalog = await active_hub_gateway.activate(
             desired_servers=list(request.mcp_desired_state.servers),
-            request_approval=request_platform_approval,
-            requires_approval=lambda tool_name, arguments: (
-                requires_user_approval(
-                    tool_name,
-                    arguments,
-                    request.approval_mode,
-                )
-            ),
         )
         if active_hub_gateway.url is None:
             raise RuntimeError("Codex MCP Hub exposed no loopback URL")
         mcp_config = {
+            "shell_environment_policy": {"inherit": "all", "set": cli_env},
             "mcp_servers": {
                 "flowork": {
                     "url": active_hub_gateway.url,
@@ -2436,6 +2548,13 @@ async def run_codex_turn(
             request,
             recovered_native_history=recovered_native_history,
         )
+        if needs_guidance_update(request.runtime_root, request.runtime_state_ref):
+            # Existing native threads may retain the previous AGENTS/MCP prompt.
+            # Supply the migration once; new threads read Codex-home AGENTS.md.
+            current_input.insert(0, {
+                "type": "text",
+                "text": "<system-reminder>\n" + platform_guidance() + "\n</system-reminder>",
+            })
         if os.environ.get("AGENT_DEBUG_VIEW_ENABLED") == "1":
             # Build/write concurrently with app-server turn startup so the
             # Inspector adds no model TTFT. The task is drained before the
@@ -3087,7 +3206,7 @@ async def run_codex_turn(
                             )
                             if not artifact_id:
                                 raise RuntimeError(
-                                    "Codex render_interactive result is missing artifact_id"
+                                    "Codex preview result is missing artifact_id"
                                 )
                             hitl_seed = uuid.uuid5(
                                 uuid.NAMESPACE_URL,
@@ -3130,7 +3249,7 @@ async def run_codex_turn(
                                 "tool_call_id": item_id,
                                 "artifact": artifact,
                                 "agent_payload": {
-                                    "tool": "render_interactive",
+                                    "tool": name,
                                     "artifact_id": artifact_id,
                                     "resume_mode": "new_turn",
                                     "interaction_type": (
@@ -3265,15 +3384,15 @@ async def run_codex_turn(
                 )
                 if (
                     status == "completed"
-                    and missing_completion_tools == ("render_interactive",)
+                    and missing_completion_tools == ("render_preview",)
                 ):
                     reviewed = _latest_evidence(
                         successful_tool_evidence,
-                        "review_document",
+                        "document.review",
                     )
                     saved = _latest_evidence(
                         successful_tool_evidence,
-                        "save_drawio_file",
+                        "diagram.review",
                     )
                     candidate_path = (
                         reviewed.path if reviewed is not None else ""
@@ -3408,15 +3527,33 @@ async def run_codex_turn(
             thread_id=thread_id,
             turn_id=request.turn_id,
         )
+        mark_guidance_loaded(request.runtime_root, thread_id)
         await emit("runtime.completed", {"state_ref": thread_id})
         result_ready = True
     except CodexAppServerError as exc:
         raise RuntimeError(f"{exc.code}: {exc}") from exc
     finally:
+        if cli_gateway is not None:
+            if close_client or hub_gateway_registry is None:
+                await cli_gateway.close()
+            else:
+                await cli_gateway.deactivate()
         if model_capability is not None:
             _remove_broker_capability()
             _remove_forbidden_account_cache(request.runtime_root)
         await finish_debug_snapshot()
+        if os.environ.get("AGENT_DEBUG_VIEW_ENABLED") == "1":
+            observe_output = getattr(client, "take_command_output_observations", None)
+            if callable(observe_output):
+                try:
+                    await asyncio.to_thread(
+                        capture_codex_command_output_observations,
+                        request=request, observations=observe_output(),
+                    )
+                except Exception:
+                    # Diagnostics may fail without changing the Turn outcome.
+                    # Do not log an exception which could include file contents.
+                    print("[codex] command output diagnostics could not be saved")
         control_router.cancel()
         mcp_item_correlator.cancel()
         control_task.cancel()

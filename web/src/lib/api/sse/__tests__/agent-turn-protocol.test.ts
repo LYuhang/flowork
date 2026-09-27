@@ -27,14 +27,12 @@ describe('Agent Turn wire protocol', () => {
     );
   });
 
-  it('auto-approves tools and sends surface but no browser topology', async () => {
+  it('preserves the selected approval mode and sends surface but no browser topology', async () => {
     await streamAgentTurn({
       wfId: 'scope_1',
       chatId: 'chat_1',
       content: 'read the current page',
       mode: 'browser',
-      // The field is retained as a future extension seam, but the official
-      // client currently normalizes every request to automatic approval.
       approvalMode: 'always_ask',
       surface: 'sidepanel',
       agentSurface: 'browser',
@@ -45,7 +43,7 @@ describe('Agent Turn wire protocol', () => {
       role: 'user',
       content: 'read the current page',
       mode: 'browser',
-      approval_mode: 'always_allow',
+      approval_mode: 'always_ask',
       surface: 'sidepanel',
       agent_surface: 'browser',
     });

@@ -60,6 +60,7 @@ import { ResourceProvenanceLine } from '@/components/resources/ResourceProvenanc
 import { CopyButton } from '@/components/ui/copy-button';
 import { StatusBadge } from '@/components/ui/status';
 import { formatNumber } from '@/lib/format/number';
+import { useWorkflowVersions } from '@/lib/api/queries/workflow';
 import { ActionableError } from '@/components/presentation/ActionableError';
 import { resolveApiUrl } from '@/lib/base-path';
 import { OneTimeSecretField } from '@/pages/deployments/OneTimeSecretField';
@@ -231,10 +232,24 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   const qc = useQueryClient();
   const [rateQps, setRateQps] = useState<number>(dep.rate_limit_qps);
   const [enabled, setEnabled] = useState(dep.enabled);
+  const [mountEnabled, setMountEnabled] = useState(dep.mount_enabled ?? true);
+  const originalVersion = dep.version_pin === 'head' ? 'head' : dep.version_pin === 'major' ? `v${dep.pinned_major}` : `v${dep.pinned_major}.sv${dep.pinned_sub}`;
+  const [version, setVersion] = useState(originalVersion);
+  const versionsQuery = useWorkflowVersions(dep.wf_id);
+  const versions = (versionsQuery.data as { versions?: { major: number; sub: number }[] } | undefined)?.versions ?? [];
+  const versionOptions = [...new Set([originalVersion, ...versions.map(v => `v${v.major}`), ...versions.map(v => `v${v.major}.sv${v.sub}`)])];
 
-  const dirty = rateQps !== dep.rate_limit_qps || enabled !== dep.enabled;
+  const dirty = rateQps !== dep.rate_limit_qps || enabled !== dep.enabled || mountEnabled !== (dep.mount_enabled ?? true) || version !== originalVersion;
   const patchMutation = useMutation({
-    mutationFn: () => patchDeployment(dep.id, { rate_limit_qps: rateQps, enabled }),
+    mutationFn: () => {
+      const match = /^v(\d+)(?:\.sv(\d+))?$/.exec(version);
+      return patchDeployment(dep.id, {
+        ...(rateQps !== dep.rate_limit_qps ? { rate_limit_qps: rateQps } : {}),
+        ...(enabled !== dep.enabled ? { enabled } : {}),
+        ...(mountEnabled !== (dep.mount_enabled ?? true) ? { mount_enabled: mountEnabled } : {}),
+        ...(version !== originalVersion && match ? { version_pin: match[2] === undefined ? 'major' : 'specific', pinned_major: Number(match[1]), ...(match[2] === undefined ? {} : { pinned_sub: Number(match[2]) }) } : {}),
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['deployment', dep.id] });
       void qc.invalidateQueries({ queryKey: ['deployments'] });
@@ -268,6 +283,23 @@ function ConfigTab({ dep }: { dep: Deployment }) {
           </label>
       </SectionBlock>
 
+      <SectionBlock title={t('deployments.executionSettings', 'Execution settings')}>
+        <div className="space-y-3">
+          <Label>{t('tasks.version.label', 'Workflow version')}</Label>
+          <Select value={version} onValueChange={setVersion} disabled={versionsQuery.isLoading || versionsQuery.isError}>
+            <SelectTrigger aria-label={t('tasks.version.label', 'Workflow version')}><SelectValue /></SelectTrigger>
+            <SelectContent>{versionOptions.map(v => <SelectItem key={v} value={v} disabled={v === 'head'}>
+              {v === 'head' ? t('deployments.legacyHead', 'Global HEAD (legacy)') : v.includes('.sv') ? v : t('tasks.version.latestMajor', '{{major}} · latest saved', { major: v })}
+            </SelectItem>)}</SelectContent>
+          </Select>
+          {versionsQuery.isError && <p role="alert">{t('tasks.version.error', 'Could not load workflow versions.')}</p>}
+          <label className="flex items-center gap-2">
+            <Switch checked={mountEnabled} onCheckedChange={setMountEnabled} />
+            <span>{t('deployments.mount', 'Mount user storage (/mount)')}</span>
+          </label>
+          <p className="text-xs text-muted-foreground">{t('deployments.mountHelp', 'Shares authorized user storage, not Chat files. Each accepted call keeps its version and mount settings.')}</p>
+        </div>
+      </SectionBlock>
       <div className="flex justify-end">
         <Button
           onClick={() => patchMutation.mutate()}
@@ -1141,6 +1173,7 @@ export function DeploymentDetailPage() {
   const latestMetric = metricsQuery.data?.series.at(-1) ?? null;
   const versionLabel = dep.version_pin === 'head'
     ? t('deployments.detail.latestVersion', 'Latest version')
+    : dep.version_pin === 'major' ? t('tasks.version.latestMajor', '{{major}} · latest saved', { major: `v${dep.pinned_major}` })
     : `v${dep.pinned_major ?? 0}.sv${dep.pinned_sub ?? 0}`;
   const healthStatus = latestMetric && latestMetric.calls > 0 && latestMetric.errors > 0
     ? 'warning'

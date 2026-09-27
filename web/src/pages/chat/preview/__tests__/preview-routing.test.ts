@@ -28,6 +28,12 @@ const descriptor: PreviewDescriptorV1 = {
 };
 
 describe('routePreviewDescriptor', () => {
+  it.each(['json', '.JSON', 'code'])('keeps %s file hints on the shared text/code renderer', (hint) => {
+    const routed = routePreviewDescriptor({ ...descriptor, name: 'workflow.json', contentType: 'application/json', detectedType: 'text' }, hint);
+    expect(routed.renderer).toBe('text');
+    expect(routed.capabilities.preview).toBe(true);
+    expect(routed.error).toBeNull();
+  });
   it('routes server-detected facts in the frontend in auto mode', () => {
     expect(routePreviewDescriptor({
       ...descriptor,

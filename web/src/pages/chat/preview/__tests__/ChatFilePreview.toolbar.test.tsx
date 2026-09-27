@@ -40,6 +40,13 @@ vi.mock('@/lib/api/queries/previews', () => ({
 afterEach(cleanup);
 
 describe('ChatFilePreview toolbar', () => {
+  it('uses the resolved resource for standalone navigation after a legacy citation fallback', () => {
+    render(<ChatFilePreview fileRef={{ ...descriptor.fileRef, path: '/data/brief.pdf:24' }} />);
+    const href = screen.getByRole('link', { name: 'Open in new page' }).getAttribute('href');
+    expect(href).toContain('path=%2Fdata%2Fbrief.pdf&');
+    expect(href).not.toContain('%3A24');
+  });
+
   it('opens the same authorized file coordinates in a standalone page', () => {
     render(<ChatFilePreview fileRef={descriptor.fileRef} />);
 

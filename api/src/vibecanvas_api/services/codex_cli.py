@@ -29,6 +29,18 @@ def codex_cli_readonly_root(executable: str) -> str:
     # make the script visible but leave its native executable unavailable.
     if os.path.basename(parent) == "bin" and os.path.basename(resolved) == "codex.js":
         return os.path.dirname(parent)
+    # Official native bundles keep their package marker and bundled rg/zsh/
+    # bwrap beside bin/, not inside it. Codex resolves these through that marker;
+    # mounting just bin/ silently strips the package layout inside the sandbox.
+    # Match the native entrypoint and marker rather than widening every binary's
+    # mount to its grandparent (which could otherwise expose unrelated files).
+    package_root = os.path.dirname(parent)
+    if (
+        os.path.basename(parent) == "bin"
+        and os.path.basename(resolved) == "codex"
+        and os.path.isfile(os.path.join(package_root, "codex-package.json"))
+    ):
+        return package_root
     return parent
 
 

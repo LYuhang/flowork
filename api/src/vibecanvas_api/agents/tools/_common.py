@@ -14,7 +14,7 @@ def _current_version(ctx) -> str | None:
     get_meta = getattr(ctx.repo, "get_meta", None)
     if not callable(get_meta):
         return None
-    wf_id = getattr(ctx, "current_workflow_id", None) or getattr(ctx, "wf_id", "")
+    wf_id = getattr(ctx, "wf_id", "")
     return version_str(get_meta(wf_id) or {})
 
 

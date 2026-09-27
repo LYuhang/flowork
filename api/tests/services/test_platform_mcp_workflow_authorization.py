@@ -1,22 +1,25 @@
-"""Workflow Platform MCP uses the same OpenFGA action matrix as HTTP."""
+"""Agent Workflow resource services use the same OpenFGA action matrix as HTTP."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
 from vibecanvas_api.agents.tools.decorator import ToolError
 from vibecanvas_api.auth.repo import AuthRepo
+from vibecanvas_api.authorization.types import Action
 from vibecanvas_api.authorization.openfga_client import (
     OpenFgaReadPage,
     OpenFgaTuple,
 )
-from vibecanvas_api.services.platform_mcp.authorization import (
+from vibecanvas_api.services.agent_resources.authorization import (
     create_authorized_workflow,
+    load_authorized_workflow,
     list_authorized_workflows,
-    prepare_platform_workflow_tool,
+    require_workflow_action,
     require_organization_create,
 )
 from vibecanvas_api.storage.db import session_scope
@@ -154,19 +157,17 @@ def _context(
     user_id: str,
     store: _RelationshipStore,
     role: str = "member",
-    workflow_id: str | None = None,
 ):
     return SimpleNamespace(
         tenant_id=organization_id,
         username=user_id,
-        turn_id="turn-platform-authz",
-        current_workflow_id=workflow_id,
+        turn_id="turn-agent-authz",
         authorization_client=store,
         authorization_membership_id=str(uuid.uuid4()),
         authorization_membership_role=role,
         authorization_membership_status="active",
         authorization_session_generation=1,
-        authorization_authentication_strength="platform_mcp_capability",
+        authorization_authentication_strength="agent_resource_capability",
         workflow={},
     )
 
@@ -180,7 +181,7 @@ async def _user(label: str):
         )
 
 
-async def test_platform_mcp_workflow_permission_matrix_and_create(
+async def test_agent_workflow_permission_matrix_and_create(
     pg_engine,
     monkeypatch,
 ):
@@ -251,112 +252,77 @@ async def test_platform_mcp_workflow_permission_matrix_and_create(
         organization_id=organization_id,
         user_id=users["viewer"],
         store=store,
-        workflow_id=workflow_id,
     )
     listed = await list_authorized_workflows(viewer)
     assert [item["wf_id"] for item in listed] == [workflow_id]
     assert listed[0]["access"]["effective_role"] == "viewer"
     assert "view" in listed[0]["access"]["capabilities"]
-    await prepare_platform_workflow_tool(
-        viewer,
-        server="workflow",
-        tool_name="get_workflow",
-        arguments={},
-    )
-    viewer_without_selection = _context(
-        organization_id=organization_id,
-        user_id=users["viewer"],
-        store=store,
-    )
-    await prepare_platform_workflow_tool(
-        viewer_without_selection,
-        server="workflow",
-        tool_name="get_workflow",
-        arguments={"workflow_id": workflow_id},
-    )
-    await prepare_platform_workflow_tool(
-        viewer,
-        server="build",
-        tool_name="set_workflow",
-        arguments={"workflow_id": workflow_id},
-    )
+    snapshot = await load_authorized_workflow(viewer, workflow_id, Action.VIEW)
+    assert snapshot.meta["wf_id"] == workflow_id
+    assert snapshot.workflow["node_1"]["node_id"] == "node_1"
+    with pytest.raises(ToolError, match="no_workflow"):
+        await load_authorized_workflow(viewer, "", Action.VIEW)
+    await load_authorized_workflow(viewer, workflow_id, Action.USE)
     with pytest.raises(ToolError, match="permission_denied"):
-        await prepare_platform_workflow_tool(
-            viewer,
-            server="build",
-            tool_name="update_canvas",
-            arguments={},
-        )
+        await require_workflow_action(viewer, workflow_id, Action.UPDATE)
 
     editor = _context(
         organization_id=organization_id,
         user_id=users["editor"],
         store=store,
-        workflow_id=workflow_id,
     )
-    await prepare_platform_workflow_tool(
-        editor,
-        server="build",
-        tool_name="update_canvas",
-        arguments={},
-    )
-    assert editor.workflow
+    await require_workflow_action(editor, workflow_id, Action.UPDATE)
+    # Authorization must not preload/mutate an ambient Chat workflow pointer.
+    assert editor.workflow == {}
     with pytest.raises(ToolError, match="permission_denied"):
-        await prepare_platform_workflow_tool(
-            editor,
-            server="build",
-            tool_name="run_workflow",
-            arguments={},
-        )
+        await require_workflow_action(editor, workflow_id, Action.EXECUTE)
 
     operator = _context(
         organization_id=organization_id,
         user_id=users["operator"],
         store=store,
-        workflow_id=workflow_id,
     )
-    await prepare_platform_workflow_tool(
-        operator,
-        server="build",
-        tool_name="node_execute",
-        arguments={"node": "node_1"},
-    )
+    await require_workflow_action(operator, workflow_id, Action.EXECUTE)
     with pytest.raises(ToolError, match="permission_denied"):
-        await prepare_platform_workflow_tool(
-            operator,
-            server="build",
-            tool_name="new_version",
-            arguments={},
-        )
+        await require_workflow_action(operator, workflow_id, Action.UPDATE)
 
     no_grant = _context(
         organization_id=organization_id,
         user_id=users["none"],
         store=store,
-        workflow_id=workflow_id,
     )
     assert await list_authorized_workflows(no_grant) == []
     with pytest.raises(ToolError, match="permission_denied"):
-        await prepare_platform_workflow_tool(
-            no_grant,
-            server="workflow",
-            tool_name="get_workflow",
-            arguments={},
-        )
+        await load_authorized_workflow(no_grant, workflow_id, Action.VIEW)
+
+    outsider = await _user("other-tenant")
+    outsider_context = _context(organization_id=str(outsider.tenant_id), user_id=str(outsider.user_id), store=store)
+    # Even a stale/incorrect relationship tuple must not bypass tenant SQL scope.
+    store.tuples.add(OpenFgaTuple(f"user:{outsider.user_id}", "viewer", workflow_object))
+    assert await list_authorized_workflows(outsider_context) == []
+    with pytest.raises(ToolError, match="permission_denied"):
+        await load_authorized_workflow(outsider_context, workflow_id, Action.VIEW)
 
     owner_context = _context(
         organization_id=organization_id,
         user_id=owner_id,
         store=store,
         role="owner",
-        workflow_id=workflow_id,
     )
     await require_organization_create(owner_context)
-    created = await create_authorized_workflow(
-        owner_context,
-        name="Created through Platform MCP",
-        description="Authorization-projected",
-    )
+    with pytest.raises(ToolError, match="runtime_unavailable"):
+        await create_authorized_workflow(owner_context, name="Must not create outside a live turn", description="")
+    from vibecanvas_api.services.agent_resources import authorization
+    # This matrix isolates resource policy/projection; the live-run guard is
+    # required above and independently covered by CLI lifetime tests.
+    fence = AsyncMock()
+    with monkeypatch.context() as scoped:
+        scoped.setattr(authorization, "_require_active_chat_write", fence)
+        created = await create_authorized_workflow(
+            owner_context, name="Created through Agent resource service", description="Authorization-projected",
+        )
+    fence.assert_awaited_once()
+    assert fence.await_args.args[1] is owner_context
     created_id = str(created.meta["wf_id"])
     assert OpenFgaTuple(
         f"organization:{organization_id}",

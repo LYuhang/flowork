@@ -52,14 +52,14 @@ test('LangChain renders a durable HTML file, saves to VFS, and continues through
   console.log('[interactive-e2e] new Chat selected');
 
   const prompt = [
-    'Create /data/acceptance/index.html, then call render_interactive exactly once',
-    'with path="/data/acceptance/index.html", title="Acceptance Gate", and require_human_confirm=true.',
+    'Create /data/acceptance/index.html, then call render_preview exactly once',
+    'with type="file", source="/data/acceptance/index.html", title="Acceptance Gate", and require_human_confirm=true.',
     'The saved HTML file must contain:',
     '1. a button id="save" labeled "Save annotation" that, on a real click, PUTs',
     '{"accepted":true,"label":"verified"} as application/json to /data/acceptance/labels.json;',
     '2. a status element id="status" changed to "Saved" only after fetch succeeds;',
     '3. an anchor id="open-result" href="/data/acceptance/labels.json" labeled "Open saved result".',
-    'Do not use the retired nested view/type arguments and do not emit prose after the Preview call.',
+    'Use flat arguments, not a nested view, and do not emit prose after the Preview call.',
   ].join(' ');
 
   const composer = page.locator('[data-role="agent-composer-input"]');

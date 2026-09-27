@@ -28,6 +28,7 @@ from .gvisor import (
     _workflow_python_env,
     build_oci_config,
 )
+from .bubblewrap import BubblewrapProvider
 # Host↔sandbox UDS message bus with a per-run socket.
 from .bus_broker import (
     BusBroker,
@@ -63,6 +64,7 @@ __all__ = [
     "ColdBootProvider",
     "RootlessGvisorProvider",
     "RootfulGvisorProvider",
+    "BubblewrapProvider",
     "ServeSnapshot",
     "ServeHandle",
     # Host↔sandbox UDS bus.
@@ -102,6 +104,77 @@ def _resolve_runsc() -> str | None:
     except Exception:
         pass
     return shutil.which("runsc")
+
+
+def _resolve_bwrap() -> str | None:
+    """Locate the ``bwrap`` binary: env ``BWRAP_PATH`` → ``config.bwrap_path``
+    → ``shutil.which("bwrap")`` → ``None``. Mirrors ``_resolve_runsc``; unlike
+    ``runsc`` this is an ordinary distro package (``apt-get install
+    bubblewrap``), not a pinned fetched binary."""
+    env_path = os.environ.get("BWRAP_PATH")
+    if env_path:
+        return env_path
+    try:
+        from vibecanvas_api.config import config
+
+        if getattr(config, "bwrap_path", None):
+            return config.bwrap_path
+    except Exception:
+        pass
+    return shutil.which("bwrap")
+
+
+_BUBBLEWRAP_RUNNABLE: bool | None = None
+_BUBBLEWRAP_RUNNABLE_PROFILE: tuple[str | None, int] | None = None
+
+
+def _bubblewrap_runnable() -> bool:
+    """Return True iff bubblewrap can actually boot a sandbox here.
+
+    Same marker-round-trip shape as ``_gvisor_runnable``: a bare ``bwrap true``
+    can succeed on hosts where unprivileged user namespaces are unavailable
+    only for the fuller mount profile the application actually uses, so the
+    probe exercises the real ``BubblewrapProvider.run`` path.
+    """
+    global _BUBBLEWRAP_RUNNABLE, _BUBBLEWRAP_RUNNABLE_PROFILE
+    bwrap = _resolve_bwrap()
+    profile = (bwrap, os.geteuid())
+    if _BUBBLEWRAP_RUNNABLE is not None and _BUBBLEWRAP_RUNNABLE_PROFILE == profile:
+        return _BUBBLEWRAP_RUNNABLE
+
+    runnable = False
+    if bwrap:
+        try:
+            with tempfile.TemporaryDirectory(prefix="vc-bwrap-probe-") as probe_root:
+                marker_name = ".capability-probe"
+                run_dir = os.path.join(probe_root, "channel")
+                os.makedirs(run_dir, exist_ok=True)
+                result = BubblewrapProvider(bwrap).run(
+                    run_dir=run_dir,
+                    command=[
+                        sys.executable,
+                        "-c",
+                        "from pathlib import Path; import vibecanvas_engine; "
+                        f"Path('/run/{marker_name}').write_text("
+                        "'flowork-bubblewrap-ready', encoding='utf-8')",
+                    ],
+                    env=_workflow_python_env(),
+                    network="none",
+                    timeout=15.0,
+                    extra_ro_binds=_workflow_python_binds(),
+                )
+                marker_path = os.path.join(run_dir, marker_name)
+                marker_contents = ""
+                if result.exit_code == 0 and os.path.isfile(marker_path):
+                    with open(marker_path, encoding="utf-8") as marker:
+                        marker_contents = marker.read()
+                runnable = marker_contents == "flowork-bubblewrap-ready"
+        except Exception:
+            runnable = False
+
+    _BUBBLEWRAP_RUNNABLE = runnable
+    _BUBBLEWRAP_RUNNABLE_PROFILE = profile
+    return runnable
 
 
 # Cached once per process: the real boot smoke is expensive (~hundreds of ms)
@@ -186,16 +259,29 @@ def _gvisor_runnable() -> bool:
 def get_sandbox_provider(*, trust: str = "trusted") -> SandboxProvider:
     """Resolve an OS-sandbox provider, or raise ``SandboxUnavailable``.
 
-    Returns the provider selected by ``SANDBOX_TYPE`` if ``runsc`` is resolvable.
+    Returns the provider selected by ``SANDBOX_TYPE`` (gVisor privilege/
+    lifecycle profile) if ``runsc`` is resolvable, unless ``SANDBOX_RUNTIME``
+    selects the lighter-weight bubblewrap provider instead — see
+    ``bubblewrap.py`` for what that alternative does and does not support.
     """
     # TODO RE-6 P3: trust×config policy + prod startup-assert + ManagedApiProvider
+    from vibecanvas_api.config import config
+
+    if str(getattr(config, "sandbox_runtime", "gvisor")) == "bubblewrap":
+        bwrap_path = _resolve_bwrap()
+        if not bwrap_path:
+            raise SandboxUnavailable(
+                "no OS-sandbox provider available: bwrap not found "
+                "(set BWRAP_PATH / config.bwrap_path or install bubblewrap)"
+            )
+        return BubblewrapProvider(bwrap_path)
+
     path = _resolve_runsc()
     if not path:
         raise SandboxUnavailable(
             "no OS-sandbox provider available: runsc not found "
             "(set RUNSC_PATH / config.runsc_path or install runsc on PATH)"
         )
-    from vibecanvas_api.config import config
 
     if bool(getattr(config, "sandbox_rootful", False)):
         if os.geteuid() != 0:

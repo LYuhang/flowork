@@ -108,45 +108,18 @@ def test_worker_manifest_matches_registered_background_workflows():
 
 
 def test_platform_mcp_manifest_has_one_policy_per_exported_tool():
+    from vibecanvas_api.services.platform_mcp.invocation import platform_mcp_tool_manifest
+
     manifest = platform_mcp_permission_manifest()
     keys = {(item.server, item.tool_name) for item in manifest}
     assert len(keys) == len(manifest)
-    assert {server for server, _ in keys} == {
-        "build",
-        "config",
-        "deployment",
-        "interactive",
-        "knowledge",
-        "task",
-        "workflow",
+    assert keys == {
+        ("interactive", "render_preview"),
+        ("interactive", "render_choices"),
     }
+    assert {tool.name for tool in platform_mcp_tool_manifest("interactive")} == {name for _, name in keys}
     assert all(item.parent_resolver for item in manifest)
-    actions = {
-        (item.server, item.tool_name): item.action
-        for item in manifest
-    }
-    assert actions[("workflow", "list_workflows")] is Action.VIEW_METADATA
-    assert actions[("workflow", "get_workflow")] is Action.VIEW
-    assert actions[("task", "task_cancel")] is Action.CANCEL
-    assert actions[("task", "task_resume")] is Action.RESUME
-    assert actions[("task", "task_collect_diagnostics")] is Action.INSPECT_RUNS
-    assert actions[("deployment", "deployment_create")] is Action.DEPLOY
-    assert actions[("deployment", "deployment_delete")] is Action.DELETE
-    assert (
-        actions[("deployment", "deployment_collect_diagnostics")]
-        is Action.INSPECT_RUNS
-    )
-    assert (
-        actions[("knowledge", "knowledge_list")]
-        is Action.VIEW_METADATA
-    )
-    assert actions[("knowledge", "knowledge_get")] is Action.USE
-    assert actions[("knowledge", "knowledge_create")] is Action.CREATE
-    assert actions[("knowledge", "knowledge_update")] is Action.UPDATE
-    assert actions[("knowledge", "knowledge_delete")] is Action.DELETE
-    assert actions[("knowledge", "knowledge_search")] is Action.USE
-    assert actions[("build", "run_workflow")] is Action.EXECUTE
-    assert all(server != "browser" for server, _tool in actions)
+    assert all(item.resource_type.value == "chat" and item.action is Action.UPDATE for item in manifest)
 
 
 def test_subresource_manifest_matches_runtime_authorization_semantics():

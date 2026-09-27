@@ -15,13 +15,21 @@
 import { Navigate, Outlet } from 'react-router';
 import { useEffect } from 'react';
 import { useAuthStore } from '@/stores/auth';
+import { loadAppLayout, preloadRoute } from '@/app/route-loaders';
 
 export function RequireAuth() {
   const authenticated = useAuthStore((s) => s.authenticated);
   const bootstrapped = useAuthStore((s) => s.bootstrapped);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   useEffect(() => {
-    if (!bootstrapped) void bootstrap();
+    if (!bootstrapped) {
+      // Authentication and route chunks are independent. Fetch both at once
+      // so a hard refresh does not wait for /auth/me before it even starts
+      // downloading/parsing the Chat shell and transcript renderer.
+      void loadAppLayout();
+      void preloadRoute(window.location.pathname);
+      void bootstrap();
+    }
   }, [bootstrap, bootstrapped]);
   if (!bootstrapped) return null;
   if (!authenticated) return <Navigate to="/login" replace />;

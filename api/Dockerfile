@@ -15,13 +15,13 @@
 
 ARG CODEX_CLI_VERSION=0.147.0
 ARG NPM_VERSION=11.19.0
-ARG PLAYWRIGHT_MCP_VERSION=0.0.79
+ARG PLAYWRIGHT_CORE_VERSION=1.63.0-alpha-2026-08-05
 ARG DRAWIO_DESKTOP_VERSION=31.1.8
 ARG DRAWIO_DESKTOP_AMD64_SHA256=f4c49ed84422ea4afd95818f53c54bc666e57b33bd036d468c7096619b47ffd9
 ARG DRAWIO_DESKTOP_ARM64_SHA256=62a9ea636accada76076bd5a20f61b707e0e8093d3fd28c6583518663ca795d6
 
 # Node-based runtime assets share a digest-pinned Node/npm base, but are built
-# in independent stages. Updating Playwright MCP therefore cannot invalidate
+# in independent stages. Updating Playwright core therefore cannot invalidate
 # the Codex or draw.io dependency caches.
 FROM node:22.23.2-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS node-runtime-base
 ARG NPM_VERSION
@@ -29,7 +29,7 @@ RUN set -eux; \
     npm install --global --ignore-scripts --no-audit --no-fund "npm@${NPM_VERSION}"; \
     test "$(npm --version)" = "${NPM_VERSION}"
 
-FROM node-runtime-base AS codex-assets
+FROM node-runtime-base AS codex-vendor
 ARG CODEX_CLI_VERSION
 ARG TARGETARCH
 RUN set -eux; \
@@ -50,27 +50,48 @@ RUN set -eux; \
         /opt/codex/bin/codex debug models > /opt/codex/model-catalog.json; \
     node -e 'const c=require("/opt/codex/model-catalog.json"); if (!Array.isArray(c.models) || !c.models.length) process.exit(1)'
 
+# The official 0.147.0 executable can lose early unified-exec output events.
+# Build the reviewed fix, retaining the same-version official companion bundle.
+# Keep Rust and build dependencies out of the final API/sandbox image.
+FROM rust:1.95.0-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1 AS codex-assets
+ARG CODEX_BUILD_JOBS=4
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 pkg-config libssl-dev cmake clang binutils && \
+    rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY scripts/build_codex_runtime.py /build/scripts/build_codex_runtime.py
+COPY scripts/patches/codex-0.147.0-output-subscription.candidate.patch /build/scripts/patches/
+COPY --from=codex-vendor /opt/codex /build/codex-vendor
+RUN git init /build/codex && \
+    git -C /build/codex remote add origin https://github.com/openai/codex.git && \
+    git -C /build/codex fetch --depth 1 origin be6e8eac029b183056b7e4402879f15d2c85f61b && \
+    git -C /build/codex checkout --detach FETCH_HEAD && \
+    python3 /build/scripts/build_codex_runtime.py \
+        --source_dir /build/codex --vendor_dir /build/codex-vendor \
+        --output_dir /opt/codex --jobs "${CODEX_BUILD_JOBS}" && \
+    python3 /build/scripts/build_codex_runtime.py --verify_bundle /opt/codex
+
 FROM node-runtime-base AS playwright-assets
-ARG PLAYWRIGHT_MCP_VERSION
-COPY api/playwright-runtime/package.json api/playwright-runtime/package-lock.json /opt/playwright-mcp/
+ARG PLAYWRIGHT_CORE_VERSION
+COPY api/playwright-runtime/package.json api/playwright-runtime/package-lock.json /opt/flowork-browser-runtime/
 RUN set -eux; \
-    npm ci --prefix /opt/playwright-mcp --ignore-scripts --no-audit --no-fund; \
-    test "$(node -p 'require("/opt/playwright-mcp/node_modules/@playwright/mcp/package.json").version')" = "${PLAYWRIGHT_MCP_VERSION}"
-COPY api/playwright-runtime/launch.cjs /opt/playwright-mcp/launch.cjs
-RUN chmod 0755 /opt/playwright-mcp/launch.cjs
+    npm ci --prefix /opt/flowork-browser-runtime --ignore-scripts --no-audit --no-fund; \
+    test "$(node -p 'require("/opt/flowork-browser-runtime/node_modules/playwright-core/package.json").version')" = "${PLAYWRIGHT_CORE_VERSION}"
+COPY api/playwright-runtime/browser-runtime.cjs api/playwright-runtime/browser-actions.cjs api/playwright-runtime/browser-files.cjs api/playwright-runtime/browser-script-page.cjs api/playwright-runtime/browser-native-downloads.cjs api/playwright-runtime/browser-private-files.cjs /opt/flowork-browser-runtime/
+RUN chmod 0755 /opt/flowork-browser-runtime/browser-runtime.cjs
 
 FROM node-runtime-base AS drawio-assets
 COPY api/drawio-runtime/package.json api/drawio-runtime/package-lock.json /opt/drawio-mcp/
 RUN npm ci --prefix /opt/drawio-mcp --ignore-scripts --no-audit --no-fund \
         --omit=dev && \
     test "$(node -p 'require("/opt/drawio-mcp/node_modules/@drawio/mcp/package.json").version')" = "1.5.0"
-COPY api/drawio-runtime/launch.mjs /opt/drawio-mcp/launch.mjs
-RUN chmod 0755 /opt/drawio-mcp/launch.mjs && \
-    test "$(node /opt/drawio-mcp/launch.mjs --version)" = "1.5.0"
+COPY api/drawio-runtime/search.mjs /opt/drawio-mcp/search.mjs
+RUN chmod 0755 /opt/drawio-mcp/search.mjs && \
+    test "$(node /opt/drawio-mcp/search.mjs --version)" = "1.5.0"
 
 FROM python:3.11.16-slim-trixie@sha256:9c900dea9e8fb7e16277c179b555cc72d29a352dbc33cff48ad5a0412fd5bfc7
 ARG CODEX_CLI_VERSION
-ARG PLAYWRIGHT_MCP_VERSION
+ARG PLAYWRIGHT_CORE_VERSION
 ARG DRAWIO_DESKTOP_VERSION
 ARG DRAWIO_DESKTOP_AMD64_SHA256
 ARG DRAWIO_DESKTOP_ARM64_SHA256
@@ -192,20 +213,19 @@ COPY scripts/security/ /app/scripts/security/
 
 RUN pip install --no-cache-dir --no-deps --no-build-isolation .
 
-# Keep the independently versioned browser MCP after the large OS/Python
+# Keep the independently versioned browser CLI after the large OS/Python
 # dependency layers. Updating browser automation must not invalidate apt or pip
 # caches and force those dependencies to download again.
-COPY --from=playwright-assets /opt/playwright-mcp /opt/playwright-mcp
-RUN ln -s /opt/playwright-mcp/launch.cjs /usr/local/bin/flowork-playwright-mcp && \
-    flowork-playwright-mcp --version | grep -q "${PLAYWRIGHT_MCP_VERSION}"
+COPY --from=playwright-assets /opt/flowork-browser-runtime /opt/flowork-browser-runtime
+RUN ln -s /opt/flowork-browser-runtime/browser-runtime.cjs /usr/local/bin/flowork-browser-runtime && \
+    flowork-browser-runtime --version | grep -Fx "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})"
 
-# Diagram authoring is the pinned official draw.io MCP. Flowork supplies only
-# sandbox activation and platform file/preview adapters around this runtime.
+# Reuse pinned official draw.io search modules directly; no Diagram MCP server.
 COPY --from=drawio-assets /opt/drawio-mcp /opt/drawio-mcp
 COPY api/drawio-runtime/export.sh /usr/local/bin/flowork-drawio-export
 RUN chmod 0755 /usr/local/bin/flowork-drawio-export && \
-    ln -s /opt/drawio-mcp/launch.mjs /usr/local/bin/flowork-diagram-mcp && \
-    test "$(flowork-diagram-mcp --version)" = "1.5.0"
+    ln -s /opt/drawio-mcp/search.mjs /usr/local/bin/flowork-diagram-search && \
+    test "$(flowork-diagram-search --version)" = "1.5.0"
 
 # API/worker images do not need a package installer. The dedicated sandboxd
 # image opts into pip because it owns the narrow, wheel-only, content-addressed

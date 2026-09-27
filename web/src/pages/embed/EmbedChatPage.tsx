@@ -37,7 +37,7 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'next-themes';
 import { useUIStore } from '@/stores/ui';
-import { useAuthStore } from '@/stores/auth';
+import { useAuthStore, type AuthState } from '@/stores/auth';
 import { useAgentSettingsStore } from '@/stores/agent-settings';
 import { mintBrowserToken } from '@/lib/api/browser';
 import { extensionOrigin } from '@/lib/extension';
@@ -101,11 +101,23 @@ function seedAgentSettings(s: RelayedAgentSettings): void {
   });
 }
 
+function authScope(auth: AuthState): string | null {
+  return auth.authenticated && auth.user
+    ? JSON.stringify([auth.user.tenant_id, auth.user.user_id, auth.sessionAudience])
+    : null;
+}
+
 export function EmbedChatPage() {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
   const [params] = useSearchParams();
-  const wfParam = params.get('wf') ?? undefined;
+  const identity = useAuthStore(authScope);
+  const [stateOwner, setStateOwner] = useState(identity);
+  // URL handoff hints belong to the identity that first authenticated this
+  // frame. They must not reseed another account after an exchange/logout.
+  const [hintOwner, setHintOwner] = useState(identity);
+  const hintsAllowed = hintOwner === null || hintOwner === identity;
+  const wfParam = hintsAllowed ? params.get('wf') ?? undefined : undefined;
   const modeParam = params.get('mode');
   const defaultMode: 'chat' | 'browser' =
     modeParam === 'chat' ? 'chat' : 'browser';
@@ -117,7 +129,7 @@ export function EmbedChatPage() {
   const extensionAuthenticated =
     authenticated && sessionAudience === 'extension';
 
-  const chatFromUrl = params.get('chat') ?? undefined;
+  const chatFromUrl = hintsAllowed ? params.get('chat') ?? undefined : undefined;
   const [chat, setChat] = useState<string | undefined>(chatFromUrl);
 
   const [browserControlChatId, setBrowserControlChatId] = useState('');
@@ -141,6 +153,20 @@ export function EmbedChatPage() {
   );
   const trustedExtensionOrigin = extensionOrigin();
 
+  if (stateOwner !== identity) {
+    // Reset during render so no child or effect commits the old conversation
+    // under the new identity. Same-account token renewal leaves state intact.
+    setStateOwner(identity);
+    if (hintOwner === null && identity !== null) setHintOwner(identity);
+    setChat(stateOwner === null && hintOwner === null ? chatFromUrl : undefined);
+    setBrowserControlChatId('');
+    setBrowserControlAvailableHere(false);
+    setBrowserId('');
+    setBoundWf(null);
+    setBinding(true);
+    setBindingFailed(false);
+  }
+
   const postToExtension = useCallback((message: unknown) => {
     if (!trustedExtensionOrigin || window.parent === window) return;
     window.parent.postMessage(message, trustedExtensionOrigin);
@@ -159,9 +185,10 @@ export function EmbedChatPage() {
   // sidebar — `AgentChatSidebar` renders null until `lastActiveWorkflowId` is
   // set, and reads `activeChatId` for the conversation it resumes.
   useEffect(() => {
+    if (!extensionAuthenticated) return;
     if (wf) setLastWf(wf);
     if (chat) setActiveChatId('browser', chat);
-  }, [wf, chat, setLastWf, setActiveChatId]);
+  }, [extensionAuthenticated, wf, chat, setLastWf, setActiveChatId]);
 
   useEffect(() => {
     if (!wf || chat || !seeded || !extensionAuthenticated) return;
@@ -214,11 +241,14 @@ export function EmbedChatPage() {
     async (carrierWf: string, stableBrowserId: string) => {
       setBinding(true);
       setBindingFailed(false);
+      const owner = authScope(useAuthStore.getState());
       try {
         const scopedToken = await mintBrowserToken(carrierWf, stableBrowserId);
+        if (owner !== authScope(useAuthStore.getState())) return;
         postToExtension({ type: 'OPEN_WS', scopedToken });
         postToExtension({ type: 'REQUEST_BINDING' });
       } catch {
+        if (owner !== authScope(useAuthStore.getState())) return;
         setBindingFailed(true);
       }
     },
@@ -227,10 +257,13 @@ export function EmbedChatPage() {
 
   useEffect(() => {
     if (!seeded || !extensionAuthenticated || !wf || !browserId || boundWf === wf) return;
+    let cancelled = false;
     queueMicrotask(() => {
+      if (cancelled) return;
       setBoundWf(wf);
       void bindToShell(wf, browserId);
     });
+    return () => { cancelled = true; };
   }, [bindToShell, boundWf, browserId, extensionAuthenticated, seeded, wf]);
 
   // Listen for the shell's BINDING reply, redeem any fresh one-time exchange
@@ -320,6 +353,7 @@ export function EmbedChatPage() {
       if (!isBindingMessage(e.data)) return;
       const received = e.data;
       void (async () => {
+        const owner = authScope(useAuthStore.getState());
         if (received.exchangeCode) {
           await bootstrap(received.exchangeCode);
         }
@@ -334,6 +368,12 @@ export function EmbedChatPage() {
         }
         if (received.exchangeCode) {
           postToExtension({ type: 'AUTH_EXCHANGE_CONSUMED' });
+        }
+        if (owner !== authScope(auth)) {
+          // The exchange changed identity. Request its fresh binding instead of
+          // applying a Chat/control projection captured before the exchange.
+          postToExtension({ type: 'REQUEST_BINDING' });
+          return;
         }
         if (typeof received.browser_id === 'string' && received.browser_id) {
           setBrowserId(received.browser_id);
@@ -369,7 +409,7 @@ export function EmbedChatPage() {
   useEffect(() => {
     if (!seeded || window.parent === window) return;
     postToExtension({ type: 'REQUEST_BINDING' });
-  }, [postToExtension, seeded]);
+  }, [identity, postToExtension, seeded]);
 
   useEffect(() => {
     if (!seeded || extensionAuthenticated || window.parent === window) return;
@@ -509,6 +549,7 @@ export function EmbedChatPage() {
 
   return (
     <EmbedShell
+      key={identity}
       wfId={wf}
       defaultMode={defaultMode}
       browserControlChatId={browserControlChatId}

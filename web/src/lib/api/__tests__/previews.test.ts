@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   fetchPreviewRendition,
+  resolvePreview,
   resolvePreviewResourceUrl,
 } from '@/lib/api/previews';
-import type { PreviewResourceSessionV1 } from '@/lib/preview/protocol';
+import type { FileRefV1, PreviewResourceSessionV1 } from '@/lib/preview/protocol';
 
 vi.mock('@/stores/auth', () => ({
   useAuthStore: {
@@ -13,6 +14,55 @@ vi.mock('@/stores/auth', () => ({
 }));
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('resolvePreview citation compatibility', () => {
+  const ref: FileRefV1 = { schemaVersion: 1, scope: 'chat', chatId: 'chat-1', path: '/data/README.md:24:2' };
+  const missing = () => Response.json({ detail: 'preview_file_not_found' }, { status: 404 });
+
+  it('retries a missing legacy citation once with the same scope and actual text path', async () => {
+    const canonical = { ...ref, path: '/data/README.md' };
+    const descriptor = { fileRef: canonical, renderer: 'markdown' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(missing())
+      .mockResolvedValueOnce(Response.json(descriptor));
+    const controller = new AbortController();
+    expect(await resolvePreview(ref, controller.signal)).toEqual(descriptor);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).fileRef)).toEqual([ref, canonical]);
+    for (const [, init] of fetchSpy.mock.calls) {
+      expect(init?.signal).toBe(controller.signal);
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer preview-token');
+    }
+  });
+
+  it('prefers an existing literal colon filename without extra requests', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ fileRef: ref }));
+    expect(await resolvePreview(ref)).toEqual({ fileRef: ref });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([401, 403, 404, 500])('does not reinterpret unrelated HTTP %i failures', async (status) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ detail: 'unavailable' }, { status }));
+    await expect(resolvePreview(ref)).rejects.toThrow('unavailable');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates a missing fallback without looping', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => missing());
+    await expect(resolvePreview(ref)).rejects.toThrow('preview_file_not_found');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry after cancellation', async () => {
+    const controller = new AbortController();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      controller.abort();
+      return missing();
+    });
+    await expect(resolvePreview(ref, controller.signal)).rejects.toThrow('preview_file_not_found');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
 
 const session: PreviewResourceSessionV1 = {
   schemaVersion: 1,

@@ -7,6 +7,7 @@ export type ComponentType =
   | 'html_preview'
   | 'file_preview'
   | 'url_preview'
+  | 'workflow_preview'
   | 'user_input';
 
 export type CompletionMode = 'render_only' | 'wait_for_submit';
@@ -47,6 +48,7 @@ interface ViewValidationError {
 }
 
 interface ViewPropertySchema {
+  pattern?: string;
   const?: unknown;
   minLength?: number;
   type?: string;
@@ -127,6 +129,9 @@ function validateView(value: unknown): ViewValidationError[] {
     if ('const' in property && fieldValue !== property.const) {
       errors.push({ instancePath: `/${field}`, message: `must equal ${String(property.const)}` });
     }
+    if (typeof fieldValue === 'string' && property.pattern && !new RegExp(property.pattern).test(fieldValue)) {
+      errors.push({ instancePath: `/${field}`, message: 'has an invalid format' });
+    }
     if (
       typeof fieldValue === 'string'
       && typeof property.minLength === 'number'
@@ -171,6 +176,14 @@ export function interactiveArtifactRenderError(
     return Array.isArray(artifact.props.fields) ? null : 'approval fields are missing';
   }
   if (artifact.component_type === 'user_input') {
+    if (artifact.props.mode === 'choices') {
+      const questions = artifact.props.questions;
+      if (!Array.isArray(questions) || questions.length !== 1 || !isObject(questions[0])) return 'choice question is missing';
+      const options = questions[0].options;
+      if (!Array.isArray(options) || !options.length || options.some((option) => !isObject(option)
+        || typeof option.value !== 'string' || !option.value || typeof option.label !== 'string' || !option.label)) return 'choice options are invalid';
+      if (new Set(options.map((option) => option.value)).size !== options.length) return 'choice option IDs must be unique';
+    }
     const hasQuestions = Array.isArray(artifact.props.questions);
     const hasUrl = typeof artifact.props.url === 'string' && artifact.props.url.length > 0;
     return hasQuestions || hasUrl ? null : 'user input questions are missing';

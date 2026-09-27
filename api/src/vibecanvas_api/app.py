@@ -230,12 +230,12 @@ async def lifespan(app: FastAPI):
         # Platform tools execute behind the private Host Capability Gateway.
         # Their canonical invocation layer shares the API lifespan's OpenFGA
         # client, but no model-visible Platform MCP transport runs on the Host.
-        from .services.platform_mcp.invocation import (
-            set_platform_mcp_openfga_client,
+        from .services.agent_resources.context import (
+            set_authorization_client,
         )
 
-        set_platform_mcp_openfga_client(getattr(app.state, "openfga_client", None))
-        stack.callback(set_platform_mcp_openfga_client, None)
+        set_authorization_client(getattr(app.state, "openfga_client", None))
+        stack.callback(set_authorization_client, None)
 
         # Initialize process-scoped stores after the durable task subsystem.
         init_stores(
@@ -370,6 +370,7 @@ def build_app() -> FastAPI:
     from .routes import auth as _auth_routes
     from .routes import browser as _browser_routes
     from .routes import chats as _chat_routes
+    from .routes import chat_engagement as _chat_engagement_routes
     from .routes import deployment_invoke as _deployment_invoke_routes
     from .routes import deployments as _deployment_routes
     from .routes import enterprise_identity as _enterprise_identity_routes
@@ -407,6 +408,7 @@ def build_app() -> FastAPI:
     app.include_router(_workflow_routes.router)
     app.include_router(_exec_routes.router)
     app.include_router(_chat_routes.router)
+    app.include_router(_chat_engagement_routes.router)
     app.include_router(_task_routes.router)
     app.include_router(_deployment_routes.router)
     app.include_router(_deployment_invoke_routes.router)

@@ -83,11 +83,11 @@ function copyStaticAssets(allowedWebBases: string[]): Plugin {
       manifest.externally_connectable = {
         matches: originMatches,
       };
-      // `scripting.executeScript` is only used as a recovery path when the
-      // extension was installed/reloaded after an already-open app tab. Keep
-      // that authority pinned to the exact same build-time allowlist used by
-      // externally_connectable; it is never granted for arbitrary pages.
-      manifest.host_permissions = originMatches;
+      // Download provenance observes HTTP(S) requests; approved native file
+      // reads require file:// plus Chrome's separate user-controlled toggle.
+      // These host grants do NOT expand externally_connectable or the app
+      // recovery path's own exact-origin allowlist.
+      manifest.host_permissions = [...new Set([...(manifest.host_permissions ?? []), ...originMatches])];
       writeFileSync(
         resolve(out, "manifest.json"),
         `${JSON.stringify(manifest, null, 2)}\n`,

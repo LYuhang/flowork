@@ -35,6 +35,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -79,8 +80,10 @@ function defaultBody(initialWorkflowId = '', initialName = ''): CreateDeployment
     name: initialName,
     slug: '',
     trigger_type: 'api',
-    version_pin: 'head',
+    version_pin: 'major',
     rate_limit_qps: 10,
+    mount_enabled: false,
+    enabled: true,
   };
 }
 
@@ -144,7 +147,7 @@ export function CreateDeploymentModal({
   }, [body.wf_id, t, workflows]);
 
   const versionsQuery = useWorkflowVersions(
-    body.version_pin === 'specific' && body.wf_id ? body.wf_id : undefined,
+    body.wf_id || undefined,
   );
   const versions = useMemo<WorkflowVersionOption[]>(() => {
     const raw = (versionsQuery.data as { versions?: unknown[] } | undefined)?.versions ?? [];
@@ -162,7 +165,7 @@ export function CreateDeploymentModal({
     () => [...new Set(versions.map((version) => version.major))],
     [versions],
   );
-  const selectedMajor = body.version_pin === 'specific'
+  const selectedMajor = body.version_pin !== 'head'
     ? (majorOptions.includes(body.pinned_major as number)
         ? body.pinned_major
         : majorOptions[0])
@@ -195,8 +198,7 @@ export function CreateDeploymentModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (
-      body.version_pin === 'specific' &&
-      (selectedMajor === undefined || selectedSub === undefined)
+      selectedMajor === undefined || (body.version_pin === 'specific' && selectedSub === undefined)
     ) {
       toast.error(t('deployments.create.selectVersion', 'Select a workflow version.'));
       return;
@@ -206,13 +208,12 @@ export function CreateDeploymentModal({
       ...body,
       ...(body.version_pin === 'specific'
         ? { pinned_major: selectedMajor, pinned_sub: selectedSub }
-        : {}),
+        : { pinned_major: selectedMajor }),
       slug: slugifyDeploymentName(
         body.name || selectedWorkflow?.workflow_name || body.wf_id,
       ),
     };
-    if (payload.version_pin === 'head') {
-      delete payload.pinned_major;
+    if (payload.version_pin !== 'specific') {
       delete payload.pinned_sub;
     }
     createMutation.mutate(payload);
@@ -391,7 +392,7 @@ export function CreateDeploymentModal({
                 )}
               </legend>
               <div className="flex items-center gap-4 text-sm">
-                {(['head', 'specific'] as VersionPin[]).map((vp) => (
+                {(['major', 'specific'] as VersionPin[]).map((vp) => (
                   <label key={vp} className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -402,11 +403,11 @@ export function CreateDeploymentModal({
                         setBody((b) => ({ ...b, version_pin: vp }))
                       }
                     />
-                    {t(`deployments.create.versionPin.${vp}`, vp)}
+                    {t(`deployments.create.versionPin.${vp}`, vp === 'major' ? 'Follow major version' : 'Fixed version')}
                   </label>
                 ))}
               </div>
-              {body.version_pin === 'specific' && (
+              {body.version_pin !== 'head' && (
                 <div className="grid grid-cols-2 gap-2">
                   <div className="flex flex-col gap-1">
                     <Label>{t('deployments.create.fields.majorVersion', 'Major version')}</Label>
@@ -433,7 +434,7 @@ export function CreateDeploymentModal({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex flex-col gap-1">
+                  {body.version_pin === 'specific' && <div className="flex flex-col gap-1">
                     <Label>{t('deployments.create.fields.subVersion', 'Sub version')}</Label>
                     <Select
                       value={selectedSub === undefined ? undefined : String(selectedSub)}
@@ -451,8 +452,9 @@ export function CreateDeploymentModal({
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                  {!versionsQuery.isLoading && versions.length === 0 && (
+                  </div>}
+                  {versionsQuery.isError && <p role="alert" className="col-span-2 text-sm text-destructive">{t('tasks.version.error', 'Could not load workflow versions.')}</p>}
+                  {!versionsQuery.isLoading && !versionsQuery.isError && versions.length === 0 && (
                     <p className="col-span-2 text-xs text-muted-foreground">
                       {t('deployments.create.noVersions', 'No saved versions are available for this workflow.')}
                     </p>
@@ -483,6 +485,15 @@ export function CreateDeploymentModal({
               />
             </div>
 
+            <label className="flex items-center gap-2">
+              <Switch checked={body.mount_enabled ?? false} onCheckedChange={(checked) => setBody((b) => ({ ...b, mount_enabled: checked }))} />
+              <span>{t('deployments.mount', 'Mount user storage (/mount)')}</span>
+            </label>
+            <p className="text-xs text-muted-foreground">{t('deployments.mountHelp', 'Shares authorized user storage, not Chat files. Each accepted call keeps its version and mount settings.')}</p>
+            <label className="flex items-center gap-2">
+              <Switch checked={body.enabled ?? true} onCheckedChange={(checked) => setBody((b) => ({ ...b, enabled: checked }))} />
+              <span>{t('deployments.col.enabled', 'Enabled')}</span>
+            </label>
             <DialogFooter>
               <Button
                 type="button"

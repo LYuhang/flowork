@@ -473,7 +473,15 @@ async def _serve_vfs_resource(
             if row is None:
                 raise HTTPException(status_code=404, detail="vfs_path_not_found")
         else:
-            model = VfsScratch if path.startswith("/memory/") else VfsArtifact
+            # Chat workspace snapshots store every durable root (including
+            # /memory and /logs) in VfsArtifact. Only legacy Workflow scratch
+            # uses VfsScratch; choosing by path alone breaks signed Preview URLs.
+            model = (
+                VfsScratch
+                if path.startswith("/memory/")
+                and chat_id_from_workspace_scope(wf_id) is None
+                else VfsArtifact
+            )
             row = await s.get(model, (wf_id or None, path))
             if row is None:
                 raise HTTPException(status_code=404, detail="vfs_path_not_found")

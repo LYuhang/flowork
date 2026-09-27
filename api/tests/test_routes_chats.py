@@ -9,6 +9,8 @@ a real ``register → session_token`` (the same pattern as
 
 from __future__ import annotations
 
+from vibecanvas_api.services.agent_resources import context as agent_context
+
 import asyncio
 import base64
 from datetime import datetime, timedelta, timezone
@@ -649,12 +651,10 @@ async def test_browser_reconnect_snapshot_restores_matching_lost_session(
 async def test_existing_chat_workflow_command_commits_metadata_before_stream(
     client, pg_engine, monkeypatch, openfga_allow_all,
 ):
-    """Regression for create_workflow hanging on persist_chat_binding.
+    """Commit command metadata before streaming and retain live CLI identity checks.
 
-    An existing chat that receives `/workflow` updates chats.meta.active_modes
-    before the SSE producer starts. That write must be committed immediately;
-    otherwise the later create_workflow tool writes current_workflow_id through a
-    short-session repo and waits on this route transaction's row lock.
+    Workflow commands are stateless CLI guidance, not business MCP activation.
+    Committing first also releases the Chat row before resource work starts.
     """
     from vibecanvas_api.routes import chats as chats_route
     from vibecanvas_api.storage.chat_repo import ChatRepo
@@ -694,8 +694,8 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
     assert r.status_code == 200, r.text
     assert len(commit_calls) == 1
     base_platform_mcps = [
-        "config",
         "interactive",
+        "cli",
     ]
     assert dispatched_turns[0].active_platform_mcps == base_platform_mcps
     from vibecanvas_api.config import config
@@ -725,46 +725,40 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
     )
     assert r.status_code == 200, r.text
     assert len(commit_calls) == 2
-    assert dispatched_turns[1].active_platform_mcps == [
-        *base_platform_mcps,
-        "workflow",
-        "build",
-    ]
+    assert dispatched_turns[1].active_platform_mcps == base_platform_mcps
     assert dispatched_turns[1].message["content"] == "create something"
     assert [item.name for item in dispatched_turns[1].instructions] == ["workflow"]
     assert dispatched_turns[1].instructions[0].activated_this_turn is True
     assert "WORKFLOW mode" in dispatched_turns[1].instructions[0].content
     assert dispatched_turns[1].command_context.active_modes == ["workflow"]
-    build_server = next(
+    cli_server = next(
         server
         for server in dispatched_turns[1].mcp_host_servers
-        if server.source == "platform" and server.name == "build"
+        if server.source == "platform" and server.name == "cli"
     )
-    assert build_server.connection["transport"] == "host_gateway"
-    from vibecanvas_api.services.platform_mcp.capability import (
-        verify_platform_mcp_capability,
+    assert cli_server.connection["transport"] == "host_gateway"
+    from vibecanvas_api.services.agent_resources.capability import (
+        verify_agent_capability,
     )
 
-    build_capability = verify_platform_mcp_capability(
-        build_server.connection["capability"],
+    cli_capability = verify_agent_capability(
+        cli_server.connection["capability"],
         secret=config.signing_secret,
-        server="build",
+        server="cli",
     )
-    assert build_capability is not None
-    assert build_capability.audience == "platform-mcp"
-    assert build_capability.runtime_session_id == (
+    assert cli_capability is not None
+    assert cli_capability.audience == "agent-resource"
+    assert cli_capability.runtime_session_id == (
         dispatched_turns[1].runtime_session_id
     )
-    assert build_capability.session_generation > 0
-    assert build_capability.membership_id
-    assert build_capability.authorization_generation
-    assert "chat:execute" in build_capability.actions
-    assert "workflow:update" in build_capability.actions
-    assert "platform_mcp:call" in build_capability.actions
-    assert "workflow:*" in build_capability.resources
+    assert cli_capability.session_generation > 0
+    assert cli_capability.membership_id
+    assert cli_capability.authorization_generation
+    assert set(cli_capability.actions) == {"chat:execute", "agent_cli:call"}
+    assert not any(resource.endswith(":*") for resource in cli_capability.resources)
 
     # Command activation is durable Chat metadata. A later plain message must
-    # receive the Workflow MCP again without repeating `/workflow`.
+    # receive Workflow CLI guidance again without repeating `/workflow`.
     r = await client.post(
         f"/api/v1/chat-scopes/{wf_id}/chats/c_build/messages",
         json={"role": "user", "content": "continue"},
@@ -772,11 +766,7 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
     )
     assert r.status_code == 200, r.text
     assert len(commit_calls) == 3
-    assert dispatched_turns[2].active_platform_mcps == [
-        *base_platform_mcps,
-        "workflow",
-        "build",
-    ]
+    assert dispatched_turns[2].active_platform_mcps == base_platform_mcps
     assert dispatched_turns[2].message["content"] == "continue"
     assert [item.name for item in dispatched_turns[2].instructions] == ["workflow"]
     assert dispatched_turns[2].instructions[0].activated_this_turn is False
@@ -853,18 +843,18 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
     }
     assert str(chat_binding.runtime_connection_id).startswith("codex:")
 
-    # A real host-side Platform MCP request can rebuild the context while the
+    # A real host-side Agent resource request can rebuild the context while the
     # exact Turn is active, but the same already-issued descriptor is rejected
     # immediately after its browser Session generation changes.
-    final_build_server = next(
+    final_cli_server = next(
         server
         for server in dispatched_turns[2].mcp_host_servers
-        if server.source == "platform" and server.name == "build"
+        if server.source == "platform" and server.name == "cli"
     )
-    final_capability = verify_platform_mcp_capability(
-        final_build_server.connection["capability"],
+    final_capability = verify_agent_capability(
+        final_cli_server.connection["capability"],
         secret=config.signing_secret,
-        server="build",
+        server="cli",
     )
     assert final_capability is not None
     async with pg_engine.begin() as connection:
@@ -879,14 +869,12 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
             ),
             {"run_id": final_capability.turn_id},
         )
-    from vibecanvas_api.services.platform_mcp import invocation as platform_invocation
-
     monkeypatch.setattr(
-        platform_invocation,
+        agent_context,
         "_OPENFGA_CLIENT",
         openfga_allow_all,
     )
-    live_context = await platform_invocation._context_for(final_capability)
+    live_context = await agent_context.resolve_context(final_capability)
     assert live_context.chat_id == "c_build"
     assert live_context.runtime_session_id == final_capability.runtime_session_id
     assert live_context.authorization_session_generation == (
@@ -902,13 +890,13 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
             {"session_id": uuid.UUID(final_capability.session_id)},
         )
     with pytest.raises(PermissionError, match="identity has been revoked"):
-        await platform_invocation._context_for(final_capability)
+        await agent_context.resolve_context(final_capability)
 
-    from vibecanvas_api.services.platform_mcp.capability import (
-        mint_platform_mcp_capability,
+    from vibecanvas_api.services.agent_resources.capability import (
+        mint_agent_capability,
     )
 
-    rotated_token = mint_platform_mcp_capability(
+    rotated_token = mint_agent_capability(
         organization_id=final_capability.organization_id,
         user_id=final_capability.user_id,
         chat_id=final_capability.chat_id,
@@ -923,13 +911,13 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
         secret=config.signing_secret,
         ttl_s=config.mcp.platform_capability_ttl_s,
     )
-    rotated_capability = verify_platform_mcp_capability(
+    rotated_capability = verify_agent_capability(
         rotated_token,
         secret=config.signing_secret,
-        server="build",
+        server="cli",
     )
     assert rotated_capability is not None
-    assert (await platform_invocation._context_for(rotated_capability)).chat_id == (
+    assert (await agent_context.resolve_context(rotated_capability)).chat_id == (
         "c_build"
     )
 
@@ -946,7 +934,7 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
             {"membership_id": uuid.UUID(rotated_capability.membership_id)},
         )
     with pytest.raises(PermissionError, match="identity has been revoked"):
-        await platform_invocation._context_for(rotated_capability)
+        await agent_context.resolve_context(rotated_capability)
 
     async with pg_engine.begin() as connection:
         await connection.execute(
@@ -968,7 +956,7 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
             {"chat_id": rotated_capability.chat_id},
         )
     with pytest.raises(PermissionError, match="Runtime binding is stale"):
-        await platform_invocation._context_for(rotated_capability)
+        await agent_context.resolve_context(rotated_capability)
 
 
 @pytest.mark.asyncio

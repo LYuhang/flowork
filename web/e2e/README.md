@@ -55,7 +55,7 @@ sequence.
 | Workflow acceptance | `acceptance/*.spec.ts` | Canvas authoring, inspector editing, persistence, validation, execution, keyboard behavior, JSON import/export, batch runs, and visual evidence | Complete native stack; most graphs are deterministic and do not use a model |
 | Full-stack integration | `17-*` through `24-*`, `27-*` through `34-*`, `38-*`, `39-*`, and `42-*` | Interactive artifacts, background work, Knowledge, MCP and Skills, slash commands, Runtime reuse and resume, Codex resilience, and real Workflow execution | Complete native stack plus the model or Runtime credentials required by the selected spec |
 | Visual matrix | [`15-route-visual-matrix.spec.ts`](15-route-visual-matrix.spec.ts) | Production routes across viewports, zoom levels, locales, themes, keyboard, and forced-colors states | Explicit opt-in flag and a complete application stack |
-| Browser Extension | [`16-extension-runtime.spec.ts`](16-extension-runtime.spec.ts), [`40-extension-sidepanel-narrow.spec.ts`](40-extension-sidepanel-narrow.spec.ts) | Real unpacked MV3 service worker, controlled tabs, side panel, authentication handoff, and narrow layouts | Built extension, headed Chromium, and Xvfb or another display server |
+| Browser Extension | [`16-extension-playwright-relay.spec.ts`](16-extension-playwright-relay.spec.ts), [`40-extension-sidepanel-narrow.spec.ts`](40-extension-sidepanel-narrow.spec.ts) | Real unpacked MV3 service worker, controlled tabs, side panel, authentication handoff, and narrow layouts | Built extension, headed Chromium, and Xvfb or another display server |
 | Diagram acceptance | Manual visible-browser matrix | Real Codex `/diagram` creation, refinement, Preview and export with pixel-level review | Complete native stack, connected Codex account, visible Windows browser, and evidence under `output/playwright/` |
 
 The specification source is authoritative for credentials, feature flags, and
@@ -194,11 +194,11 @@ pnpm --dir web exec playwright test e2e/15-route-visual-matrix.spec.ts
 ### Diagram acceptance
 
 Diagram quality acceptance is intentionally not a mocked Playwright
-specification. Use a visible Windows browser, a real Codex-backed Chat and
+specification. Use a visible browser, a real Codex-backed Chat and
 natural-language `/diagram` requests; inspect the rendered pixels and continue
-the same conversation until each result is ready to use. The current matrix
-and evidence requirements are documented in
-`docs/internal/diagram-drawio-mcp-implementation-and-acceptance-2026-08-16.md`.
+the same conversation until each result is ready to use. Check native file
+delivery, structural review, rendering of every page, and actual Preview
+interaction. See the public [Diagram guide](../../docs/diagram.md).
 Store screenshots and verdicts below `output/playwright/`.
 
 ### OpenRouter through Codex
@@ -244,7 +244,7 @@ internals without starting unrelated API and Web processes:
 VIBECANVAS_EXTENSION_E2E=1 \
 VIBECANVAS_SKIP_WEB_SERVER=1 \
 xvfb-run -a pnpm --dir web exec playwright test \
-  e2e/16-extension-runtime.spec.ts --workers=1
+  e2e/16-extension-playwright-relay.spec.ts --workers=1
 ```
 
 The side-panel acceptance gate connects the built extension to a running

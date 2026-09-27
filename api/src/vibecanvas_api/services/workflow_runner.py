@@ -30,28 +30,28 @@ from uuid import uuid4
 import structlog
 from fastapi import HTTPException
 from sqlalchemy import text
+from vibecanvas_engine.workflow import Workflow
 
 from vibecanvas_api.authorization.types import ResourceType
 from vibecanvas_api.config import config
 from vibecanvas_api.observability.workflow import instrumented_drain
-from vibecanvas_api.services.run_workspace import RunWorkspace
+from vibecanvas_api.security.content_encryption import content_encryption_service
+from vibecanvas_api.services.env.overlay_builder import ensure_overlay
 from vibecanvas_api.services.llm_credentials_inject import (
     inject_into_run_context_sync,
 )
-from vibecanvas_api.services.env.overlay_builder import ensure_overlay
+from vibecanvas_api.services.run_workspace import RunWorkspace
 from vibecanvas_api.services.sandbox import (
     EngineNeedsHostNode,
     SandboxUnavailable,
     get_sandbox_provider,
 )
 from vibecanvas_api.services.sandbox.admission import sync_sandbox_admission
-from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.sandbox.egress_policy import compute_allow_hosts
+from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.tenant_db import session_scope_admin
 from vibecanvas_api.storage.sync_repo import SyncWorkflowRepo
 from vibecanvas_api.storage.sync_session import current_sync_tenant_id
-from vibecanvas_api.security.content_encryption import content_encryption_service
-from vibecanvas_engine.workflow import Workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -68,6 +68,7 @@ def run_workflow_sandboxed_sync(
     execution_principal_type: str = "user",
     execution_principal_id: str | None = None,
     execution_principal_generation: int = 0,
+    mount_enabled: bool = True,
 ) -> tuple[dict, dict, float]:
     """Run the workflow once INSIDE a gVisor OS-sandbox (the sole sync runner).
 
@@ -116,6 +117,19 @@ def run_workflow_sandboxed_sync(
             workflow_id)
     )
     run_id = run_id or uuid4().hex
+
+    if (
+        execution_resource_type == ResourceType.DEPLOYMENT_INVOCATION.value
+        and execution_principal_type == "service_account"
+    ):
+        from vibecanvas_api.services.deployment_model_dependencies import (
+            refresh_deployment_model_dependencies,
+        )
+        asyncio.run(refresh_deployment_model_dependencies(
+            tenant_id=tenant_id, user_id=user_id, workflow_id=workflow_id,
+            execution_id=run_id, service_account_id=execution_principal_id,
+            generation=execution_principal_generation, workflow=workflow_dict,
+        ))
 
     # Every executing surface is self-contained. The content-addressed overlay
     # builder is a fast lookup on warm paths and performs one lock-protected
@@ -168,6 +182,7 @@ def run_workflow_sandboxed_sync(
                 if isinstance(requirements, str) and requirements.strip()
                 else None
             ),
+            expose_mount=mount_enabled,
         ))
         return (
             response.get("final_outputs") or {},
@@ -200,7 +215,7 @@ def run_workflow_sandboxed_sync(
         run_id,
         tenant_id,
         wf_id=workflow_id,
-        user_id=user_id,
+        user_id=user_id if mount_enabled else None,
         keep_run=True,
     ) as ws:
         run_dir = ws.run_context["run_dir"]
@@ -353,6 +368,13 @@ async def load_workflow_version(dep: dict) -> dict:
             "ORDER BY major DESC, sub DESC LIMIT 1"
         )
         params = {"w": dep["wf_id"]}
+    elif dep["version_pin"] == "major":
+        sql = (
+            "SELECT tenant_id, major, sub, workflow_ciphertext, "
+            "workflow_nonce, workflow_key_id FROM workflow_versions WHERE wf_id = :w "
+            "AND major = :m ORDER BY sub DESC LIMIT 1"
+        )
+        params = {"w": dep["wf_id"], "m": dep["pinned_major"]}
     else:  # 'specific'
         sql = (
             "SELECT tenant_id, major, sub, workflow_ciphertext, "
@@ -387,4 +409,7 @@ async def load_workflow_version(dep: dict) -> dict:
         )
         if not isinstance(workflow, dict):
             raise HTTPException(500, "workflow version is invalid")
+        workflow.setdefault("__meta__", {}).update(
+            workflow_id=dep["wf_id"], workflow_version=row.major, workflow_subversion=row.sub,
+        )
         return workflow

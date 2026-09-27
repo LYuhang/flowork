@@ -10,6 +10,7 @@ import httpx
 import structlog
 
 from vibecanvas_api.config import config
+from vibecanvas_api.flowork_cli.cli import OPERATIONS as CLI_OPERATIONS
 from vibecanvas_api.services.agent_runtime.mcp_execution_capability import (
     verify_mcp_execution_capability,
 )
@@ -26,6 +27,11 @@ from vibecanvas_api.services.platform_mcp.invocation import (
 
 
 _OPERATIONS = {
+    "interaction",
+    "cli_call",
+    "browser_authorize",
+    "browser_commit",
+    "browser_transfer",
     "manifest",
     "call",
     "launch",
@@ -260,7 +266,51 @@ async def handle_mcp_gateway_request(
         _verify_private_execution(gateway_request, request)
         if operation not in _OPERATIONS:
             raise ValueError(f"unsupported MCP Gateway operation: {operation}")
-        if operation in {"remote_message", "remote_close"}:
+        if operation == "interaction":
+            from .choice_calls import dispatch
+
+            if server != "interactive" or gateway_request.tool_name != "render_choices":
+                raise PermissionError("Unsupported interactive tool.")
+            result_payload = await dispatch(_platform_capability_token(request, "interactive"), gateway_request.arguments)
+        elif operation == "browser_transfer":
+            from .browser_transfer_calls import dispatch
+
+            if server != "browser" or "browser" not in request.active_platform_mcps or gateway_request.tool_name != "download":
+                raise PermissionError("Browser file transfer is inactive for this Turn")
+            result_payload = await dispatch(_platform_capability_token(request, "browser"), gateway_request.arguments)
+        elif operation == "browser_authorize":
+            from .browser_cli_authorization import authorize_browser_cli
+
+            if server != "browser" or "browser" not in request.active_platform_mcps:
+                raise PermissionError("Browser control is inactive for this Turn")
+            result_payload = await authorize_browser_cli(
+                operation=str(gateway_request.tool_name or ""),
+                arguments=gateway_request.arguments,
+                token=_platform_capability_token(request, "browser"),
+                endpoint=_playwright_cdp_url(),
+            )
+        elif operation == "browser_commit":
+            from .browser_cli_authorization import commit_browser_artifacts
+
+            if server != "browser" or "browser" not in request.active_platform_mcps:
+                raise PermissionError("Browser control is inactive for this Turn")
+            result_payload = await commit_browser_artifacts(
+                operation=str(gateway_request.tool_name or ""),
+                arguments=gateway_request.arguments.get("arguments"),
+                artifacts=gateway_request.arguments.get("artifacts"),
+                token=_platform_capability_token(request, "browser"),
+            )
+        elif operation == "cli_call":
+            if server != "cli" or "cli" not in request.active_platform_mcps or gateway_request.tool_name not in CLI_OPERATIONS:
+                raise PermissionError("unsupported CLI operation")
+            from vibecanvas_api.services.agent_runtime.cli_host import invoke_workflow_command
+
+            result_payload = await invoke_workflow_command(
+                operation=gateway_request.tool_name,
+                identity_token=_platform_capability_token(request, "cli"),
+                arguments=gateway_request.arguments,
+            )
+        elif operation in {"remote_message", "remote_close"}:
             arguments = gateway_request.arguments
             result_payload = await _proxy_remote_message(
                 request,
@@ -279,17 +329,9 @@ async def handle_mcp_gateway_request(
                 "tools": [_jsonable(tool) for tool in manifest],
             }
         elif operation == "launch":
-            if server != "browser":
-                raise ValueError("launch material is only defined for Browser")
-            result_payload = {
-                "server": server,
-                "environment": {
-                    "FLOWORK_PLAYWRIGHT_CDP_ENDPOINT": _playwright_cdp_url(),
-                    "FLOWORK_PLAYWRIGHT_CDP_BEARER": (
-                        _platform_capability_token(request, server)
-                    ),
-                },
-            }
+            # Reject old resident workers explicitly; never return the previous
+            # environment-based credentials after the Browser CLI migration.
+            raise PermissionError("Browser MCP is retired. Use flowork-cli browser.")
         else:
             tool_name = str(gateway_request.tool_name or "")
             arguments = gateway_request.arguments

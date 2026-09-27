@@ -33,6 +33,7 @@ vi.mock('@/pages/canvas/inspector/NodeConfigEditor', async (importOriginal) => {
 import { NodeTab } from '@/pages/canvas/inspector/NodeTab';
 import { computeReferenceCandidates } from '@/pages/canvas/inspector/node-reference-candidates';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
+import { WorkflowSnapshotContext } from '@/pages/canvas/WorkflowSnapshotContext';
 
 function seed(draft: Record<string, unknown>, selectedId: string) {
   useWorkflowEditStore.getState().setDraft(draft);
@@ -59,6 +60,27 @@ describe('computeReferenceCandidates', () => {
     expect(computeReferenceCandidates(draft, 'node_2')).toEqual(['start.q']);
     // start has no predecessor → it cannot reference its descendant `fetch`.
     expect(computeReferenceCandidates(draft, 'node_1')).toEqual([]);
+  });
+});
+
+describe('NodeTab — isolated read-only snapshot', () => {
+  it('shows historical output fields without backfilling or mutating the live editor', () => {
+    const live = { node_1: { node_name: 'Live editor', node_type: 'StartNode', output_fields: {} } };
+    useWorkflowEditStore.getState().setDraft(live);
+    const before = useWorkflowEditStore.getState();
+    const snapshot = { node_1: {
+      node_name: 'Historical start', node_type: 'StartNode',
+      input_fields: { currentInput: { type: 'string' } },
+      output_fields: { historicalOutput: { type: 'number' } },
+    } };
+    selection.nodes = [{ id: 'node_1', selected: true, data: snapshot.node_1 }];
+    render(<WorkflowSnapshotContext.Provider value={snapshot}><NodeTab wfId="wf" /></WorkflowSnapshotContext.Provider>);
+    expect(screen.getByDisplayValue('Historical start')).toBeDisabled();
+    expect(screen.getByTestId('field-mirror-name-historicalOutput')).toBeInTheDocument();
+    expect(screen.queryByTestId('field-mirror-name-currentInput')).not.toBeInTheDocument();
+    expect(screen.getByTestId('add-field-input')).toBeDisabled();
+    expect(useWorkflowEditStore.getState().draft).toBe(before.draft);
+    expect(useWorkflowEditStore.getState().undoStack).toBe(before.undoStack);
   });
 });
 

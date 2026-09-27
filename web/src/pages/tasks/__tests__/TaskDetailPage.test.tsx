@@ -185,7 +185,7 @@ describe("<TaskDetailPage>", () => {
     });
   });
 
-  it("shows cleanup and interrupted states as Cancelled without changing progress", async () => {
+  it("keeps cancellation pending until worker termination without changing progress", async () => {
     vi.mocked(getTask).mockResolvedValue(
       makeTask({ status: "cancelling", progress: 0.42 }),
     );
@@ -193,10 +193,10 @@ describe("<TaskDetailPage>", () => {
     renderAt(TASK_ID);
 
     await waitFor(() => {
-      expect(screen.getByText("Cancelled")).toBeInTheDocument();
+      expect(screen.getByText("Cancelling")).toBeInTheDocument();
     });
     expect(screen.getByText("42%")).toBeInTheDocument();
-    expect(screen.queryByText("Cancelling")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
   });
 
   it("renders the summary card when the task has finished with a result", async () => {
@@ -280,6 +280,17 @@ describe("<TaskDetailPage>", () => {
     expect(await screen.findByText("The source file has no header row.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
+  });
+
+  it("does not offer resume for unknown outcomes even with older result artifacts", async () => {
+    vi.mocked(getTask).mockResolvedValue(makeTask({
+      status: "failed",
+      error: "The Task worker was lost. Inspect external results before submitting new work.",
+      result: { can_resume: false, outcome_unknown: true, artifact_uris: { jsonl: "memory://tasks/abc/partial.jsonl" } },
+    }));
+    renderAt(TASK_ID);
+    await screen.findAllByText(/The Task worker was lost/);
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
   });
 
   it("uses localized dropdown filters and narrows the event list", async () => {

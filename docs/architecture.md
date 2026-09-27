@@ -38,8 +38,8 @@ Chrome extension ── WS ── Web / nginx ──► FastAPI control plane
        PostgreSQL / OpenFGA /        DBOS background worker         sandboxd
       DBOS / object storage          + transient Valkey                │
                                                                        ▼
-                                                         gVisor agent runtimes
-                                                         and workflow execution
+                                                         configured sandbox
+                                                         Agent / Workflow code
 ```
 
 The React application provides Chat, canvas, Task, Deployment, Storage, and
@@ -153,11 +153,16 @@ provides the surrounding permission checks, persistence, event streaming, and
 sandbox integration.
 
 The selectable Chat Runtime does not use LangChain. The workflow
-`SubAgentNode` currently retains a small, lazily loaded LangChain/LangGraph
-loop inside the workflow sandbox. This transitional implementation reuses
-Flowork's Runtime-neutral tool definitions and does not include the retired
-LangChain Chat adapter, MCP adapter, persistent checkpointer, or Runtime state
-services.
+`SubAgentNode` uses a small, lazily loaded LangChain/LangGraph loop directly
+inside the workflow sandbox. Its native tools are `bash` (files and scripts),
+`web_search` (source discovery), and `read_images` (image pixels), plus an
+internal `set_output` tool generated from the node's declared output fields.
+There is no second sandbox, Chat environment-flag requirement, MCP adapter,
+persistent checkpointer, or tool-definition conversion layer. Shell calls use
+the run's working directory, return exit status and both output streams, and
+retain large output in files. Tool images are projected into multimodal model
+messages without a shared pending-image queue. Valid result submission ends
+the loop; invalid fields return feedback for correction.
 
 ### Workers
 
@@ -167,11 +172,16 @@ queue and recovery state in PostgreSQL. Valkey remains only for short-lived
 event fanout, rate limits, counters, and locks. PostgreSQL also stores the Task
 and event history shown after a page refresh or service restart.
 
-The first DBOS integration preserves at-least-once execution for each whole
-business job. A process failure while a step is in flight can repeat external
-node side effects; integrations that require exactly-once behavior must use an
-idempotency key. User-visible cancellation, partial results, and resume state
-remain owned by Flowork's business tables rather than DBOS internals.
+DBOS owns durable delivery and scheduling, not exactly-once external effects.
+Batch and scheduled executions additionally claim a business row under a lock,
+with a unique worker token and heartbeat. Duplicate delivery cannot claim an
+already-started attempt, and later writes must still match the current owner.
+Recovery first revokes the old worker's write authority and confirms its
+sandbox has stopped, then records an unknown outcome without automatically
+replaying the attempt. This heartbeat is a liveness check, not an execution
+duration limit. Integrations must still handle external side effects with
+idempotency keys where needed. Cancellation, partial results, and eligibility
+for explicit resume remain in Flowork's business tables.
 
 DBOS workflow arguments contain opaque Flowork record identifiers only. Batch
 inputs, Deployment API/Webhook payloads, scheduled inputs, and Knowledge file
@@ -185,30 +195,50 @@ DBOS registrations are in
 [`background_workflows.py`](../api/src/vibecanvas_api/background_workflows.py),
 and business implementations live under
 [`background_tasks/`](../api/src/vibecanvas_api/background_tasks/).
+Task ownership is implemented in
+[`task_worker.py`](../api/src/vibecanvas_api/services/task_worker.py), with
+reconciliation in
+[`task_recovery.py`](../api/src/vibecanvas_api/background_tasks/task_recovery.py).
 
 ### Sandbox service
 
-`sandboxd` manages gVisor sandboxes, active sessions, mounted directories,
-snapshots, agent runtime processes, and controlled network access. The API and
-workers call it through a private Unix socket instead of starting gVisor
-themselves. In the default Compose stack, `sandboxd` is the only application
-service that runs with elevated container privileges.
+`sandboxd` owns sandbox processes, active sessions, mounted directories,
+agent runtimes, and controlled network access. The API and workers request
+execution through its private service interface rather than launching sandboxes
+themselves. `SANDBOX_RUNTIME` selects the backend; `SANDBOX_TYPE` selects its
+session mode. These are separate settings.
+
+gVisor is the default backend. The Compose profile uses rootful snapshot mode,
+where `sandboxd` is the only privileged application service; native development
+defaults to rootless warm sessions. The optional bubblewrap backend uses Linux
+namespaces and shares the host kernel rather than providing gVisor's
+userspace-kernel boundary. It supports resident workers and Agent/Workflow
+execution, but not process checkpoint/restore or post-start dynamic mounts.
+Its current read-only host `/proc` binding also does not provide PID hiding.
+Treat it as a weaker local-development option, not an equivalent replacement
+for the documented production sandbox profile.
 
 The daemon interface is implemented in
 [`service.py`](../api/src/vibecanvas_api/services/sandbox/service.py), session
 lifecycle and resource management in
 [`manager.py`](../api/src/vibecanvas_api/services/sandbox/manager.py), and the gVisor provider in
 [`gvisor.py`](../api/src/vibecanvas_api/services/sandbox/gvisor.py).
+The alternative backend is
+[`bubblewrap.py`](../api/src/vibecanvas_api/services/sandbox/bubblewrap.py);
+[`coordinator.py`](../api/src/vibecanvas_api/services/sandbox/coordinator.py)
+reports the selected backend's capabilities.
 
 ### Browser extension
 
 The optional Chrome MV3 extension embeds Chat in a browser side panel and opens
 an authenticated WebSocket connection limited to the current browser-control
-session. The official Playwright MCP owns browser semantics in the Chat
-sandbox. The extension service worker is only its remote CDP data plane: a
-fixed five-command relay allow-list attaches approved tabs, forwards CDP
+session. The Agent uses `flowork-cli browser` in the Chat sandbox; its runtime
+uses pinned `playwright-core` to control the user's existing browser, not a
+second browser launched in the sandbox. The extension service worker is its
+scoped remote CDP data plane: a relay allow-list attaches approved tabs, forwards CDP
 messages, and reports tab lifecycle events. It has no Flowork-specific DOM
-query/action protocol and accepts no arbitrary JavaScript command.
+query/action protocol and never evaluates Agent scripts in the extension worker.
+Page scripts run in authorized webpages; Playwright scripts run in the sandbox.
 
 The relay allow-list and dispatch live in
 [`relay-executor.ts`](../extension/src/playwright/relay-executor.ts), the
@@ -259,22 +289,27 @@ and [approval repository](../api/src/vibecanvas_api/storage/hitl_repo.py).
 
 ### Agent tools and MCP integration
 
-Slash Commands activate a defined set of tools and instructions for a Chat.
+Slash Commands provide task-specific operating guidance for a Chat.
 Every resident Chat sandbox owns one aggregate MCP Hub. Codex connects to its
 single loopback Streamable HTTP endpoint. Base capabilities are always
 projected; commands such as `/workflow`
-and `/task` add authenticated Platform capabilities, while `/diagram` and
-`/document` start specialized sandbox-local servers. `/browser` is available
+and `/task` teach authenticated Platform CLI workflows, while `/diagram` and
+`/document` teach specialized sandbox CLI workflows. `/browser` is available
 only in the extension side panel.
 
-The Hub owns tool discovery, local MCP processes, remote MCP client sessions,
-tool naming, and per-Turn activation. Platform tools appear as sandbox-local
-facades, but authenticated data access and side effects remain behind a
-stateless Host Capability Gateway. Remote MCP credentials similarly remain in
-the Host; the sandbox owns the MCP session while the Host applies credentials
-and egress controls to each upstream request. Credential-free `stdio` servers,
-including Diagram, Document, and the pinned Playwright MCP, run inside the Chat
-sandbox.
+The Hub owns external MCP discovery, local MCP processes, remote MCP client
+sessions, and tool naming. Built-in business operations use a separate sandbox
+command channel. The Host derives user, tenant, Chat, and active Turn identity
+from trusted state, then applies the same resource authorization used by the
+Web API; command arguments do not establish identity. The sandbox does not
+receive long-lived platform credentials. Remote MCP credentials also remain
+on the Host, which applies credentials and egress controls to upstream requests.
+Browser automation has migrated
+from Playwright MCP to `flowork-cli browser`; its sandbox worker uses
+`playwright-core` directly and is not an MCP server. Document and Diagram also
+use sandbox CLI runtimes. The built-in MCP surface retains `render_preview`
+for file, URL and pinned Workflow cards, and `render_choices` for a tool call
+that waits for user selection. Retired business MCP tools are not advertised.
 
 Document and Diagram commands also enforce a small deterministic completion
 boundary. The Agent must validate the exact current file revision (and inspect
@@ -288,7 +323,9 @@ The boundary is implemented by the [secret-free Runtime contracts](../api/src/vi
 [sandbox Hub](../api/src/vibecanvas_api/services/agent_runtime/mcp_hub.py),
 [Hub adapters](../api/src/vibecanvas_api/services/agent_runtime/mcp_hub_adapter.py),
 and [Host Gateway](../api/src/vibecanvas_api/services/agent_runtime/mcp_host_gateway.py).
-Canonical Platform tool schemas and invocation logic live in
+The command authorization adapter is
+[`resource_routes.py`](../api/src/vibecanvas_api/services/agent_runtime/resource_routes.py).
+Built-in render tool schemas and invocation logic live in
 [`platform_mcp/invocation.py`](../api/src/vibecanvas_api/services/platform_mcp/invocation.py).
 
 ### Workflow editing and execution
@@ -343,12 +380,16 @@ Recurring and calendar-based execution is modeled as a scheduled Task rather
 than a Deployment. This keeps external serving concerns separate from workload
 scheduling and gives scheduled work the Task lifecycle, history, and controls.
 
-A Deployment can track the current Workflow version or pin an explicit major
-and subversion. The invocation endpoint authenticates the caller, resolves the
-configured version, and submits asynchronous work to DBOS. Workflow code is
-still executed through the sandbox service rather than inside the worker.
+A Deployment can follow a selected major version's latest saved subversion or
+pin a full version; older deployments may retain a global-head policy. Each
+invocation freezes its resolved graph before execution. Synchronous API requests
+wait for sandbox execution and return its result; asynchronous API and Webhook
+requests submit durable work to DBOS and return an invocation identifier.
+The authenticated application test action also runs the deployment without
+requiring an Agent to possess its external API key. Workflow code always runs
+through the sandbox service, not directly in the API or worker process.
 
-The `/task` and `/deployment` Platform MCPs expose the same observability data
+The `flowork-cli task` and `flowork-cli deployment` commands expose observability data
 through file-oriented diagnostic exports. A Task export contains the current
 resource state, exact event counts, searchable JSONL events, and—when
 applicable—scheduled execution history. A Deployment export contains its
@@ -368,22 +409,26 @@ See the [Task API](../api/src/vibecanvas_api/routes/tasks.py),
 `/browser` is available only in a Chat opened from the extension side panel.
 The extension establishes an authenticated control channel, and the backend
 stores which Chat currently holds that browser session. The selected Agent
-Runtime starts the pinned official Playwright MCP inside the Chat sandbox.
+Runtime starts the Browser CLI worker inside the Chat sandbox.
 Playwright owns page snapshots, locators, actionability, waiting, dialogs, tabs,
-screenshots, and tool schemas. Its CDP connection is carried through a
+and screenshots; Flowork owns the CLI schema and authorization. Its CDP connection is carried through a
 short-lived, Chat- and generation-fenced WebSocket capability to the extension;
 the browser never exposes a public debugging port.
 
-The sandbox starts Playwright once and connects it to a stable local
+The sandbox starts a worker on demand for the active Turn and connects it to a local
 [CDP relay](../api/src/vibecanvas_api/services/agent_runtime/mcp_browser_transport.py).
 For each active Turn, the Host Gateway supplies a short-lived upstream binding
 that passes through the authenticated [browser relay route](../api/src/vibecanvas_api/routes/browser.py)
 and reaches the selected extension through the
-[transport registry](../api/src/vibecanvas_api/browser/registry.py). The
-reviewed Agent-facing tool allow-list is centralized in
-[`playwright_contract.py`](../api/src/vibecanvas_api/browser/playwright_contract.py);
-unrestricted page evaluation and remote-code tools are rejected both when tools
-are listed and when a call is forwarded.
+[transport registry](../api/src/vibecanvas_api/browser/registry.py). Explicit
+`--tab_id` targets replace a mutable current-tab binding. Command schemas live in
+[`browser_cli.py`](../api/src/vibecanvas_api/flowork_cli/browser_cli.py), and
+[`browser_cli_runtime.py`](../api/src/vibecanvas_api/services/agent_runtime/browser_cli_runtime.py)
+reauthorizes each command and ends the worker when the Turn ends or authority
+is revoked. `eval` runs in the authorized page; `run-code` runs Playwright code
+in the sandbox. Neither bypasses tab ownership. Cookie export needs separate
+site-specific consent. File-producing commands return persistence receipts;
+observation, cancellation or storage failures must not silently repeat page actions.
 
 ## Data and state management
 
@@ -407,8 +452,9 @@ trigger an earlier best-effort writeback. Turn completion remains the final
 durability boundary, so visibility does not depend on a particular Agent tool
 name. See the [VFS route](../api/src/vibecanvas_api/routes/vfs.py), [Web query
 polling](../web/src/lib/api/queries/vfs.ts), and [sandbox manager](../api/src/vibecanvas_api/services/sandbox/manager.py).
-Runtime checkpoints are accessed through
-[`checkpoint_store.py`](../api/src/vibecanvas_api/services/agent_runtime/checkpoint_store.py).
+Runtime files use the same authenticated volume lifecycle in
+[`vfs_volume.py`](../api/src/vibecanvas_api/services/vfs_volume.py);
+resuming a Chat does not require a separate LangGraph checkpoint store.
 Encryption and retention behavior are described in
 [Security and data lifecycle](security-and-data-lifecycle.md).
 
@@ -435,9 +481,9 @@ entries, API credentials, or platform-built-in resources. See the
 [resource access API](../api/src/vibecanvas_api/routes/resource_access.py), and
 [provenance presentation](../api/src/vibecanvas_api/services/resource_provenance.py).
 
-Host gateways for Platform capabilities and custom remote MCP connections use
-short-lived authority limited to the current organization, user, Chat, Agent
-Run, and MCP server. Before performing a protected operation, the backend
+Host gateways use short-lived authority limited to the current organization,
+user, Chat and Agent Run, with additional server scope for custom MCP
+connections. Before performing a protected operation, the backend
 checks the current database records and resource permissions again. Upstream
 MCP credentials remain on the Host; the sandbox receives only a logical broker
 route and a Turn-scoped execution capability.
@@ -445,13 +491,13 @@ route and a Turn-scoped execution capability.
 The main implementations are the
 [authorization service](../api/src/vibecanvas_api/authorization/openfga.py),
 [tenant-bound database sessions](../api/src/vibecanvas_api/storage/db.py), and
-[temporary MCP credential
-implementation](../api/src/vibecanvas_api/services/platform_mcp/capability.py).
+[Agent resource authorization](../api/src/vibecanvas_api/services/agent_resources/authorization.py)
+and [capability checks](../api/src/vibecanvas_api/services/agent_resources/capability.py).
 
 ## Sandbox lifecycle
 
-When snapshot mode is enabled, `sandboxd` manages interactive Chat and Workflow
-Debug sessions through the following lifecycle:
+When a snapshot-capable gVisor profile is enabled, `sandboxd` manages interactive
+Chat and Workflow Debug sessions through the following lifecycle:
 
 ```text
 Released ── acquire ──► Warm ── idle ──► Hibernating ──► Hibernated
@@ -472,8 +518,10 @@ Before hibernation, `sandboxd` finishes pending file writes, synchronizes the
 runtime volume, and stops the Agent Runtime process. Live network connections
 and temporary credentials for the current turn are therefore excluded from the
 checkpoint. When the session resumes, these connections and credentials are
-created again. If snapshot mode is disabled, an idle session is released
-directly instead of being hibernated.
+created again. Rootless warm and bubblewrap sessions do not restore a process
+checkpoint: idle sessions are released, then cold-started on demand. Durable
+files and conversation state are restored separately; this is not process-memory
+continuity. Do not configure snapshot mode for a backend that does not support it.
 
 An explicit release request is a quiescent boundary: it does not return until
 the old Runtime process has stopped and the volume release has completed. This

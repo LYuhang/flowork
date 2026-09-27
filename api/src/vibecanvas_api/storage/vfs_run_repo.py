@@ -12,7 +12,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from vibecanvas_api.security.vfs_protection import protect_vfs_abstract
-from vibecanvas_api.services.object_store import get_object_store
+from vibecanvas_api.services.object_store import FilesystemObjectStore, get_object_store
 from vibecanvas_api.storage.models import VfsRun
 from vibecanvas_api.storage.sync_session import (
     current_sync_tenant_id, run_in_short_session,
@@ -48,11 +48,14 @@ class VfsRunRepo:
 
     async def write_bytes(self, *, run_id: str, path: str, data: bytes,
                           content_type: str = "application/octet-stream", abstract: str = "",
-                          wf_id: str | None = None) -> str:
+                          wf_id: str | None = None, from_materialized: bool = False) -> str:
         _validate(path)
         key = self._key(run_id, path)
         content_revision = str(uuid.uuid4())
-        self._os.put_bytes(key, data, content_type)
+        if from_materialized and isinstance(self._os, FilesystemObjectStore):
+            self._os.persist_materialized_bytes(key, data, content_type)
+        else:
+            self._os.put_bytes(key, data, content_type)
         abstract_values = await protect_vfs_abstract(
             self._s,
             tenant_id=self._t,
@@ -169,7 +172,7 @@ class PostgresVfsRunStore:
             run_id=run_id, path=path, data=data,
             content_type=content_type, abstract=abstract, wf_id=wf_id))
 
-    def write_many_sync(self, *, run_id, items, wf_id=None):
+    def write_many_sync(self, *, run_id, items, wf_id=None, from_materialized=False):
         async def _write(session):
             repo = self._repo(session)
             for path, data, content_type in items:
@@ -179,6 +182,7 @@ class PostgresVfsRunStore:
                     data=data,
                     content_type=content_type,
                     wf_id=wf_id,
+                    from_materialized=from_materialized,
                 )
             return len(items)
 

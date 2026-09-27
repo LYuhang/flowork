@@ -94,6 +94,7 @@ vi.mock('@/lib/api/queries/config-options', () => ({
 let savedCredentials: { id: string; name: string; provider: string }[] = [];
 vi.mock('@/lib/api/queries/llm-credentials', () => ({
   useLlmCredentials: () => ({ data: savedCredentials }),
+  useWorkflowModels: () => ({ data: { models: Object.fromEntries(savedCredentials.map(c => [c.name, { provider: c.provider }])) }, isPending: false, isError: false }),
 }));
 
 // `t('key','fallback')` → fallback (i18n is not initialised in tests).
@@ -137,7 +138,7 @@ function cfg(id: string): Record<string, unknown> {
 
 beforeEach(() => {
   modelOptions = ['gpt-4o', 'claude-3-5-sonnet'];
-  savedCredentials = [];
+  savedCredentials = [{ id: 'c1', name: 'manual-model', provider: 'openai' }];
   useWorkflowEditStore.setState({
     draft: null,
     dirty: false,
@@ -691,11 +692,11 @@ describe('PromptNodeEditor model dropdown', () => {
       wrapper: QcWrapper,
     });
     await user.click(screen.getByTestId('cfg-prompt-model-select'));
-    expect(await screen.findByText('gpt-4o')).toBeInTheDocument();
-    expect(screen.getByText('claude-3-5-sonnet')).toBeInTheDocument();
+    expect(await screen.findByText('manual-model (openai)')).toBeInTheDocument();
+    expect(screen.queryByText('gpt-4o')).not.toBeInTheDocument();
   });
 
-  it('falls back to free-text when no models AND no saved creds', () => {
+  it('disables selection rather than allowing arbitrary names when empty', () => {
     modelOptions = [];
     savedCredentials = [];
     const onChange = vi.fn();
@@ -703,8 +704,9 @@ describe('PromptNodeEditor model dropdown', () => {
       <PromptNodeEditor config={{ model_name: 'legacy-model' }} onChange={onChange} />,
       { wrapper: QcWrapper },
     );
-    const input = screen.getByTestId('cfg-prompt-model-input') as HTMLInputElement;
-    expect(input.value).toBe('legacy-model');
+    expect(screen.getByTestId('cfg-prompt-model-select')).toBeDisabled();
+    expect(screen.queryByTestId('cfg-prompt-model-input')).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('lists saved credentials as name (provider) and selecting one stores the NAME', async () => {
@@ -721,14 +723,14 @@ describe('PromptNodeEditor model dropdown', () => {
     // Saved entry rendered as "name (provider)"; builtins still present.
     expect(await screen.findByText('My DeepSeek (OpenAI)')).toBeInTheDocument();
     expect(screen.getByText('Team Gemini (Gemini)')).toBeInTheDocument();
-    expect(screen.getByText('gpt-4o')).toBeInTheDocument();
+    expect(screen.queryByText('gpt-4o')).not.toBeInTheDocument();
     await user.click(screen.getByText('My DeepSeek (OpenAI)'));
     // Stores only the NAME (never a key).
     const last = onChange.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(last.model_name).toBe('My DeepSeek');
   });
 
-  it('shows inline custom_model_config for OpenAI but hides it for a saved name', () => {
+  it('never exposes inline model credentials, including legacy models', () => {
     savedCredentials = [{ id: 'c1', name: 'My DeepSeek', provider: 'OpenAI' }];
     // Saved name selected → inline fields hidden.
     const { rerender } = render(
@@ -738,7 +740,7 @@ describe('PromptNodeEditor model dropdown', () => {
     expect(screen.queryByTestId('cfg-prompt-custom-key')).not.toBeInTheDocument();
     // Built-in 'OpenAI' selected → inline fields visible (back-compat path).
     rerender(<PromptNodeEditor config={{ model_name: 'OpenAI' }} onChange={() => {}} />);
-    expect(screen.getByTestId('cfg-prompt-custom-key')).toBeInTheDocument();
+    expect(screen.queryByTestId('cfg-prompt-custom-key')).not.toBeInTheDocument();
   });
 });
 

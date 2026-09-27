@@ -1,6 +1,6 @@
 /**
  * Agent settings store — defaults used to seed an unstarted Chat plus the
- * reserved per-turn authorization field.
+ * per-turn authorization policy.
  *
  * These are per-user defaults, so we persist them to
  * localStorage and mirror them in this tiny zustand store for reactivity —
@@ -8,9 +8,8 @@
  * truth at bootstrap; the store = the runtime mirror that re-renders
  * subscribers on change).
  *
- * `approvalMode` is intentionally NOT persisted here. The product currently
- * auto-approves pre-tool execution and does not expose a selector; the field is
- * retained as a re-enable seam for a future Runtime-neutral approval design.
+ * `approvalMode` is the default for the next turn. Active turns keep their
+ * server-side policy; changing this preference cannot approve a pending request.
  *
  * SECRET BOUNDARY: the runtime capability API returns opaque model selection
  * IDs. Provider credentials and api_key values never reach this store.
@@ -42,7 +41,7 @@ export type ApprovalMode = 'agent' | 'always_ask' | 'always_allow';
 export type ReasoningEffort = string;
 
 export interface AgentSettingsState extends AgentSettings {
-  /** Reserved per-turn authorization policy; currently always_allow. */
+  /** Authorization policy captured when the next turn is submitted. */
   approvalMode: ApprovalMode;
   /** Replace all four fields at once (the modal Save). */
   setAll: (next: AgentSettings) => void;
@@ -69,7 +68,7 @@ function bootstrap(): AgentSettings & { approvalMode: ApprovalMode } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...EMPTY, approvalMode: DEFAULT_APPROVAL_MODE };
-    const parsed = JSON.parse(raw) as Partial<AgentSettings>;
+    const parsed = JSON.parse(raw) as Partial<AgentSettingsState>;
     return {
       modelId: typeof parsed.modelId === 'string' ? parsed.modelId : null,
       temperature:
@@ -80,7 +79,8 @@ function bootstrap(): AgentSettings & { approvalMode: ApprovalMode } {
         typeof parsed.reasoningEffort === 'string' && parsed.reasoningEffort.trim()
           ? parsed.reasoningEffort
           : null,
-      approvalMode: DEFAULT_APPROVAL_MODE,
+      approvalMode: parsed.approvalMode === 'agent' || parsed.approvalMode === 'always_ask'
+        || parsed.approvalMode === 'always_allow' ? parsed.approvalMode : DEFAULT_APPROVAL_MODE,
     };
   } catch {
     return { ...EMPTY, approvalMode: DEFAULT_APPROVAL_MODE };
@@ -88,7 +88,7 @@ function bootstrap(): AgentSettings & { approvalMode: ApprovalMode } {
 }
 
 /** Persist the current settings; private-mode/quota errors are swallowed. */
-function persist(s: AgentSettings): void {
+function persist(s: AgentSettings & { approvalMode?: ApprovalMode }): void {
   try {
     localStorage.setItem(
       STORAGE_KEY,
@@ -98,6 +98,7 @@ function persist(s: AgentSettings): void {
         maxTokens: s.maxTokens,
         timeout: s.timeout,
         reasoningEffort: s.reasoningEffort,
+        approvalMode: s.approvalMode ?? useAgentSettingsStore.getState().approvalMode,
       }),
     );
   } catch {
@@ -117,6 +118,7 @@ export const useAgentSettingsStore = create<AgentSettingsState>((set, get) => ({
     set({ ...patch });
   },
   setApprovalMode: (approvalMode) => {
+    persist({ ...currentSettings(get()), approvalMode });
     set({ approvalMode });
   },
   reset: () => {

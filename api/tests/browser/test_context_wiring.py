@@ -1,6 +1,6 @@
 from vibecanvas_api.browser.registry import TransportRegistry
 from vibecanvas_api.schemas.chat import MessagePostBody
-from vibecanvas_api.services.platform_mcp.tool_runtime import AgentContext
+from vibecanvas_api.agents.tool_runtime import AgentContext
 
 
 def test_browser_topology_is_not_part_of_model_context() -> None:

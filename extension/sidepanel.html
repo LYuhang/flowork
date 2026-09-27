@@ -42,11 +42,34 @@
       * { box-sizing: border-box; }
       html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
       body {
+        display: flex;
+        flex-direction: column;
         background: var(--surface);
         color: var(--text);
         font: 12px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
       }
-      #embed { width: 100%; height: 100%; display: block; border: 0; background: var(--surface); }
+      #embed { width: 100%; flex: 1; min-height: 0; display: block; border: 0; background: var(--surface); }
+      #cookie-permissions { flex: none; max-height: 45%; overflow: auto; background: var(--raised); border-bottom: 1px solid var(--edge); }
+      #cookie-permissions[hidden] { display: none; }
+      #download-confirmation { flex: none; max-height: 45%; overflow: auto; padding: 12px; background: var(--raised); border-bottom: 1px solid var(--edge); }
+      #download-confirmation[hidden] { display: none; }
+      #download-confirmation h2 { font-size: 13px; margin: 0 0 8px; }
+      #download-confirmation p { margin: 8px 0; }
+      #download-confirmation label { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; overflow-wrap: anywhere; }
+      #download-confirmation input { flex: none; }
+      #cookie-permissions summary { padding: 10px 12px; cursor: pointer; font-weight: 650; }
+      #cookie-permissions summary:focus-visible, .cookie-action:focus-visible { outline: 2px solid oklch(57% 0.19 258); outline-offset: -2px; }
+      #cookie-explanation, #cookie-feedback { padding: 0 12px; margin: 0 0 10px; color: var(--muted); }
+      #cookie-feedback:empty { display: none; }
+      .cookie-site { padding: 10px 12px; border-top: 1px solid var(--edge); }
+      .cookie-origin { margin: 0; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+      .cookie-state { margin: 4px 0 8px; color: var(--muted); }
+      .cookie-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+      .cookie-action { min-height: 32px; padding: 5px 11px; border: 1px solid var(--edge); border-radius: 6px; background: var(--raised); color: var(--text); font: inherit; cursor: pointer; }
+      .cookie-action:hover:not(:disabled) { background: var(--surface); }
+      .cookie-action[data-primary] { background: var(--brand); color: var(--brand-text); border-color: var(--brand); }
+      .cookie-action[data-primary]:hover:not(:disabled) { filter: brightness(1.15); background: var(--brand); }
+      .cookie-action:disabled { cursor: wait; opacity: .65; }
       #shell-status {
         position: absolute;
         inset: 0;
@@ -98,6 +121,13 @@
         <button id="retry" type="button" hidden>Retry</button>
       </div>
     </div>
+    <section id="download-confirmation" hidden aria-labelledby="download-confirm-title"></section>
+    <details id="cookie-permissions" hidden>
+      <summary id="cookie-summary">Cookie export permissions</summary>
+      <p id="cookie-explanation"></p>
+      <div id="cookie-sites"></div>
+      <p id="cookie-feedback" role="status" aria-live="polite"></p>
+    </details>
     <iframe id="embed" title="Flowork Chat" allow="clipboard-read; clipboard-write" referrerpolicy="no-referrer"></iframe>
     <script type="module" src="sidepanel.js"></script>
   </body>

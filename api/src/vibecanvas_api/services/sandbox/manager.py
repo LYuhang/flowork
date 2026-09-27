@@ -424,6 +424,7 @@ class SandboxSession:
         lease: str = "interactive",
         pool_runs_root: str | None = None,
         materialized_projection_root: str | None = None,
+        expose_mount: bool = True,
     ) -> None:
         self.tenant_id = tenant_id
         self.wf_id = wf_id
@@ -439,6 +440,7 @@ class SandboxSession:
         # User-level shared storage bound at in-sandbox ``/mount``. This is
         # independent from the chat workspace and the selected workflow.
         self.mount_dir = mount_dir
+        self.expose_mount = expose_mount
         # Chat-scoped private Runtime volume. It is mounted directly for the
         # in-sandbox runtime, but excluded from file-tool roots and Object Store
         # writeback. Closing a sandbox never deletes or copies this directory.
@@ -1010,7 +1012,7 @@ class SandboxSession:
         finally:
             self._end_activity()
 
-    async def submit_sandbox_job(self, job: dict, *, timeout: float = 600.0) -> dict:
+    async def submit_sandbox_job(self, job: dict, *, timeout: float | None = 600.0) -> dict:
         """Submit a generic job to this session's resident sandbox job server.
 
         This is the common execution path for agent-visible shell/file jobs and
@@ -1604,8 +1606,8 @@ class SandboxSession:
         # executable inside gVisor; none contains credentials or platform
         # state.
         for env_name, default_command in (
-            ("PLAYWRIGHT_MCP_COMMAND", "flowork-playwright-mcp"),
-            ("DIAGRAM_MCP_COMMAND", "flowork-diagram-mcp"),
+            ("BROWSER_CLI_COMMAND", "flowork-browser-runtime"),
+            ("DIAGRAM_SEARCH_COMMAND", "flowork-diagram-search"),
             ("DRAWIO_CLI_COMMAND", "drawio"),
         ):
             command = str(
@@ -1796,7 +1798,7 @@ class SandboxSession:
         extra: dict | None = None,
         code_pythonpath: str | None = None,
         allow_hosts: set[str] | list[str] | tuple[str, ...] = (),
-        timeout: float = 120.0,
+        timeout: float | None = 120.0,
     ):
         """Stream one workflow job through this session's resident sandbox.
 
@@ -1949,9 +1951,12 @@ class SandboxSession:
         tenant: str,
         run_id: str,
         run_subpath: str,
-        timeout: float = 600.0,
+        timeout: float | None = None,
+        kill_individually: bool = False,
+        execution_pool_id: str = "",
+        node_id: str | None = None,
     ) -> dict:
-        """Stage, execute and collect one workflow entirely inside sandboxd.
+        """Stage, execute and collect one workflow or selected node inside sandboxd.
 
         The caller supplies logical data only.  In particular there is no host
         path argument: object-store materialization and the writable mount are
@@ -1962,6 +1967,8 @@ class SandboxSession:
         try:
             if tenant != self.tenant_id:
                 raise ValueError("workflow tenant does not match sandbox scope")
+            if execution_pool_id and (len(execution_pool_id) != 32 or any(c not in "0123456789abcdef" for c in execution_pool_id)):
+                raise ValueError("invalid execution pool ID")
             normalized_subpath = run_subpath.strip("/")
             if (
                 not normalized_subpath or "\\" in normalized_subpath
@@ -1974,6 +1981,16 @@ class SandboxSession:
                 raise ValueError("invalid workflow run subpath")
             if not self.workflow_run_dir:
                 raise RuntimeError("workflow sandbox has no /run directory")
+
+            node = None
+            if node_id is not None:
+                if not isinstance(node_id, str) or not node_id.strip() or node_id.startswith("__") or not isinstance(workflow.get(node_id), dict):
+                    raise ValueError("invalid execution node ID")
+                node = dict(workflow[node_id])
+                if node.get("node_id", node_id) != node_id:
+                    raise ValueError("execution node ID mismatch")
+                node["node_id"] = node_id
+                workflow = {node_id: node}
 
             from vibecanvas_api.services.sandbox.egress_policy import (
                 compute_allow_hosts,
@@ -1988,23 +2005,30 @@ class SandboxSession:
             from vibecanvas_api.services.workflow_sandbox_runner import (
                 read_result_json,
                 stage_workflow_job,
+                stage_node_job,
             )
 
-            await asyncio.to_thread(
-                stage_workflow_job,
-                os.path.dirname(self.workflow_run_dir),
-                normalized_subpath,
-                workflow,
-                inputs,
-                extra,
-            )
+            if node is not None:
+                await asyncio.to_thread(stage_node_job,
+                    os.path.join(os.path.dirname(self.workflow_run_dir), normalized_subpath),
+                    node, inputs, extra)
+            else:
+                await asyncio.to_thread(
+                    stage_workflow_job, os.path.dirname(self.workflow_run_dir),
+                    normalized_subpath, workflow, inputs, extra,
+                )
             status = await self.submit_sandbox_job(
                 {
-                    "kind": "workflow",
+                    "kind": "node" if node is not None else "workflow",
                     "tenant": tenant,
                     "run_id": run_id,
                     "run_subpath": normalized_subpath,
                     "_allow_hosts": sorted(workflow_allow_hosts),
+                    "kill_individually": kill_individually,
+                    "execution_pool_id": execution_pool_id,
+                    # Workflow/node policy owns execution duration. The outer
+                    # supervisor must not impose an unrelated 600s ceiling.
+                    "execution_timeout": timeout,
                 },
                 timeout=timeout,
             )
@@ -2029,8 +2053,32 @@ class SandboxSession:
             if pool is None:
                 return
             sub = (run_subpath or self.workflow_run_id or run_id).strip("/")
-            await asyncio.to_thread(
-                pool.cancel, run_id=run_id, tenant=tenant, run_subpath=sub)
+            await asyncio.to_thread(pool.cancel, run_id=run_id, tenant=tenant, run_subpath=sub)
+        finally:
+            self._end_activity()
+
+    async def close_workflow_pool(self, *, tenant: str, pool_id: str) -> dict:
+        if tenant != self.tenant_id:
+            raise ValueError("workflow tenant does not match sandbox scope")
+        self._begin_activity()
+        try:
+            pool = await self._get_fileop_pool()
+            if pool is None:
+                raise RuntimeError("no sandbox for this session")
+            return await asyncio.to_thread(pool.close_job_pool, pool_id=pool_id)
+        finally:
+            self._end_activity()
+
+    async def kill_workflow_job(self, *, run_id: str, tenant: str, run_subpath: str) -> None:
+        """Kill one CLI job's worker; never restart the resident sandbox/pool."""
+        if tenant != self.tenant_id:
+            raise ValueError("workflow tenant does not match sandbox scope")
+        self._begin_activity()
+        try:
+            pool = await self._get_fileop_pool()
+            if pool is None:
+                raise RuntimeError("no sandbox for this session")
+            await asyncio.to_thread(pool.kill_job, run_id=run_id, tenant=tenant, run_subpath=run_subpath)
         finally:
             self._end_activity()
 
@@ -2333,7 +2381,8 @@ class SandboxSession:
                            run_id=self.workflow_run_id,
                            tenant_id=self.tenant_id, exc_info=True)
 
-    async def sync_workspace_path(self, path: str) -> bool:
+    async def sync_workspace_path(self, path: str, *, expected_sha256: str | None = None,
+                                  expected_bytes: int | None = None) -> bool:
         """Write one completed sandbox file mutation through to durable VFS.
 
         A successful Agent file tool must mean that Preview and a later worker
@@ -2355,13 +2404,26 @@ class SandboxSession:
             return False
         relative = normalized[len(folder) + 2 :]
         source_root = os.path.realpath(os.path.join(self.run_dir, folder))
-        source = os.path.realpath(os.path.join(source_root, *relative.split("/")))
-        if not source.startswith(source_root + os.sep) or not os.path.isfile(source):
+        parts = relative.split("/")
+        if any(part in {"", ".", ".."} for part in parts):
             return False
 
         def _read() -> bytes:
-            with open(source, "rb") as handle:
-                return handle.read()
+            # Walk by directory descriptors: a sandbox process must not swap a
+            # checked path for a symlink into the host filesystem during read.
+            directory = os.open(source_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                for part in parts[:-1]:
+                    child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                    os.close(directory)
+                    directory = child
+                descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+                with os.fdopen(descriptor, "rb") as handle:
+                    if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                        raise OSError("Workspace artifact is not a regular file")
+                    return handle.read()
+            finally:
+                os.close(directory)
 
         try:
             data = await asyncio.to_thread(_read)
@@ -2372,6 +2434,12 @@ class SandboxSession:
                 path=normalized,
                 exc_info=True,
             )
+            return False
+        # Browser downloads acknowledge the exact completed artifact, not an
+        # unrelated replacement written at that path by a concurrent process.
+        # Bytes stay in sandboxd; only the small acknowledgement crosses RPC.
+        if ((expected_bytes is not None and len(data) != expected_bytes)
+                or (expected_sha256 is not None and hashlib.sha256(data).hexdigest() != expected_sha256)):
             return False
         try:
             async with short_session_scope(tenant_id=self.tenant_id) as session:
@@ -2898,6 +2966,8 @@ class SandboxManager:
         )
         self._sessions: dict[tuple[str, str], SandboxSession] = {}
         self._closed_markers: dict[tuple[str, str], float] = {}
+        self._revoked_task_scopes: set[tuple[str, str]] = set()
+        self._retiring_task_sessions: dict[tuple[str, str], SandboxSession] = {}
         self._lock = asyncio.Lock()
         self._close_tasks: set[asyncio.Task] = set()
         self._shutdown = False
@@ -3222,6 +3292,7 @@ class SandboxManager:
         extra: dict | None,
         allow_hosts: list[str],
         requirements: str | None = None,
+        expose_mount: bool = True,
     ) -> dict:
         """Execute a one-shot deployment run entirely in sandboxd.
 
@@ -3249,7 +3320,7 @@ class SandboxManager:
             run_id,
             tenant_id,
             wf_id=workflow_id,
-            user_id=user_id,
+            user_id=user_id if expose_mount else None,
             keep_run=True,
         ) as workspace:
             run_dir = workspace.run_dir
@@ -3342,7 +3413,7 @@ class SandboxManager:
                           user_id: str | None = None,
                           expose_run: bool = True,
                           expose_runtime: bool = False,
-                          lease: str = "interactive") -> SandboxSession:
+                          lease: str = "interactive", expose_mount: bool = True) -> SandboxSession:
         """Return the resident session for ``(tenant_id, wf_id)``, creating it
         (and evicting the LRU on overflow) on first use.
 
@@ -3360,6 +3431,8 @@ class SandboxManager:
         # unrelated Chats remain acquirable during checkpoint I/O.
         async with self._lock:
             restore_candidate = self._sessions.get(key)
+            if key in self._revoked_task_scopes:
+                raise RuntimeError("Task execution scope was revoked.")
             if (
                 restore_candidate is not None
                 and not restore_candidate.closed
@@ -3373,6 +3446,8 @@ class SandboxManager:
         async with self._lock:
             if self._shutdown:
                 raise RuntimeError("sandbox manager is shutting down")
+            if key in self._revoked_task_scopes:
+                raise RuntimeError("Task execution scope was revoked.")
             existing = self._sessions.get(key)
             if existing is not None and not existing.closed:
                 if getattr(existing, "_requires_rehydrate", False):
@@ -3385,6 +3460,7 @@ class SandboxManager:
                 if (
                     existing.expose_run == expose_run
                     and bool(existing.runtime_dir) == expose_runtime
+                    and getattr(existing, "expose_mount", True) == expose_mount
                 ):
                     existing.last_used = time.monotonic()
                     if lease == "resident":
@@ -3429,6 +3505,7 @@ class SandboxManager:
                 user_id=user_id,
                 expose_run=expose_run,
                 expose_runtime=expose_runtime,
+                expose_mount=expose_mount,
             )
             session.lease = lease if lease in {"interactive", "resident"} else "interactive"
             self._sessions[key] = session
@@ -3638,9 +3715,50 @@ class SandboxManager:
         async with self._lock:
             victim = self._sessions.pop(key, None)
             self._closed_markers[key] = time.monotonic()
+            if victim is not None and wf_id.startswith(("batch-", "schedule-")):
+                self._retiring_task_sessions[key] = victim
+                pool = getattr(victim, "_fileop_pool", None)
+                victim._task_stop_pool = pool
+                if getattr(victim, "_task_stop_handles", None) is None:
+                    victim._task_stop_handles = list(pool._handles) if pool else []
         if victim is not None:
             await self._close_session_best_effort(victim, reason="manual_close")
+            if key in self._retiring_task_sessions and all(
+                handle is None or handle.proc.poll() is not None
+                for handle in getattr(victim, "_task_stop_handles", [])
+            ):
+                self._retiring_task_sessions.pop(key, None)
         return await self.status(tenant_id, wf_id)
+
+    async def terminate_task_scope(self, tenant_id: str, scope_id: str) -> dict:
+        """Recovery-only hard stop, with process-exit confirmation before ack.
+
+        Unlike best-effort interactive release, a failed stop keeps the session
+        registered so the reaper can retry. Never creates a sandbox.
+        """
+        import re
+        if not re.fullmatch(r"(?:batch|schedule)-[0-9a-f-]{36}(?:-[0-9a-f]{32})?", scope_id):
+            raise ValueError("Only isolated Task scopes may be terminated.")
+        async with self._lock:
+            victim = self._sessions.get((tenant_id, scope_id)) or self._retiring_task_sessions.get((tenant_id, scope_id))
+            self._revoked_task_scopes.add((tenant_id, scope_id))
+            if victim is None:
+                return {"stopped": True, "scope_id": scope_id, "already_absent": True}
+            if not victim.closed and victim._lifecycle_state != SessionLifecycleState.RELEASING.value:
+                victim._transition_lifecycle(SessionLifecycleState.RELEASING)
+        pool = getattr(victim, "_fileop_pool", None) or getattr(victim, "_task_stop_pool", None)
+        if pool is not None:
+            handles = getattr(victim, "_task_stop_handles", None)
+            if handles is None:
+                handles = list(pool._handles)
+                victim._task_stop_handles = handles
+            await asyncio.wait_for(asyncio.to_thread(pool.stop, retire=True), 20)
+            if any(handle is not None and handle.proc.poll() is None for handle in handles):
+                raise RuntimeError("Task sandbox process shutdown was not confirmed.")
+            victim._fileop_pool = None
+        await self.close_session(tenant_id, scope_id)
+        self._retiring_task_sessions.pop((tenant_id, scope_id), None)
+        return {"stopped": True, "scope_id": scope_id}
 
     async def checkpoint_session(self, tenant_id: str, wf_id: str) -> str:
         """Explicitly hibernate one quiescent interactive session."""
@@ -3881,7 +3999,8 @@ class SandboxManager:
     async def _build_session(self, tenant_id: str, wf_id: str,
                              user_id: str | None = None,
                              expose_run: bool = True,
-                             expose_runtime: bool = False) -> SandboxSession:
+                             expose_runtime: bool = False,
+                             expose_mount: bool = True) -> SandboxSession:
         """Materialize Chat/user VFS mounts and construct the session.
 
         ``build_run_context`` (blocking DB+ObjectStore+FS, run off-loop) gives
@@ -3910,10 +4029,11 @@ class SandboxManager:
         projection_root = None
         pool_runs_root = os.path.dirname(run_dir) if run_dir else None
         store = get_object_store()
-        if run_dir and not isinstance(store, FilesystemObjectStore):
-            # S3 materialization returns an opaque temporary directory. Rehome
-            # it below a logical scope name so the fixed /runs/<scope> protocol
-            # remains provider-neutral and does not leak a host-generated path.
+        if run_dir and (not isinstance(store, FilesystemObjectStore)
+                        or not expose_mount or wf_id.startswith(("schedule-", "batch-"))):
+            # Task execution and no-mount sessions must not see neighbouring
+            # tenant workspaces (or their hydrated mounts) through /runs.
+            # Object-backed projections also need a logical directory name.
             safe_scope_id = _runtime_identity_component(wf_id, field="scope_id")
             projection_root = tempfile.mkdtemp(prefix="vcsbx-projection-")
             pool_runs_root = os.path.join(projection_root, "runs")
@@ -3945,7 +4065,7 @@ class SandboxManager:
             logger.warning("agent_hydrate_run_folders_failed", wf_id=wf_id,
                            tenant_id=tenant_id, exc_info=True)
 
-        mount_scope_id = user_mount_scope_id(user_id)
+        mount_scope_id = user_mount_scope_id(user_id) if expose_mount else None
         mount_dir = (run_dir.rstrip("/") + ".mount") if run_dir and mount_scope_id else None
         if mount_dir and mount_scope_id:
             try:
@@ -4038,6 +4158,7 @@ class SandboxManager:
             overlay_dir=overlay_dir,
             provider=provider,
             mount_dir=mount_dir,
+            expose_mount=expose_mount,
             runtime_dir=runtime_dir,
             runtime_volume=runtime_volume,
             account_auth_file=account_auth_path,

@@ -6,19 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from vibecanvas_api.document_runtime.server import mcp as document_mcp
 from vibecanvas_api.services.platform_mcp.invocation import platform_mcp_tool_manifest
 
 
-PLATFORM_SERVERS = (
-    "config",
-    "interactive",
-    "workflow",
-    "task",
-    "deployment",
-    "knowledge",
-    "build",
-)
+PLATFORM_SERVERS = ("interactive",)
 SCALAR_TYPES = {"boolean", "integer", "number", "string"}
 INTERNAL_ARGUMENT_NAMES = {
     "capability",
@@ -80,6 +71,15 @@ def _assert_agent_friendly_schema(*, tool_name: str, schema: dict[str, Any]) -> 
         prop_type = prop.get("type")
         assert prop_type != "object", f"{tool_name}: {name} is a nested object"
         if prop_type == "array":
+            if tool_name == "interactive/render_choices" and name == "options":
+                # User-approved row format: a single flat array of labeled
+                # choices, not a general nested form-building language.
+                assert prop["items"] == {"$ref": "#/$defs/ChoiceOption"}
+                option = schema["$defs"]["ChoiceOption"]
+                assert set(option["properties"]) == {"id", "label", "description"}
+                assert all(p["type"] == "string" for p in option["properties"].values())
+                assert option["additionalProperties"] is False
+                continue
             assert prop.get("items", {}).get("type") in SCALAR_TYPES, (
                 f"{tool_name}: {name} is not a scalar array"
             )
@@ -94,40 +94,32 @@ def test_platform_mcp_input_schemas_are_flat_and_agent_friendly() -> None:
             )
 
 
-def test_document_mcp_input_schemas_are_flat_and_agent_friendly() -> None:
-    for tool in document_mcp._tool_manager.list_tools():
-        _assert_agent_friendly_schema(
-            tool_name=f"document/{tool.name}",
-            schema=tool.parameters,
-        )
-
-
-def test_drawio_adapter_recommends_the_flat_file_preview_contract() -> None:
+def test_diagram_cli_recommends_the_flat_file_preview_contract() -> None:
     root = Path(__file__).resolve().parents[3]
-    source = (root / "api/drawio-runtime/launch.mjs").read_text(encoding="utf-8")
-    publish_block = source.split("action: 'publish_after_visual_acceptance'", 1)[1]
-    publish_block = publish_block.split("},\n          },", 1)[0]
-
-    assert "file_type: 'drawio'" in publish_block
-    assert "path," in publish_block
-    assert "view:" not in publish_block
-    assert "type: 'file_preview'" not in publish_block
+    source = (root / "api/src/vibecanvas_api/agents/prompts/diagram.py").read_text(encoding="utf-8")
+    assert 'render_preview(type="file", source=' in source
+    assert "flowork-cli diagram" in source
+    assert "save_drawio_file" not in source
 
 
-def test_render_interactive_schema_has_no_union_or_nested_view() -> None:
+def test_render_preview_schema_has_no_union_or_nested_view() -> None:
     tool = next(
         tool
         for tool in platform_mcp_tool_manifest("interactive")
-        if tool.name == "render_interactive"
+        if tool.name == "render_preview"
     )
     serialized = json.dumps(tool.inputSchema)
 
     assert set(tool.inputSchema["properties"]) == {
-        "path",
+        "type",
+        "source",
         "title",
         "file_type",
         "description",
-        "require_human_confirm",
+        "version",
     }
-    assert tool.inputSchema["required"] == ["path"]
-    assert all(token not in serialized for token in ("oneOf", "anyOf", "discriminator", "view"))
+    assert tool.inputSchema["required"] == ["type"]
+    assert tool.inputSchema["properties"]["type"]["enum"] == ["file", "url", "workflow"]
+    assert all(token not in serialized for token in ("oneOf", "anyOf", "discriminator"))
+    assert "view" not in tool.inputSchema["properties"]
+    assert [item.name for item in platform_mcp_tool_manifest("interactive")] == ["render_preview", "render_choices"]

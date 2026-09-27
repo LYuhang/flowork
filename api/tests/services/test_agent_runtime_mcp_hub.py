@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from vibecanvas_api.config import config
 from vibecanvas_api.services.agent_runtime.mcp_hub import (
+    McpHubError,
     McpHubInactiveError,
     McpHubReconcileError,
     SandboxMcpHub,
@@ -110,7 +111,7 @@ def _context(
         agent_run_id=f"run-{turn_id}",
         active_commands=[],
         active_platform_capabilities=(
-            ["config"]
+            ["interactive"]
             if platform_capabilities is None
             else platform_capabilities
         ),
@@ -156,16 +157,38 @@ class FakeAdapter:
         return {"ok": True}
 
 
+@pytest.mark.asyncio
+async def test_private_capability_changes_refresh_context_without_restarting_render_mcp():
+    adapter = FakeAdapter()
+    hub = SandboxMcpHub(adapter)
+    desired = _desired(_server("platform:interactive"))
+    try:
+        await hub.reconcile(desired)
+        await hub.activate(_context(platform_capabilities=["interactive"]))
+        await hub.deactivate()
+        private = desired.model_copy(update={"private_platform_capabilities": ["cli", "browser"]})
+        assert private.revision_key != desired.revision_key
+        await hub.reconcile(private)
+        await hub.activate(_context(platform_capabilities=["interactive", "cli", "browser"]))
+        await hub.deactivate()
+        await hub.reconcile(desired)
+        with pytest.raises(McpHubError, match="expands the desired Platform set"):
+            await hub.activate(_context(platform_capabilities=["interactive", "browser"]))
+        assert len(adapter.started) == 1
+    finally:
+        await hub.close()
+
+
 def test_desired_state_structurally_rejects_credentials_and_upstream_urls() -> None:
     platform = {
-        "id": "platform:config",
+        "id": "platform:interactive",
         "source": "platform",
-        "name": "config",
+        "name": "interactive",
         "configurationRevision": "rev-1",
         "activation": "base",
         "connection": {
             "kind": "platform_facade",
-            "capability": "config",
+            "capability": "interactive",
             "headers": {"Authorization": "Bearer secret"},
         },
     }
@@ -215,7 +238,7 @@ def test_execution_capability_is_signed_scoped_and_expiring() -> None:
         sandbox_id="sandbox",
         sandbox_generation=7,
         selected_mcp_revision=3,
-        active_platform_capabilities=["config", "workflow"],
+        active_platform_capabilities=["interactive", "cli"],
         authorization_generation="auth-1",
         secret="test-signing-secret",
         ttl_s=60,
@@ -229,7 +252,7 @@ def test_execution_capability_is_signed_scoped_and_expiring() -> None:
     )
     assert capability is not None
     assert capability.sandbox_generation == 7
-    assert capability.active_platform_capabilities == ("config", "workflow")
+    assert capability.active_platform_capabilities == ("cli", "interactive")
     assert verify_mcp_execution_capability(
         token + "x",
         secret="test-signing-secret",
@@ -246,7 +269,7 @@ def test_execution_capability_is_signed_scoped_and_expiring() -> None:
 async def test_hub_reuses_unchanged_servers_and_reconciles_one_revision() -> None:
     adapter = FakeAdapter()
     hub = SandboxMcpHub(adapter)
-    config = _server("platform:config")
+    config = _server("platform:interactive")
     local = _server("local")
 
     first = await hub.reconcile(_desired(config, local, revision=1))
@@ -259,7 +282,7 @@ async def test_hub_reuses_unchanged_servers_and_reconciles_one_revision() -> Non
     assert first.required_ready is True
     assert unchanged.changed_server_ids == []
     assert adapter.started == [
-        ("platform:config", "rev-1"),
+        ("platform:interactive", "rev-1"),
         ("local", "rev-1"),
         ("local", "rev-2"),
     ]
@@ -271,20 +294,20 @@ async def test_hub_reuses_unchanged_servers_and_reconciles_one_revision() -> Non
 async def test_hub_requires_active_turn_and_filters_platform_capabilities() -> None:
     adapter = FakeAdapter()
     hub = SandboxMcpHub(adapter)
-    await hub.reconcile(_desired(_server("platform:config")))
+    await hub.reconcile(_desired(_server("platform:interactive")))
 
     with pytest.raises(McpHubInactiveError):
-        await hub.call("config", "example_tool", {})
+        await hub.call("interactive", "example_tool", {})
 
     await hub.activate(_context())
-    assert await hub.call("config", "example_tool", {"value": 1}) == {
+    assert await hub.call("interactive", "example_tool", {"value": 1}) == {
         "ok": True
     }
     await hub.deactivate()
     with pytest.raises(McpHubInactiveError):
-        await hub.call("config", "example_tool", {})
+        await hub.call("interactive", "example_tool", {})
     assert adapter.calls == [
-        ("platform:config", "example_tool", {"value": 1}, "turn")
+        ("platform:interactive", "example_tool", {"value": 1}, "turn")
     ]
 
 
@@ -292,14 +315,14 @@ async def test_hub_requires_active_turn_and_filters_platform_capabilities() -> N
 async def test_required_server_failure_keeps_previous_registry_active() -> None:
     adapter = FakeAdapter()
     hub = SandboxMcpHub(adapter)
-    original = _server("platform:config")
+    original = _server("platform:interactive")
     await hub.reconcile(_desired(original, revision=1))
-    adapter.fail.add("platform:config")
+    adapter.fail.add("platform:interactive")
 
     with pytest.raises(McpHubReconcileError) as caught:
         await hub.reconcile(
             _desired(
-                _server("platform:config", revision="rev-2"),
+                _server("platform:interactive", revision="rev-2"),
                 revision=2,
             )
         )
@@ -372,75 +395,82 @@ mcp.run(transport="stdio")
 
 
 @pytest.mark.asyncio
-async def test_browser_mcp_launch_material_stays_out_of_desired_state() -> None:
-    source = """
-import os
-from mcp.server.fastmcp import FastMCP
+@pytest.mark.parametrize("source", ["platform", "builtin_local"])
+async def test_retired_browser_mcp_never_starts_or_requests_credentials(source) -> None:
+    with pytest.raises(ValidationError):
+        McpDesiredServer.model_validate({
+            "id": "builtin:browser", "source": source, "name": "browser",
+            "configurationRevision": "old-browser-revision",
+            "required": True, "activation": "command",
+            "connection": {
+                "kind": "stdio", "command": "/must-not-start",
+                "environmentProfile": "browser-gateway",
+            } if source == "builtin_local" else {"kind": "platform_facade", "capability": "browser"},
+        })
 
-mcp = FastMCP("browser-launch-test")
 
-@mcp.tool()
-def browser_snapshot() -> dict[str, object]:
-    return {
-        "pid": os.getpid(),
-        "endpoint": os.environ.get("FLOWORK_PLAYWRIGHT_CDP_ENDPOINT"),
-        "has_bearer": bool(os.environ.get("FLOWORK_PLAYWRIGHT_CDP_BEARER")),
-    }
-
-mcp.run(transport="stdio")
-"""
+@pytest.mark.asyncio
+async def test_custom_stdio_cannot_reuse_retired_browser_environment() -> None:
     server = McpDesiredServer.model_validate({
-        "id": "builtin:browser",
-        "source": "builtin_local",
-        "name": "browser",
-        "configurationRevision": "browser-rev-1",
-        "required": True,
-        "activation": "command",
+        "id": "installation:custom", "source": "custom_stdio", "name": "custom",
+        "configurationRevision": "v1", "required": False, "activation": "selected",
         "connection": {
-            "kind": "stdio",
-            "command": sys.executable,
-            "args": ["-c", source],
-            "cwd": "/tmp",
+            "kind": "stdio", "command": "/must-not-start",
             "environmentProfile": "browser-gateway",
         },
     })
-    operations: list[str] = []
 
-    async def host_gateway(operation, _server, _tool_name, _arguments):
-        operations.append(operation)
-        assert operation == "launch"
-        return {
-            "environment": {
-                "FLOWORK_PLAYWRIGHT_CDP_ENDPOINT": (
-                    "wss://browser-host.invalid/cdp"
-                ),
-                "FLOWORK_PLAYWRIGHT_CDP_BEARER": "turn-browser-capability",
-            }
-        }
+    async def gateway(*_args):
+        raise AssertionError("No authority should be requested")
 
-    desired = _desired(server)
-    assert "turn-browser-capability" not in desired.model_dump_json()
-    assert "browser-host.invalid" not in desired.model_dump_json()
-    adapter = SandboxMcpRuntimeAdapter(host_gateway)
+    adapter = SandboxMcpRuntimeAdapter(gateway)
+    with pytest.raises(RuntimeError, match="Unsupported MCP environment"):
+        await adapter.start(server)
+
+
+@pytest.mark.asyncio
+async def test_browser_mode_retains_private_authority_without_desired_mcp() -> None:
+    request = RuntimeTurnRequest(
+        tenant_id="tenant", user_id="user", chat_id="chat", turn_id="turn",
+        runtime_type="codex", runtime_session_id="runtime", runtime_root="/runtime/.codex",
+        model={"id": "test", "connection_type": "chatgpt_account"},
+        message={"role": "user", "content": "inspect the page"},
+        active_platform_mcps=["interactive", "browser"],
+        mcp_host_servers=[{
+            "name": name, "source": "platform", "server_id": f"platform:{name}",
+            "config_revision": "v1", "connection": {"transport": "host_gateway", "capability": "private"},
+        } for name in ("interactive", "browser")],
+    )
+    desired, context = build_mcp_lifecycle_contracts(
+        request, sandbox_id="sandbox", sandbox_generation=1,
+        authorization_generation="auth-1",
+        execution_capability="private",
+        lifetime_s=60,
+    )
+    assert {server.name for server in desired.servers} == {"interactive"}
+    assert desired.private_platform_capabilities == ["browser"]
+    assert "browser" in context.active_platform_capabilities
+    adapter = FakeAdapter()
     hub = SandboxMcpHub(adapter)
     try:
         await hub.reconcile(desired)
-        await hub.activate(_context(platform_capabilities=["browser"]))
-        result = await hub.call("browser", "browser_snapshot", {})
-        payload = json.loads(result["content"][0]["text"])
-        await hub.deactivate()
-        await hub.activate(_context(
-            turn_id="turn-2",
-            platform_capabilities=["browser"],
-        ))
-        second = await hub.call("browser", "browser_snapshot", {})
-        second_payload = json.loads(second["content"][0]["text"])
+        await hub.activate(context)
+        assert await hub.call("interactive", "example_tool", {}) == {"ok": True}
+        assert [name for name, _ in adapter.started] == ["platform:interactive"]
+        with pytest.raises(RuntimeError):
+            await hub.call("browser", "browser_snapshot", {})
+    finally:
+        await hub.close()
 
-        assert payload["has_bearer"] is True
-        assert payload["endpoint"].startswith("ws://127.0.0.1:")
-        assert second_payload["pid"] == payload["pid"]
-        assert second_payload["endpoint"] == payload["endpoint"]
-        assert operations == ["launch", "launch"]
+
+@pytest.mark.asyncio
+async def test_private_browser_context_cannot_expand_unapproved_desired_state() -> None:
+    adapter = FakeAdapter()
+    hub = SandboxMcpHub(adapter)
+    try:
+        await hub.reconcile(_desired(_server("platform:interactive")))
+        with pytest.raises(RuntimeError, match="expands the desired Platform set"):
+            await hub.activate(_context(platform_capabilities=["interactive", "browser"]))
     finally:
         await hub.close()
 
@@ -556,7 +586,7 @@ async def test_codex_uses_one_standard_mcp_endpoint_for_the_aggregate_hub() -> N
             "is_error": False,
         }
 
-    server = _server("platform:config")
+    server = _server("platform:interactive")
     adapter = SandboxMcpRuntimeAdapter(host_gateway)
     hub = SandboxMcpHub(adapter)
     gateway = CodexMcpHubGateway(hub, adapter)
@@ -565,10 +595,6 @@ async def test_codex_uses_one_standard_mcp_endpoint_for_the_aggregate_hub() -> N
     try:
         catalog = await gateway.activate(
             desired_servers=[server],
-            request_approval=(
-                lambda *_args: pytest.fail("approval was not expected")
-            ),
-            requires_approval=lambda *_args: False,
         )
         assert gateway.url is not None
         assert catalog[0]["loaded"] is True
@@ -594,8 +620,56 @@ async def test_codex_uses_one_standard_mcp_endpoint_for_the_aggregate_hub() -> N
         await hub.close()
 
 
+@pytest.mark.asyncio
+async def test_retired_preview_aliases_are_not_callable_or_advertised() -> None:
+    calls = []
+
+    async def host_gateway(operation, _server, tool_name, arguments):
+        if operation == "manifest":
+            return {"tools": [{
+                "name": "render_preview", "description": "Preview",
+                "inputSchema": {"type": "object", "properties": {}},
+            }]}
+        calls.append((tool_name, arguments))
+        return {"content": [{"type": "text", "text": "ok"}], "is_error": False}
+
+    server = _server("platform:interactive")
+    adapter = SandboxMcpRuntimeAdapter(host_gateway)
+    hub = SandboxMcpHub(adapter)
+    gateway = CodexMcpHubGateway(hub, adapter)
+    await hub.reconcile(_desired(server))
+    await hub.activate(_context(platform_capabilities=["interactive"]))
+    try:
+        await gateway.activate(
+            desired_servers=[server],
+        )
+        async with AsyncExitStack() as stack:
+            streams = await stack.enter_async_context(streamable_http_client(gateway.url))
+            session = await stack.enter_async_context(ClientSession(streams[0], streams[1]))
+            await session.initialize()
+            assert [tool.name for tool in (await session.list_tools()).tools] == ["render_preview"]
+            for name, arguments in [
+                ("render_preview", {"type": "file", "source": "/data/report.pdf"}),
+                ("render_interactive", {"path": "/data/report.pdf"}),
+                ("render_url_preview", {"url": "https://example.com"}),
+            ]:
+                result = await session.call_tool(name, arguments)
+                if name == "render_preview":
+                    assert not result.isError
+                    assert calls[-1] == (name, arguments)
+                else:
+                    assert result.isError
+                    assert len(calls) == 1
+            assert (await session.call_tool("unknown_preview", {})).isError
+        gateway.deactivate()
+        assert (await gateway.call_tool("render_url_preview", {"url": "https://example.com"})).isError
+    finally:
+        await gateway.close()
+        await hub.close()
+
+
 def test_runtime_turn_separates_host_authority_from_sandbox_hub_contracts() -> None:
-    desired = _desired(_server("platform:config"))
+    desired = _desired(_server("platform:interactive"))
     context = _context()
     common = {
         "tenant_id": "tenant",
@@ -607,7 +681,7 @@ def test_runtime_turn_separates_host_authority_from_sandbox_hub_contracts() -> N
         "runtime_root": "/runtime/.codex",
         "message": {"role": "user", "content": "hello"},
         "model": {"id": "gpt-test", "connection_type": "chatgpt_account"},
-        "active_platform_mcps": ["config"],
+        "active_platform_mcps": ["interactive"],
         "mcp_desired_state": desired,
         "mcp_execution_context": context,
     }
@@ -623,7 +697,7 @@ def test_runtime_turn_separates_host_authority_from_sandbox_hub_contracts() -> N
             **common,
             mcp_runtime_stage="sandbox",
             mcp_host_servers=[{
-                "name": "config",
+                "name": "interactive",
                 "source": "platform",
                 "connection": {
                     "transport": "host_gateway",
@@ -644,16 +718,21 @@ def test_host_projection_removes_authority_urls_headers_and_env() -> None:
         runtime_root="/runtime/.codex",
         message={"role": "user", "content": "/diagram /document"},
         model={"id": "gpt-test", "connection_type": "chatgpt_account"},
-        active_platform_mcps=["config", "diagram", "document"],
+        active_platform_mcps=["interactive", "cli"],
         mcp_config_revision=8,
         mcp_host_servers=[
             {
-                "name": "config",
+                "name": "interactive",
                 "source": "platform",
                 "connection": {
                     "transport": "host_gateway",
                     "capability": "platform-secret",
                 },
+            },
+            {
+                "name": "cli",
+                "source": "platform",
+                "connection": {"transport": "host_gateway", "capability": "cli-secret"},
             },
             {
                 "name": "github",
@@ -697,9 +776,8 @@ def test_host_projection_removes_authority_urls_headers_and_env() -> None:
     assert '"headers"' not in encoded
     assert '"env"' not in encoded
     by_name = {server.name: server for server in desired.servers}
-    assert by_name["diagram"].source == "builtin_local"
-    assert by_name["document"].source == "builtin_local"
-    assert by_name["document"].connection.command == "flowork-document-mcp"
+    assert "diagram" not in by_name
+    assert "document" not in by_name
     assert "browser" not in by_name
     assert by_name["github"].source == "custom_remote"
     assert by_name["github"].connection.broker_route == (
@@ -708,9 +786,8 @@ def test_host_projection_removes_authority_urls_headers_and_env() -> None:
     assert by_name["local_docs"].source == "custom_stdio"
     assert context.selected_mcp_revision == 8
     assert set(context.active_platform_capabilities) == {
-        "config",
-        "diagram",
-        "document",
+        "interactive",
+        "cli",
     }
 
 
@@ -725,10 +802,10 @@ def test_sandbox_manager_replaces_host_authority_after_epoch_is_known() -> None:
         runtime_root="/runtime/.codex",
         message={"role": "user", "content": "hello"},
         model={"id": "gpt-test", "connection_type": "chatgpt_account"},
-        active_platform_mcps=["config"],
+        active_platform_mcps=["interactive"],
         mcp_config_revision=3,
         mcp_host_servers=[{
-            "name": "config",
+            "name": "interactive",
             "source": "platform",
             "connection": {
                 "transport": "host_gateway",
@@ -761,6 +838,5 @@ def test_sandbox_manager_replaces_host_authority_after_epoch_is_known() -> None:
 
     assert projected.mcp_host_servers == []
     assert {server.name for server in projected.mcp_desired_state.servers} == {
-        "config",
         "interactive",
     }

@@ -43,18 +43,20 @@ def compute_next_run_at(
     """
     now = ensure_utc(base) or utc_now()
     start = ensure_utc(start_at)
-    if start and start > now:
-        return start
+    tz = ZoneInfo(timezone_name or "UTC")
     if schedule_type == "interval":
         seconds = int(interval_seconds or 0)
         if seconds <= 0:
             raise ValueError("interval_seconds must be positive")
+        if start and start > now:
+            return start
         return now + timedelta(seconds=seconds)
     if schedule_type == "cron":
         if not cron_expr:
             raise ValueError("cron_expr is required for cron schedules")
-        tz = ZoneInfo(timezone_name or "UTC")
-        local_base = now.astimezone(tz)
+        # start_at is a lower bound, not an extra off-cron execution.
+        lower_bound = start - timedelta(microseconds=1) if start and start > now else now
+        local_base = lower_bound.astimezone(tz)
         next_local = croniter(cron_expr, start_time=local_base).get_next(ret_type=datetime)
         if next_local.tzinfo is None:
             next_local = next_local.replace(tzinfo=tz)
@@ -80,6 +82,8 @@ def schedule_to_out(schedule) -> dict:
         "id": str(schedule.id),
         "task_id": str(schedule.task_id),
         "workflow_id": schedule.workflow_id,
+        "workflow_selector": getattr(schedule, "workflow_selector", None) or {"policy": "legacy_head"},
+        "start_at": getattr(schedule, "start_at", None),
         "name": schedule.name,
         "enabled": schedule.enabled,
         "schedule_type": schedule.schedule_type,
@@ -106,6 +110,7 @@ def execution_to_out(execution) -> dict:
         "id": str(execution.id),
         "schedule_id": str(execution.schedule_id),
         "workflow_id": execution.workflow_id,
+        "version": (getattr(execution, "workflow_snapshot", None) or {}).get("version"),
         "run_key": execution.run_key,
         "status": execution.status,
         "trigger_type": execution.trigger_type,

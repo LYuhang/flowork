@@ -724,9 +724,12 @@ def main() -> None:
         _upgrade("099")
         vfs_resources, vfs_rows = runner.run(_migrate_vfs_abstracts())
         _upgrade("head")
+        from vibecanvas_api.storage.retired_workflow_state import clear_retired_workflow_state
+        retired_workflow_rows = runner.run(clear_retired_workflow_state())
         runner.run(dispose_engine())
     print(
         "strict content encryption complete: "
+        f"{retired_workflow_rows} legacy Workflow selections cleared; "
         f"{rows + task_rows + kb_rows + run_rows + hitl_rows + background_rows + execution_rows + metadata_rows + skill_rows + template_rows + identity_rows + deletion_rows + audit_rows + vfs_rows} "
         "content rows and "
         f"{secret_rows} secret rows; "

@@ -15,9 +15,8 @@ from vibecanvas_api.agents.prompts.workflow import WORKFLOW
 from vibecanvas_api.agents.prompts.deployment import DEPLOYMENT
 from vibecanvas_api.agents.prompts.knowledge import KNOWLEDGE
 from vibecanvas_api.agents.prompts.task import TASK
-from vibecanvas_api.agents.prompts.diagram import DIAGRAM, DIAGRAM_MCP_TOOL_NAMES
-from vibecanvas_api.agents.prompts.document import DOCUMENT, DOCUMENT_MCP_TOOL_NAMES
-from vibecanvas_api.browser.playwright_contract import PLAYWRIGHT_AGENT_TOOLS
+from vibecanvas_api.agents.prompts.diagram import DIAGRAM
+from vibecanvas_api.agents.prompts.document import DOCUMENT
 
 
 COMMAND_CONTEXT_HEADER = "<command-context"
@@ -42,18 +41,7 @@ COMMAND_MODES: dict[str, CommandMode] = {
         kind="additive",
         sticky=True,
         context_prompt=TASK,
-        tools=[
-            "list_workflows",
-            "get_workflow",
-            "task_list",
-            "task_get",
-            "task_collect_diagnostics",
-            "task_create_scheduled_run",
-            "task_update_scheduled_run",
-            "task_delete_scheduled_run",
-            "task_cancel",
-            "task_resume",
-        ],
+        tools=[],  # Task operations use the authenticated CLI; keep the command playbook.
         activation_message=(
             "This is the latest /task activation. Use Task Center only for "
             "the durable task work requested in this message."
@@ -66,16 +54,7 @@ COMMAND_MODES: dict[str, CommandMode] = {
         kind="additive",
         sticky=True,
         context_prompt=DEPLOYMENT,
-        tools=[
-            "list_workflows",
-            "get_workflow",
-            "deployment_list",
-            "deployment_get",
-            "deployment_collect_diagnostics",
-            "deployment_create",
-            "deployment_update",
-            "deployment_delete",
-        ],
+        tools=[],  # Keep guidance, not retired MCP tools.
         activation_message=(
             "This is the latest /deployment activation. Work only with the "
             "deployment resources needed by the user's request."
@@ -88,17 +67,10 @@ COMMAND_MODES: dict[str, CommandMode] = {
         kind="additive",
         sticky=True,
         context_prompt=KNOWLEDGE,
-        tools=[
-            "knowledge_list",
-            "knowledge_get",
-            "knowledge_create",
-            "knowledge_update",
-            "knowledge_delete",
-            "knowledge_search",
-        ],
+        tools=[],  # Preserve command guidance without retired MCP tools.
         activation_message=(
             "This is the latest /knowledge activation. Treat Knowledge as "
-            "versioned file packages, read README.md first, and publish only "
+            "file packages using flowork-cli knowledge, read README.md first, and publish only "
             "after validating the complete local directory."
         ),
         external_control=None,
@@ -109,19 +81,7 @@ COMMAND_MODES: dict[str, CommandMode] = {
         kind="additive",
         sticky=True,
         context_prompt=WORKFLOW,
-        tools=[
-            "list_workflows",
-            "set_workflow",
-            "create_workflow",
-            "run_workflow",
-            "node_execute",
-            "batch_execute",
-            "get_node_spec",
-            "get_workflow",
-            "check_workflow",
-            "update_canvas",
-            "new_version",
-        ],
+        tools=[],
         activation_message=(
             "This is the latest /workflow activation. Treat the user's message as "
             "workflow construction or optimization work. If the user has not said "
@@ -135,11 +95,11 @@ COMMAND_MODES: dict[str, CommandMode] = {
         kind="additive",
         sticky=True,
         context_prompt=BROWSER,
-        tools=list(PLAYWRIGHT_AGENT_TOOLS),
+        tools=[],  # Browser commands use the sandbox CLI and private CDP capability.
         activation_message=(
             "This is the latest /browser activation. The side-panel send action "
-            "has already requested control of the visible page. Capture a fresh "
-            "Playwright snapshot before choosing the first action."
+            "has already requested control of the visible page. Use flowork-cli "
+            "browser tab-list, then snapshot --tab_id ID before choosing an action."
         ),
         external_control=None,
         sidepanel_only=True,
@@ -150,11 +110,11 @@ COMMAND_MODES: dict[str, CommandMode] = {
         kind="additive",
         sticky=True,
         context_prompt=DIAGRAM,
-        tools=[*DIAGRAM_MCP_TOOL_NAMES, "render_interactive"],
+        tools=["render_preview"],
         activation_message=(
-            "This is the latest /diagram activation. Use the official draw.io "
-            "MCP, persist one native .drawio file, publish its preview, and "
-            "inspect the rendered pixels before delivery."
+            "This is the latest /diagram activation. Edit native .drawio XML, "
+            "use flowork-cli diagram search-shapes as needed, review and render "
+            "the current file, inspect every page, then publish with render_preview."
         ),
         external_control=None,
     ),
@@ -164,7 +124,7 @@ COMMAND_MODES: dict[str, CommandMode] = {
         kind="additive",
         sticky=True,
         context_prompt=DOCUMENT,
-        tools=[*DOCUMENT_MCP_TOOL_NAMES, "render_interactive"],
+        tools=["render_preview"],
         activation_message=(
             "This is the latest /document activation. Produce the requested "
             "professional native document, review its current structure and "

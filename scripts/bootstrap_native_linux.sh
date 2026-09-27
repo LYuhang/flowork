@@ -12,7 +12,7 @@ PREPARE_ONLY=0
 UV_VERSION="${UV_VERSION:-0.11.32}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.147.0}"
-PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION:-0.0.79}"
+PLAYWRIGHT_CORE_VERSION="${PLAYWRIGHT_CORE_VERSION:-1.63.0-alpha-2026-08-05}"
 DRAWIO_DESKTOP_VERSION="${DRAWIO_DESKTOP_VERSION:-31.1.8}"
 DRAWIO_DESKTOP_AMD64_SHA256="${DRAWIO_DESKTOP_AMD64_SHA256:-f4c49ed84422ea4afd95818f53c54bc666e57b33bd036d468c7096619b47ffd9}"
 DRAWIO_DESKTOP_ARM64_SHA256="${DRAWIO_DESKTOP_ARM64_SHA256:-62a9ea636accada76076bd5a20f61b707e0e8093d3fd28c6583518663ca795d6}"
@@ -53,9 +53,10 @@ command -v sudo >/dev/null || {
 echo "[1/7] Installing host packages"
 sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  build-essential ca-certificates curl file git gnupg jq libpq-dev openssh-client \
+  binutils build-essential ca-certificates clang cmake curl file git gnupg jq libpq-dev libssl-dev pkg-config openssh-client \
   openssl patch postgresql postgresql-contrib procps redis-server ripgrep rsync \
   tar unzip util-linux zip \
+  bubblewrap \
   fonts-dejavu-core fonts-noto-cjk fonts-wqy-zenhei \
   xvfb xauth \
   libreoffice-writer-nogui libreoffice-impress-nogui libreoffice-calc-nogui \
@@ -129,7 +130,7 @@ else
   echo "[2/7] Reusing compatible Node.js $(node --version)"
 fi
 
-echo "[3/7] Installing the project-pinned pnpm, Codex CLI, Playwright MCP, and draw.io MCP"
+echo "[3/7] Installing the project-pinned pnpm, Codex CLI, Browser CLI runtime, and draw.io CLI runtime"
 if command -v corepack >/dev/null; then
   sudo corepack enable
   corepack prepare pnpm@10.34.4 --activate
@@ -144,20 +145,20 @@ fi
   echo "ERROR: expected codex-cli ${CODEX_CLI_VERSION}, got $(codex --version 2>/dev/null || echo missing)" >&2
   exit 1
 }
-if ! flowork-playwright-mcp --version 2>/dev/null | grep -q "${PLAYWRIGHT_MCP_VERSION}"; then
+if [[ "$(flowork-browser-runtime --version 2>/dev/null || true)" != "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})" ]]; then
   sudo npm install --global --ignore-scripts --no-audit --no-fund \
     "$REPO_ROOT/api/playwright-runtime"
 fi
-flowork-playwright-mcp --version | grep -q "${PLAYWRIGHT_MCP_VERSION}" || {
-  echo "ERROR: expected Playwright MCP ${PLAYWRIGHT_MCP_VERSION}" >&2
+[[ "$(flowork-browser-runtime --version)" == "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})" ]] || {
+  echo "ERROR: expected Browser CLI runtime 0.4.0 with Playwright core ${PLAYWRIGHT_CORE_VERSION}" >&2
   exit 1
 }
-if ! flowork-diagram-mcp --version 2>/dev/null | grep -qx "1.5.0"; then
+if ! flowork-diagram-search --version 2>/dev/null | grep -qx "1.5.0"; then
   sudo npm install --global --ignore-scripts --no-audit --no-fund \
     "$REPO_ROOT/api/drawio-runtime"
 fi
-[[ "$(flowork-diagram-mcp --version)" == "1.5.0" ]] || {
-  echo "ERROR: expected official draw.io MCP 1.5.0" >&2
+[[ "$(flowork-diagram-search --version)" == "1.5.0" ]] || {
+  echo "ERROR: expected official draw.io search libraries 1.5.0" >&2
   exit 1
 }
 
@@ -190,6 +191,12 @@ uv pip install --python .venv/bin/python --no-build-isolation --no-deps \
   --editable ./engine --editable ./api
 .venv/bin/python -c \
   'import fastapi, jsonlines, matplotlib, networkx, numpy, pandas, psycopg, seaborn, sqlalchemy, tabulate, vibecanvas_api, vibecanvas_engine; print("Python environment: ok")'
+
+# Keep the verified native runtime independent of the global npm launcher.
+# Explicit CODEX_CLI_PATH remains an operator-controlled override.
+if [[ -z "${CODEX_CLI_PATH:-}" ]]; then
+  bash "$REPO_ROOT/scripts/prepare_codex_runtime.sh"
+fi
 
 echo "[6/7] Installing Web and extension packages"
 pnpm --dir web install --frozen-lockfile

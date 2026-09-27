@@ -63,6 +63,9 @@ def test_submit_body_silently_drops_smuggled_fields():
         "output": None,
         "output_columns": None,
         "concurrency": 1,
+        "mount_enabled": False,
+        "major": None,
+        "version": None,
     }
 
 

@@ -186,13 +186,14 @@ class KbRepo:
         await self.session.flush()
         return kb
 
-    async def get_active(self, kb_id: uuid.UUID) -> Optional[KnowledgeBase]:
-        result = await self.session.execute(
-            select(KnowledgeBase).where(
-                KnowledgeBase.id == kb_id,
-                KnowledgeBase.deleted_at.is_(None),
-            )
-        )
+    async def get_active(self, kb_id: uuid.UUID, *, for_update: bool = False) -> Optional[KnowledgeBase]:
+        statement = select(KnowledgeBase).where(
+            KnowledgeBase.id == kb_id, KnowledgeBase.deleted_at.is_(None))
+        if for_update:
+            # Mutators lock the parent before files, matching whole-package CLI
+            # publication. Refresh cached ORM revisions after waiting on a lock.
+            statement = statement.with_for_update().execution_options(populate_existing=True)
+        result = await self.session.execute(statement)
         kb = result.scalar_one_or_none()
         return await self._materialize_kb(kb) if kb is not None else None
 
@@ -317,6 +318,7 @@ class KbRepo:
                     KnowledgeBase.deleted_at.is_(None),
                 )
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if kb is None:

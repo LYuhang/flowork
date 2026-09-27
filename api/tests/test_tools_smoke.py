@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 
-def test_get_workflow_tool_resolvable():
-    from vibecanvas_api.services.platform_mcp.workflow_tools import get_workflow
-    assert get_workflow.name == "get_workflow"
-    assert get_workflow.description
+def test_render_tools_are_the_complete_platform_surface():
+    from vibecanvas_api.services.platform_mcp.invocation import platform_mcp_tool_manifest
+    tools = platform_mcp_tool_manifest("interactive")
+    assert {tool.name for tool in tools} == {"render_preview", "render_choices"}
+    assert all(tool.description for tool in tools)
 
 
-def test_read_file_tool_resolvable():
-    from vibecanvas_api.agents.tools.fs import read_file
-    assert hasattr(read_file, "name")
-    assert read_file.name == "read_file"
+def test_workflow_tools_are_native_and_noninteractive():
+    from langchain_core.tools import StructuredTool
+    from vibecanvas_api.agents.tools.subagent.toolset import build_agent_subagent_tools
+    tools = build_agent_subagent_tools()
+    assert {tool.name for tool in tools} == {"bash", "web_search", "read_images"}
+    assert all(isinstance(tool, StructuredTool) for tool in tools)
 
 
 def test_tools_package_reserves_a_non_empty_surface():
@@ -20,10 +23,8 @@ def test_tools_package_reserves_a_non_empty_surface():
     assert builtin_tool_names()
 
 
-def test_node_execute_is_platform_mcp_only():
+def test_execution_tools_are_retired_from_mcp():
     from vibecanvas_api.agents.tools import builtin_tool_names
-    from vibecanvas_api.services.platform_mcp.run_tools import RUN_TOOLS
 
     names = builtin_tool_names()
     assert {"node_execute", "run_workflow"}.isdisjoint(names)
-    assert {"node_execute", "run_workflow"} <= {tool.name for tool in RUN_TOOLS}

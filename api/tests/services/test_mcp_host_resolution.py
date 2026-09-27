@@ -9,8 +9,8 @@ from vibecanvas_api.services.agent_runtime.mcp_host_resolution import (
     resolve_platform_mcp_authority,
 )
 from vibecanvas_api.services.agent_runtime.protocol import HostMcpServerAuthority
-from vibecanvas_api.services.platform_mcp.capability import (
-    verify_platform_mcp_capability,
+from vibecanvas_api.services.agent_resources.capability import (
+    verify_agent_capability,
 )
 
 
@@ -30,46 +30,48 @@ def _platform_authority(names: list[str], *, runtime_session_id: str):
 
 
 def test_platform_mcp_selection_is_command_driven_and_stable() -> None:
-    base = ["config", "interactive"]
+    base = ["interactive", "cli"]
     assert platform_mcp_names_for_modes([]) == base
     assert platform_mcp_names_for_modes([], runtime_type="codex") == base
-    assert platform_mcp_names_for_modes(["workflow"]) == [
-        *base,
-        "workflow",
-        "build",
-    ]
+    assert platform_mcp_names_for_modes(["workflow"]) == base
     assert platform_mcp_names_for_modes(["browser"]) == [*base, "browser"]
-    assert platform_mcp_names_for_modes(["diagram"]) == [*base, "diagram"]
-    assert platform_mcp_names_for_modes(["document"]) == [*base, "document"]
+    assert platform_mcp_names_for_modes(["diagram"]) == base
+    assert platform_mcp_names_for_modes(["document"]) == base
     assert platform_mcp_names_for_modes(["browser", "workflow"]) == [
         *base,
-        "workflow",
-        "build",
         "browser",
     ]
     assert platform_mcp_names_for_modes(
         ["knowledge", "deployment", "task"]
-    ) == [*base, "workflow", "task", "deployment", "knowledge"]
-    assert platform_mcp_names_for_modes(["task"]) == [
-        *base,
-        "workflow",
-        "task",
-    ]
+    ) == base
+    assert platform_mcp_names_for_modes(["task"]) == base
     assert platform_mcp_names_for_modes(["deployment"]) == [
         *base,
-        "workflow",
-        "deployment",
     ]
+
+
+def test_workflow_activation_keeps_guidance_without_empty_required_mcps() -> None:
+    from vibecanvas_api.services.agent_runtime.instructions import command_instructions_for_modes
+    from vibecanvas_api.services.platform_mcp.invocation import platform_mcp_tool_manifest
+
+    names = platform_mcp_names_for_modes(["workflow", "task", "deployment", "knowledge"])
+    assert not {"build", "workflow"}.intersection(names)
+    for name in set(names) - {"cli", "browser"}:
+        assert platform_mcp_tool_manifest(name), f"Required MCP {name} has no tools"
+    instructions = command_instructions_for_modes({"workflow"}, activated_this_turn={"workflow"})
+    assert len(instructions) == 1
+    assert instructions[0].activated_this_turn
+    assert "flowork-cli workflow" in instructions[0].content
 
 
 def test_platform_mcp_authorization_is_bound_to_runtime_session() -> None:
     authority = _platform_authority(
-        ["workflow"], runtime_session_id="runtime-codex"
+        ["cli"], runtime_session_id="runtime-codex"
     )[0]
-    capability = verify_platform_mcp_capability(
+    capability = verify_agent_capability(
         authority.connection["capability"],
         secret=config.signing_secret,
-        server="workflow",
+        server="cli",
     )
     assert capability is not None
     assert capability.runtime_session_id == "runtime-codex"
@@ -82,7 +84,7 @@ def test_browser_authority_is_host_only_and_turn_scoped() -> None:
     )[0]
     connection = authority.connection
     assert connection["transport"] == "browser_gateway"
-    capability = verify_platform_mcp_capability(
+    capability = verify_agent_capability(
         connection["capability"],
         secret=config.signing_secret,
         server="browser",
@@ -91,18 +93,10 @@ def test_browser_authority_is_host_only_and_turn_scoped() -> None:
     assert capability.runtime_session_id == "runtime-browser"
 
 
-def test_diagram_requires_no_host_authority() -> None:
-    assert _platform_authority(
-        ["diagram"],
-        runtime_session_id="runtime-diagram",
-    ) == []
-
-
-def test_document_requires_no_host_authority() -> None:
-    assert _platform_authority(
-        ["document"],
-        runtime_session_id="runtime-document",
-    ) == []
+@pytest.mark.parametrize("name", ["diagram", "document", "workflow", "build", "knowledge", "deployment", "config", "task"])
+def test_retired_servers_cannot_receive_authority(name) -> None:
+    with pytest.raises(ValueError):
+        _platform_authority([name], runtime_session_id="runtime-retired")
 
 
 def test_host_authority_accepts_supported_connections() -> None:

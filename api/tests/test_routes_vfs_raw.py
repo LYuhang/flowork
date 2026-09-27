@@ -111,6 +111,29 @@ async def test_raw_valid_sig_returns_bytes_no_auth(client, app_engine, pg_engine
 
 
 @pytest.mark.asyncio
+async def test_raw_legacy_workflow_memory_still_reads_scratch(client, app_engine, pg_engine):
+    from vibecanvas_api.services.object_store import get_object_store
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.vfs_store import VfsRepo
+
+    tok = await _register(client)
+    wf_id = await _create_wf(client, tok)
+    tenant = await _dev_tenant(pg_engine, wf_id)
+    path = "/memory/legacy-preview.png"
+    async with session_scope(tenant_id=tenant) as session:
+        await VfsRepo(session, object_store=get_object_store()).write_scratch_bytes(
+            wf_id=wf_id, tenant=tenant, path=path, data=_PNG, content_type="image/png",
+        )
+    signed = await client.post(
+        "/api/v1/vfs/sign", json={"path": path, "wf_id": wf_id}, headers=_hdr(tok),
+    )
+    assert signed.status_code == 200, signed.text
+    response = await client.get(signed.json()["url"])
+    assert response.status_code == 200, response.text
+    assert response.content == _PNG
+
+
+@pytest.mark.asyncio
 async def test_raw_tampered_sig_403(client, app_engine, pg_engine):
     tok = await _register(client)
     wf_id = await _create_wf(client, tok)

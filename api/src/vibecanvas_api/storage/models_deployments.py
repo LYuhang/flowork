@@ -73,6 +73,9 @@ class Deployment(Base):
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"),
     )
+    mount_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
     last_invoked_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
@@ -95,12 +98,13 @@ class Deployment(Base):
             name="ck_deployments_trigger_type",
         ),
         CheckConstraint(
-            "version_pin IN ('head', 'specific')",
+            "version_pin IN ('head', 'major', 'specific')",
             name="ck_deployments_version_pin",
         ),
         CheckConstraint(
             "(version_pin = 'head') OR "
-            "(pinned_major IS NOT NULL AND pinned_sub IS NOT NULL)",
+            "(version_pin = 'major' AND pinned_major IS NOT NULL AND pinned_sub IS NULL) OR "
+            "(version_pin = 'specific' AND pinned_major IS NOT NULL AND pinned_sub IS NOT NULL)",
             name="ck_deployments_pinned_required",
         ),
         CheckConstraint(

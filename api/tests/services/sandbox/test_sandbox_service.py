@@ -53,6 +53,7 @@ class _FakeSession:
         self.closed = False
         self.controls: list[dict] = []
         self.synced_paths: list[str] = []
+        self.synced_expectations: list[dict] = []
 
     async def read_bytes(self, path: str) -> dict:
         return {"ok": True, "data": b"rpc-bytes", "path": path}
@@ -67,8 +68,9 @@ class _FakeSession:
     async def writeback_vfs(self) -> None:
         return None
 
-    async def sync_workspace_path(self, path: str) -> bool:
+    async def sync_workspace_path(self, path: str, **expected) -> bool:
         self.synced_paths.append(path)
+        self.synced_expectations.append(expected)
         return True
 
 
@@ -99,6 +101,7 @@ class _FakeManager:
         return {"status": "ready", "elapsed_ms": 12}
 
     async def get_session(self, tenant_id: str, wf_id: str, **_kwargs) -> _FakeSession:
+        self.last_acquire_options = _kwargs
         return self.sessions.setdefault((tenant_id, wf_id), _FakeSession(tenant_id, wf_id))
 
     async def get_loaded_session(self, tenant_id: str, wf_id: str):
@@ -131,6 +134,18 @@ async def sandbox_service(tmp_path):
         yield daemon
     finally:
         await daemon.stop()
+
+
+@pytest.mark.asyncio
+async def test_mount_policy_crosses_real_grpc_acquisition(sandbox_service):
+    client = RemoteSandboxManager(sandbox_service.socket_path)
+    try:
+        await client.get_session("tenant", "schedule-test", expose_mount=False)
+        assert sandbox_service.manager.last_acquire_options["expose_mount"] is False
+        await client.get_session("tenant", "ordinary-chat")
+        assert sandbox_service.manager.last_acquire_options["expose_mount"] is True
+    finally:
+        await client.aclose()
 
 
 @pytest.mark.asyncio
@@ -168,6 +183,8 @@ async def test_binary_unary_stream_and_cross_connection_control(sandbox_service)
     }]
     assert await session.sync_workspace_path("/data/diagram.json") is True
     assert owned.synced_paths == ["/data/diagram.json"]
+    assert await session.sync_workspace_path("/data/download.bin", expected_sha256="a" * 64, expected_bytes=7)
+    assert owned.synced_expectations == [{}, {"expected_sha256": "a" * 64, "expected_bytes": 7}]
     await client.aclose()
 
 
@@ -194,7 +211,7 @@ async def test_unavailable_service_fails_closed(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_one_shot_workflow_uses_configured_long_operation_deadline(
+async def test_one_shot_workflow_has_no_implicit_operation_deadline(
     monkeypatch,
 ) -> None:
     observed: dict[str, float] = {}
@@ -215,4 +232,4 @@ async def test_one_shot_workflow_uses_configured_long_operation_deadline(
     assert await client._request(
         "manager.call", method="run_workflow_once", kwargs={}
     ) == {}
-    assert observed["timeout"] == 4321.0
+    assert observed["timeout"] is None

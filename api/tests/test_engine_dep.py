@@ -52,6 +52,6 @@ def test_mcp_dependencies_declared_in_project_and_dev_snapshot():
 
 def test_api_actually_uses_engine_workflow():
     """The migrated data plane should call into engine.Workflow somewhere."""
-    from vibecanvas_api.services.platform_mcp.build_tools.workflow_file import Workflow
+    from vibecanvas_api.services.agent_resources.workflow_graph import Workflow
 
     assert Workflow.__module__ == "vibecanvas_engine.workflow"

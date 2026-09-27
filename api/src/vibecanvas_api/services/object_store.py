@@ -411,6 +411,22 @@ class FilesystemObjectStore:
             "FilesystemObjectStore has no signed URL; stream via fetch_bytes"
         )
 
+    def persist_materialized_bytes(
+        self, key: str, data: bytes, content_type: str = "application/octet-stream",
+    ) -> str:
+        """Checkpoint a live projection without writing back into that projection.
+
+        Unlike an external put, writeback snapshots came FROM the sandbox. They
+        may already be stale while a CLI is appending its next result. Replacing
+        the plaintext file here would detach its open fd (and advisory lock),
+        losing all subsequent incremental writes. Only persist ciphertext;
+        ordinary put_bytes still mirrors intentional external modifications.
+        """
+        del content_type
+        with self._lock:
+            self._write_encrypted_atomic(self._path(key), key=key, data=data)
+        return f"fs://{key}"
+
     def fetch_bytes(self, key: str) -> bytes:
         # A resident sandbox already operates on this process-private 0600
         # plaintext tree. Prefer that authoritative hot copy so Preview and

@@ -70,6 +70,9 @@ class Task(Base):
     error: Optional[str]
     results_uri: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     background_job_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    worker_token: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    worker_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    worker_recovery_pending: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"), default=False)
     deployment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("deployments.id", ondelete="SET NULL"),
@@ -99,6 +102,7 @@ class Task(Base):
         ),
         CheckConstraint("progress >= 0 AND progress <= 1", name="ck_tasks_progress"),
         Index("ix_tasks_tenant_status", "tenant_id", "status", "submitted_at"),
+        Index("ix_tasks_worker_heartbeat", "status", "worker_heartbeat_at"),
     )
 
 
@@ -242,6 +246,9 @@ class ScheduledRunExecution(Base):
         Text, ForeignKey("workflows.wf_id", ondelete="CASCADE"), nullable=False,
     )
     run_key: Mapped[str] = mapped_column(Text, nullable=False)
+    worker_token: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    worker_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    worker_recovery_pending: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"), default=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued", default="queued")
     trigger_type: Mapped[str] = mapped_column(Text, nullable=False)
     triggered_at: Mapped[datetime] = mapped_column(
@@ -265,7 +272,7 @@ class ScheduledRunExecution(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'skipped')",
+            "status IN ('queued', 'running', 'cancelling', 'succeeded', 'failed', 'cancelled', 'skipped')",
             name="ck_scheduled_run_executions_status",
         ),
         CheckConstraint(
@@ -274,4 +281,5 @@ class ScheduledRunExecution(Base):
         ),
         UniqueConstraint("schedule_id", "run_key", name="uq_scheduled_run_executions_run_key"),
         Index("ix_scheduled_run_executions_history", "tenant_id", "schedule_id", "triggered_at"),
+        Index("ix_scheduled_run_executions_worker_heartbeat", "status", "worker_heartbeat_at"),
     )

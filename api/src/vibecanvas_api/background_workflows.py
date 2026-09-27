@@ -25,6 +25,7 @@ from vibecanvas_api.background_tasks.authorization_apply import (
     apply_authorization_mutation,
 )
 from vibecanvas_api.background_tasks.batch_exec import batch_exec
+from vibecanvas_api.background_tasks.task_recovery import recover_task_workers
 from vibecanvas_api.background_tasks.concurrency_reconciler import (
     reconcile_concurrency,
 )
@@ -48,6 +49,7 @@ from vibecanvas_api.storage.repo_deployment_invocations import (
 )
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 from vibecanvas_api.storage.sync_session import short_admin_session
+from vibecanvas_api.services.workflow_deletion import run_cleanup
 
 
 async def _load_batch_payload(task_id: str) -> dict[str, Any]:
@@ -69,12 +71,15 @@ async def _load_batch_payload(task_id: str) -> dict[str, Any]:
             "output": payload.get("output"),
             "output_columns": payload.get("output_columns"),
             "concurrency": payload.get("concurrency", 1),
+            "mount_enabled": payload.get("mount_enabled", True),  # Legacy batches implicitly mounted storage.
             "resume": task.status == "resuming",
+            "workflow_snapshot": payload.get("workflow_snapshot"),
         }
 
 
 def _run_batch_from_id(*, task_id: str) -> Any:
-    return batch_exec(**asyncio.run(_load_batch_payload(task_id)))
+    return batch_exec(_delivery_id=DBOS.workflow_id,
+                      **asyncio.run(_load_batch_payload(task_id)))
 
 
 async def _load_deployment_payload(invocation_id: str) -> dict[str, Any]:
@@ -166,6 +171,9 @@ def _task_registration(
 
 
 batch_exec_workflow = _task_registration("batch_exec", _run_batch_from_id)
+workflow_delete_cleanup = _task_registration(
+    "workflow.delete_cleanup", run_cleanup, retries_allowed=True, max_attempts=12,
+)
 deployment_invoke_workflow = _task_registration(
     "deployment_invoke", _run_deployment_from_id
 )
@@ -181,6 +189,7 @@ authorization_apply_workflow = _task_registration(
 )
 
 TASK_WORKFLOWS = {
+    "workflow.delete_cleanup": workflow_delete_cleanup,
     "batch_exec": batch_exec_workflow,
     "deployment_invoke": deployment_invoke_workflow,
     "kb.index_file": kb_index_file_workflow,
@@ -210,6 +219,7 @@ def _schedule_registration(
 dispatch_due_workflow = _schedule_registration(
     "scheduled_runs.dispatch_due", dispatch_due_scheduled_runs
 )
+task_recovery_workflow = _schedule_registration("tasks.recover_workers", recover_task_workers)
 queued_reconciler_workflow = _schedule_registration(
     "background.reconcile_queued", resubmit_stuck_queued
 )
@@ -230,6 +240,12 @@ kb_orphan_workflow = _schedule_registration(
 
 
 SCHEDULES = [
+    {
+        "schedule_name": "flowork-task-worker-recovery",
+        "workflow_fn": task_recovery_workflow,
+        "schedule": "0 * * * * *",
+        "queue_name": "control",
+    },
     {
         "schedule_name": "flowork-data-purge",
         "workflow_fn": data_purge_workflow,
@@ -286,6 +302,7 @@ SCHEDULES = [
 
 
 SCHEDULE_WORKFLOWS = {
+    "tasks.recover_workers": task_recovery_workflow,
     "scheduled_runs.dispatch_due": dispatch_due_workflow,
     "background.reconcile_queued": queued_reconciler_workflow,
     "authorization.audit": authorization_reconciler_workflow,

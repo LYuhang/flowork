@@ -21,6 +21,7 @@
  */
 import { useNodes } from '@xyflow/react';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
+import { useWorkflowSnapshot } from '@/pages/canvas/WorkflowSnapshotContext';
 
 export interface NodeRef {
   /** node_id, e.g. "node_3". */
@@ -48,7 +49,8 @@ export function useSelectedNodeId(): string | null {
 
 /** The live draft graph (flat dict keyed by node_id), or null. */
 export function useDraftGraph(): Record<string, unknown> | null {
-  return useWorkflowEditStore((s) => s.draft);
+  const snapshot = useWorkflowSnapshot();
+  return useWorkflowEditStore((s) => snapshot ?? s.draft);
 }
 
 function isNodeKey(key: string): boolean {

@@ -69,6 +69,9 @@ const AppLayout = lazy(() =>
 const ChatPage = lazy(() =>
   loadChatPage().then((m) => ({ default: m.ChatPage })),
 );
+const SharedChatPage = lazy(() =>
+  import('@/pages/chat/SharedChatPage').then((m) => ({ default: m.SharedChatPage })),
+);
 const EmbedChatPage = lazy(() =>
   loadEmbedChatPage().then((m) => ({ default: m.EmbedChatPage })),
 );
@@ -176,6 +179,7 @@ export const router = createBrowserRouter([
   // chrome) and outside RequireAuth (the page seeds a relayed token or shows
   // its own login — Entry A/B in the design). It self-gates on auth.
   { path: '/embed/chat', element: routeElement(EmbedChatPage) },
+  { path: '/share/:token', element: routeElement(SharedChatPage) },
   // Public auth pages — no AppLayout, no RequireAuth.
   { path: '/login', element: routeElement(LoginPage, <AuthRouteFallback />) },
   { path: '/signup', element: routeElement(SignupPage, <AuthRouteFallback />) },

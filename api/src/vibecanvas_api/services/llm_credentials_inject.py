@@ -38,6 +38,7 @@ from vibecanvas_api.services.agent_runtime.workflow_model_capability import (
 )
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_llm_credentials import LlmCredentialsRepo
+from vibecanvas_api.services.workflow_model_policy import is_workflow_credential
 from vibecanvas_api.storage.sync_session import run_in_short_session
 
 logger = structlog.get_logger(__name__)
@@ -206,17 +207,14 @@ def _brokered_entry(
 
 
 def collect_referenced_credential_names(workflow_dict: dict) -> set[str]:
-    """Scan a workflow dict for ``node_config["model_name"]`` values that are NOT
-    built-ins — i.e. candidate saved-credential names to resolve.
+    """Scan a workflow dict for ``node_config["model_name"]`` values requiring a saved manual API.
 
     Both ``PromptNode`` and ``SubAgentNode`` store their model at the same
     ``node_config["model_name"]`` key and are handled identically (saved names
-    only; built-ins are skipped). Names are deduped across node types.
+    only; every reference must resolve to a manual API). Names are deduped across node types.
 
     A workflow is a flat ``{node_id: node}`` dict (+ a reserved ``__meta__``
     key). Pure / side-effect-free so it is unit-testable without a DB."""
-    builtins = _builtin_model_names()
-    default_aliases = platform_default_model_aliases()
     referenced: set[str] = set()
     for node_id, node in (workflow_dict or {}).items():
         if node_id == "__meta__" or not isinstance(node, dict):
@@ -224,7 +222,7 @@ def collect_referenced_credential_names(workflow_dict: dict) -> set[str]:
         if node.get("node_type") not in _MODEL_NAME_NODE_TYPES:
             continue
         name = (node.get("node_config") or {}).get("model_name")
-        if isinstance(name, str) and name and (name not in builtins or name in default_aliases):
+        if isinstance(name, str) and name:
             referenced.add(name)
     return referenced
 
@@ -245,53 +243,32 @@ async def build_llm_credentials_extra(
     """Build the ``extra['llm_credentials']`` mapping for ``workflow_dict``.
 
     The ``api_key`` values in the result are signed broker capabilities, not
-    provider secrets. Empty dict when no saved/default model is referenced.
+    provider secrets. Empty dict when there are no model-backed nodes.
 
     ``session`` MUST already be tenant-bound (``session_scope(tenant_id=...)`` /
     ``run_in_short_session`` with the tenant CV set) — RLS scopes the rows. Reads
-    only metadata required to mint a capability. Fail-soft: a repo error logs +
-    returns whatever platform-default aliases were resolved."""
+    only metadata required to mint a capability. Missing or ineligible references
+    and storage errors fail closed before execution."""
     reject_inline_model_credentials(workflow_dict)
     referenced = collect_referenced_credential_names(workflow_dict)
     if not referenced:
         return {}
 
     mapping: dict[str, dict] = {}
-    default_entry = platform_default_credential_entry()
-    if default_entry:
-        default_provider = _normalized_provider(default_entry.get("provider"))
-        default_model = str(default_entry.get("model_name") or "").strip()
-        brokered_default = _brokered_entry(
-            organization_id=organization_id,
-            user_id=user_id,
-            workflow_id=workflow_id,
-            execution_id=execution_id,
-            execution_resource_type=execution_resource_type,
-            credential_id=None,
-            provider=default_provider,
-            model=default_model,
-            config_revision=model_config_revision(
-                provider=default_provider,
-                model=default_model,
-                updated_at="platform-process-config",
-            ),
-            model_context_tokens=default_entry.get("model_context_tokens"),
-            timeout=default_entry.get("timeout"),
-            principal_type=principal_type,
-            principal_id=principal_id,
-            principal_generation=principal_generation,
+    # Fail closed: a DB failure must not fall back to a platform model.
+    rows = await LlmCredentialsRepo(session).list_for_user(user_id)
+    eligible = {row["name"]: row for row in rows if is_workflow_credential(row)}
+    unavailable = referenced - eligible.keys()
+    if unavailable:
+        raise ValueError(
+            "Workflow models must reference your enabled manually added APIs. "
+            "Select a replacement using flowork-cli config get --scope model_api. "
+            "Unavailable model handles: " + ", ".join(sorted(unavailable))
         )
-        for alias in sorted(platform_default_model_aliases() & referenced):
-            mapping[alias] = brokered_default
-    try:
-        rows = await LlmCredentialsRepo(session).list_for_user(user_id)
-    except Exception:  # pragma: no cover - fail-soft, never abort the run here
-        logger.warning("llm_credentials_fetch_failed", exc_info=True)
-        return mapping
 
     for row in rows:
         name = row.get("name")
-        if name in referenced:
+        if name in referenced and name in eligible:
             if not row.get("secret_ref"):
                 # A strict SecretService reference is mandatory.
                 logger.warning(

@@ -506,6 +506,35 @@ async def test_agent_owned_chat_files_are_read_only_previewable(
     assert write.json()["detail"] == "preview_file_read_only"
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("root", ["memory", "logs", "data"])
+async def test_chat_binary_preview_url_reads_the_same_workspace_resource(
+    client, app_engine, root,
+):
+    headers, me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    path = f"/{root}/document-feedback/page-001.png"
+    payload = b"\x89PNG\r\n\x1a\n" + b"preview image bytes"
+    await _write_chat_workspace_file(
+        tenant_id=me["tenant_id"], scope_id=scope_id,
+        path=path, data=payload, mime="image/png",
+    )
+    resolved = await client.post(
+        "/api/v1/previews/resolve", headers=headers,
+        json={"fileRef": {"schemaVersion": 1, "scope": "chat", "chatId": chat_id, "path": path}},
+    )
+    assert resolved.status_code == 200, resolved.text
+    descriptor = resolved.json()
+    assert descriptor["renderer"] == "image"
+    # Media requests carry the signed capability, not an Authorization header.
+    response = await client.get(descriptor["content"]["url"])
+    assert response.status_code == 200, response.text
+    assert response.content == payload
+    assert response.headers["content-type"].startswith("image/png")
+    ranged = await client.get(descriptor["content"]["url"], headers={"Range": "bytes=0-7"})
+    assert ranged.status_code == 206, ranged.text
+    assert ranged.content == payload[:8]
+
+
+@pytest.mark.asyncio
 async def test_preview_detects_pdf_streams_range_and_rejects_plain_archives(
     client, app_engine,
 ):

@@ -95,8 +95,15 @@ class UrlPreviewView(_StrictModel):
         return value
 
 
+class WorkflowPreviewView(_StrictModel):
+    type: Literal["workflow_preview"]
+    workflow_id: str = Field(min_length=1)
+    version: str = Field(pattern=r"^v[1-9]\d*\.sv\d+$")
+    description: str = ""
+
+
 InteractiveView: TypeAlias = Annotated[
-    HtmlPreviewView | FilePreviewView | UrlPreviewView,
+    HtmlPreviewView | FilePreviewView | UrlPreviewView | WorkflowPreviewView,
     Field(discriminator="type"),
 ]
 
@@ -160,7 +167,7 @@ def _validation_tool_error(field: str, exc: ValidationError) -> ToolError:
     detail = "; ".join(messages) or f"{field} does not match the required schema"
     return ToolError(
         "invalid_interactive_input",
-        f"Invalid render_interactive {field}: {detail}. Fix these fields and call the tool again.",
+        f"Invalid preview {field}: {detail}. Fix these fields and call the tool again.",
         info={"field": field, "errors": errors},
     )
 

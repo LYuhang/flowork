@@ -3,9 +3,70 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import text
+
+
+@pytest.mark.parametrize("mount_enabled", [False, True])
+@pytest.mark.parametrize("outcome", ["result", "empty", "error", "cleanup_error"])
+async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
+    monkeypatch, mount_enabled, outcome,
+):
+    from vibecanvas_api.background_tasks import scheduled_runs as worker
+    from vibecanvas_api.services.task_worker import WorkerClaim
+
+    task_id, schedule_id, execution_id, tenant, user = [uuid.uuid4() for _ in range(5)]
+    claim = WorkerClaim("schedule", execution_id, uuid.uuid4())
+    scope = claim.scope_id
+    sandbox = object()
+    manager = SimpleNamespace(get_session=AsyncMock(return_value=sandbox), close_session=AsyncMock())
+    monkeypatch.setattr(worker, "get_sandbox_manager", lambda: manager)
+    monkeypatch.setattr(worker, "_claim_execution", AsyncMock(return_value=claim))
+    monkeypatch.setattr(worker, "watch_worker", AsyncMock())
+    monkeypatch.setattr(worker, "_execution_cancelled", AsyncMock(return_value=False))
+    monkeypatch.setattr(worker, "_watch_cancellation", AsyncMock())
+    monkeypatch.setattr(worker, "_scheduled_execution_lease", lambda **kw: SimpleNamespace(
+        created_by=user, service_account_id=uuid.uuid4(), generation=1))
+    graph = {"__meta__": {"workflow_id": "wf-original"}}
+    monkeypatch.setattr(worker, "run_in_short_session", lambda fn: ({"value": 0}, graph, mount_enabled))
+    monkeypatch.setattr(worker, "inject_into_run_context_async", AsyncMock(return_value={}))
+    monkeypatch.setattr(worker, "_snapshot_schedule", lambda _: {"enabled": False})
+    updates = []
+    monkeypatch.setattr(worker, "_update_execution", lambda eid, **kw: updates.append(kw))
+    for name in ("_update_task", "_update_schedule", "_emit"):
+        monkeypatch.setattr(worker, name, lambda *a, **kw: None)
+
+    class Stream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if outcome == "empty":
+                raise StopAsyncIteration
+            if outcome == "error":
+                raise RuntimeError("Sandbox released.")
+            return {"type": "result", "final_outputs": {"answer": 0}}
+
+        async def aclose(self):
+            if outcome == "cleanup_error":
+                raise RuntimeError("Connection lost during cleanup.")
+
+    def stream(**kw):
+        assert kw["workflow"] is graph
+        assert kw["workflow_run_id"] == scope
+        assert kw["timeout"] is None
+        return Stream()
+
+    monkeypatch.setattr(worker, "stream_workflow_job", stream)
+    await worker._execute_scheduled_run(task_id=task_id, schedule_id=schedule_id,
+        execution_id=execution_id, tenant_id=str(tenant), user_id=str(user), workflow_id="wf-original")
+    manager.get_session.assert_awaited_once_with(str(tenant), scope, user_id=str(user),
+        expose_run=True, expose_mount=mount_enabled)
+    manager.close_session.assert_awaited_once_with(str(tenant), scope)
+    assert updates[-1]["status"] == ("failed" if outcome in {"empty", "error"} else "succeeded")
+    assert bool(updates[-1]["error"]) is (outcome in {"empty", "error"})
 
 
 async def _seed_tenant_user_workflow(pg_engine):
@@ -43,6 +104,55 @@ def test_compute_next_run_at_interval():
         base=base,
     )
     assert out == datetime(2026, 7, 10, 11, 0, tzinfo=timezone.utc)
+
+
+def test_future_cron_start_is_a_lower_bound_not_an_off_cron_execution():
+    from vibecanvas_api.services.scheduled_runs import compute_next_run_at
+    assert compute_next_run_at(schedule_type="cron", timezone_name="UTC", cron_expr="0 * * * *",
+        base=datetime(2026, 7, 10, 10, 0, tzinfo=timezone.utc),
+        start_at=datetime(2026, 7, 10, 11, 30, tzinfo=timezone.utc),
+    ) == datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_execution_snapshots_follow_only_selected_branch_and_survive_updates(pg_engine):
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.workflow_repo import WorkflowRepo
+    from vibecanvas_api.storage.repo_tasks import TasksRepo
+    tenant, user, workflow = await _seed_tenant_user_workflow(pg_engine)
+    task_id, schedule_id, first_id, second_id = [uuid.uuid4() for _ in range(4)]
+    async with session_scope(tenant_id=str(tenant)) as session:
+        graphs = WorkflowRepo(session, str(user))
+        await graphs.commit(workflow, {"marker": "branch-one"}, target_major=1)
+        await graphs.new_version(workflow, {"marker": "branch-two"})
+        repo = TasksRepo(session)
+        await repo.create_schedule(task_id=task_id, schedule_id=schedule_id, tenant_id=tenant,
+            user_id=user, workflow_id=workflow, name="snapshot", enabled=False,
+            schedule_type="interval", cron_expr=None, interval_seconds=60, timezone="UTC",
+            input_preset={"number": 0}, mount_enabled=False, notification_policy={}, next_run_at=None,
+            workflow_selector={"major": "v1"})
+        first = await repo.create_scheduled_execution(execution_id=first_id, tenant_id=tenant,
+            schedule_id=schedule_id, workflow_id=workflow, run_key="one", trigger_type="manual", input_snapshot={"number": 0})
+        assert first.workflow_snapshot["version"] == "v1.sv1"
+        assert first.workflow_snapshot["workflow"]["marker"] == "branch-one"
+        assert first.workflow_snapshot["mount_enabled"] is False
+        await repo.update_schedule(schedule_id, mount_enabled=True)
+        await graphs.commit(workflow, {"marker": "branch-one-new"}, target_major=1)
+        await repo.update_scheduled_execution(first_id, status="succeeded", result={"value": False})
+        second = await repo.create_scheduled_execution(execution_id=second_id, tenant_id=tenant,
+            schedule_id=schedule_id, workflow_id=workflow, run_key="two", trigger_type="manual", input_snapshot={"number": 2})
+        assert second.workflow_snapshot["version"] == "v1.sv2"
+        assert second.workflow_snapshot["mount_enabled"] is True
+        await repo.update_schedule(schedule_id, workflow_selector={"version": "v1.sv1"}, start_at=None)
+        fixed = await repo.create_scheduled_execution(execution_id=uuid.uuid4(), tenant_id=tenant,
+            schedule_id=schedule_id, workflow_id=workflow, run_key="three", trigger_type="manual", input_snapshot={})
+        assert fixed.workflow_snapshot["workflow"]["marker"] == "branch-one"
+    async with session_scope(tenant_id=str(tenant)) as session:
+        first = await TasksRepo(session).get_scheduled_execution(first_id)
+        assert first.workflow_snapshot["version"] == "v1.sv1"
+        assert first.workflow_snapshot["mount_enabled"] is False
+        assert first.input_snapshot == {"number": 0}
+        assert first.result == {"value": False}
 
 
 def test_scheduled_run_routes_and_queue_are_registered():

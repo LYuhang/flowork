@@ -37,6 +37,8 @@ vi.mock('@/lib/api/queries/workflows', () => ({
 }));
 vi.mock('@/lib/api/queries/workflow', () => ({
   useWorkflow: vi.fn(() => ({ data: null, isLoading: false, isError: false })),
+  useWorkflowVersions: vi.fn(() => ({ data: { versions: [] }, isLoading: false, isError: false })),
+  useWorkflowAt: vi.fn(() => ({ data: null, isLoading: false, isError: false })),
 }));
 vi.mock('@/pages/canvas/inspector/BatchTab', () => ({
   BatchTab: () => <div data-testid="mock-batch-tab">Batch form</div>,

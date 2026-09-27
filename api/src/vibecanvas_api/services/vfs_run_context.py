@@ -81,7 +81,8 @@ async def sync_run_back(run_id: str, tenant_id: str, run_dir: str | None,
             try:
                 await repo.write_bytes(
                     run_id=run_id, path=vfs_path, data=data,
-                    content_type=_guess_ct(rel, data), wf_id=wf_id)
+                    content_type=_guess_ct(rel, data), wf_id=wf_id,
+                    from_materialized=True)
                 synced += 1
             except Exception:  # fail-soft per file
                 logger.warning("run_writeback_file_failed", run_id=run_id,
@@ -112,6 +113,7 @@ def sync_run_back_sync(
         return PostgresVfsRunStore().write_many_sync(
             run_id=run_id,
             wf_id=wf_id,
+            from_materialized=True,
             items=[
                 (
                     "/run/" + relative_path.replace(os.sep, "/"),

@@ -172,7 +172,6 @@ class RuntimeCommandContext(BaseModel):
     is_first: bool = False
     chat_context: str = ""
     workspace_scope_id: str = ""
-    current_workflow_id: str | None = None
     agent_surface: Literal["chat", "browser"] = "chat"
     available_commands: list[str] = Field(default_factory=list)
     active_modes: list[str] = Field(default_factory=list)
@@ -346,16 +345,9 @@ class RuntimeTurnRequest(BaseModel):
     surface: Literal["main", "sidepanel"] = "main"
     active_platform_mcps: list[
         Literal[
-            "config",
             "interactive",
-            "workflow",
-            "task",
-            "deployment",
-            "knowledge",
-            "build",
+            "cli",
             "browser",
-            "diagram",
-            "document",
         ]
     ] = Field(default_factory=list)
     mcp_config_revision: int = Field(default=0, ge=0)
@@ -653,6 +645,11 @@ class RuntimeMcpGatewayRequest(BaseModel):
 
     request_id: str = Field(min_length=1, max_length=256)
     operation: Literal[
+        "interaction",
+        "cli_call",
+        "browser_authorize",
+        "browser_commit",
+        "browser_transfer",
         "manifest",
         "call",
         "launch",
@@ -706,6 +703,11 @@ class RuntimeMcpGatewayResponse(BaseModel):
     turn_id: str
     control_type: Literal["mcp_gateway"] = "mcp_gateway"
     operation: Literal[
+        "interaction",
+        "cli_call",
+        "browser_authorize",
+        "browser_commit",
+        "browser_transfer",
         "manifest",
         "call",
         "launch",

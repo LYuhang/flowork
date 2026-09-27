@@ -127,6 +127,11 @@ _SCIM_ENDPOINTS = frozenset({
 })
 
 _EXPLICIT_ACTIONS = {
+    "create_share": Action.EXPORT,
+    "list_shares": Action.VIEW,
+    "revoke_share": Action.VIEW,
+    "get_feedback": Action.VIEW,
+    "put_feedback": Action.VIEW,
     # These sub-surfaces deliberately require a permission different from the
     # generic HTTP verb / endpoint-name inference. They mirror the action used
     # by the route's runtime AuthzService check.
@@ -315,6 +320,14 @@ def permission_for_route(
             action=None,
             selector="none",
             parent_resolver="none",
+        )
+    if endpoint == "read_public_share":
+        return _spec(
+            admission=AdmissionKind.EXTERNAL_CREDENTIAL,
+            resource_type=ResourceType.CHAT,
+            action=Action.VIEW,
+            selector="path:unguessable_share_token",
+            parent_resolver="active_share_token_hash_to_snapshot",
         )
     if endpoint in _SIGNED_CAPABILITY_ENDPOINTS:
         if endpoint == "mcp_oauth_callback":
@@ -829,6 +842,10 @@ def route_permission_manifest(app: FastAPI) -> tuple[RoutePermission, ...]:
 
 WORKER_PERMISSION_MANIFEST = (
     WorkerPermission(
+        "workflow.delete_cleanup", "platform_worker", ResourceType.WORKFLOW,
+        Action.DELETE, "workflow_deletion_cleanup_ledger",
+    ),
+    WorkerPermission(
         "authorization.apply_mutation", "platform_worker",
         ResourceType.ORGANIZATION, Action.MANAGE_POLICY,
         "authorization_projection_inventory",
@@ -878,6 +895,10 @@ WORKER_PERMISSION_MANIFEST = (
         ResourceType.TASK, Action.RESUME, "task_inventory",
     ),
     WorkerPermission(
+        "tasks.recover_workers", "platform_worker",
+        ResourceType.TASK, Action.CANCEL, "stale_task_worker_lease_inventory",
+    ),
+    WorkerPermission(
         "scheduled_runs.dispatch_due", "service_account",
         ResourceType.TASK, Action.EXECUTE, "schedule_to_task",
     ),
@@ -888,132 +909,17 @@ WORKER_PERMISSION_MANIFEST = (
 )
 
 
-def _mcp_action(tool_name: str) -> Action:
-    name = tool_name.lower()
-    if name.endswith("_list") or name.startswith("list_"):
-        return Action.VIEW_METADATA
-    if (
-        name.endswith("_get")
-        or name.startswith(("get_", "check_"))
-        or name == "get_config"
-    ):
-        return Action.VIEW
-    if "cancel" in name:
-        return Action.CANCEL
-    if "resume" in name:
-        return Action.RESUME
-    if "execute" in name or name.startswith(("run_", "batch_execute")):
-        return Action.EXECUTE
-    if name.startswith(("task_create_", "create_workflow")):
-        return Action.CREATE
-    if name == "deployment_create":
-        return Action.DEPLOY
-    if name.startswith(("task_delete_", "deployment_delete")):
-        return Action.DELETE
-    return Action.UPDATE
-
-
 def platform_mcp_permission_manifest() -> tuple[McpToolPermission, ...]:
-    """Build the exact tool inventory from the same exported tool lists."""
-    from vibecanvas_api.services.platform_mcp.authorization import (
-        platform_mcp_tool_action,
-        platform_resource_tool_action,
-    )
-    from vibecanvas_api.services.platform_mcp.build_tools import BUILD_TOOLS
-    from vibecanvas_api.services.platform_mcp.build_tools.workflow_context import (
-        create_workflow,
-        set_workflow,
-    )
-    from vibecanvas_api.services.platform_mcp.config_tools import CONFIG_TOOLS
-    from vibecanvas_api.services.platform_mcp.interactive_tools import (
-        INTERACTIVE_TOOLS,
-    )
-    from vibecanvas_api.services.platform_mcp.resource_tools import (
-        DEPLOYMENT_MCP_TOOLS,
-        KNOWLEDGE_MCP_TOOLS,
-        TASK_MCP_TOOLS,
-    )
-    from vibecanvas_api.services.platform_mcp.run_tools import RUN_TOOLS
-    from vibecanvas_api.services.platform_mcp.workflow_tools import (
-        WORKFLOW_MCP_TOOLS,
-    )
+    """The built-in MCP surface consists only of persisted render interactions."""
+    from vibecanvas_api.services.platform_mcp.interactive_tools import INTERACTIVE_TOOLS
 
-    definitions = {
-        "config": (
-            CONFIG_TOOLS,
-            ResourceType.PLATFORM_CATALOG,
-            "platform_policy",
-        ),
-        "interactive": (
-            INTERACTIVE_TOOLS,
-            ResourceType.CHAT,
-            "platform_capability_to_chat",
-        ),
-        "workflow": (
-            WORKFLOW_MCP_TOOLS,
-            ResourceType.WORKFLOW,
-            "tool_argument_or_chat_binding_to_workflow",
-        ),
-        "task": (
-            TASK_MCP_TOOLS,
-            ResourceType.TASK,
-            "tool_argument_to_task",
-        ),
-        "deployment": (
-            DEPLOYMENT_MCP_TOOLS,
-            ResourceType.DEPLOYMENT,
-            "tool_argument_to_deployment",
-        ),
-        "knowledge": (
-            KNOWLEDGE_MCP_TOOLS,
-            ResourceType.KNOWLEDGE_BASE,
-            "tool_argument_or_list_to_knowledge_base",
-        ),
-        "build": (
-            [set_workflow, create_workflow, *BUILD_TOOLS, *RUN_TOOLS],
-            ResourceType.WORKFLOW,
-            "tool_argument_or_chat_binding_to_workflow",
-        ),
-    }
     return tuple(
         McpToolPermission(
-            server=server,
+            server="interactive",
             tool_name=str(tool.name),
-            resource_type=(
-                ResourceType.ORGANIZATION
-                if server == "build"
-                and str(tool.name) == "create_workflow"
-                or server == "task"
-                and str(tool.name) == "task_create_scheduled_run"
-                else ResourceType.WORKFLOW
-                if server == "deployment"
-                and str(tool.name) == "deployment_create"
-                else resource_type
-            ),
-            action=(
-                platform_mcp_tool_action(str(tool.name))
-                if server in {"workflow", "build"}
-                else platform_resource_tool_action(
-                    server,
-                    str(tool.name),
-                )
-                if server in {"task", "deployment", "knowledge"}
-                else _mcp_action(str(tool.name))
-            ),
-            parent_resolver=(
-                "platform_capability_to_organization"
-                if (
-                    server == "build"
-                    and str(tool.name) == "create_workflow"
-                    or server == "task"
-                    and str(tool.name) == "task_create_scheduled_run"
-                )
-                else "tool_argument_to_workflow"
-                if server == "deployment"
-                and str(tool.name) == "deployment_create"
-                else parent_resolver
-            ),
+            resource_type=ResourceType.CHAT,
+            action=Action.UPDATE,
+            parent_resolver="platform_capability_to_chat",
         )
-        for server, (tools, resource_type, parent_resolver) in definitions.items()
-        for tool in tools
+        for tool in INTERACTIVE_TOOLS
     )

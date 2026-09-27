@@ -66,6 +66,8 @@ message AcquireRequest {
   bool expose_run = 9;
   bool expose_runtime = 10;
   string request_id = 11;
+  // Omitted by older clients means enabled; explicit false never hydrates/binds /mount.
+  optional bool expose_mount = 12;
 }
 
 message AcquireResponse {

@@ -490,6 +490,7 @@ def _build_job_pool(concurrency: int, runs_root: str):
         env=dict(os.environ),
         max_workers=concurrency,
         no_site=False,
+        own_process_group=True,
     )
 
 
@@ -516,16 +517,45 @@ def _fileop_roots(runs_root: str) -> list[str]:
 
 
 def _get_parallel_workflow_pool(pool_holder: dict, pool_lock, concurrency: int,
-                                runs_root: str):
-    pool = pool_holder.get("pool")
-    if pool is not None:
+                                runs_root: str, *, execution_pool_id: str = "", work_dir: str = ""):
+    if execution_pool_id and (len(execution_pool_id) != 32 or any(c not in "0123456789abcdef" for c in execution_pool_id)):
+        raise ValueError("invalid execution pool ID")
+    key = "cli:" + execution_pool_id if execution_pool_id else "pool"
+    pool = pool_holder.get(key)
+    if pool is not None and not execution_pool_id:
         return pool
     with pool_lock:
-        pool = pool_holder.get("pool")
+        if execution_pool_id and os.path.exists(os.path.join(work_dir, "pool-control", execution_pool_id + ".stop")):
+            raise RuntimeError("Execution pool was stopped; queued job will not start.")
+        pool = pool_holder.get(key)
         if pool is None:
             pool = _build_job_pool(concurrency, runs_root)
-            pool_holder["pool"] = pool
+            pool_holder[key] = pool
     return pool
+
+
+def _stop_requested_pools(pool_holder: dict, pool_lock, work_dir: str) -> None:
+    """Private supervisor control, serviced even when all job slots are busy."""
+    directory = os.path.join(work_dir, "pool-control")
+    for marker in glob.glob(os.path.join(directory, "*.stop")):
+        pool_id = os.path.basename(marker)[:-5]
+        if len(pool_id) != 32 or any(c not in "0123456789abcdef" for c in pool_id):
+            continue
+        done = os.path.join(directory, pool_id + ".done")
+        if os.path.exists(done):
+            continue
+        with pool_lock:
+            pool = pool_holder.pop("cli:" + pool_id, None)
+        try:
+            confirmed = pool.close() if pool is not None else True
+            result = {"closed": confirmed is not False}
+        except Exception:
+            result = {"closed": False}
+        with open(done + ".tmp", "w", encoding="utf-8") as stream:
+            json.dump(result, stream)
+        os.replace(done + ".tmp", done)
+        # Keep the stop tombstone until sandbox teardown: late queued rows
+        # must never recreate a pool belonging to a finished CLI command.
 
 
 class _ActivityPublisher:
@@ -602,7 +632,9 @@ def _run_one_job_to_outbox(pool_holder: dict, pool_lock, concurrency: int,
             result = run_mcp_job(desc.get("op") or {})
         else:
             pool = _get_parallel_workflow_pool(
-                pool_holder, pool_lock, concurrency, runs_root
+                pool_holder, pool_lock, concurrency, runs_root,
+                execution_pool_id=desc.get("execution_pool_id") or "",
+                work_dir=os.path.dirname(inbox),
             )
             tenant = desc.get("tenant", "")
             run_id = desc.get("run_id", "")
@@ -614,7 +646,16 @@ def _run_one_job_to_outbox(pool_holder: dict, pool_lock, concurrency: int,
                         else os.path.join(runs_root, tenant, run_id))
             job = {"kind": desc.get("kind", "workflow"), "run_root": run_root,
                    "run_id": run_id, "tenant": tenant}
-            result = pool.run(job, timeout)
+            if desc.get("kind") in {"workflow", "node"} and "execution_timeout" in desc:
+                timeout = desc["execution_timeout"]
+                if timeout is not None and (type(timeout) not in (int, float) or not 0 < timeout < float("inf")):
+                    raise ValueError("Invalid execution timeout")
+            if desc.get("kill_individually"):
+                # Supervisor-only control: never signal the workflow engine's
+                # cooperative __exec__/cancel watcher for CLI hard cancellation.
+                result = pool.run(job, timeout, kill_path=os.path.join(run_root, "__exec__", "worker.kill"))
+            else:
+                result = pool.run(job, timeout)
     except Exception as e:
         result = {"ok": False, "error": str(e)}
     try:
@@ -665,6 +706,7 @@ def serve_loop_parallel(work_dir: str, runs_root: str, concurrency: int,
     os.replace(tmp_ready, ready_path)
     try:
         while True:
+            _stop_requested_pools(pool_holder, pool_lock, work_dir)
             if os.path.exists(os.path.join(work_dir, "shutdown")):
                 break
             for jid in [j for j, fut in list(inflight.items()) if fut.done()]:
@@ -699,14 +741,13 @@ def serve_loop_parallel(work_dir: str, runs_root: str, concurrency: int,
             if not claimed_any:
                 time.sleep(poll_interval)
     finally:
+        for pool in list(pool_holder.values()):
+            try:
+                pool.close()
+            except Exception:
+                pass
         executor.shutdown(wait=True)
         _close_mcp_runtime()
-        pool = pool_holder.get("pool")
-        try:
-            if pool is not None:
-                pool.close()
-        except Exception:
-            pass
 
 
 def main() -> None:

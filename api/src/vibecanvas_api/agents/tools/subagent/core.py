@@ -7,14 +7,15 @@ the unified Runtime protocol.
 
 from __future__ import annotations
 
+import re
+from collections import Counter
 from collections.abc import Awaitable, Callable
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import Field, create_model
-
 from vibecanvas_api.agents.tools.subagent.output import coerce_to_fields
-from vibecanvas_api.services.platform_mcp.tool_runtime import AgentContext
+from vibecanvas_api.agents.tool_runtime import AgentContext
 
 
 @dataclass
@@ -25,16 +26,7 @@ class SubAgentResult:
     error: str | None = None
 
 
-_TYPE_MAP = {
-    "string": str,
-    "str": str,
-    "integer": int,
-    "int": int,
-    "number": float,
-    "float": float,
-    "boolean": bool,
-    "bool": bool,
-}
+_TYPE_ALIASES = {"str": "string", "int": "integer", "float": "number", "bool": "boolean"}
 
 
 def _message_text(message: Any) -> str:
@@ -71,6 +63,34 @@ def _messages_to_trace(messages: list) -> list[dict]:
     return trace
 
 
+def _tool_diagnostics(messages: list) -> str:
+    """Summarize exhausted loops without echoing prompts, arguments or bodies."""
+    counts: Counter[str] = Counter()
+    errors: Counter[str] = Counter()
+    for message in messages:
+        if getattr(message, "type", None) != "tool":
+            continue
+        name = str(getattr(message, "name", None) or "tool")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+            name = "tool"
+        counts[name] += 1
+        artifact = getattr(message, "artifact", None)
+        if isinstance(artifact, dict) and artifact.get("status") == "error":
+            error = artifact.get("error") or {}
+            code = str(error.get("code") or "tool_error") if isinstance(error, dict) else "tool_error"
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", code):
+                code = "tool_error"
+            errors[f"{name}:{code}"] += 1
+        elif getattr(message, "status", None) == "error":
+            errors[f"{name}:tool_error"] += 1
+    if not counts:
+        return "; no completed tool calls"
+    details = "; completed tools: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    if errors:
+        details += "; tool errors: " + ", ".join(f"{k}={v}" for k, v in sorted(errors.items()))
+    return details
+
+
 def _system_message(prompt: str, output_fields: dict, tool_name: str) -> str:
     fields = []
     for name, raw_spec in output_fields.items():
@@ -90,21 +110,33 @@ def _system_message(prompt: str, output_fields: dict, tool_name: str) -> str:
 
 
 def _make_output_tool(output_fields: dict, holder: dict[str, dict]):
-    from langchain_core.tools import StructuredTool
+    import jsonschema
+    from langchain_core.tools import StructuredTool, ToolException
 
-    schema_fields: dict[str, Any] = {}
+    properties = {}
     for name, raw_spec in output_fields.items():
         spec = raw_spec if isinstance(raw_spec, dict) else {}
-        value_type = _TYPE_MAP.get(str(spec.get("type") or "string").lower(), str)
-        default: Any = "" if value_type is str else (False if value_type is bool else 0)
-        schema_fields[name] = (
-            value_type | None,
-            Field(default=default, description=str(spec.get("description") or "")),
-        )
-    schema = create_model("WorkflowSubAgentOutput", **schema_fields)
+        field_type = str(spec.get("type") or "string").lower()
+        properties[name] = {
+            **(spec.get("schema") if isinstance(spec.get("schema"), dict) else {}),
+            "type": _TYPE_ALIASES.get(field_type, field_type),
+            "description": str(spec.get("description") or ""),
+        }
+    # Pass JSON Schema directly: the SDK's Pydantic subset-model conversion
+    # discards field json_schema_extra, hiding nested properties from the model.
+    schema = {
+        "type": "object", "properties": properties,
+        "required": list(properties), "additionalProperties": False,
+    }
+    validator = jsonschema.Draft202012Validator(schema)
 
     async def set_output(**kwargs) -> str:
-        holder["output"] = coerce_to_fields(kwargs, output_fields)
+        try:
+            validator.validate(kwargs)
+        except jsonschema.ValidationError as exc:
+            path = ".".join(map(str, exc.absolute_path)) or "result"
+            raise ToolException(f"Invalid output at {path}: {exc.message}") from exc
+        holder["output"] = {name: kwargs[name] for name in output_fields}
         return "Output recorded."
 
     return StructuredTool.from_function(
@@ -112,7 +144,9 @@ def _make_output_tool(output_fields: dict, holder: dict[str, dict]):
         name="set_output",
         description="Record the final structured result and finish the task.",
         args_schema=schema,
-        return_direct=True,
+        handle_tool_error=True,
+        # return_direct also stops on validation errors in LangChain. The loop
+        # below instead stops only after this function records valid output.
     )
 
 
@@ -133,6 +167,7 @@ async def run_bounded_agent(
     """Run a stateless, bounded workflow worker to a structured result."""
     from langchain.agents import create_agent
     from langgraph.errors import GraphRecursionError
+    from vibecanvas_api.agents.tools.subagent.images import ToolImageMessages
 
     if checkpointer is not None or thread_id is not None:
         raise ValueError("workflow subagents do not own persistent Runtime state")
@@ -154,6 +189,7 @@ async def run_bounded_agent(
         model=model,
         tools=[*tools, output_tool],
         context_schema=AgentContext,
+        middleware=[ToolImageMessages()],
     )
     messages = [
         {"role": "system", "content": _system_message(system_prompt, output_fields, output_tool.name)},
@@ -161,34 +197,34 @@ async def run_bounded_agent(
     ]
     config = {"recursion_limit": max(3, int(max_iterations) * 2 + 1)}
 
+    result = {"messages": []}
+    published = 0
     try:
-        if on_trace is None:
-            result = await agent.ainvoke(
-                {"messages": messages},
-                context=ctx,
-                config=config,
-            )
-        else:
-            result = {"messages": []}
-            published = 0
-            async for state in agent.astream(
-                {"messages": messages},
-                context=ctx,
-                config=config,
-                stream_mode="values",
-            ):
+        # Retain the last completed state even when the next iteration fails.
+        # ainvoke loses it on GraphRecursionError, hiding repeated tool errors.
+        async with aclosing(agent.astream(
+            {"messages": messages},
+            context=ctx,
+            config=config,
+            stream_mode="values",
+        )) as updates:
+            async for state in updates:
                 if not isinstance(state, dict):
                     continue
                 result = state
-                trace = _messages_to_trace(list(state.get("messages") or []))
-                for entry in trace[published:]:
-                    await on_trace(entry)
-                published = len(trace)
+                if on_trace is not None:
+                    trace = _messages_to_trace(list(state.get("messages") or []))
+                    for entry in trace[published:]:
+                        await on_trace(entry)
+                    published = len(trace)
+                if "output" in holder:
+                    break
     except GraphRecursionError:
         return SubAgentResult(
             status="incomplete",
             output=coerce_to_fields(holder.get("output") or {}, output_fields),
-            error="max_iterations reached",
+            trace=_messages_to_trace(list(result.get("messages") or [])),
+            error="max_iterations reached" + _tool_diagnostics(list(result.get("messages") or [])),
         )
     except Exception as exc:
         if "output" in holder:

@@ -39,6 +39,7 @@ QUEUE_SPECS: dict[str, BackgroundQueueSpec] = {
 # DBOS persists serialized arguments. Keep its durable history free of private
 # business content by making every public task contract an opaque-record lookup.
 BACKGROUND_JOB_PAYLOAD_KEYS: dict[str, frozenset[str]] = {
+    "workflow.delete_cleanup": frozenset({"workflow_id"}),
     "batch_exec": frozenset({"task_id"}),
     "deployment_invoke": frozenset({"invocation_id"}),
     "kb.index_file": frozenset({"file_id"}),

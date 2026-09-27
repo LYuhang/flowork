@@ -34,11 +34,13 @@ import {
   type InteractiveRenderDiagnostic,
 } from '@/components/agent-sidebar/tool-render/interactive-html-runtime';
 import { CopyButton } from '@/components/agent-sidebar/tool-render/CopyButton';
+import { ChoicesCard } from './ChoicesCard';
 import { useChatRenderIdentity } from '@/components/agent-sidebar/chat-render-context';
 import { AsyncState } from '@/components/ui/async-state';
 import { CHAT_RECONCILED_EVENT } from '@/lib/api/sse/chat-reconcile';
 import type { HitlContinueControl } from '@/lib/api/sse/agent-stream';
 import { getApiBase } from '@/lib/base-path';
+import { standaloneWorkflowPreviewHref } from '@/lib/preview/standalone-preview';
 import {
   createInteractiveResourceSession,
   InteractiveArtifactRequestError,
@@ -64,6 +66,9 @@ const UrlPreviewRenderer = lazy(() =>
   import('@/pages/chat/preview/UrlPreviewRenderer').then((module) => ({
     default: module.UrlPreviewRenderer,
   })),
+);
+const WorkflowPreviewRenderer = lazy(() =>
+  import('@/pages/chat/preview/WorkflowPreviewRenderer').then((module) => ({ default: module.WorkflowPreviewRenderer })),
 );
 
 interface InteractiveArtifactBlockProps {
@@ -228,7 +233,7 @@ function InteractiveDiagnosticPanel({
       'tool.interactive.diagnostic.feedback_prefill',
       'The interactive preview failed. Please inspect and regenerate it.\n\nTool: {{tool}}\n\nTool input:\n{{input}}\n\nRender diagnostics:\n{{details}}',
       {
-        tool: feedbackContext?.toolName || 'render_interactive',
+        tool: feedbackContext?.toolName || 'render_preview',
         input: feedbackContext?.toolArguments || '{}',
         details: report,
       },
@@ -1165,6 +1170,7 @@ function ArtifactRenderer({
   onOpenFilePreview,
   frozen = false,
   heightOverride,
+  fillAvailableHeight = false,
   feedbackContext,
   stableSession = false,
 }: {
@@ -1174,6 +1180,7 @@ function ArtifactRenderer({
   onOpenFilePreview?: (path: string) => void;
   frozen?: boolean;
   heightOverride?: number;
+  fillAvailableHeight?: boolean;
   feedbackContext?: InteractiveFeedbackContext;
   stableSession?: boolean;
 }) {
@@ -1213,6 +1220,14 @@ function ArtifactRenderer({
         />
       );
     }
+    case 'workflow_preview':
+      return (
+        <div style={{ height: fillAvailableHeight ? '100%' : height }} className="min-h-0 min-w-0">
+          <Suspense fallback={<AsyncState kind="loading" title={t('chat.preview.loadingWorkflow', 'Loading workflow...')} />}>
+            <WorkflowPreviewRenderer workflowId={stringFrom(props.workflow_id)} version={stringFrom(props.version)} />
+          </Suspense>
+        </div>
+      );
     case 'url_preview':
       return (
         <Suspense fallback={<AsyncState kind="loading" title={t('preview.url.loading', 'Loading web page…')} />}>
@@ -1302,7 +1317,7 @@ export function InteractiveArtifactPreview({
     : effectiveArtifact.widget_state ?? {};
   const renderError = interactiveArtifactRenderError(effectiveArtifact);
   const feedbackContext: InteractiveFeedbackContext = {
-    toolName: 'render_interactive',
+    toolName: 'render_preview',
     toolArguments: JSON.stringify({
       component_type: effectiveArtifact.component_type,
       completion_mode: effectiveArtifact.completion_mode,
@@ -1316,14 +1331,15 @@ export function InteractiveArtifactPreview({
   );
   return (
     <div
-      className={fillAvailableHeight ? 'h-full min-h-0 overflow-hidden' : 'overflow-auto'}
+      className={fillAvailableHeight ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'overflow-auto'}
       style={fillAvailableHeight ? undefined : { maxHeight }}
       data-role="interactive-artifact-preview-surface"
     >
       {renderError ? (
         <InteractiveRenderFailure detail={renderError} feedbackContext={feedbackContext} />
       ) : (
-        <InteractiveRenderBoundary
+        <div className={fillAvailableHeight ? 'min-h-0 flex-1 overflow-hidden' : undefined}>
+          <InteractiveRenderBoundary
           key={`${effectiveArtifact.artifact_id ?? 'artifact'}:${JSON.stringify(effectiveArtifact.widget_state ?? {})}`}
           fallback={(detail) => <InteractiveRenderFailure detail={detail} feedbackContext={feedbackContext} />}
         >
@@ -1334,11 +1350,14 @@ export function InteractiveArtifactPreview({
             onOpenFilePreview={onOpenFilePreview}
             frozen={frozen}
             heightOverride={720}
+            fillAvailableHeight={fillAvailableHeight}
             feedbackContext={feedbackContext}
           />
-        </InteractiveRenderBoundary>
+          </InteractiveRenderBoundary>
+        </div>
       )}
       {!renderError ? (
+        <div className="shrink-0">
         <SubmitControls
           completionMode={effectiveArtifact.completion_mode ?? 'render_only'}
           schema={effectiveArtifact.interaction_schema ?? {}}
@@ -1368,6 +1387,7 @@ export function InteractiveArtifactPreview({
             });
           }}
         />
+        </div>
       ) : null}
     </div>
   );
@@ -1394,9 +1414,11 @@ function StatusLine({ call }: { call: MergedToolCall }) {
   return (
     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
       <CheckCircle2 className="h-3 w-3 text-state-success" />
-      {call.name === 'render_url_preview'
-        ? t('tool.meta.render_url_preview', 'Web preview')
-        : t('tool.meta.render_interactive', 'File preview')}
+      {call.name === 'render_preview'
+        ? t('tool.meta.render_preview', 'Preview')
+        : call.name === 'render_url_preview'
+          ? t('tool.meta.render_url_preview', 'Web preview')
+          : t('tool.meta.render_interactive', 'File preview')}
     </span>
   );
 }
@@ -1492,9 +1514,12 @@ export function InteractiveArtifactBlock({
   const fileSummaryAppearance = filePreviewAppearance(filePreviewPath, filePreviewExplicitType);
   const FileSummaryIcon = fileSummaryAppearance.Icon;
   const canOpenFilePreview = !renderError && !!filePreviewPath && !!onOpenFilePreview;
+  const standaloneWorkflowHref = compact && !renderError && artifact?.component_type === 'workflow_preview'
+    ? standaloneWorkflowPreviewHref(stringFrom(artifact.props?.workflow_id), stringFrom(artifact.props?.version))
+    : null;
   const canOpenInteractivePreview = Boolean(
     !renderError &&
-      artifact?.component_type === 'html_preview' &&
+      (artifact?.component_type === 'html_preview' || artifact?.component_type === 'url_preview' || artifact?.component_type === 'workflow_preview') &&
       artifact.preview?.mode !== 'none' &&
       onOpenInteractivePreview &&
       !compact,
@@ -1564,6 +1589,10 @@ export function InteractiveArtifactBlock({
     };
   }, [hitlRequestId, reconcileEpoch]);
 
+  if (artifact?.component_type === 'user_input' && artifact.props?.mode === 'choices' && !renderError) {
+    return <ChoicesCard key={artifact.artifact_id} artifact={artifact} />;
+  }
+
   return (
     <div
       className="flex items-start justify-start gap-3"
@@ -1619,10 +1648,18 @@ export function InteractiveArtifactBlock({
                   <span className="text-xs uppercase tracking-wide text-muted-foreground">
                     {fileSummaryAppearance.type}
                   </span>
-                ) : <StatusLine call={call} />}
+                ) : !isPreToolApproval ? <StatusLine call={call} /> : null}
               </div>
             </div>
-            {canOpenInteractivePreview ? (
+            {standaloneWorkflowHref ? (
+              <a href={standaloneWorkflowHref} target="_blank" rel="noopener noreferrer"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-edge-structural text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-action="interactive-open-workflow-tab"
+                title={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')}
+                aria-label={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')}>
+                <PreviewCornerIcon />
+              </a>
+            ) : canOpenInteractivePreview ? (
               <button
                 type="button"
                 className="flex h-8 w-8 items-center justify-center rounded-lg border border-edge-structural bg-background/85 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -1659,7 +1696,18 @@ export function InteractiveArtifactBlock({
               {renderError ? (
                 <InteractiveRenderFailure detail={renderError} feedbackContext={feedbackContext} />
               ) : artifact ? (
-                isPreToolApproval ? (
+                standaloneWorkflowHref ? (
+                  <a href={standaloneWorkflowHref} target="_blank" rel="noopener noreferrer" className="flex w-full items-center justify-between gap-3 p-4 text-sm hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <span>{stringFrom(artifact.props?.version)}</span>
+                    <span>{t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')}</span>
+                  </a>
+                ) : artifact.component_type === 'workflow_preview' && canOpenInteractivePreview ? (
+                  <button type="button" className="flex w-full items-center justify-between gap-3 p-4 text-left text-sm hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => onOpenInteractivePreview?.(artifact)}>
+                    <span>{stringFrom(artifact.props?.version)}</span>
+                    <span>{t('tool.interactive.open_preview', 'Open in preview')}</span>
+                  </button>
+                ) : isPreToolApproval ? (
                   <PreToolApprovalBody artifact={artifact} />
                 ) : (
                   <InteractiveRenderBoundary
@@ -1709,7 +1757,8 @@ export function InteractiveArtifactBlock({
                     : undefined
               }
               resolvedNegativeLabel={
-                isPreToolApproval ? t('hitl.denied', 'Denied') : undefined
+                isPreToolApproval && interactionStatus === 'denied'
+                  ? t('hitl.denied', 'Denied') : undefined
               }
               onResolved={(status, result) => {
                 setInteractionStatus(status);

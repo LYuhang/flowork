@@ -6,6 +6,7 @@ import type {
   PreviewResourceSessionV1,
 } from '@/lib/preview/protocol';
 import { resolveApiUrl } from '@/lib/base-path';
+import { fileCitationTarget } from '@/lib/preview/protocol';
 
 const BASE = getApiBase();
 
@@ -51,13 +52,27 @@ export async function resolvePreview(
   fileRef: FileRefV1,
   signal?: AbortSignal,
 ): Promise<PreviewDescriptorV1> {
-  const response = await authedFetch('/api/v1/previews/resolve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fileRef }),
-    signal,
-  });
-  return jsonOrThrow<PreviewDescriptorV1>(response, 'resolvePreview');
+  const resolve = async (ref: FileRefV1) => jsonOrThrow<PreviewDescriptorV1>(
+    await authedFetch('/api/v1/previews/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileRef: ref }),
+      signal,
+    }),
+    'resolvePreview',
+  );
+  try {
+    return await resolve(fileRef);
+  } catch (error) {
+    // Old transcripts contain file.md:24 citations. Never reinterpret a real
+    // colon filename, auth failure, cancellation, or a service outage.
+    const citation = error instanceof PreviewApiError
+      && error.status === 404 && error.detail === 'preview_file_not_found'
+      ? fileCitationTarget(fileRef)
+      : null;
+    if (!citation || signal?.aborted) throw error;
+    return resolve(citation.fileRef);
+  }
 }
 
 export async function fetchPreviewRendition(

@@ -774,8 +774,21 @@ class DatabaseConfig:
             or raw.get("url")
             or "postgresql+asyncpg://dev:dev@localhost:5432/vibecanvas"
         )
-        self.pool_size: int = int(raw.get("pool_size", 20))
-        self.max_overflow: int = int(raw.get("max_overflow", 10))
+        # Each of the API and worker processes opens its own pool of this
+        # size, and Postgres backends are real OS processes (~15-20MB each)
+        # that a SQLAlchemy pool never shrinks back down once opened. The
+        # previous 20/10 default (60 possible connections across both
+        # processes) is sized for a multi-tenant production server, not this
+        # single-node native deployment; 5/5 (20 possible) comfortably covers
+        # a 1-2 person dev/test box while cutting idle Postgres memory
+        # noticeably. Override with DATABASE_POOL_SIZE/DATABASE_MAX_OVERFLOW
+        # for a bigger deployment.
+        self.pool_size: int = int(
+            os.environ.get("DATABASE_POOL_SIZE") or raw.get("pool_size", 5)
+        )
+        self.max_overflow: int = int(
+            os.environ.get("DATABASE_MAX_OVERFLOW") or raw.get("max_overflow", 5)
+        )
         self.pool_recycle: int = int(raw.get("pool_recycle", 3600))
 
 
@@ -1530,6 +1543,22 @@ class AppConfig:
         self.runsc_path: str | None = (
             os.environ.get("RUNSC_PATH") or raw.get("runsc_path") or None
         )
+        # Path to the ``bwrap`` (bubblewrap) binary for the alternative,
+        # lighter-weight rootless OS-sandbox provider. Same resolution order
+        # as ``runsc_path``; see ``services/sandbox/bubblewrap.py``.
+        self.bwrap_path: str | None = (
+            os.environ.get("BWRAP_PATH") or raw.get("bwrap_path") or None
+        )
+        # Which OS-sandbox backend ``get_sandbox_provider`` resolves.
+        # ``gvisor`` (default) is the validated, full-capability provider.
+        # ``bubblewrap`` is a lighter-weight, rootless-native alternative that
+        # does not support checkpoint/restore or the resident warm-pool bus
+        # protocol — see ``services/sandbox/bubblewrap.py`` for the exact gap.
+        self.sandbox_runtime: str = (
+            os.environ.get("SANDBOX_RUNTIME") or raw.get("sandbox_runtime") or "gvisor"
+        ).strip().lower()
+        if self.sandbox_runtime not in {"gvisor", "bubblewrap"}:
+            raise ValueError("SANDBOX_RUNTIME must be gvisor or bubblewrap")
         # Sandbox control-plane ownership. ``service`` keeps every resident
         # gVisor process and broker in the separately supervised sandboxd
         # process; API and background-worker processes hold serializable proxies.

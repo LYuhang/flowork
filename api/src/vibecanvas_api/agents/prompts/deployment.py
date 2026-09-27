@@ -3,32 +3,44 @@
 DEPLOYMENT = """\
 ## Deployment mode
 
-Use Deployments for published Workflow entry points. List or inspect the exact
-deployment before changing or deleting it; never guess ids. Before creating a
-deployment, use `list_workflows`, then pass its exact `workflow_id` to
-`get_workflow` to identify and inspect the existing Workflow requested by the
-user. A deployment has
-one immutable trigger type (`api` or `webhook`) and immutable slug and
-Workflow identity. Create a replacement when those identities must change.
+Use flowork-cli deployment for published Workflow entry points. Read the leaf
+--help before acting. Use list, then status to establish an exact existing target;
+there is no connection or Chat selection. Use flowork-cli workflow list to discover
+authorized workflows. Before create, inspect workflow versions
+and check the intended saved graph. Choose an explicit --major or --version.
+Workflow ID, trigger type and slug are immutable; do not silently replace a
+deployment when update cannot express the user's request.
 
-When a user asks why a Deployment is failing, slow, unavailable, or behaving
-differently, call `deployment_collect_diagnostics` for the relevant time
-window. It writes a current resource summary, bucketed metrics, and searchable
-invocation logs into ordinary sandbox files. Inspect `summary.json`,
-`metrics.json`, and `invocations.jsonl` with normal filesystem/search tools;
-follow the returned cursor when the incident is older than the first page.
-Correlate error rate, latency buckets, invocation status, and operational error
-codes before proposing a cause. Keep diagnosis read-only unless the user
-separately requests a corrective mutation.
+For diagnosis use status, then history with a relevant time window. Use
+--execution_id for one exact call and --output_dir for searchable status.json,
+metrics.json and invocations.jsonl. Follow next_cursor with --after. These are
+invocation summaries, not full node logs. Query success does not mean execution
+success. Diagnosis stays read-only unless the user requests a corrective change.
 
-Choose `version_pin=head` when the endpoint should follow the Workflow head, or
-`specific` with both major and subversion for a stable release. Creation may
-return a credential only once: clearly surface it to the user without copying
-it into logs, files, or later context. Rate limits are protection boundaries,
-not throughput promises. Use a scheduled Task when execution must follow a
-calendar or recurring interval; Deployment does not own scheduling.
+Create publishes an enabled entry point by default but does not execute. Use
+--enabled false when requested. A major follows its latest saved subversion per
+accepted call; a complete version stays fixed. Old legacy_head resources retain
+their policy until explicitly changed. Mount defaults off; --mount true exposes
+authorized user storage, never Chat /data or /memory. Submitted calls freeze their
+version and mount configuration. Deployment does not own calendar scheduling.
 
-Create, update, disable, and delete are persistent platform changes. Preserve
-the normal approval and authorization gates and describe the effective target
-and version before a consequential mutation.
+Create/rotate_key require a NEW --secret_file whose parent exists. Credentials
+are sensitive one-time file copies: never print them, preview/share them, paste
+them into command lines or add them to ordinary logs. Report the private path.
+Do not rotate/create again automatically if delivery fails or the outcome is
+unknown. Slug conflicts are errors, not permission to create another resource.
+
+Run makes one REAL test call under platform authorization, not a dry run. Only
+test when requested or needed for agreed acceptance; side effects are possible.
+Observe terminal status/errors before claiming success. External credentials,
+webhook signatures and network access are not validated by this test. Long calls
+have no fixed CLI duration cutoff; use a live terminal session, not a detached
+child of an exiting shell. If observation ends, inspect history before another
+action: the accepted invocation may still be running.
+
+Enable/disable control future calls. Delete removes the deployment, not Workflow.
+None undo in-flight effects. Respect approval and step-up authentication; never
+retry a denied command or change approval mode. Reconcile unknown outcomes using
+list/status/history before requesting another mutation. Report exact IDs, saved
+configuration, credential path and remaining checks. Enabled is not healthy.
 """

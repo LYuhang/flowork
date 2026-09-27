@@ -135,6 +135,27 @@ export function fileRefKey(fileRef: FileRefV1): string {
   }
 }
 
+/** A legacy Agent citation candidate, not a filesystem normalization rule.
+ * Resolve the literal filename first: colons are valid in user filenames.
+ * Only a missing text file may fall back to its positive line/column suffix.
+ */
+export function fileCitationTarget(fileRef: FileRefV1): {
+  fileRef: FileRefV1;
+  line: number;
+  column?: number;
+} | null {
+  const match = /^(.*\.(?:md|mdx|txt|rst|py|js|jsx|ts|tsx|json|jsonl|yaml|yml|toml|sql|sh|css|html|xml|csv|tsv|log)):([1-9]\d*)(?::([1-9]\d*))?$/i.exec(fileRef.path);
+  if (!match || match[1].split('/').some((segment) => segment === '.' || segment === '..')) return null;
+  const line = Number(match[2]);
+  const column = match[3] ? Number(match[3]) : undefined;
+  if (!Number.isSafeInteger(line) || (column !== undefined && !Number.isSafeInteger(column))) return null;
+  return {
+    fileRef: { ...fileRef, path: match[1] } as FileRefV1,
+    line,
+    ...(column !== undefined ? { column } : {}),
+  };
+}
+
 
 export function fileRefFromAgentPath(
   path: string,

@@ -115,6 +115,42 @@ def test_sandbox_entry_runs_and_writes_result(tmp_path):
         json.loads(ln)
 
 
+def test_invalid_row_input_is_a_result_not_a_worker_crash(tmp_path):
+    exec_dir = tmp_path / "__exec__"
+    exec_dir.mkdir()
+    workflow = _min_code_wf()
+    workflow["node_1"]["input_fields"] = {"x": {"type": "number", "value": 0}}
+    (exec_dir / "workflow.json").write_text(json.dumps(workflow))
+    (exec_dir / "inputs.json").write_text(json.dumps({"x": None}))
+
+    assert sandbox_entry.run_exec(str(tmp_path), run_id="invalid-row") == 0
+    result = json.loads((exec_dir / "result.json").read_text())
+    assert result["final_outputs"] == {}
+    assert "x:" in result["error_dict"]["__input__"]
+    assert "__engine__" not in result["error_dict"]
+
+    # The same resident worker can execute a subsequent valid row.
+    (exec_dir / "inputs.json").write_text(json.dumps({"x": -3}))
+    assert sandbox_entry.run_exec(str(tmp_path), run_id="next-row") == 0
+    result = json.loads((exec_dir / "result.json").read_text())
+    assert result["error_dict"] == {}
+    assert result["final_outputs"]["__end__"]["v"] == -2
+
+
+def test_invalid_single_node_input_is_a_result_not_a_worker_crash(tmp_path):
+    exec_dir = tmp_path / "__exec__"
+    exec_dir.mkdir()
+    (exec_dir / "job.json").write_text(json.dumps({
+        "node": {"node_id": "node_2", "node_type": "CodeNode",
+                 "input_fields": {"x": {"type": "number"}}},
+        "inputs": {"x": None},
+    }))
+    assert sandbox_entry.run_node_exec(str(tmp_path), run_id="invalid-node") == 0
+    result = json.loads((exec_dir / "result.json").read_text())
+    assert result["final_outputs"] == {}
+    assert "x:" in result["error_dict"]["__input__"]
+
+
 def test_run_exec_run_context_is_two_key(tmp_path, monkeypatch):
     """Identity-bind model: run_exec builds a 2-key run_context {run_id, run_dir}.
     Persistent files are mounted independently at ``/mount``, so there is no

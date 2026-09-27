@@ -1,80 +1,53 @@
-"""Contract tests for the Playwright-backed /browser instruction block."""
+"""Contract tests for the CLI-backed /browser workflow guidance."""
 
 from vibecanvas_api.agents.commands import COMMAND_MODES, command_context_for
 from vibecanvas_api.agents.prompts.compose import build_system_prompt
-from vibecanvas_api.browser.playwright_contract import (
-    PLAYWRIGHT_AGENT_TOOLS,
-    PLAYWRIGHT_AUDITED_UPSTREAM_TOOLS,
-    PLAYWRIGHT_FORBIDDEN_TOOLS,
-)
 
 
-def _system_prompt(mode: str = "chat") -> str:
-    return build_system_prompt({"browser"} if mode == "browser" else set())
-
-
-def test_browser_prompt_teaches_official_playwright_contract() -> None:
+def test_browser_prompt_teaches_cli_observe_act_verify() -> None:
     prompt = command_context_for("browser")
-    assert "## Browser mode" in prompt
-    assert "official Playwright MCP" in prompt
-    assert "Observe → act → verify" in prompt
-    assert "browser_snapshot" in prompt
-    assert "exact target refs" in prompt
-    assert "post-action page snapshot" in prompt
-    assert "browser_file_upload" in prompt
-    assert "file-chooser modal" in prompt
-    assert "signed expiring CDN URL" in prompt
-    assert "Reopen or reload" in prompt
-
-
-def test_browser_prompt_does_not_teach_legacy_browser_protocol() -> None:
-    prompt = command_context_for("browser")
-    for legacy_name in (
-        "browser_start_session",
-        "browser_session_status",
-        "browser_read_text",
-        "browser_query",
-        "browser_get_html",
-        "browser_insert_rich_text",
-        "browser_replace_rich_text",
-        "browser_upload_file",
+    for instruction in (
+        "## Browser mode", "flowork-cli browser", "Observe → act → verify",
+        "tab-list", "snapshot --tab_id ID", "leaf --help", "fresh refs",
+        "goto --tab_id ID --url URL", "not `navigate`", "browser --help",
+        "CSS IDs are page-specific", "destination snapshot's fresh ref",
+        "run-code", "eval", "dialog-accept", "cloud sandbox",
+        "observer before clicking", "download.saveAs",
+        "byte count, hash and persistence", "site-specific Cookie permission",
+        "Agent code cannot grant", "private temporary", "revocation or turn end",
+        "case-sensitive option", "differ from snapshot labels",
     ):
-        assert legacy_name not in prompt
-        assert legacy_name not in COMMAND_MODES["browser"].tools
-    assert "element handle" not in prompt.lower()
-    assert "stable tab id" not in prompt.lower()
+        assert instruction in prompt
 
 
-def test_browser_command_exports_exact_reviewed_playwright_surface() -> None:
-    assert COMMAND_MODES["browser"].tools == list(PLAYWRIGHT_AGENT_TOOLS)
-    assert PLAYWRIGHT_FORBIDDEN_TOOLS.isdisjoint(COMMAND_MODES["browser"].tools)
-    assert len(PLAYWRIGHT_AUDITED_UPSTREAM_TOOLS) == 24
-    assert set(PLAYWRIGHT_AGENT_TOOLS) | PLAYWRIGHT_FORBIDDEN_TOOLS == (
-        PLAYWRIGHT_AUDITED_UPSTREAM_TOOLS
-    )
-    assert {
-        "browser_handle_dialog",
-        "browser_resize",
-        "browser_close",
-    }.issubset(PLAYWRIGHT_AGENT_TOOLS)
-    assert {
-        "browser_reload",
-        "browser_press_sequentially",
-        "browser_mouse_wheel",
-    }.isdisjoint(PLAYWRIGHT_AGENT_TOOLS)
-
-
-def test_browser_prompt_has_fail_closed_safety_and_recovery() -> None:
+def test_browser_command_exposes_no_mcp_tools_or_legacy_instructions() -> None:
+    assert COMMAND_MODES["browser"].tools == []
     prompt = command_context_for("browser")
-    assert "do not replay a write blindly" in prompt
-    assert "unrestricted upstream evaluate/run-code tools are intentionally unavailable" in prompt
-    assert "credentials, CAPTCHA, payment, publication" in prompt
-    assert "Never adopt another tab, window, Chat, or user's browser" in prompt
+    for retired in (
+        "browser_start_session", "browser_snapshot", "browser_file_upload",
+        "browser_navigate", "official Playwright MCP",
+        "unrestricted upstream evaluate/run-code tools are intentionally unavailable",
+    ):
+        assert retired not in prompt
+    assert "There is no Browser MCP" in prompt
+    assert "Every page operation names --tab_id" in prompt
+
+
+def test_browser_prompt_preserves_partial_effects_and_safety() -> None:
+    prompt = command_context_for("browser")
+    for instruction in (
+        "status=unknown", "does not undo earlier actions",
+        "not a reason to repeat", "must not trigger another",
+        "Never adopt another Chat/browser", "login, CAPTCHA",
+        "Never print, preview, share or copy credentials",
+        "poll that same session", "ending\nthe Agent turn cancels",
+    ):
+        assert instruction in prompt
 
 
 def test_chat_prompt_has_no_browser_section() -> None:
-    assert "## Browser mode" not in _system_prompt("chat")
+    assert "## Browser mode" not in build_system_prompt(set())
 
 
 def test_active_browser_does_not_change_base_system_prompt() -> None:
-    assert _system_prompt("browser") == _system_prompt("chat")
+    assert build_system_prompt({"browser"}) == build_system_prompt(set())

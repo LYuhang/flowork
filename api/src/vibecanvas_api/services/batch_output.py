@@ -105,7 +105,7 @@ def _project_field(row: dict, col: dict) -> str:
     node = col.get("node")
     field = col.get("field")
     default = col.get("default")
-    fallback = default if (default is not None and default != "") else ""
+    fallback = _stringify_cell(default) if (default is not None and default != "") else ""
     if not isinstance(output, dict):
         return fallback
     node_out = output.get(node)

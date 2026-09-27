@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -28,14 +29,16 @@ def test_dockerfile_exists():
 def test_dockerfile_uses_python_3_10_or_later_base():
     lines = _dockerfile_instructions()
     from_lines = [ln for ln in lines if ln.upper().startswith("FROM ")]
-    assert len(from_lines) == 5, (
-        "expected shared Node, Codex, Playwright, draw.io, and Python stages, "
+    assert len(from_lines) == 6, (
+        "expected shared Node, Codex vendor/build, Playwright, draw.io, and Python stages, "
         f"got {from_lines}"
     )
     assert from_lines[0].startswith("FROM node:22.23.2-bookworm-slim@sha256:")
-    assert from_lines[1] == "FROM node-runtime-base AS codex-assets"
-    assert from_lines[2] == "FROM node-runtime-base AS playwright-assets"
-    assert from_lines[3] == "FROM node-runtime-base AS drawio-assets"
+    assert from_lines[1] == "FROM node-runtime-base AS codex-vendor"
+    assert from_lines[2].startswith("FROM rust:1.95.0-bookworm@sha256:")
+    assert from_lines[2].endswith(" AS codex-assets")
+    assert from_lines[3] == "FROM node-runtime-base AS playwright-assets"
+    assert from_lines[4] == "FROM node-runtime-base AS drawio-assets"
     m = re.match(r"FROM\s+python:3\.(\d+)([-\w.]*)?@sha256:", from_lines[-1])
     assert m, (
         f"final stage must use a digest-pinned python:3.x base, got: {from_lines[-1]}"
@@ -48,21 +51,21 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     text = DOCKERFILE_PATH.read_text()
     assert "ARG CODEX_CLI_VERSION=0.147.0" in text
     assert "ARG NPM_VERSION=11.19.0" in text
-    assert "ARG PLAYWRIGHT_MCP_VERSION=0.0.79" in text
+    assert "ARG PLAYWRIGHT_CORE_VERSION=1.63.0-alpha-2026-08-05" in text
     assert "ARG DRAWIO_DESKTOP_VERSION=31.1.8" in text
     assert "ARG DRAWIO_DESKTOP_AMD64_SHA256=" in text
     assert "ARG DRAWIO_DESKTOP_ARM64_SHA256=" in text
     assert 'test "$(npm --version)" = "${NPM_VERSION}"' in text
     assert '"@openai/codex@${CODEX_CLI_VERSION}"' in text
     assert "api/playwright-runtime/package-lock.json" in text
-    assert "flowork-playwright-mcp --version" in text
+    assert "flowork-browser-runtime --version" in text
     assert "--ignore-scripts" in text
     assert 'test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}"' in text
     assert "api/drawio-runtime/package-lock.json" in text
     assert "npm ci --prefix /opt/drawio-mcp" in text
     assert "COPY --from=node-runtime-base /usr/local/bin/node" in text
-    assert "COPY --from=playwright-assets /opt/playwright-mcp" in text
-    assert "flowork-diagram-mcp --version" in text
+    assert "COPY --from=playwright-assets /opt/flowork-browser-runtime" in text
+    assert "flowork-diagram-search --version" in text
     assert 'node_modules/@drawio/mcp/package.json' in text
     assert "github.com/jgraph/drawio-desktop/releases/download" in text
     assert 'dpkg-deb -f' in text
@@ -85,13 +88,63 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     assert "USER 10001:10001" in text
 
 
+def test_browser_cli_package_has_no_mcp_runtime_dependency():
+    package = json.loads((API_ROOT / "playwright-runtime/package.json").read_text())
+    lock = json.loads((API_ROOT / "playwright-runtime/package-lock.json").read_text())
+    assert package["name"] == "flowork-browser-runtime"
+    assert package["bin"] == {"flowork-browser-runtime": "browser-runtime.cjs"}
+    assert package["dependencies"] == {"playwright-core": "1.63.0-alpha-2026-08-05"}
+    assert set(lock["packages"]) == {"", "node_modules/playwright-core"}
+    assert lock["packages"][""]["dependencies"] == package["dependencies"]
+    for path in package["files"]:
+        assert (API_ROOT / "playwright-runtime" / path).is_file()
+        assert not path.endswith(".test.cjs")
+    assert not (API_ROOT / "playwright-runtime/launch.cjs").exists()
+    for path in (DOCKERFILE_PATH, NATIVE_BOOTSTRAP_PATH):
+        assert "flowork-playwright-mcp" not in path.read_text()
+        assert "flowork-browser-runtime --version" in path.read_text()
+
+
+def test_browser_runtime_packages_every_local_module_without_retired_interception():
+    runtime = API_ROOT / "playwright-runtime"
+    package = json.loads((runtime / "package.json").read_text())
+    shipped = set(package["files"]) | {"package.json"}
+    assert {"browser-native-downloads.cjs", "browser-script-page.cjs"} <= shipped
+    assert "browser-downloads.cjs" not in shipped
+    docker = DOCKERFILE_PATH.read_text()
+    for filename in shipped:
+        source = runtime / filename
+        assert source.is_file(), f"Missing packaged browser module: {filename}"
+        assert f"api/playwright-runtime/{filename}" in docker
+        for dependency in re.findall(r'require\([\"\']\./([^\"\']+)[\"\']\)', source.read_text()):
+            assert dependency in shipped, f"{filename} depends on unpackaged {dependency}"
+
+
+def test_docker_build_uses_reviewed_codex_source_and_preserves_vendor_companions():
+    text = DOCKERFILE_PATH.read_text()
+    assert "COPY --from=codex-vendor /opt/codex /build/codex-vendor" in text
+    assert "COPY --from=codex-assets /opt/codex /opt/codex" in text
+    assert "git -C /build/codex fetch --depth 1 origin be6e8eac029b183056b7e4402879f15d2c85f61b" in text
+    assert "scripts/build_codex_runtime.py" in text
+    assert "codex-0.147.0-output-subscription.candidate.patch" in text
+    assert "--source_dir /build/codex --vendor_dir /build/codex-vendor" in text
+    assert '--output_dir /opt/codex --jobs "${CODEX_BUILD_JOBS}"' in text
+
+
 def test_drawio_export_wrapper_allocates_and_reaps_desktop_processes():
     text = DRAWIO_EXPORT_PATH.read_text()
 
     assert "Xvfb -displayfd 3" in text
-    assert "FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS" in text
-    assert "timeout --signal=TERM --kill-after=5s" in text
+    assert "FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS" not in text
+    assert "timeout --signal=TERM --kill-after=5s" not in text
     assert 'trap cleanup EXIT HUP INT TERM' in text
+
+
+def test_diagram_search_launcher_is_executable_and_not_an_mcp_server():
+    launcher = API_ROOT / "drawio-runtime" / "search.mjs"
+    assert launcher.stat().st_mode & 0o111
+    assert "@modelcontextprotocol/sdk" not in launcher.read_text()
+    assert not (API_ROOT / "drawio-runtime" / "launch.mjs").exists()
 
 
 def test_native_bootstrap_installs_verified_diagram_feedback_runtime():

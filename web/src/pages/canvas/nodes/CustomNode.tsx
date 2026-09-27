@@ -46,6 +46,7 @@ import { NodeHoverCard } from '@/pages/canvas/nodes/NodeHoverCard';
 import { NodeOutputPreview } from '@/pages/canvas/nodes/NodeOutputPreview';
 import { useExecStreamStore } from '@/stores/exec-stream';
 import { useUIStore } from '@/stores/ui';
+import { useWorkflowSnapshot } from '@/pages/canvas/WorkflowSnapshotContext';
 
 /**
  * Return the at-a-glance execution state for this node, narrowed from the raw
@@ -144,8 +145,9 @@ export const LOOP_BACK_HANDLE_CLASS =
 export const LOOP_BACK_SOURCE_HANDLE_ID = 'loop-back-source';
 export const LOOP_BACK_TARGET_HANDLE_ID = 'loop-back-target';
 
-function CustomNodeImpl({ data, selected, id }: NodeProps) {
+function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
   const { t } = useTranslation();
+  const snapshot = useWorkflowSnapshot();
   const payload = (data ?? {}) as NodePayload;
   const nodeType = payload.node_type ?? 'UnknownNode';
   const headerColor = NODE_COLORS[nodeType] ?? DEFAULT_NODE_COLOR;
@@ -174,7 +176,7 @@ function CustomNodeImpl({ data, selected, id }: NodeProps) {
   // running→completed transition on a sibling never re-renders this memo'd
   // card). The error message is pulled lazily — only when the node is in the
   // error state — to keep the selector output a primitive string.
-  const execStatusRaw = useExecStreamStore((s) => s.perNode[id]?.status);
+  const execStatusRaw = useExecStreamStore((s) => snapshot ? undefined : s.perNode[id]?.status);
   const execState = narrowExecState(execStatusRaw);
   const execError = useExecStreamStore((s) =>
     execState === 'error' ? s.perNode[id]?.error : undefined,
@@ -187,8 +189,8 @@ function CustomNodeImpl({ data, selected, id }: NodeProps) {
   // flight (drag/connect), nor when THIS node is already open in the
   // Inspector (selected + the scope is NOT the workflow override → the
   // node-scope tabs are showing this node, so the card is redundant).
-  const canvasInteracting = useUIStore((s) => s.canvasInteracting);
-  const inspectorScope = useUIStore((s) => s.inspectorScope);
+  const canvasInteracting = useUIStore((s) => snapshot ? false : s.canvasInteracting);
+  const inspectorScope = useUIStore((s) => snapshot ? 'auto' : s.inspectorScope);
   const suppressed = nodeHoverSuppressed({
     canvasInteracting,
     selected: Boolean(selected),
@@ -224,7 +226,7 @@ function CustomNodeImpl({ data, selected, id }: NodeProps) {
         )}
       >
         {!isStart && (
-          <Handle type="target" position={Position.Left} className={HANDLE_CLASS} />
+          <Handle type="target" position={Position.Left} className={HANDLE_CLASS} isConnectable={!snapshot && isConnectable} />
         )}
 
         {/* Header — per-type icon + node NAME (truncated) + a small type badge.
@@ -338,7 +340,7 @@ function CustomNodeImpl({ data, selected, id }: NodeProps) {
         </div>
 
         {!isEnd && (
-          <Handle type="source" position={Position.Right} className={HANDLE_CLASS} />
+          <Handle type="source" position={Position.Right} className={HANDLE_CLASS} isConnectable={!snapshot && isConnectable} />
         )}
 
         {/* Loop-back bottom handles — dedicated, user-inert (isConnectable
@@ -365,11 +367,11 @@ function CustomNodeImpl({ data, selected, id }: NodeProps) {
         )}
       </div>
     </NodeHoverCard>
-      <NodeOutputPreview
+      {!snapshot && <NodeOutputPreview
         nodeId={id}
         nodeType={nodeType}
         format={typeof payload.node_config?.output_format === 'string' ? payload.node_config.output_format : undefined}
-      />
+      />}
     </div>
   );
 }

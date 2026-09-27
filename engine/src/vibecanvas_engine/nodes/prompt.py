@@ -9,7 +9,7 @@ from copy import deepcopy
 from json_repair import repair_json, loads
 
 from ..utils import safe_call_with_args
-from ..register import llm_registry, node_registry
+from ..register import node_registry
 from .base import BaseNode
 
 
@@ -39,9 +39,9 @@ class PromptNode(BaseNode):
                 "type": "string",
                 "minLength": 1,
                 "description": (
-                    "The exact public model_id key returned by "
-                    "get_config(scope='global'). Before authoring this node, call "
-                    "that tool in the current build turn and copy one enabled key "
+                    "The exact models key returned by "
+                    "flowork-cli config get --scope model_api. Before authoring this node, call "
+                    "that command in the current build turn and copy one enabled key "
                     "verbatim. Never use the chat Agent's own model id, a provider "
                     "model id, or a guessed model name. If no model is returned, do "
                     "not create a PromptNode; ask the user to configure an API model."
@@ -64,7 +64,11 @@ class PromptNode(BaseNode):
                     "max_tokens": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "The maximum number of tokens to generate."
+                        "description": (
+                            "Generation token budget. Some providers count reasoning "
+                            "tokens against this limit as well as visible output; "
+                            "allow room for both even when the requested JSON is short."
+                        )
                     },
                     "top_k": {
                         "type": "integer",
@@ -93,27 +97,27 @@ class PromptNode(BaseNode):
             "custom_model_config": {
                 "type": "object",
                 "description": (
-                    "(Optional) Provider credential/model override. Do not invent "
-                    "provider names, model ids, API URLs, or keys; fetch the "
-                    "available model configuration from the config tool and use "
-                    "those values when an override is required."
+                    "Deprecated legacy field; do not author it. Select a manually "
+                    "added API by model_name. Inline credentials are rejected and "
+                    "connection overrides are not supported. Remove this field "
+                    "when replacing a legacy model."
                 ),
                 "properties": {
                     "model_name": {
                         "type": "string",
-                        "description": "Configured provider model id obtained from the config tool."
+                        "description": "Legacy field; not used for Workflow model resolution."
                     },
                     "api_key": {
                         "type": "string",
-                        "description": "Configured API key value obtained from the config tool when exposed for execution."
+                        "description": "Forbidden inline credential; never store an API key in a Workflow."
                     },
                     "api_url": {
                         "type": "string",
-                        "description": "Configured API base URL obtained from the config tool."
+                        "description": "Legacy field; configure the endpoint in API Management instead."
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Configured request timeout in seconds, if provided by the config tool."
+                        "description": "Legacy field; not used for Workflow model resolution."
                     }
                 }
             }
@@ -133,7 +137,7 @@ class PromptNode(BaseNode):
         "when_not_to_use": "Use CodeNode for deterministic transformation or for composing complex case inputs before a PromptNode. Use ConditionNode for branch routing.",
         "constraints": [
             "input_fields must be primitive types (string, number, integer, or boolean); use CodeNode first to compose array/object data into a prompt-ready string.",
-            "Mandatory model-discovery gate: in the current build turn, call get_config(scope='global') before writing any PromptNode, then copy one enabled models key exactly into model_name.",
+            "Mandatory model-discovery gate: in the current build turn, call flowork-cli config get --scope model_api before writing any PromptNode, then copy one enabled models key exactly into model_name.",
             "Never use the chat Agent's runtime model id, a provider model id, or a guessed/familiar model name. If global config returns no model, do not create this node; ask the user to configure an API model first.",
             "prompt_template must include a JSON output format block with quoted keys matching every output_fields key.",
             "For nested dictionaries/lists, many case fields, or multimodal references, use a preceding CodeNode to compose one readable prompt-ready text field such as `prompt_case`; reference it in prompt_template with {{prompt_case}}."
@@ -146,7 +150,7 @@ class PromptNode(BaseNode):
                 "{{field_name}} is replaced at runtime; use primitive input fields only. If the source case is nested, has many fields, or includes multimodal references, first use CodeNode to build a prompt-ready string field (for example `prompt_case`), then place {{prompt_case}} in the # Input section. Unknown names remain literal. "
                 "Embed media with [<<image>>](url_or_path), [<<video>>](url_or_path), or [<<audio>>](url_or_path); the URL/path may also use {{field}} interpolation."
             ),
-            "model_name": "Exact enabled key from get_config(scope='global'). Fetch it in this build turn and copy it verbatim; never guess or substitute the Agent runtime model.",
+            "model_name": "Exact enabled key from flowork-cli config get --scope model_api. Fetch it in this build turn and copy it verbatim; never guess or substitute the Agent runtime model.",
             "inference_config": "Object with temperature (float), max_tokens (int), top_k (int), top_p (float) controlling generation."
         },
         "examples": [
@@ -167,7 +171,7 @@ class PromptNode(BaseNode):
                     },
                     "node_config": {
                         "prompt_template": "# Task\nLook at this image: [<<image>>]({{image_url}})\n\nAnswer the following question about it:\n{{question}}\n\n# Output Format\n```json\n{\"description\": \"[brief image description]\", \"answer\": \"[your answer]\"}\n```",
-                        "model_name": "<model-name-from-get_config>",
+                        "model_name": "<manual-api-name>",
                         "inference_config": {"temperature": 0.3, "max_tokens": 512, "top_k": -1, "top_p": 0.95}
                     },
                     "children": ["node_4"],
@@ -383,22 +387,16 @@ class PromptNode(BaseNode):
         #       ``llm_credentials``. Its api_key is a short-lived host-broker
         #       capability and api_url is the internal broker, never a provider
         #       credential or user endpoint.
-        #   (2) A credential-free model registered in llm_registry.
-        # Legacy inline OpenAI/Gemini credentials are rejected on the host
-        # before sandbox launch and defensively rejected here as well.
-        # When no mapping is injected, behavior is byte-identical to before.
+        # No registered-model or inline-credential fallback is allowed.
         injected = (extra or {}).get("llm_credentials") or {}
         try:
-            from ..custom_llms import CUSTOM_PROVIDERS
             if model_name in injected:
                 model = self._build_injected_model(injected[model_name])
-            elif model_name in CUSTOM_PROVIDERS:
-                raise RuntimeError(
-                    "Inline model credentials are disabled; select a saved "
-                    "API credential instead."
-                )
             else:
-                model = llm_registry.get(model_name)()
+                raise RuntimeError(
+                    "Workflow model is unavailable; select your enabled manually "
+                    "added API. Platform defaults and account connections are not supported."
+                )
         except Exception as e:
             raise RuntimeError(f"Failed to initialize model '{model_name}': {str(e)}")
 

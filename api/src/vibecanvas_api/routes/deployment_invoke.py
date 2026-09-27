@@ -271,6 +271,7 @@ async def invoke_sync(
             user_id=str(lease.created_by if lease is not None else dep["user_id"]),
             run_id=str(invocation_id),
             workflow_dict=workflow_dict,
+            mount_enabled=dep.get("mount_enabled", True),
             execution_resource_type=ResourceType.DEPLOYMENT_INVOCATION.value,
             **execution_identity,
         )

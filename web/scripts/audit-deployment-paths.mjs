@@ -61,6 +61,8 @@ if (!bootstrapSource) {
     ['/embed/chat', '/'],
     ['/opaque/proxy/tasks/embed/chat', '/opaque/proxy/tasks/'],
     ['/login', '/'],
+    ['/share/abcdefghijklmnopqrstuvwxyz0123456789abcdefg', '/'],
+    ['/opaque/proxy/tasks/share/abcdefghijklmnopqrstuvwxyz0123456789abcdefg', '/opaque/proxy/tasks/'],
     ['/opaque/proxy/tasks/login', '/opaque/proxy/tasks/'],
     ['/knowledge', '/'],
     ['/opaque/proxy/knowledge', '/opaque/proxy/'],

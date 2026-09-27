@@ -9,7 +9,7 @@ from vibecanvas_api.agents.commands import command_context_for
 from vibecanvas_api.services.agent_runtime.protocol import RuntimeInstruction
 
 
-COMMAND_CONTEXT_VERSION = 1
+COMMAND_CONTEXT_VERSION = 29
 
 
 def command_instructions_for_modes(

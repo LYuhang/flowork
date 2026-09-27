@@ -49,8 +49,8 @@ application containers:
 | Area | Requirement |
 | --- | --- |
 | **Public edge** | HTTPS termination, explicit host and origin allowlists, trusted proxy configuration, and firewall policy |
-| **PostgreSQL** | TLS certificate verification, non-default application and maintenance roles, automated backups, and tested restoration |
-| **Valkey** | Authenticated TLS using `rediss://`, private networking, and appropriate persistence for broker workloads |
+| **PostgreSQL** | TLS certificate verification, non-default application and maintenance roles, automated backups, and tested restoration covering application and DBOS state |
+| **Valkey** | Authenticated TLS using `rediss://` and private networking for event fanout, counters, rate limiting, and locks |
 | **OpenFGA** | Authenticated HTTPS endpoint with a pinned store, authorization model, and reviewed model digest |
 | **Object storage** | S3-compatible storage using SSE-KMS, lifecycle policy, backup coverage, and workload identity |
 | **KMS and secrets** | Managed KMS, workload identity, secret rotation, and no static cloud access keys in containers |
@@ -76,9 +76,40 @@ because distributed session ownership and lease transfer are not implemented.
 A future multi-node deployment must use deterministic sharding or sticky
 routing to one daemon per scope.
 
+Keep `SANDBOX_RUNTIME=gvisor` with the release overlay's
+`SANDBOX_TYPE=rootful-snapshot` for this deployment procedure. Native development
+defaults to `rootless-warm` and also has an explicit `bubblewrap` backend. Those
+development options do not provide the same checkpoint/restore capability or
+isolation boundary: bubblewrap shares the host kernel, currently binds the host
+`/proc` read-only, and does not implement real snapshots. Do not use a backend
+switch to bypass the production gVisor startup and checkpoint/restore gates.
+
 For the underlying lifecycle and network model, see
 [Sandbox lifecycle](docs/architecture.md#sandbox-lifecycle) and
 [Network boundaries](docs/architecture.md#network-boundaries).
+
+### Background delivery and execution recovery
+
+DBOS uses PostgreSQL for durable queue delivery and periodic scheduling. The
+background worker registers the application queues and maintenance/recovery
+schedules; Valkey handles transient coordination and event delivery. Include
+the DBOS schema in database migrations and backup/restore procedures, and keep
+`DBOS_RUN_MIGRATIONS=false` in runtime processes.
+
+Batch Tasks and scheduled executions also use database row locks, per-attempt
+ownership tokens, and heartbeats to prevent duplicate starts and reject writes
+from revoked workers. When a worker is lost, reconciliation revokes its write
+authority and confirms that its sandbox has stopped before recording an unknown
+outcome. It retries cleanup if sandbox termination is unconfirmed. It does not
+automatically rerun that attempt, because external effects may already have
+occurred. Inspect the Task diagnostics and external system state before
+submitting replacement work. DBOS recovery does not imply exactly-once external
+effects.
+
+These ownership checks run inside the existing background worker; they are not
+a separate service to deploy. Monitor worker availability, queued work, and
+pending recovery alongside API and sandbox health. The implementation boundaries
+are described in [Background work and sandbox execution](api/README.md#background-work-and-sandbox-execution).
 
 ## Release artifacts
 
@@ -318,7 +349,8 @@ production verification.
 
 A recoverable deployment protects all authoritative state:
 
-- PostgreSQL application data and runtime checkpoint data;
+- PostgreSQL application data, DBOS delivery/schedule state, Task ownership
+  records, and runtime checkpoint data;
 - S3 objects and their version or lifecycle history;
 - OpenFGA data and the pinned authorization model configuration;
 - runtime volumes that contain SDK-specific Chat state;

@@ -116,7 +116,8 @@ Edit `.env`, then start the stack:
 ./scripts/deploy/local_server.sh up
 ```
 
-If `.env` already exists, the initializer preserves its contents. Do not delete
+If `.env` already exists, the initializer keeps configured secrets, fills missing
+settings, and normalizes the supported Agent Runtime selection. Do not delete
 or regenerate an environment file after storing data: it contains encryption
 keys required to read the existing object store.
 
@@ -131,11 +132,14 @@ keys required to read the existing object store.
 | Follow all logs | `./scripts/deploy/local_server.sh logs` |
 | Follow one service | `./scripts/deploy/local_server.sh logs api` |
 | Run deployment verification | `./scripts/deploy/local_server.sh verify` |
-| Validate the resolved Compose file | `./scripts/deploy/local_server.sh config` |
 | Run prerequisites only | `./scripts/deploy/local_server.sh preflight` |
 
 Stopping the stack does not remove its named volumes. The database, object
 store, runtime files, and generated `.env` remain available for the next start.
+
+`preflight` validates the resolved Compose file without printing its values.
+The separate `config` command prints the full configuration, including secrets;
+do not share that output in logs or issue reports.
 
 ### Docker Desktop and WSL2
 
@@ -151,8 +155,9 @@ kernel supports the required gVisor mode.
 ## Native Linux or WSL
 
 The native installer supports Debian, Ubuntu, and WSL distributions that use
-`apt`. Run it as a normal login user. The script invokes `sudo` only when it
-installs operating-system packages; do not run the entire script as root.
+`apt`. Run it as a normal login user. The script invokes `sudo` to install system
+packages, global CLI packages, and executable wrappers; do not run the entire
+script as root.
 
 ### Install and start
 
@@ -166,6 +171,7 @@ cd flowork
 
 The bootstrap installs the required system packages, Node.js, pnpm, Codex CLI,
 uv, Python dependencies, frontend dependencies, the pinned gVisor runtime,
+bubblewrap for the optional native sandbox backend,
 headless LibreOffice, Poppler, and the checksum-verified draw.io Desktop CLI.
 LibreOffice renders Word and PowerPoint files and provides headless office-file
 conversion and validation for document-generation workflows; native XLSX files
@@ -174,6 +180,30 @@ draw.io CLI and its disposable Xvfb display produce the image feedback used to
 review native diagrams. The
 installer verifies these runtime commands before creating the local
 configuration and starting Flowork.
+
+Codex 0.147.0 is built with Flowork's reviewed early-command-output fix and the
+same-version official companion programs. The native bootstrap keeps its Rust
+1.95.0 toolchain and build cache under `.tools/codex-runtime`. This managed build
+does not change your shell profile or replace the global Codex executable; the
+bootstrap separately installs the pinned official npm package for its companion
+programs. This source build can
+take tens of minutes and consume substantial build-cache disk space on its
+first run. `CODEX_BUILD_JOBS` controls compilation parallelism (default: 4).
+Docker builds the same patch in a separate Rust stage, without shipping the
+compiler in the final image.
+
+For an existing native checkout, prepare the managed runtime before restarting:
+
+```bash
+bash scripts/prepare_codex_runtime.sh
+```
+
+The preparation checks three isolated output-delivery scenarios before
+publishing a new bundle. Startup verifies the bundle's source/patch metadata,
+file inventory and checksums before stopping an existing stack. A missing or
+modified bundle fails with instructions instead of falling back silently.
+`CODEX_CLI_PATH` remains an explicit operator override for custom or diagnostic
+runtimes; those overrides do not receive the managed-bundle guarantee.
 
 To prepare the environment without starting services:
 
@@ -253,6 +283,24 @@ and logs should be stored somewhere other than `/tmp/vibecanvas-native`.
 For manual dependency installation, test commands, and frontend development,
 continue with the [development guide](development.md).
 
+### Sandbox backend and lifecycle
+
+`SANDBOX_RUNTIME` selects the execution backend; `SANDBOX_TYPE` selects its
+privilege and lifecycle profile. The default backend is `gvisor`. Docker Compose
+uses `rootful-snapshot`, while the native launcher uses `rootless-warm`.
+Checkpoint/restore belongs to the rootful gVisor snapshot profile; a warm native
+session does not imply that its process state can be checkpointed.
+
+Native development can explicitly select `SANDBOX_RUNTIME=bubblewrap` with
+`SANDBOX_TYPE=rootless-warm` in `.env.launch.local`. The bootstrap installs
+`bwrap`, and startup probes whether the actual host can run it. This backend
+supports resident workers and Agent/Workflow execution, but has no real
+checkpoint/restore or post-start dynamic mount support. It shares the host
+kernel and the current implementation binds the host `/proc` read-only, so its
+isolation differs from gVisor. It is not an equivalent replacement for the
+Docker or production snapshot configuration. See
+[Sandbox lifecycle](architecture.md#sandbox-lifecycle) for the capability boundary.
+
 ## First-run setup
 
 After the stack is healthy:
@@ -267,15 +315,15 @@ After the stack is healthy:
 A model provider is not required for the platform to start, but Agent Chat
 cannot run until a compatible model connection is available. User-managed
 providers can be configured from Settings; a deployment-wide default is
-optional. Settings controls the default Runtime for new Chats and the available
-account/API sources. A new Chat selects its concrete source, model, and
+optional. Settings controls the available Codex account/API sources. A new Chat
+selects its concrete source, model, and
 model-supported thinking level in the composer. The first accepted turn fixes
 the exact account/API connection for that Chat; subsequent turns may change
 the model and thinking level only within that connection.
 OpenRouter uses `VIBECANVAS_PUBLIC_URL` as its fixed OAuth callback origin, so
 that value must match the address users open in the browser. A connected
-OpenRouter account supplies its compatible text and tool-calling models to both
-enabled Runtimes. Codex uses the Responses API through Flowork's host-side
+OpenRouter account supplies compatible text and tool-calling models to the
+Codex Runtime. Codex uses the Responses API through Flowork's host-side
 model broker. The catalog can
 be refreshed from Settings without changing existing Chat history. Model
 catalog visibility does not imply invocation entitlement: account credits,
@@ -309,7 +357,10 @@ following runtime settings are occasionally changed independently:
 
 | Variable | Local default | Purpose |
 | --- | --- | --- |
-| `VIBECANVAS_HTTP_PORT` | `9001` | Web application port |
+| `VIBECANVAS_HTTP_PORT` | `9001` | Docker Web application port |
+| `WEB_PORT` | `9001` | Native launcher Web application port |
+| `SANDBOX_RUNTIME` | `gvisor` | Sandbox backend; native development also supports explicit `bubblewrap` selection with reduced capabilities |
+| `SANDBOX_TYPE` | Docker: `rootful-snapshot`; native: `rootless-warm` | Sandbox privilege and lifecycle profile |
 | `OBJECT_STORE_PROVIDER` | `filesystem` | Local file-backed object storage; production deployments normally use `s3` |
 | `SANDBOX_EGRESS_MODE` | `proxy` | Routes sandbox HTTP(S) and WebSocket traffic through the controlled egress proxy |
 | `SANDBOX_EGRESS_POLICY` | `public` | Controls whether sandboxes may reach public destinations, an allowlist, or platform services only |
@@ -320,7 +371,14 @@ Keep `VIBECANVAS_INTERNAL_BIND_ADDRESS` at its `127.0.0.1` default. It protects
 API diagnostics, databases, authorization services, queues, and metrics from
 being published with the Web entry point. The full advanced template is
 documented inline in [`.env.example`](../.env.example). Restart the affected
-services after changing configuration.
+services after changing configuration. `VIBECANVAS_INTERNAL_BIND_ADDRESS` is a
+Compose setting; native services use their launcher-specific listener settings.
+
+When changing the Docker Web port, edit `VIBECANVAS_HTTP_PORT` in `.env`, then
+run `./scripts/deploy/local_server.sh up --public-url http://localhost:<port>`
+with the actual port. Use `--public-url` for a changed public origin as well:
+it updates the related host allowlist, CORS, cookie, and extension build settings.
+Editing only `VIBECANVAS_PUBLIC_URL` does not refresh previously generated values.
 
 Keep generated passwords, signing keys, browser token secrets, and encryption
 keys out of Git, shell history, logs, and issue reports. Back up secret material
@@ -402,7 +460,7 @@ The verification steps are implemented in
 | --- | --- |
 | `Docker daemon is unavailable` | Run `docker info`. Start Docker Engine or enable Docker Desktop integration for the current WSL distribution. |
 | `Docker Compose v2 plugin is unavailable` | Install or update the Compose v2 plugin; the legacy `docker-compose` command is not supported. |
-| A service port is already in use | Change the corresponding `VIBECANVAS_*_PORT` value in `.env`. When changing the Web port, update `VIBECANVAS_PUBLIC_URL` as well. |
+| A Docker service port is already in use | Change the corresponding `VIBECANVAS_*_PORT` value in `.env`. For a new Web port, run `local_server.sh up --public-url` with the matching URL as described above. Native Web uses `WEB_PORT` in `.env.launch.local`. |
 | `sandbox_prewarm` or checkpoint/restore fails | Inspect the `sandboxd` logs. Confirm that the active Docker kernel permits privileged containers and the configured gVisor platform. |
 | Native startup reports a missing `.venv` | Run `./scripts/bootstrap_native_linux.sh --prepare-only`, then retry. |
 | The application opens but Chat cannot start | Configure a model under **Settings → Agent Runtime**, then inspect the API logs for provider or credential errors. |

@@ -327,7 +327,7 @@ async function installProtocol(page, { enterpriseSsoEnabled = false } = {}) {
     if (p === '/api/v1/agent-runtime/codex/managed-profile') return json(route, { ...runtimeSettings('codex'), codex_managed_profile_id: bodyJson(request).profile_id ?? 'company-primary' });
     if (p === '/api/v1/agent-runtime/capabilities') return json(route, { protocol_version: 1, runtime_type: 'langchain', runtime_available: true, authenticated: true, source: 'review', models: [{ id: 'gpt-4o', label: 'GPT-4o' }], default_model_id: 'gpt-4o', error_code: null });
     if (p.endsWith('/chats/bootstrap')) return json(route, { carrier_scope_id: 'scope-review', surface: url.searchParams.get('surface') || 'chat', available_commands: ['/task', '/deployment', '/knowledge', '/workflow', '/browser'], debug_view_enabled: true });
-    if (p.endsWith('/chats/workspace')) return json(route, { workspace_scope_id: 'workspace-review', mount_scope_id: 'workspace-review', chat_id: url.searchParams.get('chat_id') || 'chat-review', current_workflow_id: null });
+    if (p.endsWith('/chats/workspace')) return json(route, { workspace_scope_id: 'workspace-review', mount_scope_id: 'workspace-review', chat_id: url.searchParams.get('chat_id') || 'chat-review' });
     if (/\/chat-scopes\/[^/]+\/chats$/.test(p)) return json(route, { items: [{ chat_id: 'chat-review', chat_context: 'Deep interaction review', created_at: now, updated_at: now }], total: 1, limit: 50, offset: 0 });
     if (/\/chat-scopes\/[^/]+\/active-runs$/.test(p)) return json(route, []);
     if (/\/chat-scopes\/[^/]+\/chats\/[^/]+\/messages$/.test(p) && method === 'POST') return route.fulfill({

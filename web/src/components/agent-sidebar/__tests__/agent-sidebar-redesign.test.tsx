@@ -15,6 +15,10 @@ import { useChatStreamStore } from '@/stores/chat-stream';
 import { useUIStore } from '@/stores/ui';
 import i18n from '@/lib/i18n';
 
+// This suite exercises transcript continuity/layout. Engagement owns its query
+// and tooltip providers and is covered separately in chat-engagement.test.tsx.
+vi.mock('@/components/agent-sidebar/MessageActions', () => ({ MessageActions: () => null }));
+
 // ONE shared mock factory for the chats queries (isolate=false → one factory
 // for the whole file; later tasks reuse historyMock/sessionsMock).
 const historyMock = vi.fn();
@@ -208,7 +212,7 @@ describe('ChatMessageList', () => {
     expect(historyMock).toHaveBeenCalledWith('wf', null, false, null);
   });
 
-  it('does not query history before the first turn has a server id', () => {
+  it('keeps persisted history loaded before a follow-up turn has a server id', () => {
     sessionsMock.mockReturnValue({
       data: { items: [{ chat_id: 'c1', chat_context: 'New Chat' }] },
       isLoading: false,
@@ -219,7 +223,7 @@ describe('ChatMessageList', () => {
 
     render(<ChatMessageList wfId="wf" activeChatId="c1" />);
 
-    expect(historyMock).toHaveBeenCalledWith('wf', null, false, '');
+    expect(historyMock).toHaveBeenCalledWith('wf', 'c1', true, null);
   });
 
   it('keeps the running indicator below streaming assistant text', () => {
@@ -1020,6 +1024,34 @@ describe('AgentChatSidebar redesign', () => {
     expect(container.querySelector('.w-\\[140px\\]')).toBeNull();
     expect(container.querySelector('[data-role="agent-message-list"]')).toBeInTheDocument();
   });
+
+  it.each([
+    ['attaching', '', true, false],
+    ['attaching', '', false, false],
+    ['attaching', 'browser-reserved', true, false],
+    ['attaching', 'browser-reserved', false, true],
+    ['attaching', 'different-chat', true, true],
+    ['attached', '', true, true],
+    ['attached', 'browser-reserved', false, true],
+    ['attached', 'browser-reserved', true, false],
+    ['lost', '', true, false],
+    ['lost', '', false, true],
+    ['lost', 'different-chat', true, true],
+    ['lost', 'browser-reserved', false, true],
+    ['inactive', '', false, false],
+  ])('distinguishes a reserved lease from known foreign ownership (%s, %s, %s)',
+    (status, owner, available, mismatch) => {
+      useUIStore.setState({ activeChatIds: { chat: null, browser: 'browser-reserved' } });
+      sessionsMock.mockReturnValue({
+        data: { items: [{ chat_id: 'browser-reserved', browser_control_status: status }] },
+        isLoading: false, isFetched: true,
+      });
+      render(<AgentChatSidebar embedded chatSurface="browser"
+        browserControlChatId={owner as string} browserControlAvailableHere={available as boolean} />,
+      { wrapper: SidebarWrapper });
+      const warning = screen.queryAllByText(/This chat is currently controlling a browser in another window/);
+      expect(warning.length > 0).toBe(mismatch);
+    });
 
   it('keeps durable history mounted when a follow-up Turn starts', () => {
     useUIStore.setState({

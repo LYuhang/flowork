@@ -29,6 +29,7 @@ function fixture(onOwnedTabDetached = vi.fn(), onAttachedTabsChanged = vi.fn()) 
   const debuggerDetach = event<any>();
   const tabCreated = event<any>();
   const tabRemoved = event<any>();
+  const tabDetached = event<any>();
   const api: PlaywrightRelayChrome = {
     debugger: {
       attach: vi.fn(async () => undefined),
@@ -51,6 +52,7 @@ function fixture(onOwnedTabDetached = vi.fn(), onAttachedTabsChanged = vi.fn()) 
       remove: vi.fn(async () => undefined),
       onCreated: tabCreated,
       onRemoved: tabRemoved,
+      onDetached: tabDetached,
     },
   };
   const messages: unknown[] = [];
@@ -70,18 +72,299 @@ function fixture(onOwnedTabDetached = vi.fn(), onAttachedTabsChanged = vi.fn()) 
     debuggerDetach,
     tabCreated,
     tabRemoved,
+    tabDetached,
     onOwnedTabDetached,
     onAttachedTabsChanged,
   };
 }
 
 describe("Playwright extension relay", () => {
+  async function attached() {
+    const f = fixture();
+    await f.relay.handle({ id: 100, method: "chrome.debugger.attach", params: [{ tabId: 10 }, "1.3"] });
+    const command = (method: string, parameters: Record<string, unknown> = {}, sessionId?: string) =>
+      f.relay.handle({ id: 101, method: "chrome.debugger.sendCommand", params: [{ tabId: 10, ...(sessionId ? { sessionId } : {}) }, method, parameters] });
+    return { ...f, command };
+  }
+
+  it.each(["success", "window move", "tab removed", "debugger detached", "relay closed"])(
+    "fences popup events until post-attach window validation on %s", async outcome => {
+      const { relay, api, tabs, tabCreated, tabDetached, tabRemoved, debuggerEvent, debuggerDetach, messages } = await attached();
+      const popup = { id: 12, windowId: 7, openerTabId: 10, url: "https://example.com/export" };
+      tabs.set(12, popup);
+      tabCreated.emit(popup);
+      let checked = 0;
+      let finishCheck!: (value: RelayTab) => void;
+      vi.mocked(api.tabs.get).mockImplementation(async tabId => {
+        if (tabId === 12 && ++checked === 2) {
+          debuggerEvent.emit({ tabId }, "Runtime.consoleAPICalled", { args: ["not-authorized-yet"] });
+          return new Promise(resolve => { finishCheck = resolve; });
+        }
+        return tabs.get(tabId)!;
+      });
+      const pending = relay.handle({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 12 }, "1.3"] });
+      await vi.waitFor(() => expect(finishCheck).toBeTypeOf("function"));
+      expect(api.debugger.sendCommand).not.toHaveBeenCalledWith({ tabId: 12 }, "Fetch.enable", expect.anything());
+      expect(relay.attachedTabIds()).toEqual([10]);
+      expect(messages.some((message: any) => message.method === "chrome.debugger.onEvent")).toBe(false);
+      if (outcome === "window move") tabDetached.emit(12, { oldWindowId: 7 });
+      if (outcome === "tab removed") tabRemoved.emit(12);
+      if (outcome === "debugger detached") debuggerDetach.emit({ tabId: 12 }, "target_closed");
+      if (outcome === "relay closed") await relay.close();
+      finishCheck(popup);
+      const result = await pending;
+      debuggerEvent.emit({ tabId: 12 }, "Runtime.consoleAPICalled", { args: ["after-validation"] });
+      const forwarded = messages.filter((message: any) => message.method === "chrome.debugger.onEvent");
+      if (outcome === "success") {
+        expect(result.error).toBeUndefined();
+        expect(forwarded).toEqual([{ method: "chrome.debugger.onEvent", params: [
+          { tabId: 12 }, "Runtime.consoleAPICalled", { args: ["after-validation"] },
+        ] }]);
+      } else {
+        expect(result.error).toBeDefined();
+        expect(forwarded).toEqual([]);
+        expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 12 });
+        expect(relay.attachedTabIds()).not.toContain(12);
+      }
+      await relay.close();
+    },
+  );
+
+  it("rejects retired early-capture options before native attachment", async () => {
+    const { relay, api } = fixture();
+    const result = await relay.handle({ id: 1, method: "chrome.debugger.attach", params: [
+      { tabId: 10 }, "1.3", { captureResponses: true },
+    ] });
+    expect(result.error?.message).toContain("retired");
+    expect(api.debugger.attach).not.toHaveBeenCalled();
+    expect(api.debugger.sendCommand).not.toHaveBeenCalled();
+    await relay.close();
+  });
+
+  it("revokes events, in-flight replies and future commands when a tab leaves its window", async () => {
+    const { relay, api, tabs, tabDetached, debuggerEvent, messages, command, onOwnedTabDetached } = await attached();
+    let finish!: (value: unknown) => void;
+    vi.mocked(api.debugger.sendCommand).mockImplementation(async (_target, method) =>
+      method === "Runtime.evaluate" ? new Promise(resolve => { finish = resolve; }) : {});
+    const pending = command("Runtime.evaluate", { expression: "readLater()" });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    tabs.set(10, { id: 10, windowId: 8 });
+    tabDetached.emit(10, { oldWindowId: 7 });
+    const count = messages.length;
+    debuggerEvent.emit({ tabId: 10 }, "Runtime.consoleAPICalled", { args: ["foreign-window-data"] });
+    debuggerEvent.emit({ tabId: 10, sessionId: "child" }, "Network.responseReceived", { response: { url: "https://private.example" } });
+    expect(messages).toHaveLength(count);
+    expect(relay.attachedTabIds()).toEqual([]);
+    expect(onOwnedTabDetached).toHaveBeenCalledWith(10, "tab_moved_out_of_window");
+    finish({ value: "late-private-data" });
+    expect((await pending).error?.message).toContain("revoked");
+    expect((await command("Runtime.evaluate")).error?.message).toContain("uncontrolled tab");
+    await vi.waitFor(() => expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 10 }));
+    tabs.set(10, { id: 10, windowId: 7 });
+    expect((await relay.handle({ id: 3, method: "chrome.debugger.attach", params: [{ tabId: 10 }, "1.3"] })).error?.message).toContain("left the authorized window");
+    await relay.close();
+    expect(tabDetached.count()).toBe(0);
+  });
+
+  it.each([
+    ["DOM.setFileInputFiles", { files: ["/nonexistent-flowork-fixture.bin"], nodeId: 1 }],
+    ["DOM.getFileInfo", { objectId: "fixture-file" }],
+    ["Network.loadNetworkResource", { url: "file:///nonexistent-flowork-fixture.bin", options: {} }],
+    ["Network.loadNetworkResource", { url: "  fI\nLe:///nonexistent-flowork-fixture.bin", options: {} }],
+    ["Page.setDownloadBehavior", { behavior: "allow", downloadPath: "/nonexistent-flowork-downloads" }],
+    ["Input.dispatchDragEvent", { type: "drop", x: 0, y: 0, data: { items: [], files: ["/nonexistent-flowork-fixture.bin"], dragOperationsMask: 1 } }],
+  ])("rejects browser-local filesystem access via %s on primary and child sessions", async (method, parameters) => {
+    const { relay, api, command } = await attached();
+    for (const session of [undefined, "child-session"]) {
+      const before = vi.mocked(api.debugger.sendCommand).mock.calls.length;
+      const result = await command(method as string, parameters as Record<string, unknown>, session);
+      expect(result.error?.message).toContain("Browser-local file paths are not available");
+      expect(vi.mocked(api.debugger.sendCommand).mock.calls).toHaveLength(before);
+    }
+    await relay.close();
+  });
+
+  it("preserves text-only native drag operations", async () => {
+    const { relay, api, command } = await attached();
+    const parameters = { type: "drop", x: 3, y: 5, data: {
+      items: [{ mimeType: "text/plain", data: "sandbox-independent text" }], files: [], dragOperationsMask: 1,
+    } };
+    expect((await command("Input.dispatchDragEvent", parameters)).error).toBeUndefined();
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, "Input.dispatchDragEvent", parameters);
+    await relay.close();
+  });
+
+  it("does not publish an attachment that raced with a window move", async () => {
+    const { relay, api, tabs, tabDetached, onAttachedTabsChanged } = fixture();
+    let finish!: () => void;
+    vi.mocked(api.debugger.attach).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = relay.handle({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 10 }, "1.3"] });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    tabs.set(10, { id: 10, windowId: 8 });
+    tabDetached.emit(10, { oldWindowId: 7 });
+    // Even moving back before the native attach resolves cannot revive the old grant.
+    tabs.set(10, { id: 10, windowId: 7 });
+    finish();
+    expect((await pending).error?.message).toContain("revoked");
+    expect(relay.attachedTabIds()).toEqual([]);
+    expect(onAttachedTabsChanged.mock.calls.some(([, reason]) => reason === "attached")).toBe(false);
+    expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 10 });
+    await relay.close();
+  });
+
+  it("forwards removal during attach and never publishes the late result", async () => {
+    const { relay, api, tabRemoved, messages, onAttachedTabsChanged } = fixture();
+    let finish!: () => void;
+    vi.mocked(api.debugger.attach).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = relay.handle({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 10 }, "1.3"] });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    tabRemoved.emit(11); // Foreign removals must remain invisible.
+    expect(messages).toEqual([]);
+    tabRemoved.emit(10);
+    expect(messages).toEqual([{ method: "chrome.tabs.onRemoved", params: [10] }]);
+    // Keep stale tabs.get metadata to prove the terminal event itself fences
+    // the late reply, independently of another asynchronous Chrome lookup.
+    finish();
+    expect((await pending).error?.message).toContain("revoked");
+    expect(relay.attachedTabIds()).toEqual([]);
+    expect(onAttachedTabsChanged.mock.calls.some(([, reason]) => reason === "attached")).toBe(false);
+    expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 10 });
+    await relay.close();
+  });
+
+  it("forwards the removal of an announced popup after its attachment already failed", async () => {
+    const { relay, api, tabs, tabCreated, tabRemoved, messages } = await attached();
+    const popup = { id: 12, windowId: 7, openerTabId: 10 };
+    tabs.set(12, popup);
+    tabCreated.emit(popup);
+    vi.mocked(api.debugger.attach).mockRejectedValue(new Error("Tab vanished during attach"));
+    const result = await relay.handle({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 12 }, "1.3"] });
+    expect(result.error?.message).toContain("vanished");
+    tabRemoved.emit(12);
+    tabRemoved.emit(12);
+    expect(messages.filter((message: any) => message.method === "chrome.tabs.onRemoved"))
+      .toEqual([{ method: "chrome.tabs.onRemoved", params: [12] }]);
+    expect(relay.attachedTabIds()).toEqual([10]);
+    await relay.close();
+  });
+
+  it("releases held keys and buttons at the latest coordinates before detach", async () => {
+    const { relay, api, command } = await attached();
+    await command("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
+    await command("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", x: 10, y: 20 });
+    await command("Input.dispatchMouseEvent", { type: "mouseMoved", x: 90, y: 110 });
+    await command("Runtime.evaluate", { expression: "1" });
+    vi.mocked(api.debugger.detach).mockImplementation(async () => {
+      expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, "Input.dispatchKeyEvent", {
+        type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 0,
+      });
+      expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, "Input.dispatchMouseEvent", {
+        type: "mouseReleased", button: "left", buttons: 0, x: 90, y: 110, modifiers: 0, clickCount: 1,
+      });
+    });
+    await Promise.all([relay.close(), relay.close()]);
+    expect(api.debugger.detach).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.debugger.sendCommand).mock.calls.some(call => call[1] === "Runtime.terminateExecution")).toBe(false);
+  });
+
+  it("does not release keys/buttons already released by the Agent", async () => {
+    const { relay, api, command } = await attached();
+    await command("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA" });
+    await command("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA" });
+    await command("Input.dispatchMouseEvent", { type: "mousePressed", button: "right", x: 1, y: 2 });
+    await command("Input.dispatchMouseEvent", { type: "mouseReleased", button: "right", x: 1, y: 2 });
+    vi.mocked(api.debugger.sendCommand).mockClear();
+    await relay.close();
+    expect(api.debugger.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it("terminates only in-flight script targets, including child frames, before detach", async () => {
+    const { relay, api, command } = await attached();
+    let endScript!: (value: unknown) => void;
+    let started!: () => void;
+    const scriptStarted = new Promise<void>(resolve => { started = resolve; });
+    vi.mocked(api.debugger.sendCommand).mockImplementation(async (target, method) => {
+      if (method === "Runtime.callFunctionOn") {
+        started();
+        return new Promise(resolve => { endScript = resolve; });
+      }
+      if (method === "Runtime.terminateExecution") {
+        expect(target).toEqual({ tabId: 10, sessionId: "child" });
+        endScript({ exceptionDetails: { text: "Execution terminated" } });
+      }
+      return {};
+    });
+    const script = command("Runtime.callFunctionOn", { functionDeclaration: "() => new Promise(() => {})", awaitPromise: true }, "child");
+    await scriptStarted;
+    await relay.close();
+    await script;
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10, sessionId: "child" }, "Runtime.terminateExecution", {});
+    expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 10 });
+  });
+
+  it("bounds cleanup even when renderer termination and input release hang", async () => {
+    vi.useFakeTimers();
+    try {
+      const { relay, api, command } = await attached();
+      await command("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA" });
+      let endScript!: (value: unknown) => void;
+      let started!: () => void;
+      const scriptStarted = new Promise<void>(resolve => { started = resolve; });
+      vi.mocked(api.debugger.sendCommand).mockImplementation(async (_target, method) => {
+        if (method === "Runtime.evaluate") {
+          started();
+          return new Promise(resolve => { endScript = resolve; });
+        }
+        return new Promise(() => {});
+      });
+      const script = command("Runtime.evaluate", { expression: "never" });
+      await scriptStarted;
+      const closing = relay.close();
+      await vi.advanceTimersByTimeAsync(2001);
+      await closing;
+      expect(api.debugger.detach).toHaveBeenCalledTimes(1);
+      endScript({});
+      await script;
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("cleans held input on explicit detach as well as connection close", async () => {
+    const { relay, api, command } = await attached();
+    await command("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "ControlLeft", key: "Control" });
+    await relay.handle({ id: 102, method: "chrome.debugger.detach", params: [{ tabId: 10 }] });
+    expect(api.debugger.sendCommand).toHaveBeenLastCalledWith({ tabId: 10 }, "Input.dispatchKeyEvent", {
+      type: "keyUp", code: "ControlLeft", key: "Control", modifiers: 0,
+    });
+    await relay.close();
+    expect(api.debugger.detach).toHaveBeenCalledTimes(1);
+  });
+
+  it("cannot dispatch a command whose window check completed after close", async () => {
+    const { relay, api, command } = await attached();
+    let finishLookup!: (value: RelayTab) => void;
+    vi.mocked(api.tabs.get).mockImplementation(() => new Promise(resolve => { finishLookup = resolve; }));
+    const pending = command("Runtime.evaluate", { expression: "mutate()" });
+    await relay.close();
+    finishLookup({ id: 10, windowId: 7, url: "https://example.com" });
+    expect((await pending).error?.message).toContain("closing");
+    expect(api.debugger.sendCommand).not.toHaveBeenCalled();
+  });
+
+  it.each(["chrome://settings", "chrome-extension://test/sidepanel.html", "devtools://devtools", "edge://settings"])("rejects control of privileged UI %s", async url => {
+    const { relay, tabs, api, command } = await attached();
+    tabs.set(10, { id: 10, windowId: 7, url: "https://example.com", pendingUrl: url });
+    expect((await command("Runtime.evaluate", { expression: "grant()" })).error?.message).toContain("cannot be controlled");
+    expect(api.debugger.sendCommand).not.toHaveBeenCalled();
+    await relay.close();
+  });
+
   it("keeps the upstream command surface deliberately small", () => {
     expect([...PLAYWRIGHT_RELAY_ALLOWED_COMMANDS].sort()).toEqual([
       "chrome.debugger.attach",
       "chrome.debugger.detach",
       "chrome.debugger.sendCommand",
       "chrome.tabs.create",
+      "chrome.tabs.get",
       "chrome.tabs.remove",
     ]);
   });

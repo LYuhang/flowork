@@ -6,9 +6,11 @@ structured UI to the user inside the conversation transcript.
 """
 from __future__ import annotations
 
-from .render_interactive import render_interactive
-from .render_url_preview import render_url_preview
+from .render_choices import render_choices
+from .render_preview import render_preview
 
-INTERACTIVE_TOOLS = [render_interactive, render_url_preview]
+INTERACTIVE_TOOLS = [render_preview, render_choices]
 
-__all__ = ["INTERACTIVE_TOOLS", "render_interactive", "render_url_preview"]
+__all__ = [
+    "INTERACTIVE_TOOLS", "render_preview", "render_choices",
+]

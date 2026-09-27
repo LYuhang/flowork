@@ -9,13 +9,14 @@ from .register import node_registry
 
 # Sentinel object marking the end of an astream() event stream.
 _ASTREAM_END = object()
+DEFAULT_WORKFLOW_TIMEOUT = 3600.0
 
 
 class Workflow:
     INPUT_EFFECT_WARNING_NODE_TYPES = {"PromptNode", "CodeNode", "ConditionNode"}
 
     def __init__(self, workflow_dict: dict = None, *, max_workers: int = 16,
-                 execution_timeout: float = 3600.0):
+                 execution_timeout: float = DEFAULT_WORKFLOW_TIMEOUT):
         workflow_dict = workflow_dict or {}
         self.max_workers = max_workers
         self._execution_timeout = execution_timeout

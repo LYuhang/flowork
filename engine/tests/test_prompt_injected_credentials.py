@@ -131,7 +131,7 @@ def test_no_injection_rejects_inline_custom_provider():
     })
     result = n(inputs={}, previous_outputs={}, extra={})
     assert result["status"] == "error"
-    assert "Inline model credentials are disabled" in result["error_message"]
+    assert "Workflow model is unavailable" in result["error_message"]
     assert _SpyOpenAI.last_kwargs is None
 
 
@@ -144,5 +144,5 @@ def test_injected_mapping_present_but_name_absent_rejects_inline_provider():
     extra = {"llm_credentials": {"Other Saved Name": {"provider": "OpenAI", "model_name": "x", "api_key": "y"}}}
     result = n(inputs={}, previous_outputs={}, extra=extra)
     assert result["status"] == "error"
-    assert "Inline model credentials are disabled" in result["error_message"]
+    assert "Workflow model is unavailable" in result["error_message"]
     assert _SpyOpenAI.last_kwargs is None

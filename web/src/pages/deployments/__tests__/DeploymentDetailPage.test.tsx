@@ -70,6 +70,7 @@ vi.mock('@/lib/api/deployments', () => ({
 }));
 
 vi.mock('@/lib/api/queries/workflow', () => ({
+  useWorkflowVersions: () => ({ data: { versions: [{ major: 1, sub: 0 }] }, isLoading: false }),
   useWorkflow: () => ({
     data: {
       workflow: {

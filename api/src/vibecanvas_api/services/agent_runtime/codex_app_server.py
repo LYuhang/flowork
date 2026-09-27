@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+from collections import deque
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -76,6 +78,75 @@ class CodexAppServer:
         ] = asyncio.Queue()
         self._write_lock = asyncio.Lock()
         self._next_id = 1
+        # Debug-only metadata, captured at the native pipe boundary before any
+        # product projection. Never retain command text, output or credentials.
+        self._command_output_trace: deque[dict[str, Any]] = deque(maxlen=512)
+        self._command_output_trace_dropped = 0
+        self._command_output_sequence = 0
+        # Count alternate output channels without retaining their payloads. A
+        # missing v2 receipt alone must not be mistaken for proof that the native
+        # runtime never emitted the result through a legacy/process channel.
+        self._command_output_side_channels: dict[str, int] = {}
+
+    def _observe_command_output(self, message: dict[str, Any]) -> None:
+        if os.environ.get("AGENT_DEBUG_VIEW_ENABLED") != "1":
+            return
+        method = message.get("method")
+        params = message.get("params")
+        if not isinstance(method, str) or not isinstance(params, dict):
+            return
+        if method in {
+            "command/exec/outputDelta", "process/outputDelta", "process/exited",
+            "codex/event/exec_command_output_delta", "codex/event/exec_command_end",
+        }:
+            self._command_output_side_channels[method] = (
+                self._command_output_side_channels.get(method, 0) + 1
+            )
+            return
+        if method == "item/commandExecution/outputDelta":
+            item_id = params.get("itemId")
+            delta = params.get("delta")
+            detail = {"delta_chars": len(delta) if isinstance(delta, str) else None}
+        elif method in {"item/started", "item/completed"}:
+            item = params.get("item")
+            if not isinstance(item, dict) or item.get("type") != "commandExecution":
+                return
+            item_id = item.get("id")
+            output = item.get("aggregatedOutput")
+            detail = {
+                "aggregate_present": "aggregatedOutput" in item,
+                "aggregate_chars": len(output) if isinstance(output, str) else None,
+                "exit_code": item.get("exitCode") if type(item.get("exitCode")) is int else None,
+            }
+        else:
+            return
+
+        def identifier(value: Any) -> str | None:
+            return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:/-]{1,160}", value) else None
+
+        self._command_output_sequence += 1
+        if len(self._command_output_trace) == self._command_output_trace.maxlen:
+            self._command_output_trace_dropped += 1
+        self._command_output_trace.append({
+            "sequence": self._command_output_sequence,
+            "method": method,
+            "thread_id": identifier(params.get("threadId")),
+            "turn_id": identifier(params.get("turnId")),
+            "item_id": identifier(item_id),
+            **detail,
+        })
+
+    def take_command_output_observations(self) -> dict[str, Any]:
+        """Drain diagnostic metadata, not a replacement source for tool output."""
+        result = {
+            "events": list(self._command_output_trace),
+            "dropped_events": self._command_output_trace_dropped,
+            "alternate_channel_counts": dict(self._command_output_side_channels),
+        }
+        self._command_output_trace.clear()
+        self._command_output_trace_dropped = 0
+        self._command_output_side_channels.clear()
+        return result
 
     async def start(self) -> None:
         if self._process is not None:
@@ -211,6 +282,7 @@ class CodexAppServer:
                     continue
                 if not isinstance(message, dict):
                     continue
+                self._observe_command_output(message)
                 request_id = message.get("id")
                 if request_id in self._pending and "method" not in message:
                     future = self._pending.get(request_id)

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from vibecanvas_api.services.agent_resources import context as agent_context
+
 import uuid
 
 import pytest
 from sqlalchemy import text
 
 from vibecanvas_api.agents.tools.decorator import ToolError
+from vibecanvas_api.authorization.types import Action
 from vibecanvas_api.authorization.openfga_client import (
     OpenFgaReadPage,
     OpenFgaTuple,
@@ -22,11 +25,11 @@ from vibecanvas_api.services.agent_runtime.protocol import (
 from vibecanvas_api.services.agent_runtime.model_capability import (
     verify_runtime_model_capability,
 )
-from vibecanvas_api.services.platform_mcp.authorization import (
-    prepare_platform_tool,
+from vibecanvas_api.services.agent_resources.authorization import (
+    load_authorized_workflow,
 )
-from vibecanvas_api.services.platform_mcp.capability import (
-    verify_platform_mcp_capability,
+from vibecanvas_api.services.agent_resources.capability import (
+    verify_agent_capability,
 )
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
@@ -119,11 +122,10 @@ async def test_codex_platform_mcp_enforces_allow_deny_boundary(
     monkeypatch,
 ) -> None:
     from vibecanvas_api.routes import chats as chats_route
-    from vibecanvas_api.services.platform_mcp import invocation as platform_invocation
 
     store = _RelationshipStore()
     client._transport.app.state.openfga_client = store
-    monkeypatch.setattr(platform_invocation, "_OPENFGA_CLIENT", store)
+    monkeypatch.setattr(agent_context, "_OPENFGA_CLIENT", store)
 
     dispatched = []
 
@@ -194,15 +196,24 @@ async def test_codex_platform_mcp_enforces_allow_deny_boundary(
     assert [request.runtime_type.value for request in dispatched] == ["codex"]
     capabilities = []
     for request in dispatched:
+        # Host authority includes private CLI access, not an extra published MCP.
+        assert request.active_platform_mcps == ["interactive", "cli"]
+        assert {item.name for item in request.mcp_host_servers if item.source == "platform"} == {"interactive", "cli"}
+        cli_descriptor = next(item for item in request.mcp_host_servers if item.name == "cli")
+        cli_capability = verify_agent_capability(
+            cli_descriptor.connection["capability"], secret=config.signing_secret, server="cli"
+        )
+        assert cli_capability is not None
+        assert set(cli_capability.actions) == {"chat:execute", "agent_cli:call"}
         descriptor = next(
             item
             for item in request.mcp_host_servers
-            if item.source == "platform" and item.name == "build"
+            if item.source == "platform" and item.name == "interactive"
         )
-        capability = verify_platform_mcp_capability(
+        capability = verify_agent_capability(
             descriptor.connection["capability"],
             secret=config.signing_secret,
-            server="build",
+            server="interactive",
         )
         assert capability is not None
         assert capability.runtime_session_id == request.runtime_session_id
@@ -224,21 +235,11 @@ async def test_codex_platform_mcp_enforces_allow_deny_boundary(
 
     results: list[tuple[bool, bool]] = []
     for capability in capabilities:
-        context = await platform_invocation._context_for(capability)
-        await prepare_platform_tool(
-            context,
-            server="build",
-            tool_name="set_workflow",
-            arguments={"workflow_id": allowed_workflow_id},
-        )
+        context = await agent_context.resolve_context(capability)
+        await load_authorized_workflow(context, allowed_workflow_id, Action.USE)
         denied = False
         try:
-            await prepare_platform_tool(
-                context,
-                server="build",
-                tool_name="set_workflow",
-                arguments={"workflow_id": denied_workflow_id},
-            )
+            await load_authorized_workflow(context, denied_workflow_id, Action.USE)
         except ToolError as exc:
             assert "permission_denied" in str(exc)
             denied = True

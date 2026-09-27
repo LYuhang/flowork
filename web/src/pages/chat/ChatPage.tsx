@@ -26,6 +26,7 @@ import {
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { ChatShareDialog } from '@/components/agent-sidebar/ChatShareDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
@@ -93,16 +94,23 @@ import {
 } from '@/lib/api/sse/chat-reconcile';
 import { runAgentTurn } from '@/lib/api/sse/run-agent-turn';
 import { listVfs, readVfs } from '@/lib/api/vfs';
+import { DebugMessageContent } from './DebugMessageContent';
 import { cn } from '@/lib/utils';
 import {
   EMPTY_CHAT_VIEW_STATE,
   filePreviewItem,
+  previewItemToRestore,
   readChatViewPreferences,
   type ChatPreviewItem,
   writeChatViewPreferences,
 } from '@/lib/chat/preview-state';
 import { fileRefFromAgentPath } from '@/lib/preview/protocol';
-import { chatAccountNamespace, chatClientStateKey } from '@/lib/chat/state-key';
+import {
+  chatAccountNamespace,
+  chatClientStateKey,
+  readRecentChatLocation,
+  writeRecentChatSelection,
+} from '@/lib/chat/state-key';
 import {
   formatSandboxTtl,
   sandboxTtlRemaining,
@@ -235,6 +243,9 @@ interface DebugSnapshotMessage {
   runtime_item_type?: string;
   runtime_metadata?: Record<string, unknown>;
   content_truncated?: boolean;
+  content_ref?: string;
+  content_part_count?: number;
+  content_chars?: number;
   projection?: 'model_input' | 'turn_output';
 }
 
@@ -364,10 +375,12 @@ function debugToolCallArgs(call: Record<string, unknown>): string {
 }
 
 function DebugMessageCard({
+  workspaceId,
   message,
   active,
   onSelect,
 }: {
+  workspaceId: string;
   message: DebugSnapshotMessage;
   active: boolean;
   onSelect: () => void;
@@ -379,7 +392,6 @@ function DebugMessageCard({
   const slots = message.token_slots || {};
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
   const long =
-    (message.content || '').length > 1200 ||
     toolCalls.some((call) => debugToolCallArgs(call).length > 1200);
   const copy = () => {
     const payload = [
@@ -457,14 +469,10 @@ function DebugMessageCard({
         </button>
       </div>
       {(message.content || toolCalls.length === 0) && (
-        <pre
-          className={cn(
-            'm-0 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-5',
-            expanded ? 'max-h-[60vh]' : 'max-h-[180px]',
-          )}
-        >
-          {message.content}
-        </pre>
+        <DebugMessageContent key={message.content_ref || message.debug_id} workspaceId={workspaceId}
+          content={message.content} contentRef={message.content_ref}
+          partCount={message.content_part_count} totalChars={message.content_chars}
+          truncated={message.content_truncated} />
       )}
       {toolCalls.length > 0 && (
         <div className="space-y-2 border-t bg-muted/20 px-3 py-2">
@@ -613,7 +621,7 @@ function ChatDebugPanel({
       return JSON.parse(out.content) as DebugSnapshot;
     },
     enabled: !!workspaceScopeId && !!latestPath,
-    refetchInterval: 3000,
+    staleTime: Infinity,
   });
   const snapshot = snapshotQuery.data;
   const turnOutputQuery = useQuery({
@@ -811,7 +819,7 @@ function ChatDebugPanel({
           {snapshotTruncated
             ? t(
                 'chat.debug.snapshot_truncated',
-                'This large Runtime snapshot was truncated for safe browser display.',
+                'This older snapshot omitted some content. New snapshots retain each message with expandable content.',
               )
             : t(
                 'chat.debug.codex_history_incomplete',
@@ -928,7 +936,8 @@ function ChatDebugPanel({
             <div className="space-y-3">
               {snapshotMessages.map((message) => (
                 <DebugMessageCard
-                  key={message.debug_id}
+                  key={`${snapshot?.snapshot_id}:${message.debug_id}`}
+                  workspaceId={workspaceScopeId}
                   message={message}
                   active={activeDebugId === message.debug_id}
                   onSelect={() => selectDebugMessage(message)}
@@ -945,7 +954,8 @@ function ChatDebugPanel({
               )}
               {turnOutputMessages.map((message) => (
                 <DebugMessageCard
-                  key={message.debug_id}
+                  key={`${snapshot?.snapshot_id}:${message.debug_id}`}
+                  workspaceId={workspaceScopeId}
                   message={message}
                   active={activeDebugId === message.debug_id}
                   onSelect={() => selectDebugMessage(message)}
@@ -1192,13 +1202,27 @@ export function ChatPage() {
   const chatIdCopyResetTimer = useRef<number | null>(null);
   const boot = useGeneralChatBootstrap();
   const accountNamespace = chatAccountNamespace(account);
+  const restoredChatLocation = useMemo(
+    () => readRecentChatLocation(account, 'chat'),
+    [account],
+  );
+  const restoredChatId = restoredChatLocation?.chatId ?? null;
+  useEffect(() => {
+    if (!activeChatId && chatEntryIntent === null && restoredChatId) {
+      setActiveChatId('chat', restoredChatId);
+    }
+  }, [activeChatId, chatEntryIntent, restoredChatId, setActiveChatId]);
   const sandboxPane = usePersistedPaneWidth({
     storageKey: `vibecanvas:chat-sandbox-pane-width:v1:${accountNamespace}`,
     defaultWidth: 320,
     minWidth: 272,
     maxWidth: 560,
   });
-  const carrierScopeId = boot.data?.carrier_scope_id ?? '';
+  // A tab-scoped opaque scope/chat hint lets the transcript request start as
+  // soon as auth restores the page, rather than waiting behind bootstrap and
+  // the full session inventory. Bootstrap remains authoritative and replaces
+  // the hint if the server's carrier scope ever changes.
+  const carrierScopeId = boot.data?.carrier_scope_id ?? restoredChatLocation?.scopeId ?? '';
   const [composerHasDraft, setComposerHasDraft] = useState(false);
   const composerStateKey = activeChatId
     ? chatClientStateKey({
@@ -1362,6 +1386,11 @@ export function ChatPage() {
       ),
     [activeChatId, chatSessions.data?.items],
   );
+  useEffect(() => {
+    if (activeChatId && activeChatIsPersisted) {
+      writeRecentChatSelection(account, 'chat', activeChatId, carrierScopeId);
+    }
+  }, [account, activeChatId, activeChatIsPersisted, carrierScopeId]);
   // The durable Chat row can become visible just before its authorization
   // projection is queryable. The batch status endpoint is a safe readiness
   // probe: it returns 200 and omits unauthorized/not-yet-projected chats.
@@ -1404,7 +1433,6 @@ export function ChatPage() {
         control,
         surface: 'main',
         agentSurface: 'chat',
-        approvalMode: 'always_allow',
         onAccepted: () => {
           accepted = true;
           resolve();
@@ -1434,11 +1462,15 @@ export function ChatPage() {
     const runtime = state.runtimes[activeChatId];
     return runtime?.projectionActive ? runtime.turnId : null;
   });
+  const activeChatCanLoadHistory = Boolean(
+    activeChatIsPersisted
+    || (activeChatId && activeChatId === restoredChatId && !chatSessions.isError),
+  );
   const activeHistory = useChatHistory(
     carrierScopeId || null,
-    activeChatIsPersisted && activeProjectionTurnId !== '' ? activeChatId : null,
-    activeChatIsPersisted && activeProjectionTurnId !== '',
-    activeProjectionTurnId,
+    activeChatCanLoadHistory ? activeChatId : null,
+    activeChatCanLoadHistory,
+    activeProjectionTurnId || null,
   );
   const secondaryChatResourcesReady = Boolean(
     activeChatResourcesReady
@@ -1496,7 +1528,6 @@ export function ChatPage() {
           workspace_scope_id: data.scope_id,
           mount_scope_id: data.mount_scope_id ?? null,
           chat_id: chatId,
-          current_workflow_id: null,
         });
         void qc.invalidateQueries({ queryKey: ['chats', carrierScopeId, 'chat'] });
       }
@@ -1509,6 +1540,28 @@ export function ChatPage() {
   const [activeRunDiscoveryStatus, setActiveRunDiscoveryStatus] = useState<
     'pending' | 'ready' | 'error'
   >('pending');
+
+  useEffect(() => {
+    if (
+      !restoredChatId
+      || activeChatId !== restoredChatId
+      || chatSessions.isPending
+      || activeChatIsPersisted
+    ) return;
+    // The hint may outlive a remotely deleted Chat. Drop it after the
+    // authoritative inventory arrives, then let normal startup selection pick
+    // the newest valid session (or a fresh draft).
+    writeRecentChatSelection(account, 'chat', null);
+    initialChatSelectionRef.current = false;
+    setActiveChatId('chat', null);
+  }, [
+    account,
+    activeChatId,
+    activeChatIsPersisted,
+    chatSessions.isPending,
+    restoredChatId,
+    setActiveChatId,
+  ]);
 
   useEffect(() => {
     if (!carrierScopeId) return;
@@ -1540,7 +1593,21 @@ export function ChatPage() {
     // user or by an explicit navigation intent.
     if (activeChatId) {
       initialChatSelectionRef.current = true;
-      queueMicrotask(() => setActiveRunDiscoveryStatus('ready'));
+      if (activeChatId === restoredChatId) {
+        void readServerActiveTurns(carrierScopeId).then((turns) => {
+          if (turns === null) {
+            setActiveRunDiscoveryStatus('error');
+            return;
+          }
+          for (const turn of turns) {
+            markChatStarted(turn.chatId);
+            void resumeActiveTurn(turn);
+          }
+          setActiveRunDiscoveryStatus('ready');
+        });
+      } else {
+        queueMicrotask(() => setActiveRunDiscoveryStatus('ready'));
+      }
       return;
     }
     // A hard refresh resets the in-memory UI store. Wait for the durable Chat
@@ -1606,6 +1673,7 @@ export function ChatPage() {
     chatSessions.isPending,
     ensureDraftChatSession,
     markChatStarted,
+    restoredChatId,
     setActiveChatId,
     setChatEntryIntent,
   ]);
@@ -1751,7 +1819,11 @@ export function ChatPage() {
     activeChatSession?.runtime_type !== 'codex'
     || backgroundJobs.length > 0
   );
-  const showConversation = activeChatStartedThisView || (activeChatIsPersisted && !activeChatLooksEmpty);
+  // A default/unchanged title is not evidence of an empty transcript (for
+  // example, a chat materialized by attachment upload before its first Turn).
+  const showConversation = activeChatStartedThisView
+    || Boolean(activeHistoryWindow?.items.length)
+    || (activeChatIsPersisted && !activeChatLooksEmpty);
   const activeChatIsDraft = Boolean(
     activeChatId && draftChatSessions.some(
       (item) => item.scopeId === carrierScopeId
@@ -1835,20 +1907,12 @@ export function ChatPage() {
     : activeChatSession?.runtime_type
       ? activeChatSession.runtime_type
       : t('chat.runtime.pending', 'Runtime pending');
-  const currentWorkflowId = workspace.data?.current_workflow_id ?? '';
   const previewResources = useMemo(() => {
     const byId = new Map<string, ChatPreviewItem>();
     const add = (item: ChatPreviewItem | null) => {
       if (!item || byId.has(item.id)) return;
       byId.set(item.id, item);
     };
-    if (currentWorkflowId) {
-      add({
-        id: `workflow:${currentWorkflowId}`,
-        title: t('chat.preview.workflowTitle', 'Workflow: {{id}}', { id: currentWorkflowId.slice(0, 8) }),
-        resource: { schemaVersion: 1, kind: 'workflow', workflowId: currentWorkflowId },
-      });
-    }
     if (backgroundViewAvailable && activeChatIsPersisted && activeChatId) {
       add({
         id: `background_jobs:${activeChatId}`,
@@ -1875,22 +1939,23 @@ export function ChatPage() {
       }
     }
     return [...byId.values()];
-  }, [activeChatId, activeChatIsPersisted, activeHistoryWindow?.items, backgroundViewAvailable, currentWorkflowId, livePreviewChunks, previewItems, t]);
+  }, [activeChatId, activeChatIsPersisted, activeHistoryWindow?.items, backgroundViewAvailable, livePreviewChunks, previewItems, t]);
   const previewDiscoveryReady = !activeHistory.isLoading && !workspace.isLoading;
   useEffect(() => {
-    if (!previewOpen || previewItems.length > 0 || !previewDiscoveryReady) return;
-    const restored =
-      previewResources.find((item) => item.id === activePreviewId) ?? previewResources[0] ?? null;
+    if (!previewOpen || !previewDiscoveryReady) return;
+    const restored = previewItemToRestore(previewItems, previewResources, activePreviewId);
     if (!restored) {
-      closePreviewPane();
+      if (previewItems.length === 0) closePreviewPane();
       return;
     }
-    setPreviewItems([restored]);
+    setPreviewItems((current) => current.some((item) => item.id === restored.id)
+      ? current
+      : [...current, restored]);
     setActivePreviewId(restored.id);
   }, [
     activePreviewId,
     previewDiscoveryReady,
-    previewItems.length,
+    previewItems,
     previewOpen,
     previewResources,
     setActivePreviewId,
@@ -2042,6 +2107,7 @@ export function ChatPage() {
           <Plus className="h-4 w-4" />
           <span className="hidden sm:inline">{t('new_chat', 'New Chat')}</span>
         </Button>
+        <ChatShareDialog key={activeChatId} chatId={activeChatId ?? ''} disabled={!activeChatIsPersisted} />
         <ChatToolbarTooltip label={t('chat.toolbar.preview', 'Preview page')}>
           <Button
             ref={previewToggleButtonRef}
@@ -2188,7 +2254,6 @@ export function ChatPage() {
                     wfId={carrierScopeId}
                     vfsScopeId={workspaceScopeId || carrierScopeId}
                     activeChatId={activeChatId}
-                    workflowViewerId={currentWorkflowId || null}
                     onOpenWorkflowPreview={(workflowId) => openPreviewItem({
                       id: `workflow:${workflowId}`,
                       title: t('chat.preview.workflowTitle', 'Workflow: {{id}}', { id: workflowId.slice(0, 8) }),

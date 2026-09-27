@@ -9,33 +9,9 @@ from openpyxl import Workbook
 from pptx import Presentation
 from reportlab.pdfgen import canvas
 
-from vibecanvas_api.document_runtime import render as render_module
-from vibecanvas_api.document_runtime.render import render_document_feedback
+from vibecanvas_api.document_runtime import rendering as render_module
+from vibecanvas_api.document_runtime.rendering import render_document
 from vibecanvas_api.document_runtime.review import review_document
-from vibecanvas_api.document_runtime.server import mcp
-
-
-def test_document_mcp_registers_structured_review_and_feedback_tools() -> None:
-    tools = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
-
-    assert set(tools) == {"review_document", "render_document_feedback"}
-    assert tools["review_document"].output_schema is not None
-    assert tools["render_document_feedback"].output_schema is not None
-    feedback_schema = tools["render_document_feedback"].parameters
-    assert feedback_schema["properties"]["dpi"] == {
-        "default": 144,
-        "maximum": 220,
-        "minimum": 96,
-        "title": "Dpi",
-        "type": "integer",
-    }
-    assert feedback_schema["properties"]["max_pages"] == {
-        "default": 8,
-        "maximum": 20,
-        "minimum": 1,
-        "title": "Max Pages",
-        "type": "integer",
-    }
 
 
 def test_review_document_covers_native_office_and_delivery_formats(
@@ -130,25 +106,26 @@ def test_render_feedback_reports_only_actual_omission(
     monkeypatch,
 ) -> None:
     pdf_path = tmp_path / "report.pdf"
-    pdf_path.write_bytes(b"%PDF-test")
+    pdf = canvas.Canvas(str(pdf_path))
+    for number in range(3):
+        pdf.drawString(72, 760, str(number))
+        pdf.showPage()
+    pdf.save()
     feedback_root = tmp_path / "feedback"
     monkeypatch.setattr(render_module, "_FEEDBACK_ROOT", feedback_root)
     monkeypatch.setattr(render_module, "_required_command", lambda *_: "pdftoppm")
 
     def fake_run(arguments, **_kwargs):
         prefix = Path(arguments[-1])
-        for page_number in range(1, 4):
-            prefix.with_name(f"{prefix.name}-{page_number}.png").write_bytes(
-                b"png" + bytes([page_number])
-            )
+        prefix.with_suffix(".png").write_bytes(b"png")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(render_module.subprocess, "run", fake_run)
 
-    result = render_document_feedback(str(pdf_path), max_pages=2)
+    result = render_document(str(pdf_path), pages="1-2")
 
     assert result["rendered_pages"] == 2
-    assert result["truncated"] is True
-    assert len(result["feedback_paths"]) == 2
-    assert all(Path(path).is_file() for path in result["feedback_paths"])
+    assert result["complete"] is False
+    assert len(result["images"]) == 2
+    assert all(Path(image["file"]).is_file() for image in result["images"])
     assert json.dumps(result).count("page-003") == 0

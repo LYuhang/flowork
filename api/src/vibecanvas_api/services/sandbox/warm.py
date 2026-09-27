@@ -220,6 +220,8 @@ class WarmGvisorPool:
 
     def _boot_locked(self) -> None:
         """Make the bound dirs + boot the warm sandbox(es); caller holds ``_lock``."""
+        if getattr(self, "_retired", False):
+            raise RuntimeError("Task sandbox pool was permanently retired.")
         started = time.perf_counter()
         os.makedirs(self._runs_root, exist_ok=True)  # B1
         os.makedirs(self.work_root, exist_ok=True)
@@ -323,9 +325,11 @@ class WarmGvisorPool:
                 elapsed_ms=int((time.perf_counter() - started) * 1000),
             )
 
-    def stop(self) -> None:
+    def stop(self, *, retire: bool = False) -> None:
         """Stop the resident gVisor job server."""
         with self._lock:
+            if retire:
+                self._retired = True
             for handle in self._handles:
                 if handle is not None:
                     self.provider.stop_serve(handle)
@@ -754,7 +758,7 @@ class WarmGvisorPool:
             self._handles[0] = value
 
     # -- generic sandbox job slots ----------------------------------------
-    def submit_sandbox_job(self, job: dict, *, timeout: float = 30.0) -> dict:
+    def submit_sandbox_job(self, job: dict, *, timeout: float | None = 30.0) -> dict:
         """Enqueue ONE sandbox job.
 
         This is the reusable scheduling layer for agent-visible sandbox
@@ -771,12 +775,12 @@ class WarmGvisorPool:
         uniformly with real operation failures.
         """
         self._ensure_started()
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout if timeout is not None else None
         return self._submit_sandbox_job_on_slot(
             job, slot=0, deadline=deadline, timeout=timeout)
 
-    def _submit_sandbox_job_on_slot(self, job: dict, *, slot: int, deadline: float,
-                                    timeout: float) -> dict:
+    def _submit_sandbox_job_on_slot(self, job: dict, *, slot: int, deadline: float | None,
+                                    timeout: float | None) -> dict:
         inbox = self._slot_inbox(slot)
         outbox = self._slot_outbox(slot)
 
@@ -902,7 +906,7 @@ class WarmGvisorPool:
                     ),
                 }
 
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 # B3/B4: a RUNNING job (poisoned worker → kill+restart) vs a still-
                 # QUEUED job (leave the worker — another job may be running).
                 taken = os.path.join(inbox, f"{job_id}.taken")
@@ -1057,7 +1061,7 @@ class WarmGvisorPool:
         tenant: str,
         run_subpath: str | None = None,
         run_dir: str | None = None,
-        timeout: float = 120.0,
+        timeout: float | None = 120.0,
     ) -> AsyncIterator[dict]:
         """STREAMING sibling of :meth:`submit` (RE-6 debug-execute). Enqueue one
         run, then TAIL the run's ``__exec__/events.ndjson`` (the in-sandbox engine
@@ -1094,6 +1098,7 @@ class WarmGvisorPool:
         job_id, exec_dir = self._prep_job(
             workflow=workflow, inputs=inputs, run_id=run_id, tenant=tenant,
             run_subpath=run_subpath, run_dir=run_dir,
+            execution_timeout=timeout,
         )
 
         events_path = os.path.join(exec_dir, "events.ndjson")
@@ -1170,7 +1175,7 @@ class WarmGvisorPool:
                     return
 
                 # B3/B4 hang: no .done + no progress within ``timeout``.
-                if time.monotonic() - last_progress >= timeout:
+                if timeout is not None and time.monotonic() - last_progress >= timeout:
                     taken = os.path.join(self._inbox, f"{job_id}.taken")
                     running = os.path.exists(taken)
                     if running:
@@ -1267,6 +1272,43 @@ class WarmGvisorPool:
         with self._lock:
             self._restart_worker()
 
+    def close_job_pool(self, *, pool_id: str, timeout: float = 15.0) -> dict:
+        """Stop one execution-owned pool, retaining the sandbox and other pools."""
+        if len(pool_id) != 32 or any(c not in "0123456789abcdef" for c in pool_id):
+            raise ValueError("invalid execution pool ID")
+        directory = os.path.join(self._slot_work_root(0), "pool-control")
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, pool_id + ".stop"), "w"):
+            pass
+        done = os.path.join(directory, pool_id + ".done")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                with open(done, encoding="utf-8") as stream:
+                    return json.load(stream)
+            except FileNotFoundError:
+                time.sleep(0.02)
+        raise TimeoutError("Execution pool shutdown could not be confirmed.")
+
+    def kill_job(self, *, run_id: str, tenant: str, run_subpath: str) -> None:
+        """Request hard cancellation of one job, without restarting this pool.
+
+        Only the supervisor consumes worker.kill and kills that job's process
+        group. The workflow engine receives no cooperative cancellation signal.
+        A marker arriving before enqueue also prevents the job from starting.
+        The caller must await the job's terminal response to confirm exit.
+        """
+        if self.tenant is not None and tenant != self.tenant:
+            raise ValueError("job tenant does not match sandbox scope")
+        if (not run_subpath or os.path.isabs(run_subpath) or "\\" in run_subpath
+                or "\x00" in run_subpath or any(part in {"", ".", ".."} for part in run_subpath.split("/"))):
+            raise ValueError("invalid job subpath")
+        exec_dir = os.path.join(self._runs_root, run_subpath, "__exec__")
+        os.makedirs(exec_dir, exist_ok=True)
+        # Do not swallow I/O errors and falsely acknowledge cancellation.
+        with open(os.path.join(exec_dir, "worker.kill"), "w"):
+            pass
+
     def _write_cancel_marker(
         self, *, run_id: str, tenant: str, run_subpath: str | None = None
     ) -> None:
@@ -1304,6 +1346,7 @@ class WarmGvisorPool:
         tenant: str,
         run_subpath: str | None = None,
         run_dir: str | None = None,
+        execution_timeout: float | None = 600.0,
     ) -> "tuple[str, str]":
         """Write the run-tier ``__exec__/{workflow,inputs}.json`` + drop the inbox
         job descriptor + atomic ``.ready`` marker. Returns ``(job_id, exec_dir)``.
@@ -1338,6 +1381,8 @@ class WarmGvisorPool:
         with open(os.path.join(self._inbox, f"{job_id}.json"), "w", encoding="utf-8") as f:
             json.dump(
                 {
+                    "kind": "workflow",
+                    "execution_timeout": execution_timeout,
                     "tenant": tenant,
                     "run_id": run_id,
                     "run_subpath": effective_run_subpath,

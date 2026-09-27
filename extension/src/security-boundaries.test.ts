@@ -50,8 +50,10 @@ describe("MV3 extension security boundaries", () => {
 
   it("retains required automation APIs without accepting plaintext remote peers", () => {
     expect(new Set(manifest.permissions)).toEqual(
-      new Set(["offscreen", "sidePanel", "storage", "debugger", "tabs", "scripting", "downloads", "clipboardWrite"]),
+      new Set(["offscreen", "sidePanel", "storage", "debugger", "tabs", "scripting", "downloads", "webRequest", "clipboardWrite"]),
     );
+    expect(manifest.host_permissions).toEqual(["http://*/*", "https://*/*", "file:///*"]);
+    expect(manifest.permissions).not.toContain("webRequestBlocking");
     const matches = manifest.externally_connectable?.matches ?? [];
     // Source manifest is a non-loadable template. Vite injects the exact
     // VITE_EXTENSION_ALLOWED_ORIGINS set into dist/manifest.json at build time.

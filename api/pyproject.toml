@@ -134,8 +134,8 @@ test = [
 
 [project.scripts]
 vibecanvas-api = "vibecanvas_api.cli:main"
+flowork-cli = "vibecanvas_api.flowork_cli.cli:main"
 vibecanvas-encrypt-legacy-secrets = "vibecanvas_api.security.migrate_legacy_secrets:main"
-flowork-document-mcp = "vibecanvas_api.document_runtime.server:main"
 
 [project.urls]
 Repository = "https://github.com/LYuhang/flowork"

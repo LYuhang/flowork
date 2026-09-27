@@ -170,6 +170,15 @@ _DEVICE_LOGIN_BY_OWNER: dict[tuple[str, str], str] = {}
 _DEVICE_LOGIN_LOCK = asyncio.Lock()
 _DEVICE_LOGIN_TIMEOUT_S = 15 * 60
 
+# ``list_models`` opens its own app-server against the account's shared auth
+# home. A concurrent Chat Turn can make that probe fail even though the
+# credential remains configured and the Turn is successfully using it. Keep
+# the last successful catalog for as long as the managed credential still
+# exists. A time-based expiry is incorrect here: long-running Turns routinely
+# outlive it and would make the UI report a false disconnect mid-response.
+# Explicit logout (and a missing credential file) invalidates the cache.
+_MODEL_LIST_CACHE: dict[tuple[str, str], list[RuntimeModelOption]] = {}
+
 
 class CodexAccountService:
     """Use only the official Codex CLI/app-server account operations."""
@@ -237,10 +246,15 @@ class CodexAccountService:
         available = self._executable() is not None
         if not available:
             return CodexAccountStatus(cli_available=False, authenticated=False)
-        try:
-            authenticated = await self._run("login", "status", timeout_s=15) == 0
-        except RuntimeError:
-            authenticated = False
+        # This endpoint reports whether Flowork has a persistent Codex
+        # credential configured, not whether a second CLI process can acquire
+        # the same auth home at this instant. The official login command owns
+        # creation/removal of auth.json; probing it again with ``login status``
+        # races an active app-server and caused the Settings page and composer
+        # to flicker to "disconnected" during otherwise healthy Turns.
+        authenticated = os.path.isfile(os.path.join(self._home, "auth.json"))
+        if not authenticated:
+            _MODEL_LIST_CACHE.pop(self._owner, None)
         return CodexAccountStatus(
             cli_available=True,
             authenticated=authenticated,
@@ -354,6 +368,7 @@ class CodexAccountService:
         await self._cancel_device_login_for_owner()
         if await self._run("logout", timeout_s=30) != 0:
             raise RuntimeError("codex_logout_failed")
+        _MODEL_LIST_CACHE.pop(self._owner, None)
         return await self.status()
 
     async def usage_snapshot(self, *, timeout_s: float = 30) -> dict[str, Any]:
@@ -499,6 +514,14 @@ class CodexAccountService:
                     break
                 cursor = next_cursor
         except CodexAppServerError as exc:
+            cached = _MODEL_LIST_CACHE.get(self._owner)
+            if cached is not None and os.path.isfile(
+                os.path.join(self._home, "auth.json")
+            ):
+                # The credential is still configured. The probe's app-server
+                # is most likely contending with an in-progress Turn, so keep
+                # the last verified catalog regardless of Turn duration.
+                return cached
             raise RuntimeError(exc.code) from exc
         finally:
             await client.close()
@@ -538,6 +561,7 @@ class CodexAccountService:
                     ),
                 )
             )
+        _MODEL_LIST_CACHE[self._owner] = models
         return models
 
 

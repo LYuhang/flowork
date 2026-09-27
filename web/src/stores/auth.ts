@@ -31,8 +31,41 @@ import {
   resetOrganizationScopedClientState,
 } from '@/lib/auth/reset-client-state';
 import { sessionFetch } from '@/lib/api/session-fetch';
+import { queryClient } from '@/app/query-client';
+import { readRecentChatLocation } from '@/lib/chat/state-key';
 
 const API_BASE = getApiBase();
+
+async function warmRecentChatHistory(user: AuthUser | null): Promise<void> {
+  if (!user || typeof window === 'undefined') return;
+  const pathname = window.location.pathname.replace(/\/$/, '');
+  if (!pathname.endsWith('/chat') || pathname.endsWith('/embed/chat')) return;
+  const recent = readRecentChatLocation(user, 'chat');
+  if (!recent?.scopeId) return;
+  const params = new URLSearchParams({ limit: '30', offset: '0', tail: 'true' });
+  const response = await sessionFetch(
+    `${API_BASE}/api/v1/chat-scopes/${encodeURIComponent(recent.scopeId)}`
+      + `/chats/${encodeURIComponent(recent.chatId)}/messages?${params.toString()}`,
+    { credentials: 'include' },
+  );
+  if (!response.ok) return;
+  const page = await response.json() as {
+    items?: unknown[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+  };
+  if (!Array.isArray(page.items)) return;
+  queryClient.setQueryData(
+    ['chat-history', recent.scopeId, recent.chatId, null],
+    {
+      items: page.items,
+      total: typeof page.total === 'number' ? page.total : page.items.length,
+      limit: typeof page.limit === 'number' ? page.limit : 30,
+      offset: typeof page.offset === 'number' ? page.offset : 0,
+    },
+  );
+}
 
 // One-way migration: an older build persisted the raw Session bearer here.
 // Remove it before any application code or extension sync can observe it.
@@ -360,6 +393,17 @@ export const useAuthStore = create<AuthState>()(
         }
         const me = (await fetchMe()) as MeResponse;
         const projection = projectionFromMe(me);
+        const previous = get();
+        if (previous.user && (
+          previous.user.user_id !== projection.user.user_id
+          || previous.user.tenant_id !== projection.user.tenant_id
+          || previous.sessionAudience !== projection.sessionAudience
+        )) {
+          // Extension exchanges can switch accounts without visiting login or
+          // logout in this frame. Clear the previous namespace before publishing
+          // the new identity; renewing the same identity must preserve live Chat.
+          resetAuthScopedClientState();
+        }
         set({
           token: null,
           authenticated: true,
@@ -367,6 +411,11 @@ export const useAuthStore = create<AuthState>()(
           bootstrapped: true,
           organizationSwitching: false,
         });
+        // The authenticated projection contains the account namespace needed
+        // to read the tab-scoped recent Chat hint. Warm its bounded tail while
+        // React is still loading the route chunks, then ChatPage can paint from
+        // TanStack Query immediately and reconcile with the server normally.
+        void warmRecentChatHistory(projection.user).catch(() => undefined);
       } catch (err) {
         if (err instanceof AuthApiError && err.status === 401) {
           set({

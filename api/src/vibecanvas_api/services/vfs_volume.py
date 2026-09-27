@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from vibecanvas_api.config import config
-from vibecanvas_api.services.object_store import ObjectStore, get_object_store
+from vibecanvas_api.services.object_store import FilesystemObjectStore, ObjectStore, get_object_store
 
 _SAFE_COMPONENT = re.compile(r"[A-Za-z0-9_.-]+")
 
@@ -307,7 +307,13 @@ class EncryptedObjectStoreChatRuntimeVolumeProvider:
                 # manifest instead of turning an otherwise completed Agent
                 # Turn into a failure.
                 continue
-            self.store.put_bytes(key, data)
+            # This snapshot came FROM a still-mounted runtime. Mirroring it
+            # back with put_bytes atomically replaces open SQLite/WAL/log/lock
+            # files and strands subsequent writes on unlinked inodes.
+            if isinstance(self.store, FilesystemObjectStore):
+                self.store.persist_materialized_bytes(key, data)
+            else:
+                self.store.put_bytes(key, data)
             current_keys.add(key)
         stale = set(self.store.list_keys(f"{prefix}/")) - current_keys
         for key in sorted(stale):

@@ -240,7 +240,6 @@ async function installStubs(page) {
       workspace_scope_id: 'workspace_demo',
       mount_scope_id: 'workspace_demo',
       chat_id: q.get('chat_id') || 'chat_demo',
-      current_workflow_id: null,
     });
     if (/\/chat-scopes\/[^/]+\/chats$/.test(p)) return json(route, {
       items: [], total: 0, limit: 50, offset: 0,

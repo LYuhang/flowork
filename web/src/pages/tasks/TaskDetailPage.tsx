@@ -118,7 +118,7 @@ function taskStatusTone(s: TaskStatus): SemanticStatus {
 
 /** Keep cleanup mechanics out of the user-facing task vocabulary. */
 function visibleTaskStatus(status: TaskStatus): TaskStatus {
-  return status === "cancelling" || status === "interrupted"
+  return status === "interrupted"
     ? "cancelled"
     : status;
 }
@@ -139,6 +139,7 @@ function executionStatusTone(
     case "queued":
       return "neutral";
     case "running":
+    case "cancelling":
       return "running";
     case "succeeded":
       return "success";
@@ -637,7 +638,9 @@ export function TaskDetailPage() {
   const pct = Math.round((task.progress ?? 0) * 100);
   const isScheduledRun = task.task_type === "scheduled_run";
   const isCancellable = !isScheduledRun && capabilities.has("cancel") && CANCELLABLE.includes(task.status);
-  const isResumable = !isScheduledRun && capabilities.has("resume") && RESUMABLE.includes(task.status) && !!(task.result as { artifact_uris?: { jsonl?: string } } | null)?.artifact_uris?.jsonl;
+  const isResumable = !isScheduledRun && capabilities.has("resume") && RESUMABLE.includes(task.status)
+    && (task.result as { can_resume?: boolean } | null)?.can_resume !== false
+    && !!(task.result as { artifact_uris?: { jsonl?: string } } | null)?.artifact_uris?.jsonl;
   const summary = ["finished", "finished_with_errors", "interrupted"].includes(task.status)
     ? asBatchSummary(task.result)
     : null;

@@ -58,7 +58,7 @@ import { runAgentTurn } from '@/lib/api/sse/run-agent-turn';
 import type { HitlContinueControl } from '@/lib/api/sse/agent-stream';
 import { useAgentRuntimeCapabilities } from '@/lib/api/queries/agent-runtime';
 import type { AgentRuntimeCapabilities } from '@/lib/api/agent-runtime';
-import type { AgentSettings, ApprovalMode, ReasoningEffort } from '@/stores/agent-settings';
+import { useAgentSettingsStore, type AgentSettings, type ApprovalMode, type ReasoningEffort } from '@/stores/agent-settings';
 import {
   getChatAgentSettings,
   useChatAgentSettingsStore,
@@ -675,7 +675,7 @@ export function ChatComposer({
       content,
       attachments.length > 0 ? attachments : undefined,
       mode,
-      'always_allow',
+      useAgentSettingsStore.getState().approvalMode,
       undefined,
       () => {
         accepted = true;
@@ -734,7 +734,7 @@ export function ChatComposer({
       lastInput.content,
       lastInput.attachments,
       lastInput.mode,
-      'always_allow',
+      lastInput.approvalMode ?? useAgentSettingsStore.getState().approvalMode,
       lastInput.control,
     );
   };
@@ -1247,6 +1247,7 @@ export function ChatComposer({
               disabled={isStreaming || (chatStateReady && !!chatId && chatStateQuery.isPending)}
               runtimeType={runtimeCapabilitiesQuery.data?.runtime_type}
             />
+            <ApprovalModePicker disabled={isStreaming} />
           </div>
         ) : null}
       </div>
@@ -1282,6 +1283,7 @@ export function ChatComposer({
                 disabled={isStreaming || (chatStateReady && !!chatId && chatStateQuery.isPending)}
                 runtimeType={runtimeCapabilitiesQuery.data?.runtime_type}
               />
+              <ApprovalModePicker disabled={isStreaming} />
             </div>
           </SheetContent>
         </Sheet>
@@ -1539,6 +1541,29 @@ function ComposerRuntimeSelectors({
 }
 
 const DEFAULT_REASONING_EFFORT = '__runtime_default__';
+
+function ApprovalModePicker({ disabled }: { disabled: boolean }) {
+  const { t } = useTranslation();
+  const mode = useAgentSettingsStore((state) => state.approvalMode);
+  const setMode = useAgentSettingsStore((state) => state.setApprovalMode);
+  return (
+    <Select value={mode} onValueChange={(value) => setMode(value as ApprovalMode)} disabled={disabled}>
+      <SelectTrigger
+        aria-label={t('approval_mode.label', 'Authorization')}
+        title={t('approval_mode.scope_hint', 'Controls pre-tool approval only; interactive requests still wait for you.')}
+        className="h-8 w-[140px] min-w-0 rounded-md border-0 bg-transparent px-2 text-xs shadow-none hover:bg-muted/45 disabled:bg-transparent [&>span]:truncate"
+        data-role="chat-approval-mode-select"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="start">
+        <SelectItem value="agent">{t('approval_mode.agent', 'Smart approval')}</SelectItem>
+        <SelectItem value="always_ask">{t('approval_mode.always_ask', 'Always ask')}</SelectItem>
+        <SelectItem value="always_allow">{t('approval_mode.always_allow', 'Always allow')}</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
 
 function InlineReasoningEffortPicker({
   capabilities,

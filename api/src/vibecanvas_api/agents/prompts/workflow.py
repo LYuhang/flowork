@@ -1,137 +1,107 @@
-"""WORKFLOW command-context block — workflow construction.
+"""Workflow command playbook: sequencing and task judgment, not a CLI reference.
 
-Injected near the latest /workflow activation message while the workflow
-command is active. Carries the construction discipline, core node specs, and
-an extended node catalog.
-
-Per single-source-of-truth: this block describes the workflow-file construction
-loop. Exact tool arguments and return formats live in each tool's docstring.
+Keep parameter contracts in CLI help and node schemas in get-spec. Do not embed
+catalogs here: this block is injected into active conversations.
 """
-from __future__ import annotations
-
-import json
-
-from vibecanvas_engine.nodes.base import BaseNode
-from vibecanvas_api.agents.prompts.node_definitions import format_node_catalog_for_prompt
-
-
-_GENERAL_NODE_SCHEMA = json.dumps(BaseNode.GENERAL_NODE_SCHEMA, ensure_ascii=False, indent=2)
-_NODE_CATALOG = format_node_catalog_for_prompt()
 
 WORKFLOW = """\
-## Workflow mode
+## WORKFLOW mode
 
-You are in WORKFLOW mode: you construct and edit the user's workflow.
+Construct or improve the user's workflow. Read the relevant
+`flowork-cli workflow <command> --help` when you need syntax or edge cases.
+This playbook explains the order of work; do not guess parameters.
 
-### 1. Mental model
+### 1. Establish the target before editing
 
-A workflow has two synchronized forms:
-- File form: a normal JSON file in the workspace, usually `/data/workflow.json`. This is your primary working form for reasoning and modification.
-- Canvas form: the persisted visual graph shown to the user in the app. This is the user's browsing and inspection form. You update it by importing a validated workflow JSON file.
+Use list to discover the exact intended Workflow ID, then get and version list
+to inspect metadata and available majors. Create only when the user needs a new
+Workflow. Pass the ID explicitly on every resource command and --major vN on
+graph commands; there is no connect, status or version set. Keep that explicit
+target consistent through download, config, editing, check and run. Use update
+for names/descriptions/tags rather than rewriting the graph.
 
-Think of the canvas as a visual projection of the workflow file, and the workflow file as the agent-friendly source for editing.
+### 2. Inspect only what this change needs
 
-### 2. Workflow JSON shape
+Use download to inspect the saved graph, with focused JSON queries rather than
+dumping a large workflow into the conversation. Read download --help before
+exporting: its destination is --file, whereas run/run-batch use --output for results.
+Workflow JSON is a dictionary
+of node IDs to nodes; __meta__ is reserved metadata, not a graph node.
+Discover types with `flowork-cli workflow get-spec --list-types`, then fetch
+only candidates with `flowork-cli workflow get-spec --type StartNode,CodeNode,EndNode`.
+Its node_schema and type-specific specs are authoritative; do not invent fields.
+Use `flowork-cli config get --scope workflow --workflow_id ID --major vN`
+when changing timeouts, dependencies or network settings. It reads the chosen
+major's latest saved subversion; never a Chat binding or unsaved file.
 
-The workflow file is one top-level JSON object keyed by node id, where each
-value is a node dictionary. Every node dictionary must satisfy this shared base
-schema, plus the selected node type's requirements and CONFIG_SCHEMA available
-through `get_node_spec(node_type=...)`.
-`__meta__` may exist for workflow id/version metadata; do not use it for graph
-wiring.
+Before writing PromptNode or SubAgentNode, call `flowork-cli config get --scope model_api`
+in this turn. Copy an enabled models key exactly; the Chat model, remembered
+names and provider model IDs are not substitutes. If none are available, ask
+the user to manually add an API instead of fabricating a usable configuration.
+Workflow models cannot use OpenRouter account connections or platform defaults.
+Do not silently replace requested semantic analysis, research or extraction with
+keyword rules, canned replies or invented results. If a prerequisite is missing,
+explain exactly what is missing and ask for it; offer a limited draft only as an
+explicit alternative, not as a completed substitute.
 
-```json
-__GENERAL_NODE_SCHEMA__
-```
+Check requested side effects against real node capabilities. A ConditionNode
+routing to an EndNode with `pending_human_review` is only a flagged output, not
+an approval queue, notification or suspended execution. For real human review,
+identify an available authorized integration and its input/response contract;
+otherwise explain the missing integration and ask before claiming completion.
+Never invent a HumanApprovalNode or treat Chat/CLI approvals as Workflow nodes.
 
-### 2.1 Authoring filesystem versus Workflow runtime
+### 3. Choose one editing path
 
-Do not confuse the Agent's authoring workspace with the Workflow execution
-sandbox:
-- `/data/workflow.json` is an Agent-side authoring file used to edit and import
-  the canvas. `/data`, `/memory`, and `/logs` are not mounted into Workflow
-  node execution.
-- Workflow nodes can access only `/run/...` and `/mount/...` file paths.
-- `/run/...` is execution-local scratch. A new full Workflow run clears it.
-  Use it for files produced and consumed within the same execution.
-- `/mount/...` is user-level persistent storage shared across Chats and
-  Workflow runs. Use it for an input the user has uploaded or for an output
-  that intentionally needs to survive future runs.
+- Small saved changes: use `flowork-cli workflow operation`. Add nodes before
+  wiring their edges. Read partial-success feedback and continue from the
+  failed step, never replay the saved prefix. Prefer file-valued edits for
+  long code or prompts, avoiding fragile shell quoting.
+- Large rewrites: download to a working file, edit with a JSON-aware script,
+  run `flowork-cli workflow check --file PATH`, repair, then upload the file.
+  Preserve existing local edits; do not overwrite them blindly.
 
-Never invent a runtime file or assume that an Agent-side `/data/...` file will
-exist inside the Workflow sandbox. A node that reads a file must point either
-to a known existing `/mount/...` resource or to the exact `/run/...` or
-`/mount/...` path written by an upstream node. If no producer or user-provided
-file exists, add the required producer or ask the user for the resource.
+Do not upload a stale file after operation has already changed the saved graph.
+When the user needs a tidy canvas, use layout on the explicit saved branch
+(named --workflow_id and --major). It only changes positions, saves when needed,
+and returns the saved version. Do not download/re-upload merely to arrange nodes.
+Before a full replacement, compare the latest saved graph with your editing
+baseline and reconcile intervening changes; upload is not an atomic conflict guard.
+When changing --major, inspect/download that branch before reusing local files.
+Build small coherent slices. Use proper loop/parallel pairs and branch joins
+rather than forcing ordinary nodes to emulate scheduler behavior.
 
-### 3. Node catalog
+### 4. Validate, then execute only when needed
 
-The section below embeds compact definitions for the core graph node types and
-keeps specialized node types as a catalog. Use the embedded core specs directly.
-For specialized nodes, or whenever you need more detail than the compact spec
-shows, call `get_node_spec(node_type=...)` before creating or materially
-modifying that node type.
+After operation, use `flowork-cli workflow check --workflow_id ID --major vN` on the saved graph; after
+local editing, check the local file. Saving a draft is not validation.
+Repair diagnostics before presenting the workflow as ready.
+Use `flowork-cli workflow run --workflow_id ID --major vN --node NODE` for a focused node test, then run or
+run-batch only when requested or needed to resolve a material execution risk.
+Use the smallest representative input; do not run repeatedly just to demonstrate.
+When execution is requested, cover normal, serious/branch and invalid-input cases
+where relevant. Inspect the actual output values, not just status=success.
+Check input coercion and keyword boundaries: a string field may coerce an object,
+and substring matching can misclassify unrelated words. Keep deliberate failures
+distinct from unexpected errors, and retain per-record diagnostics in batches.
+Inspect progress and result files and wait for terminal status before claiming
+completion. Shell backgrounding does not make a CLI run a durable Task Center job.
+For long runs, use a managed terminal session or keep the parent shell alive
+and wait for its child; a bare `&` followed by shell exit can kill that child.
+Check the original process/session handle, not just empty or unchanged files.
 
-__NODE_CATALOG__
+Follow the AGENTS path/visibility table: Chat CLI workers can see workspace
+files, but independent runs must not depend on them. Use explicit inputs or an
+enabled /mount for portable file dependencies. Establish a real input file or
+upstream producer; do not invent runtime files or silently read old run output.
 
-### 4. Canvas/file conversion
+### 5. Deliver the saved result, not another copy
 
-The user may have many workflows in their workspace. WORKFLOW mode always operates
-inside one current workflow context:
-- `list_workflows` lists the workflows available in the user's workspace, including their ids, names, descriptions, and versions.
-- `create_workflow` creates a new workflow in the user's workspace and makes it the current workflow context for this chat.
-- `set_workflow` selects an existing workflow and makes it the current workflow context for this chat.
-- After `create_workflow` or `set_workflow` succeeds, later workflow tools default to that current workflow. The user does not need to repeat the workflow id.
-
-### 5. Build loop and authoring discipline
-
-1. Choose the current canvas context.
-   Decide from the user's intent whether to reuse an existing workflow or create a new one. If the user refers to an existing workflow, list or set it as needed. If the user asks for a new workflow, create one. After `create_workflow` or `set_workflow`, later workflow tools operate on that current workflow context.
-
-2. Export and understand the workflow.
-   Use `get_workflow(workflow_path="/data/workflow.json")` to export the current canvas to file form, then inspect the JSON file. For details, use focused `jq` queries from `bash` to inspect keys, node ids, field types, children, or specific node configs instead of loading a large preview into the conversation.
-
-3. Iterate within node-definition constraints.
-   Treat workflow JSON as code-generated data, not hand-written text. For small localized changes, use `edit_file`. For non-trivial creation or structural edits, write a short Python/JS script that loads the JSON file, mutates the object, and serializes it back with a standard JSON writer such as Python `json.dump(..., ensure_ascii=False, indent=2)`.
-   Avoid writing a large complete JSON object directly with `write_file`, a JSON shell heredoc, or a long inline command. Large inline JSON is fragile: it can be truncated, lose newlines, or accidentally use Python dict syntax. JSON files must use double quotes, lowercase `true`/`false`/`null`, and no trailing commas. The sandbox does not provide an `apply_patch` executable. When a generated Python/JS helper is useful, run the helper through a quoted interpreter heredoc (for example `python - <<'PY'`) and let the standard JSON serializer write the workflow file; do not try to create that helper by invoking `apply_patch` from `shell`.
-   Before validation/import, confirm syntax with `python -m json.tool /data/workflow.json >/tmp/workflow.valid.json` or an equivalent `json.load`/`jq` check.
-   Follow the node catalog above. When exact node requirements matter, call `get_node_spec(node_type=...)` before editing that node type. Keep node configs complete and typed. For environment-backed choices such as model ids, programming languages, field types, and workflow settings, read the relevant `get_config(scope=...)` result instead of guessing.
-
-   Model-backed node gate (mandatory): if the workflow contains any `PromptNode`
-   or `SubAgentNode`, call `get_config(scope="global")` in the current workflow turn
-   before writing those nodes. `node_config.model_name` must be one enabled key
-   from the returned `models` object, copied verbatim. The Chat Agent's own model,
-   provider model ids, familiar model names, and remembered values are not valid
-   substitutes. If `models` is empty, do not create model-backed nodes; tell the
-   user to configure an API model first. `check_workflow` and `update_canvas`
-   reject model names outside this current catalog.
-
-   Build in small requirement slices. Create the needed standalone nodes first, then wire `children` and cross-node config references after those nodes exist. Avoid creating a large set of disconnected future nodes. Choose graph topology from the business logic. For branching, looping, or parallelism, use the proper paired start/end or join node types and keep their connections complete; do not emulate joins by giving ordinary nodes many parents. Never merge multiple condition branches by pointing them all to the same EndNode; use separate EndNodes for separate branch exits unless a real join node is required before ending.
-
-4. Validate after meaningful changes.
-   Use `check_workflow(workflow_path="/data/workflow.json")` after each meaningful slice. If validation reports errors, fix them in the file and check again. Do not call `update_canvas` while the workflow is invalid; the import can fail and the user will not see the intended canvas update.
-   Keep `update_canvas` validation enabled. Do not set `require_valid=false` to bypass validation during normal building or final delivery. That flag is only for explicit human-requested diagnostic imports and does not count as a successful workflow delivery.
-   If any workflow tool returns `Canvas updated: no`, validation errors, invalid JSON, or import failure, the workflow has not been delivered. Do not stop or provide a final success answer. Continue by fixing `/data/workflow.json`, re-running `check_workflow`, and retrying `update_canvas` until the canvas update succeeds or the user explicitly asks you to stop.
-
-5. Import the validated file to the canvas.
-   Use `update_canvas(workflow_path="/data/workflow.json")` only after validation passes. Do not pass `require_valid=false` unless the user explicitly asks to inspect an invalid canvas state. This imports file form into the current workflow's canvas form, auto-tidies layout, and creates a new subversion.
-   Workflow versions have two levels: a major version and a subversion. Each successful `update_canvas` is an incremental subversion update inside the current major version. A new major version is not created automatically.
-
-6. Deliver the result.
-   For final delivery, summarize the imported workflow, what changed, and any important validation or execution result. Use `new_version` only when a coherent larger milestone should become a new major version.
-
-### 6. Running and testing
-
-Runtime tools are also file-oriented:
-- `node_execute` can read node input JSON files and write result JSON files.
-- `run_workflow` can read workflow/input JSON files and write result JSON files.
-- `batch_execute` reads CSV/TSV/JSONL/JSON/XLSX tables and writes JSONL results.
-
-Validation and a successful canvas import are the default acceptance criteria
-for a workflow-construction request. Do not execute a newly built workflow just
-to demonstrate it unless the user explicitly asks for a run, provides concrete
-test input, or validation cannot cover a material execution risk. When an
-execution test is necessary, use the smallest representative input and stop
-after one successful run; do not repeatedly rerun a workflow whose remaining
-behavior is already covered by validation.
-""".replace("__GENERAL_NODE_SCHEMA__", _GENERAL_NODE_SCHEMA).replace("__NODE_CATALOG__", _NODE_CATALOG)
+Use `render_preview(type="workflow", source="<saved id>", version="<saved version>")`
+to show the exact saved result. Preview does not save or execute anything.
+Operation and version create already save versions: do not upload again
+merely to produce a preview. For a version-only task, skip unnecessary editing.
+Report what changed, what was checked, and any failed/skipped work honestly.
+On result_unknown, reconcile get, version list and saved content before retrying;
+never assume a failed response means no write or external side effect occurred.
+"""

@@ -54,6 +54,8 @@ _SESSION_METHODS = {
     "send_agent_runtime_control",
     "cancel_agent_runtime",
     "cancel_workflow_run",
+    "kill_workflow_job",
+    "close_workflow_pool",
     "read_file",
     "write_file",
     "read_bytes",
@@ -81,6 +83,7 @@ _MANAGER_METHODS = {
     "set_session_lease",
     "status",
     "close_session",
+    "terminate_task_scope",
     "close_tenant",
     "close_user",
     "purge_user_storage",
@@ -263,6 +266,12 @@ class RemoteSandboxSession:
     async def cancel_workflow_run(self, **kwargs: Any) -> None:
         await self._call("cancel_workflow_run", **kwargs)
 
+    async def kill_workflow_job(self, **kwargs: Any) -> None:
+        await self._call("kill_workflow_job", **kwargs)
+
+    async def close_workflow_pool(self, **kwargs: Any) -> dict:
+        return await self._call("close_workflow_pool", **kwargs)
+
     async def read_file(self, path: str) -> dict:
         return await self._call("read_file", path)
 
@@ -285,8 +294,14 @@ class RemoteSandboxSession:
                         replace_all: bool = False) -> dict:
         return await self._call("edit_file", path, old, new, replace_all)
 
-    async def sync_workspace_path(self, path: str) -> bool:
-        return bool(await self._call("sync_workspace_path", path))
+    async def sync_workspace_path(self, path: str, *, expected_sha256: str | None = None,
+                                  expected_bytes: int | None = None) -> bool:
+        expected = {}
+        if expected_sha256 is not None:
+            expected["expected_sha256"] = expected_sha256
+        if expected_bytes is not None:
+            expected["expected_bytes"] = expected_bytes
+        return bool(await self._call("sync_workspace_path", path, **expected))
 
     async def writeback_vfs(self) -> None:
         await self._call("writeback_vfs")
@@ -400,11 +415,17 @@ class RemoteSandboxManager:
         return SandboxServiceError(exc.details() or str(exc), code=code)
 
     @staticmethod
-    def _operation_timeout(method: str, kwargs: dict[str, Any]) -> float:
+    def _operation_timeout(method: str, kwargs: dict[str, Any]) -> float | None:
+        if method == "terminate_task_scope":
+            return 60.0  # Control acknowledgement, never an execution deadline.
+        if method in {"execute_workflow_job", "run_workflow_once"} and kwargs.get("timeout") is None:
+            # This RPC follows an execution, not a short control request.
+            # Its owner polls independently and cancels its dedicated pool.
+            return None
         declared = kwargs.get("timeout_s", kwargs.get("timeout", 0))
         if isinstance(declared, (int, float)) and declared > 0:
             return max(float(declared) + 30.0, 60.0)
-        if method in {"ensure_workflow_dependencies", "run_workflow_once"}:
+        if method == "ensure_workflow_dependencies":
             return max(float(config.sandbox_service_operation_timeout_s), 60.0)
         return 600.0
 
@@ -431,6 +452,7 @@ class RemoteSandboxManager:
                     lifecycle_policy=params.get("lease") or "interactive",
                     expose_run=bool(params.get("expose_run", True)),
                     expose_runtime=bool(params.get("expose_runtime", False)),
+                    expose_mount=bool(params.get("expose_mount", True)),
                 ), timeout=max(self.connect_timeout_s, 120.0), wait_for_ready=True)
                 return _metadata_from_descriptor(
                     response.session, int(response.ref.generation)
@@ -464,7 +486,7 @@ class RemoteSandboxManager:
             })
             if method in {
                 "send_agent_runtime_control", "cancel_agent_runtime",
-                "cancel_workflow_run",
+                "cancel_workflow_run", "kill_workflow_job", "close_workflow_pool",
             }:
                 response = await stub.Control(pb.ControlRequest(
                     scope=_scope(params["tenant_id"], params["wf_id"]),
@@ -524,10 +546,11 @@ class RemoteSandboxManager:
 
     async def get_session(self, tenant_id: str, wf_id: str, user_id: str | None = None,
                           expose_run: bool = True, expose_runtime: bool = False,
-                          lease: str = "interactive") -> RemoteSandboxSession:
+                          lease: str = "interactive", expose_mount: bool = True) -> RemoteSandboxSession:
         metadata = await self._request(
             "session.acquire", tenant_id=tenant_id, wf_id=wf_id, user_id=user_id,
             expose_run=expose_run, expose_runtime=expose_runtime, lease=lease,
+            expose_mount=expose_mount,
         )
         return RemoteSandboxSession(self, metadata)
 
@@ -549,6 +572,9 @@ class RemoteSandboxManager:
 
     async def close_session(self, tenant_id: str, wf_id: str) -> dict:
         return await self._manager_call("close_session", tenant_id, wf_id)
+
+    async def terminate_task_scope(self, tenant_id: str, scope_id: str) -> dict:
+        return await self._manager_call("terminate_task_scope", tenant_id, scope_id)
 
     async def checkpoint_session(self, tenant_id: str, wf_id: str) -> str:
         stub = self._get_stub()
@@ -725,6 +751,7 @@ class _SandboxGrpcService(pb_grpc.SandboxServiceServicer):
                 user_id=request.principal_id or None,
                 expose_run=request.expose_run,
                 expose_runtime=request.expose_runtime,
+                expose_mount=request.expose_mount if request.HasField("expose_mount") else True,
                 lease=request.lifecycle_policy or "interactive",
             )
             return pb.AcquireResponse(
@@ -823,7 +850,7 @@ class _SandboxGrpcService(pb_grpc.SandboxServiceServicer):
         try:
             allowed = {
                 "send_agent_runtime_control", "cancel_agent_runtime",
-                "cancel_workflow_run",
+                "cancel_workflow_run", "kill_workflow_job", "close_workflow_pool",
             }
             if request.action not in allowed:
                 raise SandboxServiceError(

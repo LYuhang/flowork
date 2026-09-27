@@ -39,7 +39,7 @@ import type { components } from '@/lib/api/schema';
 import { errorMessage } from '@/lib/api/mutations/error-message';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { streamAgentTurn, type HitlContinueControl } from './agent-stream';
-import type { AgentSettings, ApprovalMode } from '@/stores/agent-settings';
+import { getApprovalMode, type AgentSettings, type ApprovalMode } from '@/stores/agent-settings';
 
 type Attachment = components['schemas']['Attachment'];
 
@@ -74,7 +74,7 @@ export async function runAgentTurn({
   mode,
   surface,
   agentSurface,
-  approvalMode,
+  approvalMode = getApprovalMode(),
   agentSettings,
   mcpServerIds,
   chatConfigRevision,

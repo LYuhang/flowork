@@ -42,6 +42,7 @@ type OffscreenMsg =
 
 let client: WsClient | null = null;
 let clientKey = "";
+let clientEndpoint = "";
 
 // Keep the service worker alive while this (persistent) offscreen document
 // exists, so the SW-held chrome.debugger session isn't released by SW eviction
@@ -99,31 +100,40 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ ok: true, reused: true });
         return false;
       }
+      void (async () => {
+      const previous = client;
+      if (previous && clientEndpoint === url && previous.isActive()
+          && await previous.refreshAuthentication(m.token, protocols)) {
+        if (client !== previous) { sendResponse({ ok: false }); return; }
+        clientKey = nextKey;
+        sendResponse({ ok: true, reused: true }); return;
+      }
+      if (client !== previous) { sendResponse({ ok: false }); return; }
       // Exactly one socket per attached browser.
       client?.disconnect();
-      client = new WsClient(url, protocols);
+      const connected = new WsClient(url, protocols);
+      client = connected;
       clientKey = nextKey;
-      client.onOpen(() => chrome.runtime.sendMessage({ type: "WS_OPEN" }));
-      client.onClose(() => chrome.runtime.sendMessage({ type: "WS_CLOSED" }));
-      client.onAuthRequired(() =>
-        chrome.runtime.sendMessage({ type: "WS_AUTH_REQUIRED" }),
-      );
-      client.onEcho((echo) =>
-        chrome.runtime.sendMessage({ type: "WS_ECHO", echo }),
-      );
-      client.onPlaywrightRelay((env) => {
+      clientEndpoint = url;
+      connected.onOpen(() => { if (client === connected) void chrome.runtime.sendMessage({ type: "WS_OPEN" }); });
+      connected.onClose(() => { if (client === connected) void chrome.runtime.sendMessage({ type: "WS_CLOSED" }); });
+      connected.onAuthRequired(() => { if (client === connected) void chrome.runtime.sendMessage({ type: "WS_AUTH_REQUIRED" }); });
+      connected.onEcho((echo) => { if (client === connected) void chrome.runtime.sendMessage({ type: "WS_ECHO", echo }); });
+      connected.onPlaywrightRelay((env) => {
+        if (client !== connected) return;
         chrome.runtime.sendMessage(
           { type: "PLAYWRIGHT_RELAY_FRAME", env },
           (relayRaw) => {
-            if (chrome.runtime.lastError) return;
-            if (typeof relayRaw === "string" && !client?.sendRaw(relayRaw)) {
+            if (chrome.runtime.lastError || client !== connected) return;
+            if (typeof relayRaw === "string" && !connected.sendRaw(relayRaw)) {
               console.warn("[offscreen] dropped Playwright relay response without an active socket");
             }
           },
         );
       });
-      client.connect();
+      connected.connect();
       sendResponse({ ok: true });
+      })().catch(() => sendResponse({ ok: false }));
       return true;
     }
 
@@ -144,6 +154,7 @@ chrome.runtime.onMessage.addListener(
       client?.disconnect();
       client = null;
       clientKey = "";
+      clientEndpoint = "";
       sendResponse({ ok: true });
       return false;
     }

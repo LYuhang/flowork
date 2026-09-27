@@ -181,6 +181,7 @@ describe('<BatchTab> submit + source selector', () => {
       // No output location typed → null (results stay in the downloadable copy).
       output: null,
       concurrency: 1,
+      mount_enabled: false,
       output_columns: FIXED_COLUMNS,
     });
     await waitFor(() => expect(toastSpy.success).toHaveBeenCalledTimes(1));
@@ -212,6 +213,7 @@ describe('<BatchTab> submit + source selector', () => {
       column_mapping: { x: 'x' },
       output: { type: 'vfs_data', path: '/data/results.csv' },
       concurrency: 1,
+      mount_enabled: false,
       output_columns: FIXED_COLUMNS,
     });
   });
@@ -241,6 +243,7 @@ describe('<BatchTab> submit + source selector', () => {
       column_mapping: { x: 'x' },
       output: { type: 'vfs_data', path: '/data/out.xlsx', sheet_name: 'Results' },
       concurrency: 1,
+      mount_enabled: false,
       output_columns: FIXED_COLUMNS,
     });
   });
@@ -270,8 +273,26 @@ describe('<BatchTab> submit + source selector', () => {
       column_mapping: { x: 'x' },
       output: null,
       concurrency: 1,
+      mount_enabled: false,
       output_columns: FIXED_COLUMNS,
     });
+  });
+
+  it('only mounts user storage when explicitly selected', async () => {
+    submitBatchMock.mockResolvedValueOnce({ task_id: 'tk_mount' });
+    renderTab();
+    const mount = screen.getByTestId('batch-mount');
+    expect(mount).not.toBeChecked();
+    fireEvent.click(mount);
+    expect(mount).toBeChecked();
+    fireEvent.change(screen.getByTestId('batch-csv-input'), {
+      target: { files: [new File(['x\n1\n'], 'rows.csv', { type: 'text/csv' })] },
+    });
+    const submit = screen.getByTestId('batch-submit');
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(submitBatchMock).toHaveBeenCalledTimes(1));
+    expect(submitBatchMock.mock.calls[0][1]).toMatchObject({ mount_enabled: true });
   });
 
   it('sends the chosen parallel-rows (concurrency) value', async () => {

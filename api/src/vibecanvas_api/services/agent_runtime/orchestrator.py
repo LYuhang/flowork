@@ -152,7 +152,6 @@ class AgentRuntimeOrchestrator:
         open_request: RuntimeOpenRequest,
         response: RuntimeControlResponse,
         workspace_scope_id: str,
-        current_workflow_id: str | None,
     ) -> None:
         """Deliver a decision after the DB transition is already durable."""
         sandbox = await self._sandbox_manager.get_loaded_session(
@@ -554,7 +553,6 @@ class AgentRuntimeOrchestrator:
         open_request: RuntimeOpenRequest,
         turn_request: RuntimeTurnRequest,
         workspace_scope_id: str,
-        current_workflow_id: str | None,
         stop_event: asyncio.Event,
     ) -> AsyncIterator[tuple[str, dict]]:
         turn_started = perf_counter()
@@ -857,12 +855,6 @@ class AgentRuntimeOrchestrator:
                     correlation = RuntimeRequestCorrelation.model_validate(
                         payload.get("runtime_correlation") or {}
                     )
-                    agent_payload = payload.get("agent_payload")
-                    agent_payload = (
-                        agent_payload if isinstance(agent_payload, dict) else {}
-                    )
-                    arguments = agent_payload.get("arguments")
-                    arguments = arguments if isinstance(arguments, dict) else {}
                     policy_hint = payload.get("policy")
                     policy_hint = (
                         policy_hint if isinstance(policy_hint, dict) else {}
@@ -870,12 +862,6 @@ class AgentRuntimeOrchestrator:
                     decision = self._approval_policy.evaluate(
                         approval_mode=turn_request.approval_mode,
                         source=correlation.source,
-                        tool_name=str(
-                            agent_payload.get("tool")
-                            or agent_payload.get("method")
-                            or ""
-                        ),
-                        arguments=arguments,
                         native_required=bool(
                             policy_hint.get("native_required", False)
                         ),
@@ -1004,6 +990,10 @@ class AgentRuntimeOrchestrator:
             if not completed and not stop_event.is_set():
                 raise RuntimeError("agent runtime stream ended without runtime.completed")
         finally:
+            from .cli_runs import cancel_turn_runs
+            await cancel_turn_runs(turn_request.tenant_id, turn_request.chat_id, turn_request.turn_id)
+            from .cli_calls import cancel_turn_calls
+            await cancel_turn_calls(turn_request.tenant_id, turn_request.chat_id, turn_request.turn_id)
             stop_task.cancel()
             await asyncio.gather(stop_task, return_exceptions=True)
             await runtime_events.aclose()

@@ -840,6 +840,21 @@ async def list_credentials(
 # ----------------------------------------------------------------------- get
 
 
+@router.get("/workflow-models")
+async def list_workflow_models(
+    request: Request,
+    ctx: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+) -> dict:
+    from vibecanvas_api.services.workflow_model_policy import workflow_model_catalog_for_user
+
+    return {"models": await workflow_model_catalog_for_user(
+        session, ctx.user_id, service=service, principal=principal_for_auth(ctx),
+        authz_context=context_for_auth(ctx, request, consistency=ConsistencyPreference.HIGHER_CONSISTENCY),
+    )}
+
+
 @router.get("/{credential_id}")
 async def get_credential(
     credential_id: uuid.UUID,

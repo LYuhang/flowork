@@ -27,6 +27,16 @@ function interactiveTool(id: string) {
 }
 
 describe('groupToolActivity', () => {
+  it.each(['render_preview', 'render_interactive', 'render_url_preview'])(
+    'keeps %s as a standalone card after backend success', (name) => {
+      const items = groupToolActivity([{
+        role: 'assistant', content: '', tool_calls: [{
+          ...tool('preview', name), artifact: { status: 'success' },
+        }],
+      }]);
+      expect(items.map((item) => item.kind)).toEqual(['interactive_artifact']);
+    },
+  );
   it('starts a new tool block when a later assistant text message appears', () => {
     const messages: MergedMessage[] = [
       { role: 'assistant', content: 'first text', tool_calls: [tool('a', 'write_file')] },

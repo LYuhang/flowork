@@ -138,6 +138,42 @@ def test_oci_config_deduplicates_nested_identity_readonly_binds(tmp_path):
     assert str(nested) not in sources
 
 
+def test_oci_mount_order_preserves_readonly_runtime_below_writable_tmp(tmp_path):
+    runtime = tmp_path / "runtime"
+    channel = tmp_path / "channel"
+    runtime.mkdir()
+    channel.mkdir()
+    cfg = build_oci_config(
+        command=["true"], env=None,
+        rw_binds=[("/tmp", str(channel))],
+        ro_binds=[("/tmp/runtime", str(runtime))],
+    )
+    relevant = [m for m in cfg["mounts"] if m["destination"].startswith("/tmp")]
+    assert relevant == [
+        {"destination": "/tmp", "source": str(channel), "type": "bind", "options": ["rbind", "rw"]},
+        {"destination": "/tmp/runtime", "source": str(runtime), "type": "bind", "options": ["rbind", "ro"]},
+    ]
+    assert cfg["process"]["cwd"] == "/tmp"
+
+
+def test_oci_mount_order_preserves_nested_writable_roots_and_cwd(tmp_path):
+    outer = tmp_path / "outer"
+    inner = tmp_path / "inner"
+    outer.mkdir()
+    inner.mkdir()
+    cfg = build_oci_config(
+        command=["true"], env=None,
+        rw_binds=[("/data/nested", str(inner)), ("/data", str(outer))],
+    )
+    relevant = [m for m in cfg["mounts"] if m["destination"].startswith("/data")]
+    assert relevant == [
+        {"destination": "/data", "source": str(outer), "type": "bind", "options": ["rbind", "rw"]},
+        {"destination": "/data/nested", "source": str(inner), "type": "bind", "options": ["rbind", "rw"]},
+    ]
+    # Choosing cwd from the first declared workspace is independent of ordering.
+    assert cfg["process"]["cwd"] == "/data/nested"
+
+
 def test_oci_config_rejects_duplicate_destinations(tmp_path):
     first = tmp_path / "first"
     second = tmp_path / "second"

@@ -43,8 +43,8 @@ test('Codex calls Platform MCP, saves through a Previewed HTML file, and continu
   });
   await page.locator('[data-action="chat-new"]').click({ timeout: 10_000 });
   const prompt = [
-    'Create /data/codex-acceptance/index.html, then call render_interactive exactly once',
-    'with path="/data/codex-acceptance/index.html", title="Codex Acceptance Gate",',
+    'Create /data/codex-acceptance/index.html, then call render_preview exactly once',
+    'with type="file", source="/data/codex-acceptance/index.html", title="Codex Acceptance Gate",',
     'and require_human_confirm=true. The saved HTML file must contain an input',
     'id="note" name="note" with value="codex-draft";',
     'a button id="bad-save" labeled "Test failed save" that PUTs {} to /mount/not-writable.json',
@@ -53,7 +53,7 @@ test('Codex calls Platform MCP, saves through a Previewed HTML file, and continu
     '{"runtime":"codex","accepted":true} as application/json to /data/codex-acceptance/result.json;',
     'a status element id="status" changed to "Saved" only after the write succeeds;',
     'and an anchor id="open-result" href="/data/codex-acceptance/result.json" labeled "Open Codex result".',
-    'Do not use the retired nested view/type arguments and do not emit prose after the Preview call.',
+    'Use flat arguments, not a nested view, and do not emit prose after the Preview call.',
   ].join(' ');
   const composer = page.locator('[data-role="agent-composer-input"]');
   await composer.fill(prompt);

@@ -475,7 +475,7 @@ async def stream_workflow_job(
     tenant_id: str,
     session,
     exec_id: str | None = None,
-    timeout: float = 120.0,
+    timeout: float | None = 120.0,
     install_dependencies: bool = False,
     runtime_extra: dict | None = None,
     allow_hosts: set[str] | list[str] | tuple[str, ...] | None = None,

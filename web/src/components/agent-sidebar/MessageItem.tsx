@@ -14,6 +14,8 @@ import { CheckCircle2, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Markdown } from './Markdown';
+import { MessageActions } from './MessageActions';
+import { useChatRenderIdentity } from './chat-render-context';
 import type { MergedMessage } from './types';
 import { useAuthStore } from '@/stores/auth';
 import {
@@ -29,6 +31,7 @@ export interface MessageItemProps {
   /** Whether this is the actively growing assistant segment. Markdown is still
    * parsed while it grows so headings/lists/code never flash as plain text. */
   streaming?: boolean;
+  actionsEnabled?: boolean;
   onOpenBackgroundJobs?: (options: {
     jobId?: string;
     deliveryBatchId?: string;
@@ -69,10 +72,12 @@ function MessageItemComponent({
   showAvatar = true,
   compact = false,
   streaming = false,
+  actionsEnabled = false,
   onOpenBackgroundJobs,
   onOpenFilePreview,
 }: MessageItemProps) {
   const { t } = useTranslation();
+  const identity = useChatRenderIdentity();
   const isUser = message.role === 'user';
   const isSystemNotice = message.role === 'system';
   const hasContent = message.content.length > 0;
@@ -201,6 +206,9 @@ function MessageItemComponent({
               {message.content}
             </Markdown>
           ))}
+        {message.role === 'assistant' && hasContent && !streaming && actionsEnabled && identity?.chatId && message.id ? (
+          <MessageActions chatId={identity.chatId} messageId={message.id} content={message.content} />
+        ) : null}
       </div>
       {!compact && isUser && <MessageAvatar label={userInitial} tone="user" />}
     </div>
@@ -212,6 +220,7 @@ function sameVisibleMessage(previous: MessageItemProps, next: MessageItemProps):
     previous.showAvatar !== next.showAvatar ||
     previous.compact !== next.compact ||
     previous.streaming !== next.streaming
+    || previous.actionsEnabled !== next.actionsEnabled
     || previous.onOpenBackgroundJobs !== next.onOpenBackgroundJobs
     || previous.onOpenFilePreview !== next.onOpenFilePreview
   ) return false;

@@ -49,6 +49,7 @@ interface RouteFixture {
 const ROUTES: readonly RouteFixture[] = [
   { id: 'root', path: () => '/' },
   { id: 'chat', path: () => '/chat', screenshot: true },
+  { id: 'shared-chat-error', path: () => '/share/missing', screenshot: true, expectedNotFound: true },
   { id: 'standalone-preview-error', path: () => '/preview', screenshot: true },
   { id: 'workspace', path: () => '/workspace', screenshot: true },
   {

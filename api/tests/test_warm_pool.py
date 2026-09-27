@@ -262,7 +262,8 @@ async def _collect(agen):
 
 
 @pytest.mark.asyncio
-async def test_submit_stream_events_then_result(tmp_path, monkeypatch):
+@pytest.mark.parametrize("transport_timeout", [10.0, None])
+async def test_submit_stream_events_then_result(tmp_path, monkeypatch, transport_timeout):
     """Happy path: the fake worker appends events.ndjson lines + writes
     result.json + .done → submit_stream yields node_events (terminal engine
     ``finished`` SKIPPED) then a single ``result``."""
@@ -303,7 +304,7 @@ async def test_submit_stream_events_then_result(tmp_path, monkeypatch):
     t.start()
     items = await _collect(pool.submit_stream(
         workflow=_start_end_wf(), inputs={"x": 5}, run_id="rs1",
-        tenant="t", timeout=10.0,
+        tenant="t", timeout=transport_timeout,
     ))
     t.join(timeout=5.0)
 
@@ -316,6 +317,15 @@ async def test_submit_stream_events_then_result(tmp_path, monkeypatch):
     result = items[-1]
     assert result["final_outputs"] == {"__end__": {"v": 5}}
     assert result["error_dict"] == {}
+
+
+def test_stream_job_can_delegate_duration_to_workflow_policy(tmp_path, monkeypatch):
+    pool = _stream_pool(tmp_path, monkeypatch)
+    job_id, _ = pool._prep_job(workflow=_start_end_wf(), inputs={}, run_id="policy-run", tenant="t", execution_timeout=None)
+    with open(os.path.join(pool._inbox, job_id + ".json")) as handle:
+        descriptor = json.load(handle)
+    assert descriptor["kind"] == "workflow"
+    assert "execution_timeout" in descriptor and descriptor["execution_timeout"] is None
 
 
 @pytest.mark.asyncio
@@ -580,6 +590,19 @@ def test_resident_pool_wires_proxy_and_expands_policy(tmp_path, monkeypatch):
     finally:
         pool.stop()
     assert provider.loop.stopped is True
+
+
+def test_retired_task_pool_cannot_be_restarted_by_late_cancel(tmp_path, monkeypatch):
+    pool, provider = _controllable_pool(tmp_path, monkeypatch)
+    pool.start()
+    boots = provider.boots
+    pool.stop(retire=True)
+    with pytest.raises(RuntimeError, match="permanently retired"):
+        pool.cancel(run_id="late", tenant="t")
+    assert provider.boots == boots
+    with pytest.raises(RuntimeError, match="permanently retired"):
+        pool._ensure_started()
+    assert provider.boots == boots
 
 
 def test_cancel_kills_and_restarts_worker(tmp_path, monkeypatch):

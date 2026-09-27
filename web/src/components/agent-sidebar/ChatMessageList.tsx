@@ -6,12 +6,11 @@
  * history boundary are tagged `streaming` so their tool-call blocks auto-expand.
  * (Extracted from the former ChatSessionList right column.)
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, CircleStop, Eye, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessageAvatar, MessageItem } from '@/components/agent-sidebar/MessageItem';
-import { ToolCallBlock } from '@/components/agent-sidebar/ToolCallBlock';
 import { workflowIdFromToolCall } from '@/components/agent-sidebar/tool-call-utils';
 import {
   InteractiveArtifactBlock,
@@ -33,6 +32,13 @@ import { chatClientStateKey } from '@/lib/chat/state-key';
 import { ChatRenderProvider } from './chat-render-context';
 
 const EMPTY_STREAM_BUFFER: RawChunk[] = [];
+
+// Completed tool groups are collapsed by default. Keep the large family of
+// specialized result renderers out of the initial transcript bundle and load
+// them only when a user expands a group (or a live tool auto-expands it).
+const ToolCallBlock = lazy(() => import('@/components/agent-sidebar/ToolCallBlock').then(
+  (module) => ({ default: module.ToolCallBlock }),
+));
 
 const RUNTIME_PHASE_REVEAL_DELAY_MS = 400;
 const RUNTIME_SLOW_HINT_MS = 8_000;
@@ -318,14 +324,15 @@ function ToolActivityGroup({
               data-role="tool-activity-details"
             >
               {effectiveCalls.map((call) => (
-                <ToolCallBlock
-                  key={call.id}
-                  call={call}
-                  autoExpand={isActiveGroup && call.status === 'running'}
-                  wfId={wfId}
-                  vfsScopeId={vfsScopeId}
-                  onOpenFilePreview={onOpenFilePreview}
-                />
+                <Suspense key={call.id} fallback={<Skeleton className="h-16 w-full" />}>
+                  <ToolCallBlock
+                    call={call}
+                    autoExpand={isActiveGroup && call.status === 'running'}
+                    wfId={wfId}
+                    vfsScopeId={vfsScopeId}
+                    onOpenFilePreview={onOpenFilePreview}
+                  />
+                </Suspense>
               ))}
             </div>
           )}
@@ -499,10 +506,7 @@ export function ChatMessageList({
   const shouldLoadHistory =
     !!activeChatId &&
     !historyItemsProp &&
-    isPersisted &&
-    // beginTurn uses an empty id until POST /messages has returned X-Turn-Id.
-    // Do not race a draft chat's first transaction with a history GET.
-    activeProjectionTurnId !== '';
+    isPersisted;
   // Keep fetching the stable transcript even during a live/resumed turn. A
   // resumed SSE stream replays only the active turn's frames, not the transcript
   // that preceded it, so history remains the base layer and streamMessages are
@@ -511,7 +515,7 @@ export function ChatMessageList({
     wfId,
     shouldLoadHistory ? activeChatId : null,
     shouldLoadHistory,
-    activeProjectionTurnId,
+    activeProjectionTurnId || null,
   );
 
   const historyItems: RawChunk[] = useMemo(
@@ -536,6 +540,7 @@ export function ChatMessageList({
 
   // Buffer messages (the LIVE turn) start after stable history.
   const streamBoundary = historyMessages.length;
+  const persistedMessageIds = useMemo(() => new Set(historyMessages.map((message) => message.id)), [historyMessages]);
 
   const merged = useMemo(() => {
     return showStream ? liveMessages : historyMessages;
@@ -770,6 +775,7 @@ export function ChatMessageList({
                     ) : (
                       <MessageItem
                         message={item.message}
+                        actionsEnabled={!!item.message.id && persistedMessageIds.has(item.message.id)}
                         showAvatar={item.showAvatar}
                         compact={compact}
                         onOpenBackgroundJobs={onOpenBackgroundJobs}

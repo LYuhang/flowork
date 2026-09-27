@@ -38,6 +38,9 @@ from vibecanvas_api.services.sandbox.coordinator import (
     dispose_sandbox_rpc_client,
 )
 from vibecanvas_api.storage.db import dispose_engine
+from vibecanvas_api.services.task_worker import (
+    WorkerOwnershipLost, assert_worker_owner, claim_worker, current_claim, watch_worker,
+)
 from vibecanvas_api.storage.repo_service_accounts import (
     ServiceAccountLease,
     ServiceAccountsRepo,
@@ -104,6 +107,7 @@ def _emit(
 ) -> None:
     """§8.2 ordering: INSERT first, then best-effort publish."""
     async def _runner(session) -> int:
+        await assert_worker_owner(session)
         repo = TasksRepo(session)
         return await repo.insert_event(task_id, event_type, payload, tenant_id)
 
@@ -121,6 +125,7 @@ def _update(task_id: uuid.UUID, **fields: object) -> None:
         return
 
     async def _runner(session) -> None:
+        await assert_worker_owner(session)
         repo = TasksRepo(session)
         await repo.update_status(task_id, **fields)
 
@@ -189,7 +194,24 @@ def _task_execution_lease(
 
 # --- the task --------------------------------------------------------------
 
-def batch_exec(
+def batch_exec(*, _delivery_id: str | None = None, **kwargs):
+    """Claim one delivery once; a duplicate or recovered delivery never reruns rows."""
+    tenant_context = current_sync_tenant_id.set(kwargs["tenant_id"])
+    try:
+        claim = run_in_short_session(lambda session: claim_worker(
+            session, "batch", uuid.UUID(kwargs["task_id"]), delivery_id=_delivery_id))
+        if claim is None:
+            return
+        context = current_claim.set(claim)
+        try:
+            return _batch_exec_owned(**kwargs)
+        finally:
+            current_claim.reset(context)
+    finally:
+        current_sync_tenant_id.reset(tenant_context)
+
+
+def _batch_exec_owned(
     *,
     task_id: str,
     tenant_id: str,
@@ -200,14 +222,16 @@ def batch_exec(
     output: dict | None = None,
     output_columns: list | None = None,
     concurrency: int = 1,
+    mount_enabled: bool = True,
     resume: bool = False,
+    workflow_snapshot: dict | None = None,
 ):
     """Run ``workflow_id`` once per row of ``data_source.rows``.
 
-    ``concurrency`` (clamped 1..16) rows run in parallel on a thread pool. Each
-    row builds its OWN run workspace (own run_id), so parallel rows never share
-    a ``/run`` — the concurrency value is the batch's resource ceiling. Threads
-    (not processes) because the work is LLM/IO-bound and shares one warm process.
+    ``concurrency`` (clamped 1..16) bounds in-flight rows in a batch-owned
+    sandbox process pool. Each row has a separate run subdirectory. Cancellation
+    stops dispatch and closes this pool, not other executions or Chat sandboxes;
+    a resumed attempt gets a fresh pool and reuses successful row artifacts.
 
     Args:
         task_id: UUID string identifying the ``tasks`` row.
@@ -326,9 +350,10 @@ def batch_exec(
             "error": None,
         })
 
-        workflow_dict = SyncWorkflowRepo(username=effective_user_id).get_current_workflow(
-            workflow_id
-        )
+        workflow_dict = (workflow_snapshot or {}).get("workflow")
+        if workflow_dict is None:
+            # Legacy tasks only. New submissions persist their actual snapshot.
+            workflow_dict = SyncWorkflowRepo(username=effective_user_id).get_current_workflow(workflow_id)
         prepared_run_extra = inject_into_run_context_sync(
             {},
             workflow_dict,
@@ -347,11 +372,13 @@ def batch_exec(
             # connections left by a different task loop, and close this loop's
             # pool before asyncio.run tears the loop down.
             await dispose_engine(close=False)
+            ownership_watcher = asyncio.create_task(watch_worker(current_claim.get(), stop_event))
             cancel_watcher = asyncio.create_task(
                 _watch_durable_cancel(t_uuid, stop_event)
             )
             try:
                 return await run_batch_workflow(
+                    mount_enabled=mount_enabled,
                     task_id=task_id,
                     tenant_id=tenant_id,
                     user_id=effective_user_id,
@@ -373,6 +400,8 @@ def batch_exec(
                 )
             finally:
                 cancel_watcher.cancel()
+                ownership_watcher.cancel()
+                watcher_results = await asyncio.gather(cancel_watcher, ownership_watcher, return_exceptions=True)
                 with suppress(asyncio.CancelledError):
                     await cancel_watcher
                 # The worker opens a new asyncio.run loop for every task.
@@ -380,6 +409,9 @@ def batch_exec(
                 # so the next batch cannot inherit a dead-loop channel.
                 await dispose_sandbox_rpc_client()
                 await dispose_engine()
+                for result in watcher_results:
+                    if isinstance(result, WorkerOwnershipLost):
+                        raise result
 
         batch_result = asyncio.run(_run_on_isolated_worker_loop())
         summary = batch_result.summary
@@ -418,6 +450,10 @@ def batch_exec(
             "data": {"summary": summary, "results_uri": batch_result.results_uri},
             "error": None,
         })
+    except WorkerOwnershipLost:
+        # The reaper owns recovery. Never turn an unknown outcome into a
+        # successful cancellation, or overwrite a newer attempt's state.
+        return
     except Exception as exc:
         # Task-level failure (not per-row): record on the row + emit a
         # terminal error event so the SSE consumer / UI can close the

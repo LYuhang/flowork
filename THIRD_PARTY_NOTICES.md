@@ -12,21 +12,21 @@ artifacts.
 
 Notable license choices in the current dependency graph include:
 
-- `@playwright/mcp` and its pinned `playwright` / `playwright-core` runtime are
-  distributed under Apache-2.0. The browser extension's CDP browser model and
+- The pinned `playwright-core` browser runtime is distributed under Apache-2.0.
+  The browser extension's CDP browser model and
   relay data plane are adapted from Microsoft Playwright commit
   `680e5ad5894a54bba9e4ed8a311fd2aee388137d`; the adapted source files retain
   the Microsoft copyright and Apache-2.0 notice. Flowork changes only the
-  transport, browser-window scope, and extension integration; the official
-  Playwright MCP continues to own locator, snapshot, waiting, and action
-  semantics.
+  transport, browser-window scope, and extension integration. Browser automation
+  uses Playwright directly through a sandbox worker, not a Playwright MCP server;
+  Playwright supplies locator, snapshot, waiting, and action semantics.
 - The Docker stack uses Valkey, a Redis-protocol-compatible datastore released
   under the BSD 3-Clause license, instead of Redis releases under RSALv2/SSPLv1.
 - `elkjs` is available under `EPL-2.0 OR GPL-3.0-or-later`; Flowork uses it
   under EPL-2.0.
 - `@drawio/mcp` is the official draw.io MCP published by JGraph Ltd under
-  Apache-2.0. Flowork runs the pinned package unchanged inside each activated
-  Chat sandbox and adds only file, preview, and quality-feedback adapters.
+  Apache-2.0. Flowork retains the pinned package for shape-library search,
+  without starting its MCP server. Diagram rendering uses draw.io Desktop.
   The package carries draw.io's vendored Libavoid routing assets and their
   upstream notices.
 - `jszip` is available under `MIT OR GPL-3.0-or-later`; Flowork uses it under

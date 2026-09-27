@@ -233,10 +233,10 @@ class SandboxMcpHub:
             desired_platform = {
                 server.name
                 for server in desired.servers
-                if server.source in {"platform", "builtin_local"}
+                if server.source == "platform"
             }
             if not set(context.active_platform_capabilities).issubset(
-                desired_platform
+                desired_platform | set(desired.private_platform_capabilities)
             ):
                 raise McpHubError(
                     "MCP execution context expands the desired Platform set"
@@ -292,7 +292,7 @@ class SandboxMcpHub:
             if runtime is None or runtime.state != "ready":
                 raise McpHubError(f"MCP server {server_name!r} is not ready")
             if (
-                runtime.desired.source in {"platform", "builtin_local"}
+                runtime.desired.source == "platform"
                 and runtime.desired.name
                 not in context.active_platform_capabilities
             ):

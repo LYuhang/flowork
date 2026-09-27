@@ -72,6 +72,29 @@ async def test_sync_run_back_projects_execution_files(monkeypatch, pg_session, t
 
 
 @pytest.mark.asyncio
+async def test_writeback_does_not_replace_a_live_cli_result_file(monkeypatch, pg_session, tmp_path):
+    tenant, _wf_id, _ = await _seed_pg(pg_session)
+    store = FilesystemObjectStore(root=str(tmp_path / "objects"))
+    run_id = "live-cli"
+    run_dir = store.materialize_prefix(f"run/{tenant}/{run_id}/")
+    _patch_scope_and_store(monkeypatch, pg_session, store)
+    output_path = os.path.join(run_dir, "result.jsonl")
+    # CLI keeps this fd open while workflow workers trigger VFS writeback.
+    with open(output_path, "wb") as output:
+        inode = os.fstat(output.fileno()).st_ino
+        await rc_mod.sync_run_back(run_id, tenant, run_dir)
+        assert os.stat(output_path).st_ino == inode
+        output.write(b'{"output":{"y":7}}\n')
+        output.flush()
+        # Another snapshot can be stale by the time the DB write completes.
+        monkeypatch.setattr(rc_mod, "_collect_run_files", lambda *_: [("result.jsonl", b"")])
+        await rc_mod.sync_run_back(run_id, tenant, run_dir)
+        assert os.stat(output_path).st_ino == inode
+        with open(output_path, "rb") as reader:
+            assert reader.read() == b'{"output":{"y":7}}\n'
+
+
+@pytest.mark.asyncio
 async def test_sync_run_back_noops_without_directory(monkeypatch, pg_session, tmp_path):
     store = InMemoryObjectStore()
     _patch_scope_and_store(monkeypatch, pg_session, store)
@@ -99,6 +122,7 @@ def test_sync_run_back_sync_uses_sync_facade(monkeypatch, tmp_path):
         "run_id": "run-sync",
         "items": [("/run/sub/result.txt", b"ok", "text/plain")],
         "wf_id": "workflow-A",
+        "from_materialized": True,
     }]
 
 

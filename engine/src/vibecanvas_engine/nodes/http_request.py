@@ -14,7 +14,8 @@ from .base import BaseNode
 # Engine hard-coded default request timeout (seconds). Per-workflow
 # ``__meta__.settings.timeouts.http`` overrides the per-instance default;
 # a per-node ``node_config["timeout"]`` still wins over that.
-_HTTP_TIMEOUT: float = 30.0
+DEFAULT_HTTP_TIMEOUT: float = 30.0
+_HTTP_TIMEOUT = DEFAULT_HTTP_TIMEOUT
 
 
 @node_registry.register()

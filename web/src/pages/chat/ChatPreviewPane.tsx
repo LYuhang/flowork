@@ -62,7 +62,8 @@ export function ChatPreviewPane({
   const activeInteractive = active?.resource.kind === 'interactive'
     ? active as Extract<ChatPreviewItem, { artifact: unknown }>
     : null;
-  const isUrlPreview = activeInteractive?.artifact.component_type === 'url_preview';
+  const isFullPanePreview = activeInteractive?.artifact.component_type === 'url_preview'
+    || activeInteractive?.artifact.component_type === 'workflow_preview';
   const fileViewerRef = useRef<ChatFilePreviewHandle>(null);
   const runWithActiveLeaveGuard = useCallback((action: () => void) => {
     if (active?.resource.kind === 'file' && fileViewerRef.current) {
@@ -141,17 +142,6 @@ export function ChatPreviewPane({
             </span>
           </button>
         </div>
-        {active && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="toolbar-icon-button"
-            aria-label={t('chat.preview.closeItem', 'Close preview item')}
-            onClick={() => runWithActiveLeaveGuard(() => onCloseItem(active.id))}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        )}
         <Button
           variant="ghost"
           size="icon"
@@ -230,15 +220,15 @@ export function ChatPreviewPane({
           </Suspense>
         ) : active.resource.kind === 'interactive' ? (
           <div className="flex h-full flex-col bg-surface-work">
-            <div className={cn('min-h-0 flex-1', isUrlPreview ? 'overflow-hidden' : 'overflow-auto p-4')}>
+            <div className={cn('min-h-0 flex-1', isFullPanePreview ? 'overflow-hidden' : 'overflow-auto p-4')}>
               <div className={cn(
                 'overflow-hidden bg-surface-raised',
-                isUrlPreview ? 'h-full min-h-0' : 'rounded-lg border border-edge-subtle',
+                isFullPanePreview ? 'h-full min-h-0' : 'rounded-lg border border-edge-subtle',
               )}>
                 <InteractiveArtifactPreview
                   artifact={activeInteractive!.artifact}
-                  maxHeight={isUrlPreview ? undefined : 'calc(100vh - 12rem)'}
-                  fillAvailableHeight={isUrlPreview}
+                  maxHeight={isFullPanePreview ? undefined : 'calc(100vh - 12rem)'}
+                  fillAvailableHeight={isFullPanePreview}
                   onSubmitAsNewMessage={onSubmitInteractiveAsNewMessage}
                   onOpenFilePreview={openFileWithActiveLeaveGuard}
                 />

@@ -51,6 +51,7 @@ function renderAt(path: string) {
         element: <AppLayout />,
         children: [
           { path: 'workspace', element: <div data-testid="workspace-page" /> },
+          { path: 'tasks', element: <div data-testid="tasks-page" /> },
           { path: 'workflow/:wfId', element: <div data-testid="canvas-page" /> },
           { path: 'workflow/:wfId/version/:vKey', element: <div data-testid="canvas-page-pinned" /> },
         ],
@@ -69,11 +70,13 @@ beforeEach(() => {
 });
 
 describe('AppLayout workflow shell (route-gated)', () => {
-  it('uses the headerless shell on management routes', () => {
-    renderAt('/workspace');
+  it.each(['/workspace', '/tasks'])('contains scrolling in the headerless shell on %s', (path) => {
+    renderAt(path);
     expect(screen.queryByTestId('app-header')).not.toBeInTheDocument();
     expect(screen.getByRole('main')).toBeInTheDocument();
     expect(screen.getByTestId('mobile-app-header')).toBeInTheDocument();
+    // Anchor absolute sr-only table labels inside the clipped viewport, not body.
+    expect(screen.getByRole('main').closest('.surface-shell')).toHaveClass('relative', 'h-screen', 'overflow-hidden');
   });
 
   it('renders the Explorer on /workflow/:wfId without embedding chat', async () => {

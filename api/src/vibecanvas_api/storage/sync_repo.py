@@ -39,7 +39,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from vibecanvas_api.storage.chat_repo import ChatRepo
 from vibecanvas_api.storage.sync_session import run_in_short_session
 from vibecanvas_api.storage.workflow_repo import VersionPointer, WorkflowRepo
 
@@ -107,14 +106,3 @@ class SyncWorkflowRepo:
             initial_workflow=initial_workflow,
             initial_note=initial_note,
         )
-
-
-class SyncChatRepo:
-    """Sync facade for chat-session metadata used from agent tools."""
-
-    def __init__(self, username: str):
-        self._username = username
-
-    def set_current_workflow_id(self, chat_id: str, wf_id: str | None) -> None:
-        return run_in_short_session(
-            lambda s: ChatRepo(s, self._username).set_current_workflow_id(chat_id, wf_id))

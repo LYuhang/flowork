@@ -62,13 +62,14 @@ async def test_purge_user_storage_removes_daemon_owned_runtime_trees(
 async def test_lazy_create_and_reuse():
     manager = SandboxManager(max_resident=8, idle_ttl_s=600)
 
-    def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False):
+    def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False, expose_mount=True):
         return MagicMock(
             tenant_id=tenant,
             wf_id=workspace,
             closed=False,
             last_used=0.0,
             expose_run=expose_run,
+            expose_mount=expose_mount,
             runtime_dir="/runtime" if expose_runtime else None,
             _requires_rehydrate=False,
             close=AsyncMock(),
@@ -142,13 +143,14 @@ async def test_session_rebuilds_when_exposed_roots_change():
     manager = SandboxManager(max_resident=8, idle_ttl_s=600)
     sessions = []
 
-    def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False):
+    def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False, expose_mount=True):
         session = MagicMock(
             tenant_id=tenant,
             wf_id=workspace,
             closed=False,
             last_used=0.0,
             expose_run=expose_run,
+            expose_mount=expose_mount,
             runtime_dir="/runtime" if expose_runtime else None,
             close=AsyncMock(),
         )
@@ -160,11 +162,15 @@ async def test_session_rebuilds_when_exposed_roots_change():
         second = await manager.get_session("tenant", "chat", expose_run=True)
         third = await manager.get_session(
             "tenant", "chat", expose_run=True, expose_runtime=True)
+        fourth = await manager.get_session(
+            "tenant", "chat", expose_run=True, expose_runtime=True, expose_mount=False)
         await manager.drain_background_closes()
 
-    assert first is not second and second is not third
+    assert first is not second and second is not third and third is not fourth
     first.close.assert_awaited_once()
     second.close.assert_awaited_once()
+    third.close.assert_awaited_once()
+    assert fourth.expose_mount is False
 
 
 @pytest.mark.asyncio

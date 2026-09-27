@@ -19,16 +19,14 @@ Paid providers require WEB_SEARCH_API_KEY; missing key raises ToolError.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
-from vibecanvas_api.services.platform_mcp.tool_runtime import ToolRuntime, tool
-
-from vibecanvas_api.agents.tools.decorator import ToolError, tool_output
-from vibecanvas_api.agents.tools.render import Rendered, register_render
+from vibecanvas_api.agents.tools.decorator import ToolError
 from vibecanvas_api.config import config
 
 
@@ -171,61 +169,20 @@ def _search(query: str, max_results: int) -> list[dict]:
         raise ToolError("search_failed", str(e))
 
 
-# ---------------------------------------------------------------------------
-# Three-layer pattern
-# ---------------------------------------------------------------------------
+async def web_search(query: str, max_results: int = 5) -> tuple:
+    """Search the web for titles, URLs and snippets (not full webpage contents).
 
-def _format_results(results: list[dict]) -> str:
-    if not results:
-        return "(no results)"
-    lines = []
-    for i, r in enumerate(results, 1):
-        lines.append(f"{i}. {r['title']}")
-        lines.append(f"   {r['url']}")
-        if r.get("snippet"):
-            lines.append(f"   {r['snippet']}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
-
-
-@register_render("web_search")
-def _render_web_search(raw: dict, ctx) -> Rendered:
-    query = raw.get("query", "")
-    results = raw.get("results", [])
-    n = len(results)
-    abstract = f"web_search → {n} result{'s' if n != 1 else ''} for \"{query}\""
-    return Rendered(content=_format_results(results), content_type="text/plain", abstract=abstract)
-
-
-@tool_output(content_type="text/plain", tool="web_search")
-async def _do_web_search(query: str, max_results: int, runtime: ToolRuntime) -> dict:
-    results = await asyncio.to_thread(_search, query, max_results)
-    return {"query": query, "results": results}
-
-
-@tool(response_format="content_and_artifact")
-async def web_search(
-    query: str,
-    max_results: int = 0,
-    *,
-    runtime: ToolRuntime,
-) -> str:
-    """Search the web and return ranked results.
-
-    Uses DuckDuckGo by default (free, no API key). Switch to Tavily or
-    Brave via config.web_search.provider for higher quality or volume.
-
-    Args:
-        query:       the search query.
-        max_results: number of results to return (0 = config default, 5).
-
-    Returns:
-        content = numbered list: title / URL / snippet per result.
-        abstract = "web_search → N results for <query>".
-
-    Examples:
-        web_search(query="agent memory tutorial 2025")
-        web_search(query="Python pandas read_csv encoding options", max_results=3)
+    Use bash to retrieve a known URL when you need to inspect the source itself.
+    max_results defaults to 5. Search failures are errors, not empty results.
     """
-    n = max_results if max_results > 0 else config.web_search.max_results
-    return await _do_web_search(query, n, runtime)
+    if not query.strip() or max_results < 1:
+        result = {"status": "error", "error": {
+            "code": "invalid_arguments", "message": "Provide a nonempty query and a positive max_results.",
+        }}
+    else:
+        try:
+            results = await asyncio.to_thread(_search, query, max_results)
+            result = {"status": "success", "query": query, "results": results}
+        except ToolError as exc:
+            result = {"status": "error", "error": {"code": str(exc), "message": exc.message}}
+    return json.dumps(result, ensure_ascii=False), result

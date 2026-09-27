@@ -6,8 +6,10 @@ the main Web application's embedded Chat interface, while the extension owns
 the browser-specific transport, tab session, and Chrome DevTools Protocol
 (CDP) execution boundary.
 
-The extension uses Chrome Manifest V3 and requires Chrome 116 or later. For a
-product-level overview, begin with the repository [README](../README.md).
+The extension uses Chrome Manifest V3 and requires Chrome 125 or later. Browser
+CLI uses the debugger API's [flat child sessions](https://developer.chrome.com/docs/extensions/reference/api/debugger#attach-to-related-targets)
+to control out-of-process iframes without granting access to unrelated tabs.
+For a product-level overview, begin with the repository [README](../README.md).
 
 ## How it works
 
@@ -46,6 +48,13 @@ Chrome cannot load the ZIP directly. To update the extension, download the new
 package, replace the extracted files, and select **Reload** on
 `chrome://extensions`.
 
+To transfer downloaded files from the computer into an Agent workspace, enable
+**Allow access to file URLs** in the extension's Chrome details once. This
+permission is separate from per-transfer approval. Chrome first saves the file
+normally; the extension then transfers the registered file according to the
+Chat's approval mode without asking the user to browse for it. Ambiguous
+download origins require local confirmation even in always-allow mode.
+
 The application origin is compiled into the extension. If the Flowork URL,
 protocol, port, or reverse-proxy prefix changes, rebuild the deployment and
 download the matching extension again.
@@ -58,10 +67,13 @@ Use `/browser` in the extension side panel to activate browser-control context:
 /browser compare the plans on this page and summarize the differences
 ```
 
-The command attaches the Browser Chat to the pinned official Playwright MCP
-running inside that Chat's sandbox. Its reviewed tools cover navigation, page
+The command teaches the Agent to use `flowork-cli browser` inside that Chat's
+sandbox. Its commands cover navigation, page
 snapshots, screenshots, tab management, form input, dialogs, file upload, and
-other explicit browser actions. The active command context remains attached to
+other explicit browser actions. The CLI runtime uses the pinned `playwright-core`
+library over the extension's authenticated CDP relay; it does not launch a second
+browser in the sandbox. Commands identify their target explicitly with `--tab_id`,
+not a mutable current-tab binding. The active command context remains attached to
 the Browser Chat, so follow-up requests can continue the same task without
 repeating all prior context.
 
@@ -106,26 +118,51 @@ required by the runtime:
 | `offscreen` | Keeps the authenticated WebSocket alive outside the visible panel |
 | `storage` | Retains session-scoped connection and controlled-tab state across worker restarts |
 | `scripting` | Recovers the application bridge when the extension is installed or reloaded after an allowlisted app tab is already open |
+| `downloads` | Observes and manages registered Chrome downloads before an approved transfer |
+| `webRequest` | Associates HTTP(S) download requests with their source tabs; does not replay responses |
+| `clipboardWrite` | Copies user-requested values from extension UI |
 | Content script on `<all_urls>` | Displays the isolated Dynamic Island feedback surface on whichever page the user controls |
 
 The content script runs only in the top frame, in Chrome's isolated world, and
-the extension exposes no web-accessible resources. It does not provide the
-backend with arbitrary JavaScript execution.
+the extension exposes no web-accessible resources. Agent-supplied scripts never
+run in the extension service worker or the API process.
 
-Browser semantics come from the pinned official Playwright MCP, not from a
-second Flowork command vocabulary. The extension implements only the fixed CDP
+The Agent-facing interface is Browser CLI, not Playwright MCP. Playwright provides
+locators, actionability checks and page automation. The extension implements the scoped CDP
 transport allow-list in
 [`relay-executor.ts`](src/playwright/relay-executor.ts) and the upstream-derived
 browser target model in
 [`browser-model.ts`](src/playwright/browser-model.ts). It scopes every request
 to tabs in the user-approved side-panel window and rejects unknown relay
-commands. Unrestricted Playwright page evaluation and remote-code tools are not
-exposed to the Agent. Any new relay command or Chrome permission requires
+commands. `eval` executes JavaScript in an authorized webpage; `run-code` executes
+Playwright code in the Agent sandbox. Neither grants access to unrelated tabs.
+Raw CDP target metadata follows the same scope: an explicit target ID must
+resolve to that exact live authorized page or iframe. Unowned IDs and expired
+sessions return errors; they never silently return a different current page.
+File paths belong to that sandbox. Upload/drop and adapted setInputFiles transfer
+bytes; raw CDP cannot read/reveal browser-local paths, load file:// resources,
+choose native download directories, or supply native drag-file paths. The
+extension does not expose a general-purpose client filesystem API to the Agent.
+Moving a controlled tab out of the approved window immediately revokes that
+relay's access: page/child events stop, pending command replies are discarded,
+and the debugger is detached after input cleanup. Moving the tab back does not
+restore the old grant; a fresh user-initiated browser session is required.
+This fences direct debugging targets, not the web platform's own JavaScript
+capabilities: an authorized page may communicate with its same-origin opener or
+popups and make network requests. Arbitrary page scripts are not a cross-window
+data-loss-prevention sandbox.
+Cookie export requires separate site-specific user consent in the extension;
+exported files are private and temporary, not published workspace artifacts.
+Any new relay command or Chrome permission requires
 matching boundary tests and a manual privacy and security review before
 release.
 
-Production builds generate `externally_connectable` and `host_permissions`
-from exact configured Flowork Web bases. The service worker performs an
+Builds restrict `externally_connectable` to configured Flowork Web origins.
+Host permissions also include HTTP(S) sites for download provenance and
+`file:///*` for approved native-file transfer; they are not limited to the
+Flowork origin. Chrome's file-access toggle is independently required. These
+broader host permissions do not grant arbitrary sites access to the app bridge.
+The service worker performs an
 additional runtime origin and path-prefix check before accepting messages from
 the Web application. The Browser Extension should therefore be rebuilt for
 each deployment boundary rather than distributed with a wildcard application
@@ -162,8 +199,25 @@ pnpm --dir extension build
 
 The unit suite covers command parity, origin validation, WebSocket
 authentication, service-worker recovery, CDP dispatch, tab ownership, content
-script boundaries, and the no-remote-code invariant. Browser-level extension
+script boundaries, and rejection of code execution in the extension worker. Browser-level extension
 journeys are documented in the Web [E2E testing guide](../web/e2e/README.md).
+
+For a repeatable Agent-driven smoke journey, use
+[`verify_real_sidepanel_browser_agent.py`](../scripts/verify_real_sidepanel_browser_agent.py)
+(`--help` lists setup and observation options). Start its loopback fixture with
+`--serve_fixture 9120`, keep that process alive, and use an existing authenticated
+`playwright-cli` session containing the real extension and an authorized disposable
+test tab. Pass the expected `--chat_id`; use `--source_tab_url` if that test tab is
+not yet at the fixture URL. The tester sends one side-panel message; only the
+application Agent operates the target page. The observer checks actual DOM state,
+CLI results and signed VFS bytes/hash receipts, not merely the Agent's final prose.
+
+An optional `--max_wait_seconds` limits observation, not Agent execution. Exit 3
+means incomplete: keep the browser/fixture running and use `--resume PATH/run.json`
+with the same session and working directory. Never resend because observation
+timed out. An unconfirmed submission requires reconciliation before resuming.
+This smoke journey does not replace the complete command/security/cancellation
+acceptance matrix. The old direct-MCP verifier is retired and exits with failure.
 
 ## Deployment configuration
 
@@ -186,6 +240,15 @@ The production Web image builds and packages the matching extension as
 with the API identity and the Web server's `/embed/*` framing policy; the full
 deployment wiring is defined in [`docker-compose.yml`](../docker-compose.yml)
 and [`web/Dockerfile`](../web/Dockerfile).
+
+For native deployment, run `./launch.sh extension` from the repository root to
+rebuild and publish the configured extension without restarting the application.
+It uses the deployment Web base from the launcher environment and updates both
+`/downloads/flowork-extension.zip` and the legacy
+`/downloads/vibecanvas-extension.zip`, including the live native preview copy.
+After installing an updated unpacked build, reload it in `chrome://extensions`
+with Developer mode enabled; replacing files alone does not establish that the
+running service worker has loaded the new code.
 
 ## Source map
 

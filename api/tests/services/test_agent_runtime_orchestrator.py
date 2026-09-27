@@ -122,7 +122,6 @@ async def test_orchestrator_streams_codex_through_resident_sandbox() -> None:
             open_request=open_request,
             turn_request=turn_request,
             workspace_scope_id="workspace",
-            current_workflow_id=None,
             stop_event=asyncio.Event(),
         )
     ]

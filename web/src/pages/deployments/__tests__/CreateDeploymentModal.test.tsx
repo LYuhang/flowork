@@ -44,6 +44,9 @@ vi.mock('@/lib/api/queries/workflows', () => ({
 }));
 
 import { createDeployment } from '@/lib/api/deployments';
+vi.mock('@/lib/api/queries/workflow', () => ({
+  useWorkflowVersions: () => ({ data: { versions: [{ major: 1, sub: 2 }] }, isLoading: false }),
+}));
 import { CreateDeploymentModal } from '@/pages/deployments/CreateDeploymentModal';
 
 const testI18n = i18n.createInstance();
@@ -130,7 +133,11 @@ describe('<CreateDeploymentModal>', () => {
     expect(callArg.slug).toBe('api-bot');
     expect(callArg.wf_id).toBe('wf_42');
     expect(callArg.trigger_type).toBe('api');
-    expect(callArg.version_pin).toBe('head');
+    expect(callArg.version_pin).toBe('major');
+    expect(callArg.pinned_major).toBe(1);
+    expect(callArg.pinned_sub).toBeUndefined();
+    expect(callArg.mount_enabled).toBe(false);
+    expect(callArg.enabled).toBe(true);
   });
 
   it('lets users scroll and select a workflow from the modal dropdown', async () => {

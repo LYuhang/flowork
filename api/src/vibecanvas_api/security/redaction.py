@@ -50,6 +50,7 @@ _URL_SECRET_RE = re.compile(
     r"(?i)([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|"
     r"client[_-]?secret|signature|sig|token)=)[^&#\s]*"
 )
+_SHARE_CAPABILITY_RE = re.compile(r"(/(?:api/v1/public/chat-shares|share)/)[A-Za-z0-9_-]{43}(?=[/?#\s\"']|$)")
 
 
 def _normalized_key(key: object) -> str:
@@ -81,6 +82,7 @@ def redact_text(value: str) -> str:
     redacted = _JSON_SECRET_RE.sub(r'\1"' + REDACTED + '"', redacted)
     redacted = _ASSIGNMENT_RE.sub(r"\1" + REDACTED, redacted)
     redacted = _URL_SECRET_RE.sub(r"\1" + REDACTED, redacted)
+    redacted = _SHARE_CAPABILITY_RE.sub(r"\1" + REDACTED, redacted)
     return redacted
 
 

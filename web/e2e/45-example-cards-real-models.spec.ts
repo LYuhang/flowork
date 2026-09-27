@@ -28,12 +28,12 @@ interface ExampleCase {
 }
 
 const EXAMPLES: readonly ExampleCase[] = [
-  { id: 'office:presentation', tab: 'Office', command: '/document', expectedTools: ['review_document', 'render_document_feedback', 'render_interactive'] },
-  { id: 'office:report', tab: 'Office', command: '/document', expectedTools: ['review_document', 'render_document_feedback', 'render_interactive'] },
-  { id: 'office:spreadsheet', tab: 'Office', command: '/document', expectedTools: ['review_document', 'render_document_feedback', 'render_interactive'] },
-  { id: 'diagram:architecture', tab: 'Diagram', command: '/diagram', expectedTools: ['save_drawio_file', 'render_interactive'] },
-  { id: 'diagram:process', tab: 'Diagram', command: '/diagram', expectedTools: ['save_drawio_file', 'render_interactive'] },
-  { id: 'diagram:sequence', tab: 'Diagram', command: '/diagram', expectedTools: ['save_drawio_file', 'render_interactive'] },
+  { id: 'office:presentation', tab: 'Office', command: '/document', expectedTools: ['review_document', 'render_document_feedback', 'render_preview'] },
+  { id: 'office:report', tab: 'Office', command: '/document', expectedTools: ['review_document', 'render_document_feedback', 'render_preview'] },
+  { id: 'office:spreadsheet', tab: 'Office', command: '/document', expectedTools: ['review_document', 'render_document_feedback', 'render_preview'] },
+  { id: 'diagram:architecture', tab: 'Diagram', command: '/diagram', expectedTools: ['save_drawio_file', 'render_preview'] },
+  { id: 'diagram:process', tab: 'Diagram', command: '/diagram', expectedTools: ['save_drawio_file', 'render_preview'] },
+  { id: 'diagram:sequence', tab: 'Diagram', command: '/diagram', expectedTools: ['save_drawio_file', 'render_preview'] },
   { id: 'workflow:feedback', tab: 'Workflow', command: '/workflow', expectedTools: ['create_workflow', 'check_workflow', 'update_canvas'] },
   { id: 'workflow:research', tab: 'Workflow', command: '/workflow', expectedTools: ['create_workflow', 'check_workflow', 'update_canvas'] },
   { id: 'workflow:invoices', tab: 'Workflow', command: '/workflow', expectedTools: ['create_workflow', 'check_workflow', 'update_canvas'] },

@@ -47,6 +47,7 @@ import { hasReservedNodeName } from '@/lib/workflow/node-type-defaults';
 import { nodeTypeHasConfig } from '@/pages/canvas/inspector/node-config-registry';
 import { computeReferenceCandidates } from './node-reference-candidates';
 import { InspectorSection } from './InspectorSection';
+import { useWorkflowSnapshot } from '@/pages/canvas/WorkflowSnapshotContext';
 
 interface NodePayload {
   node_id?: string;
@@ -79,6 +80,7 @@ export interface NodeTabProps {
 
 export function NodeTab({ wfId, readOnly = false }: NodeTabProps) {
   const { t } = useTranslation();
+  const snapshot = useWorkflowSnapshot();
   const nodes = useNodes();
   const selected = nodes.find((n) => n.selected);
 
@@ -99,7 +101,7 @@ export function NodeTab({ wfId, readOnly = false }: NodeTabProps) {
       wfId={wfId}
       nodeId={selected.id}
       payload={(selected.data ?? {}) as NodePayload}
-      readOnly={readOnly}
+      readOnly={readOnly || !!snapshot}
     />
   );
 }
@@ -113,8 +115,9 @@ interface NodeTabEditorProps {
 
 function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) {
   const { t } = useTranslation();
+  const snapshot = useWorkflowSnapshot();
   const applyEdit = useWorkflowEditStore((s) => s.applyEdit);
-  const draft = useWorkflowEditStore((s) => s.draft);
+  const draft = useWorkflowEditStore((s) => snapshot ?? s.draft);
 
   const nodeType = payload.node_type ?? 'UnknownNode';
   const mirrors = outputsFollowInputs(nodeType);
@@ -162,6 +165,7 @@ function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) 
   const referenceCandidates = computeReferenceCandidates(draft, nodeId);
 
   const editNode = (mutate: (entry: Record<string, unknown>) => void) => {
+    if (readOnly) return;
     applyEdit((wf) => {
       const entry = wf[nodeId];
       if (entry && typeof entry === 'object') mutate(entry as Record<string, unknown>);
@@ -209,7 +213,7 @@ function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) 
   //     carries the materialized copy, but deriving here keeps the view in
   //     lockstep even before the next input edit lands).
   //   - otherwise → the stored output_fields.
-  const outputFields = fixedOutputs
+  const outputFields = snapshot ? payload.output_fields ?? {} : fixedOutputs
     ? fixedOutputs
     : mirrors
       ? mirrorOutputsFromInputs(inputFields)

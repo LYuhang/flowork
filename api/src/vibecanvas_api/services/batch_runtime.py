@@ -19,6 +19,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
+from uuid import uuid4
 
 from vibecanvas_api.authorization.types import ResourceType
 from vibecanvas_api.services.batch_output import build_output_sink, serialize_results
@@ -297,6 +298,7 @@ async def run_batch_workflow(
     output: dict | None = None,
     output_columns: list | None = None,
     concurrency: int = 1,
+    mount_enabled: bool = True,
     previous_results_uri: str | None = None,
     resume_count: int = 0,
     on_progress: ProgressCallback | None = None,
@@ -357,6 +359,9 @@ async def run_batch_workflow(
     # directory.  This remains valid when sandboxd moves to another node and
     # materializes the same object-store prefix locally.
     batch_scope_id = f"batch-{task_id}"
+    from vibecanvas_api.services.task_worker import current_claim
+    if claim := current_claim.get():
+        batch_scope_id = claim.scope_id
     coordinator = get_sandbox_coordinator()
     session = await coordinator.get_session(
         tenant_id,
@@ -364,8 +369,23 @@ async def run_batch_workflow(
         user_id=user_id,
         expose_run=True,
         expose_runtime=False,
+        expose_mount=mount_enabled,
         lease="interactive",
     )
+    pool_id = uuid4().hex
+    pool_used = False
+    pool_close = None
+
+    async def close_pool():
+        nonlocal pool_close
+        if not pool_used:
+            return
+        if pool_close is None:
+            pool_close = asyncio.create_task(session.close_workflow_pool(tenant=tenant_id, pool_id=pool_id))
+        response = await asyncio.wait_for(asyncio.shield(pool_close), 20)
+        if not isinstance(response, dict) or response.get("closed") is not True:
+            raise RuntimeError("Batch worker pool shutdown was not confirmed.")
+
     try:
         for i, (orig, mapped) in enumerate(zip(original_rows, mapped_rows)):
             prev = previous.get(i)
@@ -400,7 +420,7 @@ async def run_batch_workflow(
             }
 
         async def _run_one(job_pos: int, job: dict) -> None:
-            nonlocal done
+            nonlocal done, pool_used
             row_index, orig, mapped = job_meta[job_pos]
             async with semaphore:
                 # Coroutines are created for every row up front. Check after
@@ -410,6 +430,7 @@ async def run_batch_workflow(
                     outcome = _cancelled_outcome()
                 else:
                     try:
+                        pool_used = True
                         outcome = await session.execute_workflow_job(
                             workflow=workflow,
                             inputs=job["inputs"],
@@ -417,7 +438,8 @@ async def run_batch_workflow(
                             tenant=job["tenant"],
                             run_id=job["run_id"],
                             run_subpath=job["run_subpath"],
-                            timeout=600.0,
+                            timeout=None,
+                            execution_pool_id=pool_id,
                         )
                     except Exception as exc:  # noqa: BLE001 - isolate row failures
                         outcome = {
@@ -428,9 +450,8 @@ async def run_batch_workflow(
                             "result": None,
                         }
 
-                    # Soft cancellation lets the in-flight sandbox operation
-                    # reach a safe boundary, but cancellation must still win
-                    # over its late success/error result. This keeps the Task
+                    # Cancellation closes this execution's worker pool, and
+                    # must win over any racing success/error. This keeps the Task
                     # resumable and prevents a business error from replacing
                     # the user's cancellation request.
                     if _stop_requested():
@@ -458,9 +479,26 @@ async def run_batch_workflow(
                     await maybe
 
         if jobs:
-            await asyncio.gather(*[
+            async def watch_stop():
+                while not _stop_requested():
+                    await asyncio.sleep(0.1)
+                await close_pool()
+
+            rows_task = asyncio.gather(*[
                 _run_one(index, job) for index, job in enumerate(jobs)
             ])
+            watcher = asyncio.create_task(watch_stop())
+            try:
+                ready, _ = await asyncio.wait((rows_task, watcher), return_when=asyncio.FIRST_COMPLETED)
+                if watcher in ready:
+                    await watcher  # Surface an unconfirmed cancellation; never wait indefinitely.
+                await rows_task
+            finally:
+                watcher.cancel()
+                if not rows_task.done():
+                    rows_task.cancel()
+                await asyncio.gather(watcher, rows_task, return_exceptions=True)
+            await close_pool()
 
         final_rows: list[dict] = []
         for i, (orig, mapped) in enumerate(zip(original_rows, mapped_rows)):
@@ -557,4 +595,7 @@ async def run_batch_workflow(
         # Results are uploaded to the durable Object Store before release.  The
         # task workspace is transient and must not become a second persistence
         # mechanism alongside VFS/Object Storage.
-        await coordinator.close_session(tenant_id, batch_scope_id)
+        try:
+            await close_pool()
+        finally:
+            await coordinator.close_session(tenant_id, batch_scope_id)

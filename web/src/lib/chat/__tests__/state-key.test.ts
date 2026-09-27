@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { readChatViewPreferences, writeChatViewPreferences, EMPTY_CHAT_VIEW_STATE } from '@/lib/chat/preview-state';
-import { chatAccountNamespace, chatClientStateKey } from '@/lib/chat/state-key';
+import {
+  chatAccountNamespace,
+  chatClientStateKey,
+  clearRecentChatSelections,
+  readRecentChatLocation,
+  readRecentChatSelection,
+  writeRecentChatSelection,
+} from '@/lib/chat/state-key';
 
 describe('chat client state identity', () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
 
   it('namespaces the same chat by tenant, user, scope, and surface', () => {
     const accountA = { tenant_id: 'tenant-a', user_id: 'user-a' };
@@ -14,6 +24,45 @@ describe('chat client state identity', () => {
       .not.toBe(chatClientStateKey({ account: accountB, scopeId: 'scope', surface: 'chat', chatId: 'chat-1' }));
     expect(chatClientStateKey({ account: accountA, scopeId: 'scope', surface: 'chat', chatId: 'chat-1' }))
       .not.toBe(chatClientStateKey({ account: accountA, scopeId: 'scope', surface: 'browser', chatId: 'chat-1' }));
+  });
+
+  it('restores only an account-scoped recent chat id from tab storage', () => {
+    const accountA = { tenant_id: 'tenant-a', user_id: 'user-a' };
+    const accountB = { tenant_id: 'tenant-b', user_id: 'user-a' };
+
+    writeRecentChatSelection(accountA, 'chat', 'chat-123', 'scope-456');
+
+    expect(readRecentChatSelection(accountA, 'chat')).toBe('chat-123');
+    expect(readRecentChatLocation(accountA, 'chat')).toEqual({
+      chatId: 'chat-123',
+      scopeId: 'scope-456',
+    });
+    expect(readRecentChatSelection(accountA, 'browser')).toBeNull();
+    expect(readRecentChatSelection(accountB, 'chat')).toBeNull();
+    expect([...Array(window.sessionStorage.length)].map((_, index) => (
+      window.sessionStorage.getItem(window.sessionStorage.key(index)!)
+    )).join('|')).not.toContain('message');
+  });
+
+  it('accepts an id-only rolling-upgrade hint without inventing a scope', () => {
+    const account = { tenant_id: 'tenant-a', user_id: 'user-a' };
+    writeRecentChatSelection(account, 'chat', 'legacy-chat');
+
+    expect(readRecentChatLocation(account, 'chat')).toEqual({
+      chatId: 'legacy-chat',
+      scopeId: null,
+    });
+  });
+
+  it('clears recent chat navigation hints at an authorization boundary', () => {
+    writeRecentChatSelection({ tenant_id: 'tenant-a', user_id: 'user-a' }, 'chat', 'chat-a');
+    writeRecentChatSelection({ tenant_id: 'tenant-b', user_id: 'user-b' }, 'browser', 'chat-b');
+    window.sessionStorage.setItem('unrelated', 'keep');
+
+    clearRecentChatSelections();
+
+    expect(window.sessionStorage.getItem('unrelated')).toBe('keep');
+    expect(window.sessionStorage.length).toBe(1);
   });
 
   it('persists presentation preferences without persisting artifact payloads', () => {

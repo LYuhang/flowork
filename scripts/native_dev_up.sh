@@ -256,6 +256,19 @@ PY
   export SANDBOX_PYTHON_PATHS
 }
 
+resolve_codex_runtime() {
+  # Do not silently fall back to the upstream executable that loses receipts.
+  # Explicit operator overrides (including isolated acceptance candidates) win.
+  if [[ -z "${CODEX_CLI_PATH:-}" ]]; then
+    local codex_bundle="$REPO_ROOT/.tools/codex-runtime/0.147.0-output-subscription-1"
+    if ! "$VIBECANVAS_PYTHON" "$REPO_ROOT/scripts/build_codex_runtime.py" --verify_bundle "$codex_bundle"; then
+      echo "ERROR: prepare the managed runtime with: bash scripts/prepare_codex_runtime.sh (or explicitly configure CODEX_CLI_PATH)" >&2
+      return 1
+    fi
+    export CODEX_CLI_PATH="$codex_bundle/bin/codex"
+  fi
+}
+
 # ─── shared env (api + worker + beat MUST share these — esp. OBJECT_STORE_FS_ROOT) ──
 write_env() {
   # Persist the effective Runtime credentials/configuration, not merely the
@@ -445,11 +458,20 @@ start_openfga() {
     --set=erasure_password="$(cat "$erasure_password_file")" \
     --file="$REPO_ROOT/scripts/security/openfga_erasure.sql"
   export OPENFGA_ERASURE_DATABASE_URL="postgresql://flowork_openfga_erasure:$(cat "$erasure_password_file")@127.0.0.1:${PGPORT}/${datastore}?sslmode=disable"
+  # Keep OpenFGA's default connection ceiling: even one Chat fans out into
+  # concurrent permission checks and nested tuple iterators. A 5-connection
+  # pool stalled under real workflow CLI acceptance. Keep the idle ceiling
+  # low instead of restricting the active pool to save development memory.
+  # Propagate cancellation so timed-out requests release database work rather
+  # than accumulating blocked goroutines (OpenFGA otherwise strips deadlines).
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/openfga.pid" \
     --log-file "$RUNDIR/openfga.log" -- \
     "$openfga_bin" run --datastore-engine postgres \
     --datastore-uri "$datastore_uri" \
+    --datastore-max-open-conns "${OPENFGA_DATASTORE_MAX_OPEN_CONNS:-30}" \
+    --datastore-max-idle-conns "${OPENFGA_DATASTORE_MAX_IDLE_CONNS:-2}" \
+    --context-propagation-to-datastore=true \
     --http-addr "127.0.0.1:${OPENFGA_HTTP_PORT}" \
     --grpc-addr "127.0.0.1:${OPENFGA_GRPC_PORT}" \
     --metrics-addr "127.0.0.1:${OPENFGA_METRICS_PORT}" \
@@ -654,6 +676,7 @@ EOF
 
 cmd_up() {
   resolve_backend_python
+  resolve_codex_runtime
   install_backend_packages
   resolve_sandbox_python_paths
   start_pg
@@ -734,8 +757,9 @@ cmd_status() {
 }
 
 case "${1:-up}" in
+  check-runtime) resolve_backend_python; resolve_codex_runtime ;;
   up)     cmd_up ;;
   down)   cmd_down ;;
   status) cmd_status ;;
-  *) echo "usage: $0 {up|down|status}"; exit 1 ;;
+  *) echo "usage: $0 {up|down|status|check-runtime}"; exit 1 ;;
 esac

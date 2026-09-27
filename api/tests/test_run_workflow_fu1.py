@@ -2,66 +2,8 @@
 """FU-1: run_workflow uses the shared resident workflow sandbox runner."""
 import asyncio
 import json
-import re
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
-
-
-def test_run_workflow_uses_resident_runner_stream(monkeypatch, tmp_path):
-    import importlib
-    # run/__init__ rebinds the name ``run_workflow`` to the tool object, so import
-    # the module explicitly to monkeypatch its module-level helpers.
-    rw = importlib.import_module("vibecanvas_api.services.platform_mcp.run_tools.run_workflow")
-    run_dir = tmp_path / "tenant" / "run123"
-    run_dir.mkdir(parents=True)
-
-    seen = {}
-
-    class FakeSession:
-        def __init__(self):
-            self.run_dir = str(run_dir)
-            self.workflow_run_dir = str(run_dir)
-            self.workflow_run_id = "wf"
-
-    def fake_run_workflow_once_sync(session, **kwargs):
-        seen.update(session=session, **kwargs)
-        return SimpleNamespace(result_json={
-                "final_outputs": {"__end__": {"answer": 42}, "start": {"x": 1}},
-                "error_dict": {},
-                "execution_time": 1.234,
-        })
-
-    monkeypatch.setattr(rw, "_save_if_dirty", lambda ctx: None)
-    monkeypatch.setattr(rw, "_resolve_session_sync", lambda ctx: FakeSession())
-    monkeypatch.setattr(rw, "run_workflow_once_sync", fake_run_workflow_once_sync)
-    monkeypatch.setattr(rw, "write_node_result_sync", lambda *a, **k: None)
-
-    ctx = MagicMock()
-    ctx.workflow = {"n1": {"node_name": "start", "node_type": "start"},
-                    "n2": {"node_name": "__end__", "node_type": "end"}}
-    ctx.current_workflow_id = "wf"
-    ctx.wf_id = "wf"
-    ctx.username = "u"
-    ctx.tenant_id = "tenant"
-    rt = MagicMock()
-    rt.context = ctx
-
-    content, artifact = rw._sync_run_workflow("{}", rt)
-
-    # FU-1: the tool delegates to the one shared resident workflow runner.
-    assert seen["session"].workflow_run_dir == str(run_dir)
-    assert seen["workflow_run_id"] == "wf"
-    assert seen["tenant_id"] == "tenant"
-    assert seen["install_dependencies"] is True
-    # contract preserved: result extracted from result.json. Agent workflow runs
-    # do not create or expose workflow-page execution state.
-    blob = json.dumps([content, artifact], default=str)
-    assert "answer" in blob          # final_outputs surfaced as node_outputs
-    assert "1.234" in blob           # execution_time from result.json
-    assert "exec_id" not in blob
-    assert re.search(r'"e_[0-9a-f]{12}"', blob) is None
 
 
 async def _async_value(value):

@@ -37,10 +37,12 @@ export class WsClient {
   private authRequiredCbs: (() => void)[] = [];
   private echoCbs: ((e: Envelope) => void)[] = [];
   private playwrightRelayCbs: ((e: Envelope) => void)[] = [];
+  private refreshes = new Map<string, (ok: boolean) => void>();
+  private authRenewTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly url: string,
-    private readonly protocols: readonly string[] = [],
+    private protocols: readonly string[] = [],
   ) {}
 
   onOpen(cb: () => void): void {
@@ -99,6 +101,19 @@ export class WsClient {
         return; // ignore malformed frames; never eval server payloads (§6)
       }
       if (e.kind === "echo") {
+        const result = e.data as { type?: string; ok?: boolean; expires_at?: number } | null;
+        if ((result?.type === "auth_status" || (result?.type === "auth_refresh" && result.ok === true))
+            && typeof result.expires_at === "number" && Number.isFinite(result.expires_at)) {
+          if (this.authRenewTimer) clearTimeout(this.authRenewTimer);
+          // The server supplies this deadline after authenticating the token.
+          // Ask the authenticated iframe for a replacement before expiry, while
+          // the existing socket and pending commands remain alive.
+          this.authRenewTimer = setTimeout(() => {
+            this.authRenewTimer = null;
+            if (this.ws === ws && !this.closed) for (const cb of this.authRequiredCbs) cb();
+          }, Math.max(1000, Math.min(2 ** 31 - 1, result.expires_at * 1000 - Date.now() - 60000)));
+        }
+        if (result?.type === "auth_refresh") this.refreshes.get(e.id)?.(result.ok === true);
         for (const cb of this.echoCbs) cb(e);
       } else if (e.kind === "playwright_relay") {
         for (const cb of this.playwrightRelayCbs) cb(e);
@@ -108,6 +123,7 @@ export class WsClient {
     ws.onclose = (event: CloseEvent) => {
       if (this.ws === ws) this.ws = null;
       this.stopHeartbeat();
+      for (const finish of this.refreshes.values()) finish(false);
       if (this.closed) return; // intentional close: do not reconnect
       for (const cb of this.closeCbs) cb(event);
       if (event.code === 4401) {
@@ -132,12 +148,34 @@ export class WsClient {
     return !this.closed;
   }
 
+  /** Only a signed, same-identity token accepted by the server may renew this
+   * socket. Never infer authentication from decoding a token in the browser. */
+  async refreshAuthentication(token: string, protocols: readonly string[]): Promise<boolean> {
+    const socket = this.ws;
+    if (!socket || socket.readyState !== WebSocket.OPEN || this.closed) return false;
+    const id = corr();
+    return new Promise(resolve => {
+      const timer = setTimeout(() => finish(false), 5000);
+      const finish = (ok: boolean) => {
+        if (!this.refreshes.delete(id)) return;
+        clearTimeout(timer);
+        const accepted = ok && this.ws === socket && !this.closed;
+        if (accepted) this.protocols = protocols;
+        resolve(accepted);
+      };
+      this.refreshes.set(id, finish);
+      try { socket.send(encode("auth_refresh", { id, channel: "system", transport: "pending", data: { token } })); }
+      catch { finish(false); }
+    });
+  }
+
   /** Stop reconnecting and drop the socket. */
   disconnect(): void {
     this.closed = true;
     this.stopHeartbeat();
     this.clearReconnectTimer();
     this.pendingFrames = [];
+    for (const finish of this.refreshes.values()) finish(false);
     const ws = this.ws;
     this.ws = null;
     ws?.close();
@@ -151,6 +189,8 @@ export class WsClient {
   }
 
   private stopHeartbeat(): void {
+    if (this.authRenewTimer) clearTimeout(this.authRenewTimer);
+    this.authRenewTimer = null;
     if (this.heartbeat !== null) {
       clearInterval(this.heartbeat);
       this.heartbeat = null;

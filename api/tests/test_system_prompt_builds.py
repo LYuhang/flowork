@@ -15,7 +15,7 @@ def test_on_demand_node_spec_does_not_raise():
     assert "Node spec: PromptNode" in out
     assert "CONFIG_SCHEMA" in out
     assert "prompt_template" in out
-    assert "get_config(scope='global')" in out
+    assert "flowork-cli config get --scope model_api" in out
     assert "Never use the chat Agent" in out
 
 
@@ -24,7 +24,7 @@ def test_subagent_node_is_registered_for_on_demand_spec():
     out = format_node_spec(build_node_spec("SubAgentNode", {}))
     assert "Node spec: SubAgentNode" in out
     assert "task_template" in out
-    assert "get_config(scope='global')" in out
+    assert "flowork-cli config get --scope model_api" in out
 
 
 def test_build_system_prompt_does_not_raise():
@@ -63,7 +63,7 @@ def test_build_prompt_node_catalog_embeds_core_specs_and_extended_catalog():
     assert "Compact example:" in out
     assert "#### Extended node catalog" in out
     assert "- `HTTPRequestNode`" in out
-    assert "call `get_node_spec(node_type=...)` for exact schema" in out
+    assert "run `flowork-cli workflow get-spec --type <NodeType>` for exact schema" in out
 
 
 def test_core_build_node_types_are_expected_flow_nodes():

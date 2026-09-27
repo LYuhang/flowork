@@ -24,7 +24,7 @@ import { useAuthStore } from '@/stores/auth';
 import { getApiBase } from '@/lib/base-path';
 import { getTimezone } from '@/lib/timezone';
 import { useChatStreamStore } from '@/stores/chat-stream';
-import { getAgentSettings, type AgentSettings, type ApprovalMode } from '@/stores/agent-settings';
+import { getAgentSettings, getApprovalMode, type AgentSettings, type ApprovalMode } from '@/stores/agent-settings';
 import type { components } from '@/lib/api/schema';
 import { routeAgentSignal } from './route-signal';
 import { readActiveTurnFor, rememberActiveTurn, updateActiveTurnCursor } from './active-turn';
@@ -303,9 +303,7 @@ async function streamOwnedAgentTurn(
       client_request_id: clientRequestId,
       attachments: args.attachments ?? [],
       mode: args.mode ?? 'chat',
-      // Approval modes remain in the wire contract as a future extension seam,
-      // but the current product has no Runtime-neutral approval experience.
-      approval_mode: 'always_allow',
+      approval_mode: args.approvalMode ?? getApprovalMode(),
       mcp_server_ids: args.mcpServerIds ?? [],
       chat_config_revision: args.chatConfigRevision ?? 0,
       timezone: getTimezone(),

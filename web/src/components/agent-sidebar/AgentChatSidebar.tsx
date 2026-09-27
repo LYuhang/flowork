@@ -43,6 +43,8 @@ import { ChatComposer } from '@/components/agent-sidebar/ChatComposer';
 import { AgentSettingsModal } from '@/components/agent-sidebar/AgentSettingsModal';
 import {
   CHAT_INITIAL_HISTORY_LIMIT,
+  CHAT_HISTORY_GC_TIME_MS,
+  CHAT_HISTORY_STALE_TIME_MS,
   fetchChatHistory,
   fetchChatHistoryPage,
   useChatHistory,
@@ -158,9 +160,21 @@ export function AgentChatSidebar({
   const activeBrowserLease =
     selectedSession?.browser_control_status &&
     selectedSession.browser_control_status !== 'inactive';
+  // The host reserves a lease before the Agent's first Browser CLI call.
+  // Until that call initializes CDP, the extension has no window ownership
+  // projection. A reservation without a projection is not a foreign window.
+  // After reauthentication the shell may also have no projection for a lost
+  // lease. Let the server expire/re-reserve it on the next explicit message;
+  // do not permanently label a disconnected browser as a foreign window.
+  // Known ownership (including an explicit different window) still wins.
+  const awaitingBrowserOwnership =
+    (selectedSession?.browser_control_status === 'attaching' ||
+      (selectedSession?.browser_control_status === 'lost' && browserControlAvailableHere)) &&
+    !browserControlChatId;
   const browserLeaseMismatch =
     chatSurface === 'browser' &&
     !!activeBrowserLease &&
+    !awaitingBrowserOwnership &&
     (browserControlChatId !== selectedSession?.chat_id || !browserControlAvailableHere);
   const browserDisabledReason = browserLeaseMismatch
     ? t(
@@ -180,7 +194,7 @@ export function AgentChatSidebar({
   const selectedHistory = useChatHistory(
     lastWfId,
     selectedChatIsPersisted ? activeChatId : null,
-    selectedChatIsPersisted && activeProjectionTurnId !== '',
+    selectedChatIsPersisted,
     activeProjectionTurnId || null,
   );
   const selectedHistoryKey = lastWfId && activeChatId
@@ -372,7 +386,6 @@ export function AgentChatSidebar({
         mode,
         surface: embedded ? 'sidepanel' : 'main',
         agentSurface: embedded ? 'browser' : 'chat',
-        approvalMode: 'always_allow',
         onAccepted: () => {
           accepted = true;
           resolve();
@@ -427,7 +440,8 @@ export function AgentChatSidebar({
     void queryClient.prefetchQuery({
       queryKey: ['chat-history', lastWfId, chatId, null],
       queryFn: () => fetchChatHistory(lastWfId, chatId),
-      staleTime: 15_000,
+      staleTime: CHAT_HISTORY_STALE_TIME_MS,
+      gcTime: CHAT_HISTORY_GC_TIME_MS,
     }).catch(() => undefined);
   };
 

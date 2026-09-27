@@ -30,9 +30,7 @@ export function usePreviewDescriptor(fileRef: FileRefV1) {
     // queryKeyToken is the stable identity represented by queryKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryClient, queryKeyToken]);
-  usePreviewFileEvents(fileRef, reconcile);
-
-  return useQuery({
+  const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => resolvePreview(fileRef, signal),
     // Descriptor media URLs are signed for five minutes. Mark the descriptor
@@ -43,6 +41,10 @@ export function usePreviewDescriptor(fileRef: FileRefV1) {
     refetchOnReconnect: false,
     retry: false,
   });
+  // A legacy line citation may resolve to a different literal filename.
+  // Observe edits to the actual resource, not the citation string.
+  usePreviewFileEvents(query.data?.fileRef ?? fileRef, reconcile);
+  return query;
 }
 
 export function useWritePreviewFile(fileRef: FileRefV1) {

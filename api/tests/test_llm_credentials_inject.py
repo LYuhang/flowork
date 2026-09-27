@@ -41,14 +41,14 @@ def _wf(*prompt_model_names: str) -> dict:
     return wf
 
 
-def test_collect_skips_builtins_and_non_prompt_nodes(monkeypatch):
+def test_collect_includes_all_model_names_but_skips_non_model_nodes(monkeypatch):
     # 'OpenAI'/'Gemini' are builtins; pretend 'gpt-5.4' is registry-registered.
     monkeypatch.setattr(inj, "_builtin_model_names",
                         lambda: {"OpenAI", "Gemini", "gpt-5.4"})
     wf = _wf("OpenAI", "gpt-5.4", "My DeepSeek", "Team Claude")
     names = inj.collect_referenced_credential_names(wf)
     # Only the two saved names survive; builtins + the CodeNode are ignored.
-    assert names == {"My DeepSeek", "Team Claude"}
+    assert names == {"My DeepSeek", "Team Claude", "OpenAI", "gpt-5.4"}
 
 
 def test_collect_empty_when_no_prompt_nodes(monkeypatch):
@@ -100,7 +100,7 @@ def test_collect_dedups_prompt_and_subagent_names(monkeypatch):
             "node_config": {"model_name": "OpenAI"},
         },
     }
-    assert inj.collect_referenced_credential_names(wf) == {"shared", "sub-only"}
+    assert inj.collect_referenced_credential_names(wf) == {"shared", "sub-only", "OpenAI"}
 
 
 class _FakeRepo:
@@ -131,7 +131,7 @@ class _FakeRepo:
 
     async def list_for_user(self, user_id):
         assert user_id == "user-1"
-        return list(self.rows)
+        return [{"connection_kind": "manual", "enabled": True, **row} for row in self.rows]
 
 
 @pytest.mark.asyncio
@@ -140,7 +140,7 @@ async def test_build_mapping_only_for_referenced_names(monkeypatch):
                         lambda: {"OpenAI", "Gemini"})
     monkeypatch.setattr(inj, "LlmCredentialsRepo", _FakeRepo)
 
-    wf = _wf("My DeepSeek", "OpenAI")  # 'OpenAI' builtin → not looked up
+    wf = _wf("My DeepSeek")
     mapping = await inj.build_llm_credentials_extra(
         wf,
         session=object(),
@@ -182,7 +182,7 @@ async def test_build_empty_when_no_saved_names(monkeypatch):
     monkeypatch.setattr(inj, "LlmCredentialsRepo", _FakeRepo)
     # All builtins → no lookup, empty mapping (caller skips injecting the key).
     mapping = await inj.build_llm_credentials_extra(
-        _wf("OpenAI", "Gemini"),
+        _wf(),
         session=object(),
         organization_id="org-1",
         user_id="user-1",
@@ -194,7 +194,7 @@ async def test_build_empty_when_no_saved_names(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_build_fail_soft_on_repo_error(monkeypatch):
+async def test_build_fails_closed_on_repo_error(monkeypatch):
     monkeypatch.setattr(inj, "_builtin_model_names",
                         lambda: {"OpenAI", "Gemini"})
 
@@ -206,18 +206,12 @@ async def test_build_fail_soft_on_repo_error(monkeypatch):
             raise RuntimeError("db down")
 
     monkeypatch.setattr(inj, "LlmCredentialsRepo", _Boom)
-    # A repo error must not abort the run — returns {} (the engine then surfaces
-    # a clear unresolved-name error rather than a swallowed wrong key).
-    mapping = await inj.build_llm_credentials_extra(
-        _wf("My DeepSeek"),
-        session=object(),
-        organization_id="org-1",
-        user_id="user-1",
-        workflow_id="wf-1",
-        execution_id="execution-1",
-        execution_resource_type="workflow_execution",
-    )
-    assert mapping == {}
+    with pytest.raises(RuntimeError, match="db down"):
+        await inj.build_llm_credentials_extra(
+            _wf("My DeepSeek"), session=object(), organization_id="org-1",
+            user_id="user-1", workflow_id="wf-1", execution_id="execution-1",
+            execution_resource_type="workflow_execution",
+        )
 
 
 def test_inline_model_secrets_are_rejected_before_sandbox_launch():
@@ -228,3 +222,22 @@ def test_inline_model_secrets_are_rejected_before_sandbox_launch():
     }
     with pytest.raises(ValueError, match="Inline model credentials"):
         inj.reject_inline_model_credentials(workflow)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name,changes", [
+    ("Default API", {}), ("OpenAI", {}),
+    ("My DeepSeek", {"connection_kind": "openrouter_oauth"}),
+    ("My DeepSeek", {"enabled": False}),
+])
+async def test_disallowed_models_fail_before_capability_mint(monkeypatch, name, changes):
+    class Repo(_FakeRepo):
+        async def list_for_user(self, user_id):
+            return [{**row, **changes} for row in await super().list_for_user(user_id)]
+    monkeypatch.setattr(inj, "LlmCredentialsRepo", Repo)
+    monkeypatch.setattr(inj, "_brokered_entry", lambda **_: pytest.fail("must not mint"))
+    with pytest.raises(ValueError, match="manually added APIs"):
+        await inj.build_llm_credentials_extra(
+            _wf(name), session=object(), organization_id="org-1", user_id="user-1",
+            workflow_id="wf-1", execution_id="execution-1", execution_resource_type="workflow_execution",
+        )

@@ -60,9 +60,6 @@ from vibecanvas_api.authorization.dependencies import (
     principal_for_auth,
 )
 from vibecanvas_api.authorization.mutations import AuthzMutationError
-from vibecanvas_api.authorization.openfga_client import (
-    OpenFgaUnavailableError,
-)
 from vibecanvas_api.authorization.share_resolution import (
     binding_from_share_resolution,
 )
@@ -109,18 +106,18 @@ from vibecanvas_api.services.workflow_runner import (
     load_workflow_version,
     run_workflow_sandboxed_sync,
 )
+from vibecanvas_api.services.deployment_snapshots import resolve_workflow
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
 from vibecanvas_api.storage.repo_deployments import DeploymentsRepo
 from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
-from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])
 
 
 # Module-level constants — keep cheap to import-time validate.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
-_ALLOWED_VERSION_PIN = frozenset({"head", "specific"})
+_ALLOWED_VERSION_PIN = frozenset({"head", "major", "specific"})
 
 
 def _deployment_resource(
@@ -262,6 +259,8 @@ class CreateDeploymentBody(BaseModel):
     pinned_major: Optional[int] = None
     pinned_sub: Optional[int] = None
     rate_limit_qps: int = 10
+    mount_enabled: bool = False
+    enabled: bool = True
 
     @field_validator("slug")
     @classmethod
@@ -278,7 +277,7 @@ class CreateDeploymentBody(BaseModel):
     @classmethod
     def _vp(cls, v: str) -> str:
         if v not in _ALLOWED_VERSION_PIN:
-            raise ValueError("version_pin must be one of: head, specific")
+            raise ValueError("version_pin must be one of: head, major, specific")
         return v
 
     @field_validator("rate_limit_qps")
@@ -333,6 +332,10 @@ async def create_deployment(
     if body.version_pin == "head":
         pinned_major = None
         pinned_sub = None
+    elif body.version_pin == "major":
+        if pinned_major is None or pinned_major < 1:
+            raise HTTPException(422, "A positive pinned_major is required for major tracking.")
+        pinned_sub = None
     else:  # 'specific'
         if pinned_major is None or pinned_sub is None:
             # Resolve to current HEAD. The session is already
@@ -357,6 +360,11 @@ async def create_deployment(
             pinned_major = row.major
             pinned_sub = row.sub
 
+    # Resolve before creating identities or secrets. Never fall back from a
+    # missing explicit branch/version to another branch.
+    selected_graph = await resolve_workflow(session, ctx.user_id, {"wf_id": body.wf_id,
+        "version_pin": body.version_pin, "pinned_major": pinned_major, "pinned_sub": pinned_sub})
+
     # Tenant / user identity ONLY from auth context — never the body.
     dep_id = uuid.uuid4()
     service_account_id = uuid.uuid4()
@@ -374,9 +382,7 @@ async def create_deployment(
         tenant_id=uuid.UUID(ctx.tenant_id),
         service_account_id=service_account_id,
         created_by=ctx.user_id,
-        workflow=await WorkflowRepo(
-            session, ctx.user_id
-        ).get_current_workflow(body.wf_id),
+        workflow=selected_graph,
     )
     fields: dict = dict(
         id=dep_id,
@@ -392,7 +398,11 @@ async def create_deployment(
         pinned_major=pinned_major,
         pinned_sub=pinned_sub,
         rate_limit_qps=body.rate_limit_qps,
+        mount_enabled=body.mount_enabled,
+        enabled=body.enabled,
     )
+    if not body.enabled:
+        await ServiceAccountsRepo(session).set_status(service_account_id, status="disabled")
 
     # Close the permission-revocation race immediately before generating a
     # one-shot secret and introducing the durable Deployment.
@@ -493,7 +503,12 @@ async def create_deployment(
         source="deployment-create",
     )
     await session.commit()
-    await apply_committed_structural_mutations(coordinator, mutation_ids)
+    try:
+        await apply_committed_structural_mutations(coordinator, mutation_ids)
+    except Exception:
+        # Creation and one-shot credentials already exist; never encourage a
+        # duplicate create after an authorization projection outage.
+        return {"id": str(dep_id), "authorization_pending": True, **response_extras}
     await _rebind_request_organization(session, ctx)
     decision = await service.check(
         principal_for_auth(ctx),
@@ -506,9 +521,7 @@ async def create_deployment(
         ),
     )
     if not decision.allowed:
-        raise OpenFgaUnavailableError(
-            "authorization_projection_not_visible"
-        )
+        return {"id": str(dep_id), "authorization_pending": True, **response_extras}
     return {
         "id": str(dep_id),
         "access": access_from_decision(decision).model_dump(mode="json"),
@@ -553,6 +566,7 @@ class PatchDeploymentBody(BaseModel):
     version_pin: Optional[str] = None
     pinned_major: Optional[int] = None
     pinned_sub: Optional[int] = None
+    mount_enabled: Optional[bool] = None
 
 
 async def _scrub_secret_fields(
@@ -727,7 +741,7 @@ async def patch_deployment(
         if fields["version_pin"] not in _ALLOWED_VERSION_PIN:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="version_pin must be one of: head, specific",
+                detail="version_pin must be one of: head, major, specific",
             )
     if "rate_limit_qps" in fields and fields["rate_limit_qps"] is not None:
         if fields["rate_limit_qps"] < 0:
@@ -735,6 +749,23 @@ async def patch_deployment(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="rate_limit_qps must be >= 0",
             )
+    if any(fields.get(key, False) is None for key in ("name", "enabled", "mount_enabled", "rate_limit_qps", "version_pin")):
+        raise HTTPException(422, "Deployment settings cannot be null.")
+    if "name" in fields and (not fields["name"].strip() or len(fields["name"]) > 200):
+        raise HTTPException(422, "name must contain 1 to 200 characters.")
+    if {"version_pin", "pinned_major", "pinned_sub"} & fields.keys():
+        selected = {**dep, **fields}
+        if selected["version_pin"] == "head":
+            fields.update(pinned_major=None, pinned_sub=None)
+        elif selected["version_pin"] == "major":
+            if not selected.get("pinned_major") or selected["pinned_major"] < 1:
+                raise HTTPException(422, "A positive pinned_major is required.")
+            fields["pinned_sub"] = None
+        elif selected.get("pinned_major") is None or selected.get("pinned_sub") is None:
+            raise HTTPException(422, "A complete pinned version is required.")
+        await _authorize_workflow_deploy(request=request, ctx=ctx, service=service, workflow_id=dep["wf_id"],
+                                        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+        await resolve_workflow(session, ctx.user_id, {**dep, **fields})
     authorized = await _authorize_deployment(
         request=request,
         ctx=ctx,
@@ -1175,11 +1206,16 @@ async def test_invoke(
             status="running",
         )
     started = perf_counter()
+    emit = getattr(request.state, "cli_deployment_progress", None)
+    if emit is not None:
+        await emit({"progress": {"deployment_id": str(dep_id), "execution_id": str(invocation_id),
+            "status": "running", "message": "A real test invocation started. Do not submit it again."}})
     outputs: dict = {}
     errors: dict = {}
     fatal_http_exc: HTTPException | None = None
     try:
-        workflow_dict = await load_workflow_version(dep)
+        approved_snapshot = getattr(request.state, "cli_deployment_snapshot", None)
+        workflow_dict = approved_snapshot["workflow"] if approved_snapshot else await load_workflow_version(dep)
         execution_identity = (
             {
                 "execution_principal_type": "service_account",
@@ -1195,6 +1231,7 @@ async def test_invoke(
             user_id=str(lease.created_by if lease is not None else dep["user_id"]),
             run_id=str(invocation_id),
             workflow_dict=workflow_dict,
+            mount_enabled=approved_snapshot["mount_enabled"] if approved_snapshot else dep.get("mount_enabled", True),
             execution_resource_type=ResourceType.DEPLOYMENT_INVOCATION.value,
             **execution_identity,
         )
@@ -1217,12 +1254,14 @@ async def test_invoke(
                 "error_count": len(errors) if isinstance(errors, dict) else 0,
             },
         )
-    if fatal_http_exc is not None:
+    if fatal_http_exc is not None and emit is None:
         raise fatal_http_exc
     return {
         "outputs": outputs,
         "errors": errors,
         "exec_time_ms": exec_time_ms,
+        "execution_id": str(invocation_id),
+        "status": "failed" if errors else "succeeded",
     }
 
 

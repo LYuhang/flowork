@@ -42,67 +42,6 @@ def _skill_catalog_revision(request: RuntimeTurnRequest) -> str:
 def _builtin_server(name: str) -> McpDesiredServer:
     metadata = BUILTIN_MCP_METADATA[name]
     activation_mode = str(metadata["activation_mode"])
-    if name == "diagram":
-        return McpDesiredServer(
-            id="builtin:diagram",
-            source="builtin_local",
-            name="diagram",
-            description=str(metadata["description"]),
-            configurationRevision=f"{BUILTIN_MCP_CONTRACT_REVISION}:diagram",
-            required=True,
-            activation="command",
-            connection=McpStdioLaunch(
-                command="flowork-diagram-mcp",
-                args=[],
-                cwd="/data",
-                environmentProfile="diagram-local",
-            ),
-        )
-    if name == "document":
-        return McpDesiredServer(
-            id="builtin:document",
-            source="builtin_local",
-            name="document",
-            description=str(metadata["description"]),
-            configurationRevision=f"{BUILTIN_MCP_CONTRACT_REVISION}:document",
-            required=True,
-            activation="command",
-            connection=McpStdioLaunch(
-                command="flowork-document-mcp",
-                args=[],
-                cwd="/data",
-                environmentProfile="document-local",
-            ),
-        )
-    if name == "browser":
-        return McpDesiredServer(
-            id="builtin:browser",
-            source="builtin_local",
-            name="browser",
-            description=str(metadata["description"]),
-            configurationRevision=f"{BUILTIN_MCP_CONTRACT_REVISION}:browser",
-            required=True,
-            activation="command",
-            connection=McpStdioLaunch(
-                command="flowork-playwright-mcp",
-                args=[
-                    "--codegen",
-                    "none",
-                    "--snapshot-mode",
-                    "full",
-                    "--timeout-action",
-                    "7000",
-                    "--timeout-navigation",
-                    "60000",
-                    "--timeout-settle",
-                    "500",
-                    "--output-dir",
-                    "/data/browser-media",
-                ],
-                cwd="/data",
-                environmentProfile="browser-gateway",
-            ),
-        )
     return McpDesiredServer(
         id=f"platform:{name}",
         source="platform",
@@ -168,6 +107,7 @@ def build_mcp_lifecycle_contracts(
         _builtin_server(name)
         for name, metadata in sorted(BUILTIN_MCP_METADATA.items())
         if runtime_type in metadata["runtime_types"]
+        and metadata["activation_mode"] != "retired"
         and (
             metadata["activation_mode"] == "base"
             or name in active_platform
@@ -189,6 +129,7 @@ def build_mcp_lifecycle_contracts(
         platform_contract_revision=BUILTIN_MCP_CONTRACT_REVISION,
         skill_catalog_revision=_skill_catalog_revision(request),
         servers=[*builtins, *selected],
+        private_platform_capabilities=sorted(active_platform & {"cli", "browser"}),
     )
     now = datetime.now(timezone.utc)
     context = McpExecutionContext(

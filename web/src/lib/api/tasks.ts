@@ -155,6 +155,8 @@ export interface ScheduledRunConfig {
   id: string;
   task_id: string;
   workflow_id: string;
+  workflow_selector?: { major?: string; version?: string; policy?: 'legacy_head' };
+  start_at?: string | null;
   name: string;
   enabled: boolean;
   schedule_type: 'interval' | 'cron';
@@ -179,8 +181,9 @@ export interface ScheduledRunExecution {
   id: string;
   schedule_id: string;
   workflow_id: string;
+  version?: string | null;
   run_key: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
+  status: 'queued' | 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
   trigger_type: 'scheduled' | 'manual';
   triggered_at: string | null;
   started_at: string | null;
@@ -201,6 +204,8 @@ export interface ScheduledRunResponse {
 export interface ScheduledRunCreateBody {
   name: string;
   workflow_id: string;
+  major?: string | null;
+  version?: string | null;
   enabled?: boolean;
   schedule_type: 'interval' | 'cron';
   interval_seconds?: number | null;
@@ -483,6 +488,10 @@ export type BatchOutputColumn =
   | { kind: 'field'; name: string; node: string; field: string; default?: string };
 
 export interface SubmitBatchBody {
+  /** Frozen for this task and all resumed attempts; defaults to false. */
+  mount_enabled?: boolean;
+  major?: string;
+  version?: string;
   data_source: unknown;
   column_mapping: Record<string, string>;
   output?: BatchOutputSpec | null;

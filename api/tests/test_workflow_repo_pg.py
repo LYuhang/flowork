@@ -44,6 +44,30 @@ async def _seed_and_bind(session):
 
 
 @pytest.mark.asyncio
+async def test_major_creation_uses_selected_parent_not_global_head_and_upload_stays_on_selected_major(pg_session):
+    await _seed_and_bind(pg_session)
+    repo = WorkflowRepo(pg_session, str(ALICE))
+    wf_id = (await repo.create_workflow(name="Branches", initial_workflow={"original": {}}))["wf_id"]
+    await repo.commit(wf_id, {"one": {}}, stamp_metadata=True)
+    await repo.new_version(wf_id, {"two": {}}, stamp_metadata=True)
+    # Global HEAD is v2; this Chat selected v1.sv1.
+    source = await repo.get_workflow_at(wf_id, 1, 1)
+    await repo.get_meta(wf_id, for_update=True)
+    major = await repo.new_version(wf_id, source, stamp_metadata=True, source_version=(1, 1))
+    assert major == 3
+    row = await pg_session.get(WorkflowVersion, (wf_id, 3, 0))
+    assert (row.parent_major, row.parent_sub) == (1, 1)
+    graph = await repo.get_workflow_at(wf_id, 3, 0)
+    assert "one" in graph and "two" not in graph
+    assert graph["__meta__"]["workflow_version"] == 3
+    assert source["__meta__"]["workflow_version"] == 1
+    pointer = await repo.commit(wf_id, {"edited": {}}, target_major=1, stamp_metadata=True)
+    assert (pointer.parent_v, pointer.sv) == (1, 2)
+    assert "two" in await repo.get_workflow_at(wf_id, 2, 0)
+    assert "one" in await repo.get_workflow_at(wf_id, 3, 0)
+
+
+@pytest.mark.asyncio
 async def test_create_and_get(pg_session):
     await _seed_and_bind(pg_session)
     repo = WorkflowRepo(pg_session, user_id=str(ALICE))
@@ -52,6 +76,123 @@ async def test_create_and_get(pg_session):
     assert meta["workflow_name"] == "My WF"
     got = await repo.get_meta(wf_id)
     assert got["wf_id"] == wf_id
+
+
+@pytest.mark.asyncio
+async def test_metadata_patch_preserves_omitted_fields_and_workflow_version(pg_session):
+    await _seed_and_bind(pg_session)
+    repo = WorkflowRepo(pg_session, str(ALICE))
+    meta = await repo.create_workflow(name="Original", description="Keep", tags=["old"], initial_workflow={"node": {}})
+    wf_id = meta["wf_id"]
+    updated = await repo.update_meta(wf_id, workflow_name="Renamed")
+    assert updated["workflow_name"] == "Renamed"
+    assert updated["description"] == "Keep" and updated["tags"] == ["old"]
+    updated = await repo.update_meta(wf_id, description="", tags=[])
+    assert updated["workflow_name"] == "Renamed"
+    assert updated["description"] == "" and updated["tags"] == []
+    assert (updated["active_major"], updated["active_sub"]) == (1, 0)
+    assert await repo.get_current_workflow(wf_id) == {"node": {}}
+
+
+@pytest.mark.asyncio
+async def test_upload_commit_stamps_allocated_version_and_preserves_old_graph(pg_session):
+    await _seed_and_bind(pg_session)
+    repo = WorkflowRepo(pg_session, str(ALICE))
+    meta = await repo.create_workflow(name="Keep name", description="Keep description", tags=["keep"], initial_workflow={"old": {}})
+    wf_id = meta["wf_id"]
+    source = {"__meta__": {"workflow_name": "Ignored", "workflow_version": 99, "workflow_subversion": 99}, "new": {}}
+    first = await repo.commit(wf_id, source, stamp_metadata=True)
+    second = await repo.commit(wf_id, source, stamp_metadata=True)
+    assert (first.sv, second.sv) == (1, 2)
+    assert await repo.get_workflow_at(wf_id, 1, 0) == {"old": {}}
+    graph = await repo.get_workflow_at(wf_id, 1, 2)
+    assert "old" not in graph and "new" in graph
+    assert graph["__meta__"] == {"workflow_id": wf_id, "workflow_name": "Keep name", "workflow_version": 1, "workflow_subversion": 2}
+    assert source["__meta__"]["workflow_subversion"] == 99
+    current = await repo.get_meta(wf_id)
+    assert current["description"] == "Keep description" and current["tags"] == ["keep"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_upload_commits_allocate_distinct_correctly_stamped_versions(pg_session, pg_engine):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    await _seed_and_bind(pg_session)
+    wf_id = (await WorkflowRepo(pg_session, str(ALICE)).create_workflow(name="Concurrent"))["wf_id"]
+    await pg_session.commit()
+    maker = async_sessionmaker(pg_engine, expire_on_commit=False)
+    ready = asyncio.Queue()
+    start = asyncio.Event()
+    async def upload(label):
+        async with maker() as session:
+            await session.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(TENANT)})
+            stale = await session.get(Workflow, wf_id)
+            ready.put_nowait(True)
+            await start.wait()
+            pointer = await WorkflowRepo(session, str(ALICE)).commit(wf_id, {label: {}}, stamp_metadata=True)
+            assert stale is not None
+            await session.commit()
+            return pointer.sv, label
+    tasks = [asyncio.create_task(upload(label)) for label in ("one", "two")]
+    try:
+        await asyncio.wait_for(ready.get(), timeout=10)
+        await asyncio.wait_for(ready.get(), timeout=10)
+        start.set()
+        results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=20)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    assert {sub for sub, _ in results} == {1, 2}
+    async with maker() as session:
+        await session.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(TENANT)})
+        repo = WorkflowRepo(session, str(ALICE))
+        for sub, label in results:
+            graph = await repo.get_workflow_at(wf_id, 1, sub)
+            assert label in graph and graph["__meta__"]["workflow_subversion"] == sub
+        assert (await repo.get_meta(wf_id))["active_sub"] == 2
+
+
+@pytest.mark.asyncio
+async def test_parallel_metadata_patches_merge_under_row_lock(pg_session, pg_engine):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    await _seed_and_bind(pg_session)
+    repo = WorkflowRepo(pg_session, str(ALICE))
+    wf_id = (await repo.create_workflow(name="Original", description="Original", tags=["keep"]))["wf_id"]
+    await pg_session.commit()
+    maker = async_sessionmaker(pg_engine, expire_on_commit=False)
+    ready = asyncio.Queue()
+    start = asyncio.Event()
+
+    async def patch(fields):
+        async with maker() as session:
+            await session.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(TENANT)})
+            # Keep a stale ORM instance alive to exercise populate_existing
+            # as well as database read/merge/write serialization.
+            loaded = await session.get(Workflow, wf_id)
+            ready.put_nowait(True)
+            await start.wait()
+            await WorkflowRepo(session, str(ALICE)).update_meta(wf_id, **fields)
+            assert loaded is not None
+            await session.commit()
+
+    tasks = [asyncio.create_task(patch(fields)) for fields in ({"workflow_name": "Renamed"}, {"description": "New description"})]
+    try:
+        await asyncio.wait_for(ready.get(), timeout=10)
+        await asyncio.wait_for(ready.get(), timeout=10)
+        start.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=20)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    async with maker() as session:
+        await session.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(TENANT)})
+        result = await WorkflowRepo(session, str(ALICE)).get_meta(wf_id)
+    assert result["workflow_name"] == "Renamed"
+    assert result["description"] == "New description"
+    assert result["tags"] == ["keep"]
+    assert (result["active_major"], result["active_sub"]) == (1, 0)
 
 
 @pytest.mark.asyncio

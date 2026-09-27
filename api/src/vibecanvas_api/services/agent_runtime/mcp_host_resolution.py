@@ -22,15 +22,15 @@ from vibecanvas_api.services.mcp_config import (
     server_descriptor,
     validate_mcp_connection_destination,
 )
-from vibecanvas_api.services.platform_mcp.capability import (
-    mint_platform_mcp_capability,
+from vibecanvas_api.services.agent_resources.capability import (
+    mint_agent_capability,
 )
 from vibecanvas_api.services.platform_mcp.catalog import builtin_mcp_description
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_mcp_servers import McpServersRepo
 
 
-BASE_PLATFORM_MCPS = ("config", "interactive")
+BASE_PLATFORM_MCPS = ("interactive", "cli")
 
 
 def platform_mcp_names_for_modes(
@@ -41,21 +41,13 @@ def platform_mcp_names_for_modes(
     """Return base capabilities plus command-activated capabilities."""
     modes = set(active_modes)
     command_servers: list[str] = []
-    # /workflow composes the read-only Workflow discovery facade with the
-    # mutation/execution facade. Keeping Workflow out of the base set avoids
-    # granting ordinary Chat turns access to platform Workflow resources.
-    # Task and Deployment mutations also require an exact existing Workflow;
-    # give those commands the same read-only discovery facade without the
-    # Workflow build/mutation server.
-    if modes.intersection({"workflow", "task", "deployment"}):
-        command_servers.append("workflow")
-    if "workflow" in modes:
-        command_servers.append("build")
+    # All workflow/build/run tools now use the private CLI gateway. Keep the
+    # workflow command's instructions, but do not start its retired empty MCPs:
+    # required servers with no tools prevent the entire Agent turn from starting.
     command_servers.extend(
-        name for name in ("task", "deployment", "knowledge") if name in modes
-    )
-    command_servers.extend(
-        name for name in ("browser", "diagram", "document") if name in modes
+        # Browser CLI retains the private browser capability and live lease.
+        # This private capability does not start a Browser MCP server.
+        name for name in ("browser",) if name in modes
     )
     return [*BASE_PLATFORM_MCPS, *command_servers]
 
@@ -179,11 +171,9 @@ def resolve_platform_mcp_authority(
     """Mint Host-only capabilities for privileged built-in MCP calls."""
     result: list[HostMcpServerAuthority] = []
     for server in servers:
-        if server in {"diagram", "document"}:
-            # These are credential-free local MCPs started by the sandbox Hub;
-            # neither needs a Host URL, token, or platform-resource authority.
-            continue
-        token = mint_platform_mcp_capability(
+        if server not in {"interactive", "cli", "browser"}:
+            raise ValueError(f"unknown Agent platform capability: {server}")
+        token = mint_agent_capability(
             organization_id=tenant_id,
             user_id=user_id,
             chat_id=chat_id,
@@ -210,7 +200,8 @@ def resolve_platform_mcp_authority(
         result.append(HostMcpServerAuthority(
             name=server,
             source="platform",
-            description=builtin_mcp_description(server),
+            description=(f"Private {server} authority for the active turn."
+                         if server in {"cli", "browser"} else builtin_mcp_description(server)),
             connection=connection,
             required=True,
         ))

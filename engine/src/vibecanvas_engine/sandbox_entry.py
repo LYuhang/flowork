@@ -44,7 +44,7 @@ import time
 
 from .sandbox_bus import MSG_NODE_EVENT, MSG_RESULT, connect_bus
 from .workflow import Workflow
-from .utils import normalize_inputs_for_fields, start_node_input_fields
+from .utils import InputNormalizeError, normalize_inputs_for_fields, start_node_input_fields
 
 # Environment variable carrying the in-sandbox bus socket path. The host binds a
 # short per-run UDS dir into the sandbox (gvisor.py) and sets this to the in-
@@ -177,10 +177,16 @@ def run_node_exec(run_root: str, run_id: str) -> int:
         with open(os.path.join(exec_dir, "job.json"), "r", encoding="utf-8") as f:
             job = json.load(f)
         node_dict = job.get("node") or {}
-        inputs = normalize_inputs_for_fields(
-            job.get("inputs") or {},
-            node_dict.get("input_fields") if isinstance(node_dict, dict) else {},
-        )
+        try:
+            inputs = normalize_inputs_for_fields(
+                job.get("inputs") or {},
+                node_dict.get("input_fields") if isinstance(node_dict, dict) else {},
+            )
+        except InputNormalizeError as exc:
+            # A rejected row is a completed execution result, not a crashed
+            # worker. CLI batches must retain it and continue the other rows.
+            _write_result(run_root, {}, {"__input__": str(exc)}, 0.0)
+            return 0
         extra = job.get("extra") or {}
         bus_sock = os.environ.get(_BUS_SOCK_ENV) or None
         kwargs = {"bus_sock": bus_sock} if bus_sock else {}
@@ -404,10 +410,12 @@ def run_exec(run_root: str, run_id: str) -> int:
         with open(os.path.join(exec_dir, "workflow.json"), "r", encoding="utf-8") as f:
             wf_dict = json.load(f)
         with open(os.path.join(exec_dir, "inputs.json"), "r", encoding="utf-8") as f:
-            inputs = normalize_inputs_for_fields(
-                json.load(f),
-                start_node_input_fields(wf_dict),
-            )
+            raw_inputs = json.load(f)
+        try:
+            inputs = normalize_inputs_for_fields(raw_inputs, start_node_input_fields(wf_dict))
+        except InputNormalizeError as exc:
+            _write_result(run_root, {}, {"__input__": str(exc)}, 0.0)
+            return 0
 
         run_context = {"run_id": run_id, "run_dir": run_root}
         # Host-provided ambient ``extra`` written next to workflow.json by the api

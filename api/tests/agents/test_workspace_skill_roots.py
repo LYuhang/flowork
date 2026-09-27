@@ -5,20 +5,22 @@ import pytest
 from vibecanvas_api.agents.tools import workspace_fs
 
 
-@pytest.mark.asyncio
-async def test_skill_mount_is_readable_but_never_a_write_root(monkeypatch):
-    monkeypatch.setenv("VIBECANVAS_AGENT_RUNTIME_IN_SANDBOX", "1")
+def test_skill_mount_is_only_in_readable_roots(monkeypatch):
+    monkeypatch.delenv("VIBECANVAS_AGENT_RUNTIME_IN_SANDBOX", raising=False)
     monkeypatch.setattr(workspace_fs.os.path, "isdir", lambda _path: True)
-    calls: list[tuple[dict, list[str]]] = []
+    assert "/skills" in workspace_fs.roots(include_read_only=True)
+    assert "/skills" not in workspace_fs.roots()
 
-    def fake_fileop(request, roots):
-        calls.append((request, roots))
-        return {"ok": True, "kind": "text", "content": "skill"}
 
-    monkeypatch.setattr(workspace_fs, "run_fileop", fake_fileop)
+def test_workflow_mounts_are_supported_without_chat_flag(monkeypatch):
+    monkeypatch.delenv("VIBECANVAS_AGENT_RUNTIME_IN_SANDBOX", raising=False)
+    monkeypatch.setattr(workspace_fs.os.path, "isdir", lambda _path: True)
+    assert "/runs" in workspace_fs.roots()
+    assert "/work" in workspace_fs.roots()
+    assert "/runtime" not in workspace_fs.roots()
 
-    await workspace_fs.read_file("/skills/skill-1/SKILL.md")
-    await workspace_fs.write_file("/skills/skill-1/SKILL.md", "changed")
 
-    assert "/skills" in calls[0][1]
-    assert "/skills" not in calls[1][1]
+def test_missing_roots_fail_explicitly(monkeypatch):
+    monkeypatch.setattr(workspace_fs.os.path, "isdir", lambda _path: False)
+    with pytest.raises(RuntimeError, match="no mounted roots"):
+        workspace_fs.roots()

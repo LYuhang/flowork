@@ -7,18 +7,6 @@
 # the export finishes.
 set -eu
 
-export_timeout_seconds="${FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS:-45}"
-case "${export_timeout_seconds}" in
-  ''|*[!0-9]*)
-    echo "FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS must be a positive integer" >&2
-    exit 2
-    ;;
-  0)
-    echo "FLOWORK_DRAWIO_EXPORT_TIMEOUT_SECONDS must be greater than zero" >&2
-    exit 2
-    ;;
-esac
-
 # Let Xvfb allocate a free display instead of deriving one from the wrapper PID.
 # A PID-derived display can collide with a socket left by a previously killed
 # Electron process and make every later feedback render in the Chat fail.
@@ -53,17 +41,11 @@ done
 
 display=":$(cat "${display_file}")"
 
-# Electron may leave renderer children alive after an abnormal export. GNU
-# timeout gives draw.io its own process group, sends TERM at the deadline, then
-# KILLs the complete group after a short grace period. Keep the deadline below
-# the Runtime shell-tool timeout so this wrapper always has time to reap Xvfb.
+# The runtime owns a cancellable process group containing this wrapper,
+# Xvfb and Electron. Do not add a fixed export deadline or split that group.
 set +e
-DISPLAY="${display}" timeout --signal=TERM --kill-after=5s \
-  "${export_timeout_seconds}s" drawio --no-sandbox --disable-gpu "$@"
+DISPLAY="${display}" drawio --no-sandbox --disable-gpu "$@"
 status=$?
 set -e
 
-if [ "${status}" -eq 124 ] || [ "${status}" -eq 137 ]; then
-  echo "draw.io Desktop export timed out after ${export_timeout_seconds}s" >&2
-fi
 exit "${status}"

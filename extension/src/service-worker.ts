@@ -23,6 +23,7 @@ import {
   PlaywrightCdpBridge,
 } from "./playwright/cdp-bridge";
 import type { CDPMessage } from "./playwright/browser-model";
+import { CookieConsentStore, accessCookies, type CookieConsentScope, type Cookie } from "./playwright/cookie-consent";
 
 // ---- CDP layer (service-worker context — chrome.debugger lives here) ----
 
@@ -45,6 +46,7 @@ const playwrightRelayChrome: PlaywrightRelayChrome = {
         : chrome.tabs.remove(tabIds),
     onCreated: chrome.tabs.onCreated as unknown as PlaywrightRelayChrome["tabs"]["onCreated"],
     onRemoved: chrome.tabs.onRemoved,
+    onDetached: chrome.tabs.onDetached,
   },
 };
 
@@ -76,6 +78,16 @@ type BrowserSessionState = {
   sessionGeneration?: number;
 };
 let currentBrowserSession: BrowserSessionState | null = null;
+const cookieConsent = new CookieConsentStore(chrome.storage.session, (grantId) => {
+  if (grantId) playwrightCdpBridge?.notifyCookieRevoked(grantId);
+  void chrome.runtime.sendMessage({ type: "COOKIE_CONSENT_CHANGED" }).catch(() => {});
+});
+
+function cookieConsentScope(): CookieConsentScope | null {
+  const session = currentBrowserSession;
+  if (!session?.sessionId || !session.chatId || !session.sessionGeneration || !session.browserWindowId) return null;
+  return { sessionId: session.sessionId, chatId: session.chatId, generation: session.sessionGeneration, windowId: Number(session.browserWindowId) };
+}
 
 // MV3 service workers can restart while the offscreen WebSocket and debugger
 // session continue. Session identity and the event sequence are therefore
@@ -108,6 +120,7 @@ async function setCurrentBrowserSession(
 ): Promise<void> {
   await browserSessionStateReady;
   currentBrowserSession = session;
+  await cookieConsent.retain(cookieConsentScope());
   if (session) {
     await chrome.storage.session.set({ currentBrowserSession: session });
     // A newly reserved generation proves any older terminal event has already
@@ -592,9 +605,9 @@ async function requestAuthSyncFromOpenAppTabs(): Promise<void> {
       // in an isolated world: sending a message to it can succeed even when a
       // CustomEvent it dispatches does not reliably wake the application's
       // listener. That false success was why an authenticated main app could
-      // still leave the side panel on its login screen. `host_permissions` is
-      // generated from the exact externally_connectable allowlist, so this
-      // never executes on arbitrary sites.
+      // still leave the side panel on its login screen. appTabs was filtered
+      // by the exact app-origin allowlist above; the broader download host
+      // permissions must never determine where this recovery script runs.
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: "MAIN",
@@ -668,9 +681,54 @@ chrome.runtime.onMessage.addListener(
       browser_session_id?: string;
       session_generation?: number;
       event_seq?: number;
+      consent_id?: string;
+      capture_id?: string;
+      file_id?: string | null;
+      allow?: boolean;
       env?: unknown;
     } | null;
     const type = m?.type;
+
+    if (type === "DOWNLOAD_CONFIRM_LIST" || type === "DOWNLOAD_CONFIRM_DECIDE") {
+      void (async () => {
+        await browserSessionStateReady;
+        if (_sender.id !== chrome.runtime.id || _sender.url !== chrome.runtime.getURL("sidepanel.html"))
+          throw new Error("Download confirmation is only available in the extension side panel");
+        const scope = cookieConsentScope();
+        if (!scope || m?.windowId !== scope.windowId || m?.panelContextId !== activePanelContextId) {
+          if (type === "DOWNLOAD_CONFIRM_LIST") { sendResponse({ ok: true, confirmation: null }); return; }
+          throw new Error("The browser-control session has changed");
+        }
+        if (type === "DOWNLOAD_CONFIRM_DECIDE") {
+          if (typeof m?.capture_id !== "string" || !(m.file_id === null || typeof m.file_id === "string") || !playwrightCdpBridge)
+            throw new Error("Invalid download confirmation");
+          await playwrightCdpBridge.confirmLocalDownload(m.capture_id, m.file_id);
+        }
+        sendResponse({ ok: true, confirmation: playwrightCdpBridge?.localDownloadConfirmations() ?? null });
+      })().catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Download confirmation failed" }));
+      return true;
+    }
+
+    if (type === "COOKIE_CONSENT_LIST" || type === "COOKIE_CONSENT_DECIDE") {
+      void (async () => {
+        await browserSessionStateReady;
+        // Content scripts, the embedded web app and CDP clients cannot grant
+        // credential export. Only the extension-owned side-panel shell can.
+        if (_sender.id !== chrome.runtime.id || _sender.url !== chrome.runtime.getURL("sidepanel.html"))
+          throw new Error("Cookie permissions can only be changed in the extension side panel");
+        const scope = cookieConsentScope();
+        if (!scope || m?.windowId !== scope.windowId || m?.panelContextId !== activePanelContextId) {
+          if (type === "COOKIE_CONSENT_LIST") { sendResponse({ ok: true, consents: [] }); return; }
+          throw new Error("The browser-control session has changed. Refresh Cookie permissions.");
+        }
+        if (type === "COOKIE_CONSENT_DECIDE") {
+          if (typeof m?.consent_id !== "string" || typeof m?.allow !== "boolean") throw new Error("Invalid Cookie consent decision");
+          await cookieConsent.decide(scope, m.consent_id, m.allow);
+        }
+        sendResponse({ ok: true, consents: await cookieConsent.list(scope) });
+      })().catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Cookie permission update failed" }));
+      return true;
+    }
 
     if (type === "AUTH_EXCHANGE_CONSUMED") {
       // Until this ACK arrives GET_BINDING/REQUEST_BINDING may replay the
@@ -761,6 +819,7 @@ chrome.runtime.onMessage.addListener(
             browser_session_id?: unknown;
             session_generation?: unknown;
             request?: unknown;
+            grant?: unknown;
           };
         };
         const id = String(env?.id || "");
@@ -879,6 +938,24 @@ chrome.runtime.onMessage.addListener(
                 void releaseControlledBrowserSession("last_tab_closed", { tabId });
               }
             },
+            async (tabId, mode, format) => {
+              const scope = cookieConsentScope();
+              if (!scope || !playwrightCdpBridge?.ownsTab(tabId)) throw new Error("No active authorized Cookie target");
+              const tab = await chrome.tabs.get(tabId);
+              return accessCookies(cookieConsent, scope, { id: tabId, windowId: tab.windowId, url: tab.url || "" }, mode, format,
+                async (target, url) => {
+                  const response = await chrome.debugger.sendCommand({ tabId: target }, "Network.getCookies", { urls: [url] }) as { cookies: Cookie[] };
+                  const fresh = await chrome.tabs.get(target);
+                  const currentScope = cookieConsentScope();
+                  if (fresh.url !== url || fresh.windowId !== scope.windowId ||
+                      currentScope?.sessionId !== scope.sessionId || currentScope.generation !== scope.generation ||
+                      currentScope.chatId !== scope.chatId || currentScope.windowId !== scope.windowId)
+                    throw new Error("Cookie target changed while reading; retry after inspecting the current tab");
+                  return response.cookies || [];
+                });
+            },
+            chrome,
+            () => { void chrome.runtime.sendMessage({ type: "DOWNLOAD_CONFIRM_CHANGED" }).catch(() => {}); },
           );
           playwrightCdpBridge.initialize(tabs);
           // The backend confirms the durable lease over the authenticated CDP
@@ -913,6 +990,16 @@ chrome.runtime.onMessage.addListener(
         if (action === "close") {
           await closePlaywrightCdpBridge();
           sendResponse(response({ result: { closed: true } }));
+          return;
+        }
+        if (action === "download_read" && playwrightCdpBridge) {
+          const request = data.request as CDPMessage;
+          const grant = data.grant as { tab_id: number; capture_id: string; candidate_id: string };
+          if (!request || !grant || typeof request !== "object" || typeof grant !== "object") {
+            sendResponse(fail("Missing trusted download authorization"));
+            return;
+          }
+          sendResponse(response(await playwrightCdpBridge.authorizedDownloadRead(request, grant)));
           return;
         }
         if (action !== "request" || !playwrightCdpBridge) {

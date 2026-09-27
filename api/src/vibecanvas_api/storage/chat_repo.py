@@ -42,6 +42,16 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+LEGACY_WORKFLOW_STATE_KEYS = frozenset({
+    "current_workflow_id", "current_workflow_major", "current_workflow_subversion",
+})
+
+
+def without_workflow_state(meta: dict) -> dict:
+    """Discard retired target pointers; preserve unrelated Chat/browser state."""
+    return {key: value for key, value in meta.items() if key not in LEGACY_WORKFLOW_STATE_KEYS}
+
+
 class ChatRepo:
     def __init__(self, session: AsyncSession, user_id: str):
         self._s = session
@@ -64,6 +74,7 @@ class ChatRepo:
         name: str,
         meta: dict,
     ) -> None:
+        meta = without_workflow_state(meta)
         encrypted = await content_encryption_service().encrypt_json(
             self._s,
             tenant_id=chat.tenant_id,
@@ -101,7 +112,7 @@ class ChatRepo:
             raise ValueError("Chat metadata ciphertext must contain an object")
         chat.name = str(value.get("name") or "")
         meta = value.get("meta")
-        chat.meta = dict(meta) if isinstance(meta, dict) else {}
+        chat.meta = without_workflow_state(meta) if isinstance(meta, dict) else {}
         return chat
 
     async def materialize_session_metadata(self, chat: Chat) -> Chat:
@@ -1020,28 +1031,7 @@ class ChatRepo:
             "mcp_config_revision": current_revision,
         }
 
-    async def get_current_workflow_id(self, chat_id: str) -> str | None:
-        """Read the real workflow currently associated with this chat.
-
-        General Chat sessions have their own internal workspace scope for
-        checkpoint/VFS/sandbox state. ``current_workflow_id`` is the optional
-        user-visible workflow that build tools should inspect and mutate after
-        `/workflow` + set/create.
-        """
-        chat = (await self._s.execute(
-            select(Chat).where(
-                Chat.chat_id == chat_id,
-                Chat.creator_user_id == self._user_id,
-                Chat.deleted_at.is_(None),
-            )
-        )).scalar_one_or_none()
-        if chat is None:
-            return None
-        await self._materialize_chat_private(chat)
-        value = chat.meta.get("current_workflow_id")
-        return value if isinstance(value, str) and value else None
-
-    async def get_platform_context_binding(self, chat_id: str) -> dict | None:
+    async def get_platform_context_binding(self, chat_id: str, *, for_update: bool = False) -> dict | None:
         """Return the backend-owned context a Platform MCP may bind to.
 
         Keeping this projection in ``ChatRepo`` prevents Platform MCP code from
@@ -1050,49 +1040,23 @@ class ChatRepo:
         sandbox/VFS workspace id; the latter is derived from the authenticated
         user and Chat identity by the platform boundary.
         """
-        chat = (await self._s.execute(
-            select(Chat).where(
-                Chat.chat_id == chat_id,
-                Chat.creator_user_id == self._user_id,
-                Chat.deleted_at.is_(None),
-            )
-        )).scalar_one_or_none()
+        statement = select(Chat).where(
+            Chat.chat_id == chat_id,
+            Chat.creator_user_id == self._user_id,
+            Chat.deleted_at.is_(None),
+        )
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
+        chat = (await self._s.execute(statement)).scalar_one_or_none()
         if chat is None:
             return None
         await self._materialize_chat_private(chat)
-        meta = dict(chat.meta or {})
-        current_workflow_id = meta.get("current_workflow_id")
         return {
             "chat_id": chat_id,
             "carrier_scope_id": chat.scope_id,
             "runtime_session_id": chat.runtime_session_id,
             "runtime_type": chat.runtime_type,
-            "current_workflow_id": (
-                current_workflow_id
-                if isinstance(current_workflow_id, str) and current_workflow_id
-                else None
-            ),
         }
-
-    async def set_current_workflow_id(self, chat_id: str, wf_id: str | None) -> None:
-        """Persist the chat's real workflow binding in ``meta``."""
-        chat = (await self._s.execute(
-            select(Chat).where(
-                Chat.chat_id == chat_id,
-                Chat.creator_user_id == self._user_id,
-                Chat.deleted_at.is_(None),
-            ).with_for_update()
-        )).scalar_one_or_none()
-        if chat is None:
-            return
-        await self._materialize_chat_private(chat)
-        new_meta = dict(chat.meta or {})
-        if wf_id:
-            new_meta["current_workflow_id"] = wf_id
-        else:
-            new_meta.pop("current_workflow_id", None)
-        await self._store_chat_private(chat, name=chat.name, meta=new_meta)
-        await self._s.flush()
 
     @staticmethod
     def checkpointer_thread_id(

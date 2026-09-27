@@ -3,74 +3,51 @@ from types import SimpleNamespace
 import pytest
 
 
-class _Session:
-    def __init__(self):
-        self.files = {}
-        self.writebacks = 0
-
-    async def write_file(self, path, content):
-        self.files[path] = content
-        await self.writeback_vfs()
-        return {"ok": True, "bytes": len(content.encode())}
-
-    async def read_file(self, path):
-        if path not in self.files:
-            return {"ok": False, "error": "not_found"}
-        return {"ok": True, "kind": "text", "content": self.files[path]}
-
-    async def writeback_vfs(self):
-        self.writebacks += 1
-
-
-class _Repo:
-    def __init__(self):
-        self.workflow = {
-            "node_1": {"node_id": "node_1", "node_type": "StartNode", "children": []},
-            "__meta__": {"workflow_id": "wf_1"},
-        }
-        self.commits = []
-        self.saved = []
-
-    def get_current_workflow(self, wf_id):
-        return self.workflow
-
-    def get_meta(self, wf_id):
-        return {
-            "wf_id": wf_id,
-            "workflow_name": "Flow",
-            "active_major": 1,
-            "active_sub": 2,
-        }
-
-    def commit(self, wf_id, workflow, note=""):
-        self.commits.append((wf_id, workflow, note))
-        self.workflow = workflow
-        return SimpleNamespace(sv=3)
-
-    def mark_saved(self, wf_id):
-        self.saved.append(wf_id)
-
-
-def _runtime(session=None, repo=None):
-    session = session or _Session()
-    repo = repo or _Repo()
-
-    async def sandbox_session():
-        return session
-
-    ctx = SimpleNamespace(
-        current_workflow_id="wf_1",
-        wf_id="__chatws_user_chat",
-        repo=repo,
-        workflow=repo.workflow,
-        workflow_dirty=False,
-        sandbox_session=sandbox_session,
+@pytest.mark.parametrize("graph,expected", [
+    ({"__meta__": None}, "__meta__ must be an object."),
+    ({"node": []}, "Each workflow node must be an object."),
+    ({"node": {"node_type": []}}, "node_type must be a string."),
+    ({"node": {"node_type": "PromptNode", "node_config": []}}, "node_config must be an object."),
+    ({"node": {"node_type": "StartNode", "children": [{}]}}, "children must be an array of node ID strings."),
+])
+def test_static_validation_returns_english_errors_for_malformed_shapes(graph, expected):
+    from vibecanvas_api.services.agent_resources.workflow_graph import (
+        collect_workflow_warnings, validate_workflow, validate_workflow_model_names,
     )
-    return SimpleNamespace(context=ctx), session, repo
+
+    assert expected in [item["message"] for item in validate_workflow(graph)]
+    assert collect_workflow_warnings(graph) == []
+    assert validate_workflow_model_names(graph, []) == []
+
+
+def test_static_validation_reuses_engine_and_registered_node_checks(monkeypatch):
+    from vibecanvas_api.services.agent_resources import workflow_graph as workflow_file
+
+    graph = {"node": {"node_type": "StaticOnlyTestNode", "node_name": "用户名称"}}
+    calls = []
+
+    def check_graph(value):
+        assert value is graph
+        calls.append("graph")
+        return {"status": "error", "error_message": "Invalid graph reference."}
+
+    def check_node(value):
+        assert value is graph["node"]
+        calls.append("node")
+        return {"status": "error", "error_message": "Missing node configuration."}
+
+    monkeypatch.setattr(workflow_file.Workflow, "check", check_graph)
+    monkeypatch.setitem(workflow_file.node_registry._module_dict, "StaticOnlyTestNode", SimpleNamespace(check=check_node))
+    assert workflow_file.validate_workflow(graph) == [
+        {"node_id": "global", "message": "Invalid graph reference."},
+        {"node_id": "node", "message": "Missing node configuration."},
+    ]
+    assert calls == ["graph", "node"]
+    assert graph["node"]["node_name"] == "用户名称"
 
 
 def test_auto_tidy_workflow_spreads_graph_left_to_right():
-    from vibecanvas_api.services.platform_mcp.build_tools.workflow_file import _auto_tidy_workflow
+    from vibecanvas_api.services.agent_resources.workflow_graph import _auto_tidy_workflow
 
     wf = {
         "node_1": {"node_id": "node_1", "node_type": "StartNode", "children": ["node_2", "node_3"], "__attributes__": {"x": 0, "y": 0}},
@@ -96,7 +73,7 @@ def test_auto_tidy_workflow_preserves_parallel_branch_lanes():
     The old per-rank centring put node_9 and node_12 on y=0, so the visual edge
     node_12 -> node_18 appeared to terminate at node_9.
     """
-    from vibecanvas_api.services.platform_mcp.build_tools.workflow_file import _auto_tidy_workflow
+    from vibecanvas_api.services.agent_resources.workflow_graph import _auto_tidy_workflow
 
     def node(node_id, children):
         return {
@@ -134,129 +111,3 @@ def test_auto_tidy_workflow_preserves_parallel_branch_lanes():
     # the edge cannot visually masquerade as a parent edge into node_9.
     assert y("node_12") == y("node_18")
     assert x("node_12") < x("node_9") < x("node_18")
-
-
-@pytest.mark.asyncio
-async def test_get_workflow_exports_canvas_to_json_file(monkeypatch):
-    import vibecanvas_api.services.platform_mcp.workflow_tools as workflow_tools
-
-    rt, session, repo = _runtime()
-
-    async def fake_load(_ctx, workflow_id, _action):
-        return SimpleNamespace(
-            workflow=repo.get_current_workflow(workflow_id),
-            meta=repo.get_meta(workflow_id),
-        )
-
-    monkeypatch.setattr(
-        workflow_tools,
-        "load_authorized_workflow",
-        fake_load,
-    )
-    content, artifact = await workflow_tools._do_get_workflow(
-        rt,
-        "/data/workflow.json",
-    )
-
-    assert "Exported current canvas workflow to /data/workflow.json" in content
-    assert "Format: JSON object keyed by node ids" not in content
-    assert artifact["status"] == "success"
-    assert "/data/workflow.json" in session.files
-    assert '"workflow_id": "wf_1"' in session.files["/data/workflow.json"]
-    assert session.writebacks == 1
-
-
-@pytest.mark.asyncio
-async def test_get_workflow_accepts_explicit_id_without_chat_selection(monkeypatch):
-    import vibecanvas_api.services.platform_mcp.workflow_tools as workflow_tools
-
-    rt, session, repo = _runtime()
-    rt.context.current_workflow_id = None
-
-    async def fake_load(_ctx, workflow_id, _action):
-        assert workflow_id == "wf_1"
-        return SimpleNamespace(
-            workflow=repo.get_current_workflow(workflow_id),
-            meta=repo.get_meta(workflow_id),
-        )
-
-    monkeypatch.setattr(workflow_tools, "load_authorized_workflow", fake_load)
-    content, artifact = await workflow_tools._do_get_workflow(
-        rt,
-        "/data/selected-workflow.json",
-        workflow_id="wf_1",
-    )
-
-    assert "Workflow ID: wf_1" in content
-    assert artifact["status"] == "success"
-    assert "/data/selected-workflow.json" in session.files
-
-
-@pytest.mark.asyncio
-async def test_update_canvas_commits_valid_workflow_file(monkeypatch):
-    import importlib
-    mod = importlib.import_module("vibecanvas_api.services.platform_mcp.build_tools.update_canvas")
-
-    rt, session, repo = _runtime()
-    session.files["/data/workflow.json"] = (
-        '{"node_1":{"node_id":"node_1","node_type":"StartNode","children":[]},'
-        '"__meta__":{"workflow_id":"wf_1"}}'
-    )
-    async def valid(_workflow, _ctx):
-        return []
-
-    monkeypatch.setattr(mod, "validate_workflow_for_context", valid)
-
-    content, artifact = await mod._do_update_canvas("/data/workflow.json", rt)
-
-    assert "Canvas updated: yes" in content
-    assert "Canvas updated from /data/workflow.json" in content
-    assert artifact["status"] == "success"
-    assert repo.commits
-    assert repo.saved == ["wf_1"]
-
-
-@pytest.mark.asyncio
-async def test_update_canvas_blocks_invalid_file(monkeypatch):
-    import importlib
-    mod = importlib.import_module("vibecanvas_api.services.platform_mcp.build_tools.update_canvas")
-
-    rt, session, repo = _runtime()
-    session.files["/data/workflow.json"] = "{}"
-    async def invalid(_workflow, _ctx):
-        return [{"node_id": "global", "message": "missing StartNode"}]
-
-    monkeypatch.setattr(mod, "validate_workflow_for_context", invalid)
-
-    content, artifact = await mod._do_update_canvas("/data/workflow.json", rt)
-
-    assert "Canvas updated: no" in content
-    assert "Canvas was not updated" in content
-    assert "Required next action" in content
-    assert "Do not provide a final success answer" in content
-    assert artifact["status"] == "error"
-    assert artifact["error"]["code"] == "validation_failed"
-    assert repo.commits == []
-
-
-@pytest.mark.asyncio
-async def test_update_canvas_bad_json_guides_code_generated_json():
-    import importlib
-    mod = importlib.import_module("vibecanvas_api.services.platform_mcp.build_tools.update_canvas")
-
-    rt, session, repo = _runtime()
-    session.files["/data/workflow.json"] = "{'node_1': {'node_id': 'node_1'}}"
-
-    content, artifact = await mod._do_update_canvas("/data/workflow.json", rt)
-
-    assert "Canvas updated: no" in content
-    assert "not valid JSON" in content
-    assert "double quotes" in content
-    assert "Python dict syntax with single quotes is not valid JSON" in content
-    assert "json.dump(..., ensure_ascii=False, indent=2)" in content
-    assert "python -m json.tool /data/workflow.json" in content
-    assert "Required next action" in content
-    assert "Do not provide a final success answer" in content
-    assert artifact["status"] == "error"
-    assert artifact["error"]["code"] == "bad_json"
-    assert repo.commits == []

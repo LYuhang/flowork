@@ -67,6 +67,7 @@ def deployment_invoke(
     tenant_id: str,
     deployment_id: str,
     inputs: dict,
+    snapshot: dict | None = None,
 ) -> None:
     """Durable Step entry — sync shell around an asyncio driver.
 
@@ -101,6 +102,7 @@ def deployment_invoke(
             tenant_id=tenant_id,
             deployment_id=deployment_id,
             inputs=inputs,
+            snapshot=snapshot,
         ))
     finally:
         # RE-2 E0: release the run-tier at run-end. ``_run`` has no single
@@ -125,6 +127,7 @@ async def _run(
     tenant_id: str,
     deployment_id: str,
     inputs: dict,
+    snapshot: dict | None = None,
 ) -> None:
     """Async driver — load deployment + version, run engine, finalize.
 
@@ -205,7 +208,7 @@ async def _run(
     outputs: dict = {}
     errors: dict = {}
     try:
-        workflow_dict = await load_workflow_version(dep)
+        workflow_dict = snapshot["workflow"] if snapshot else await load_workflow_version(dep)
         outputs, errors, _exec_secs = await asyncio.to_thread(
             run_workflow_sandboxed_sync,
             workflow_id=dep["wf_id"], inputs=inputs,
@@ -215,6 +218,7 @@ async def _run(
             execution_principal_type="service_account",
             execution_principal_id=str(lease.service_account_id),
             execution_principal_generation=lease.generation,
+            mount_enabled=(snapshot or dep).get("mount_enabled", True),
         )
     except Exception as exc:
         # Top-level engine / loader failure — file it under a stable

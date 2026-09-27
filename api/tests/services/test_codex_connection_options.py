@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 from vibecanvas_api.config import AppConfig
@@ -14,6 +15,7 @@ from vibecanvas_api.services.agent_runtime.capabilities import (
 )
 from vibecanvas_api.services.agent_runtime.codex import _uses_chatgpt_account
 from vibecanvas_api.services.agent_runtime.codex_account import CodexAccountService
+from vibecanvas_api.services.agent_runtime.codex_app_server import CodexAppServerError
 from vibecanvas_api.services.agent_runtime.model_capability import (
     mint_runtime_model_capability,
     model_config_revision,
@@ -152,6 +154,128 @@ def test_codex_account_process_environment_excludes_model_secrets(monkeypatch):
     assert "OPENAI_API_KEY" not in environment
     assert "AGENT_API_KEY" not in environment
     assert environment["CODEX_HOME"].endswith("/tenant/user/codex-account-v1/.codex")
+
+
+@pytest.mark.asyncio
+async def test_codex_account_list_models_falls_back_to_cache_on_concurrent_conflict(
+    monkeypatch, tmp_path,
+):
+    """A Turn already running for this account holds its CODEX_HOME open.
+
+    A concurrent capability check's own app-server call then routinely fails
+    for that reason alone, not because the account disconnected. It must
+    serve the last successful listing instead of surfacing an empty catalog.
+    """
+    responses = iter([
+        {"data": [{"id": "gpt-account-fast", "displayName": "Account fast"}]},
+        CodexAppServerError("codex_thread_open_invalid_response"),
+    ])
+
+    class FlakyAppServer:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def start(self):
+            pass
+
+        async def close(self):
+            pass
+
+        async def request(self, method, _params=None, *, timeout_s=30):
+            assert method == "model/list"
+            outcome = next(responses)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    monkeypatch.setattr(codex_account_module, "CodexAppServer", FlakyAppServer)
+    monkeypatch.setattr(codex_account_module, "_MODEL_LIST_CACHE", {})
+    monkeypatch.setattr(
+        CodexAccountService,
+        "_executable",
+        staticmethod(lambda: "/opt/codex/bin/codex"),
+    )
+    service = CodexAccountService("tenant", "user")
+    service._home = str(tmp_path / ".codex")
+    os.makedirs(service._home, exist_ok=True)
+    with open(os.path.join(service._home, "auth.json"), "w") as auth_file:
+        auth_file.write("{}")
+
+    first = await service.list_models()
+    assert [model.id for model in first] == ["gpt-account-fast"]
+
+    second = await service.list_models()
+    assert second == first
+
+
+@pytest.mark.asyncio
+async def test_codex_account_list_models_does_not_reuse_cache_after_disconnect(
+    monkeypatch, tmp_path,
+):
+    class FailingAppServer:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def start(self):
+            pass
+
+        async def close(self):
+            pass
+
+        async def request(self, method, _params=None, *, timeout_s=30):
+            assert method == "model/list"
+            raise CodexAppServerError("codex_thread_open_invalid_response")
+
+    monkeypatch.setattr(codex_account_module, "CodexAppServer", FailingAppServer)
+    monkeypatch.setattr(
+        codex_account_module,
+        "_MODEL_LIST_CACHE",
+        {
+            ("tenant", "user"): [
+                RuntimeModelOption(id="stale-model", label="Stale model")
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        CodexAccountService,
+        "_executable",
+        staticmethod(lambda: "/opt/codex/bin/codex"),
+    )
+    service = CodexAccountService("tenant", "user")
+    service._home = str(tmp_path / ".codex")
+
+    with pytest.raises(RuntimeError, match="codex_thread_open_invalid_response"):
+        await service.list_models()
+
+
+@pytest.mark.asyncio
+async def test_codex_account_status_uses_managed_credential_presence(
+    monkeypatch, tmp_path,
+):
+    """Status must not race an active Turn by spawning another Codex CLI."""
+    def fail_if_called(_self, *_arguments, timeout_s=60.0):
+        raise AssertionError("status must not spawn codex login status")
+
+    monkeypatch.setattr(CodexAccountService, "_run", fail_if_called)
+    monkeypatch.setattr(
+        CodexAccountService,
+        "_executable",
+        staticmethod(lambda: "/opt/codex/bin/codex"),
+    )
+    service = CodexAccountService("tenant", "user")
+    service._home = str(tmp_path / ".codex")  # no auth.json written here
+
+    status = await service.status()
+
+    assert status.authenticated is False
+    assert status.cli_available is True
+    os.makedirs(service._home, exist_ok=True)
+    with open(os.path.join(service._home, "auth.json"), "w") as auth_file:
+        auth_file.write("{}")
+
+    status = await service.status()
+    assert status.authenticated is True
+    assert status.cli_available is True
 
 
 @pytest.mark.asyncio

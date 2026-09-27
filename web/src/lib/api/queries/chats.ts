@@ -42,7 +42,6 @@ export interface ChatWorkspace {
   workspace_scope_id: string;
   mount_scope_id?: string | null;
   chat_id: string;
-  current_workflow_id?: string | null;
 }
 
 export interface ChatSandboxStatusItem {
@@ -166,6 +165,8 @@ export interface FetchChatHistoryPageOptions {
 // messages remain available through the existing explicit "load earlier"
 // path, which fetches larger windows only when requested.
 export const CHAT_INITIAL_HISTORY_LIMIT = 30;
+export const CHAT_HISTORY_STALE_TIME_MS = 2 * 60 * 1000;
+export const CHAT_HISTORY_GC_TIME_MS = 30 * 60 * 1000;
 
 function authHeaders(): HeadersInit | undefined {
   const token = useAuthStore.getState().token;
@@ -300,6 +301,12 @@ export const useChatSessions = (scopeId: string | null, surface: 'chat' | 'brows
     queryKey: ['chats', scopeId, surface],
     enabled: !!scopeId,
     queryFn: () => fetchAllChatSessions(scopeId!, surface),
+    // A lost extension lease expires server-side after its reconnect grace.
+    // Refresh only while one exists, so a stale history snapshot cannot keep
+    // the composer permanently locked as if another window still owned it.
+    refetchInterval: (query) => surface === 'browser'
+      && query.state.data?.items.some((item) => item.browser_control_status === 'lost')
+      ? 5000 : false,
   });
 
 export async function deleteChatSession(
@@ -485,7 +492,12 @@ export const useChatHistory = (
         ? previousData
         : undefined;
     },
-    staleTime: 15 * 1000,
+    // Recent transcripts are a bounded in-memory L1 cache. Durable Turn
+    // completion and the 30-second server reconcile explicitly invalidate
+    // this key, so a longer freshness window removes navigation refetches
+    // without hiding committed messages from another tab for long.
+    staleTime: CHAT_HISTORY_STALE_TIME_MS,
+    gcTime: CHAT_HISTORY_GC_TIME_MS,
   });
 
 export async function fetchChatState(scopeId: string, chatId: string): Promise<ChatState> {

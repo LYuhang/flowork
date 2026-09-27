@@ -169,7 +169,7 @@ build_extension() {
   local extension_dir="$REPO_ROOT/extension"
   local extension_web_base="${VIBECANVAS_EXTENSION_WEB_BASE:-${VIBECANVAS_PUBLIC_URL%/}}"
   local extension_allowed_origins="${VIBECANVAS_EXTENSION_ALLOWED_ORIGINS:-$extension_web_base}"
-  local extension_archive="$extension_dir/vibecanvas-extension.zip"
+  local extension_archive="$extension_dir/flowork-extension.zip"
   local packaging_python="${VIBECANVAS_PYTHON:-$REPO_ROOT/.venv/bin/python}"
 
   if [[ ! -d "$extension_dir/node_modules" ]]; then
@@ -195,18 +195,30 @@ PY
 }
 
 publish_extension_archive() {
-  local source="$REPO_ROOT/extension/vibecanvas-extension.zip"
-  local public_target="$REPO_ROOT/web/public/downloads/vibecanvas-extension.zip"
-  local dist_target="$REPO_ROOT/web/dist/downloads/vibecanvas-extension.zip"
-  mkdir -p "$(dirname "$public_target")" "$(dirname "$dist_target")"
-  cp "$source" "$public_target"
-  cp "$source" "$dist_target"
-  chmod 644 "$public_target" "$dist_target"
-  echo "extension: published download: $dist_target"
+  local source="$REPO_ROOT/extension/flowork-extension.zip"
+  local target_dir archive
+  local target_dirs=("$REPO_ROOT/web/public/downloads" "$REPO_ROOT/web/dist/downloads")
+  # Native preview serves an SSD copy, not web/dist. Refresh it too when it
+  # already exists; do not create a partial runtime distribution before up.
+  if [[ -d "$NATIVE_RUNTIME_DIR/web-dist" ]]; then
+    target_dirs+=("$NATIVE_RUNTIME_DIR/web-dist/downloads")
+  fi
+  for target_dir in "${target_dirs[@]}"; do
+    mkdir -p "$target_dir"
+    # Settings uses the canonical name. Keep the historical URL compatible,
+    # with identical current bytes, in both Vite dev and preview deployments.
+    for archive in flowork-extension.zip vibecanvas-extension.zip; do
+      cp "$source" "$target_dir/$archive"
+      chmod 644 "$target_dir/$archive"
+    done
+  done
+  echo "extension: published download: $REPO_ROOT/web/dist/downloads/flowork-extension.zip"
 }
 
 start_stack() {
   load_local_env
+  # A missing/damaged replacement runtime must fail before stopping the live stack.
+  bash "$NATIVE_LAUNCHER" check-runtime
   configure_debug_stack
   stop_stack
   build_extension
@@ -223,7 +235,7 @@ start_stack() {
   echo "  $VIBECANVAS_PUBLIC_URL"
   echo "Chrome extension:"
   echo "  unpacked: $REPO_ROOT/extension/dist"
-  echo "  package:  $REPO_ROOT/extension/vibecanvas-extension.zip"
+  echo "  package:  $REPO_ROOT/extension/flowork-extension.zip"
 }
 
 show_logs() {
@@ -265,8 +277,15 @@ case "${1:-restart}" in
     VIBECANVAS_SOURCE_PYTHON="${VIBECANVAS_SOURCE_PYTHON:-$VIBECANVAS_PYTHON}" \
       bash "$RUNTIME_PREPARER" status
     ;;
+  extension)
+    # Updating the downloadable extension must not interrupt active Agent runs.
+    load_local_env
+    export VIBECANVAS_PUBLIC_URL="${VIBECANVAS_PUBLIC_URL:-http://localhost:${WEB_PORT:-9001}/}"
+    build_extension
+    publish_extension_archive
+    ;;
   *)
-    echo "usage: $0 {start|restart|stop|status|logs|prepare-runtime}" >&2
+    echo "usage: $0 {start|restart|stop|status|logs|prepare-runtime|extension}" >&2
     exit 2
     ;;
 esac

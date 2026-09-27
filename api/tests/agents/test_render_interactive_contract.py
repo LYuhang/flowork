@@ -9,54 +9,124 @@ from unittest.mock import AsyncMock
 import pytest
 
 from vibecanvas_api.agents.tools.decorator import ToolError
-from vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive import (
+from vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact import (
     _persist_interactive_state,
-    render_interactive,
 )
-from vibecanvas_api.services.platform_mcp.interactive_tools.render_url_preview import (
-    render_url_preview,
-)
+from vibecanvas_api.services.platform_mcp.interactive_tools.render_preview import render_preview
 from vibecanvas_api.services.platform_mcp.interactive_tools.schema import interactive_view_json_schema
 
 
-def test_public_schema_is_flat_and_file_only():
-    schema = render_interactive.tool_call_schema.model_json_schema()
-    assert set(schema["properties"]) == {
-        "path",
-        "title",
-        "file_type",
-        "description",
-        "require_human_confirm",
-    }
-    assert schema["required"] == ["path"]
-    serialized = json.dumps(schema)
-    assert "oneOf" not in serialized
-    assert "anyOf" not in serialized
-    assert "discriminator" not in serialized
-    assert "render_url_preview" in render_interactive.description
-    assert "nested ``view``" in render_interactive.description
+@pytest.mark.asyncio
+async def test_workflow_preview_resolves_and_persists_a_version_reference(monkeypatch):
+    from vibecanvas_api.services.agent_resources import workflow_transfer
+    module = importlib.import_module("vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact")
+    persist = AsyncMock()
+    resolve = AsyncMock(return_value={"id": "wf", "name": "Saved flow", "version": "v2.sv3", "workflow": {"private": {}}})
+    monkeypatch.setattr(module, "_persist_interactive_state", persist)
+    monkeypatch.setattr(workflow_transfer, "read_workflow_snapshot", resolve)
+    runtime = SimpleNamespace(context=SimpleNamespace())
+    _, artifact = await render_preview.coroutine(type="workflow", runtime=runtime)
+    resolve.assert_awaited_once_with(runtime.context, workflow_id="", version="")
+    definition = artifact["payload"]["artifact"]
+    assert definition["component_type"] == "workflow_preview"
+    assert definition["props"] == {"workflow_id": "wf", "version": "v2.sv3", "description": ""}
+    assert artifact["meta"]["workflow_preview"] == {"id": "wf", "version": "v2.sv3"}
+    assert "private" not in json.dumps(artifact)
+    persist.assert_awaited_once()
 
 
-def test_url_preview_schema_is_flat_and_only_requires_the_url():
-    schema = render_url_preview.tool_call_schema.model_json_schema()
-    assert set(schema["properties"]) == {"url", "title", "description"}
-    assert schema["required"] == ["url"]
-    serialized = json.dumps(schema)
-    assert all(token not in serialized for token in ("oneOf", "anyOf"))
-    assert "view" not in schema["properties"]
+@pytest.mark.asyncio
+async def test_workflow_preview_does_not_persist_when_authorization_fails(monkeypatch):
+    from vibecanvas_api.services.agent_resources import workflow_transfer
+    module = importlib.import_module("vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact")
+    persist = AsyncMock()
+    monkeypatch.setattr(module, "_persist_interactive_state", persist)
+    monkeypatch.setattr(workflow_transfer, "read_workflow_snapshot", AsyncMock(side_effect=ToolError("permission_denied", "Denied")))
+    _, artifact = await render_preview.coroutine(type="workflow", source="private", runtime=SimpleNamespace(context=SimpleNamespace()))
+    assert artifact["status"] == "error"
+    persist.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,source", [
+    ("file", "/data/report.pdf"),
+    ("url", "https://example.com/docs"),
+])
+async def test_unified_preview_persists_both_types_without_waiting(monkeypatch, kind, source):
+    module = importlib.import_module(
+        "vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact"
+    )
+    persist = AsyncMock()
+    prepare = AsyncMock()
+    monkeypatch.setattr(module, "_persist_interactive_state", persist)
+    monkeypatch.setattr(module, "_prepare_file_preview", prepare)
+    runtime = SimpleNamespace(context=SimpleNamespace())
+    content, artifact = await render_preview.coroutine(
+        type=kind, source=source, title="Preview test",
+        runtime=runtime,
+    )
+    assert artifact["status"] == "success"
+    assert artifact["meta"]["tool"] == "render_preview"
+    assert artifact["ref"].startswith("tool://render_preview/")
+    definition = artifact["payload"]["artifact"]
+    assert definition["component_type"] == f"{kind}_preview"
+    assert definition["props"]["path" if kind == "file" else "url"] == source
+    assert definition["preview"]["mode"] == "optional"
+    assert definition["completion_mode"] == "render_only"
+    assert "render_preview" in content
+    persist.assert_awaited_once()
+    if kind == "file":
+        prepare.assert_awaited_once_with(runtime=runtime, path=source)
+    else:
+        prepare.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arguments", [
+    {"type": "file", "source": "relative.pdf"},
+    {"type": "file", "source": "/data/../secret"},
+    {"type": "file", "source": "https://example.com"},
+    {"type": "url", "source": "javascript:alert(1)"},
+    {"type": "url", "source": "file:///data/report.pdf"},
+    {"type": "url", "source": ""},
+    {"type": "url", "source": "https://example.com", "file_type": "html"},
+    {"type": "html", "source": "<div>test</div>"},
+])
+async def test_unified_preview_rejects_invalid_inputs_before_persist(monkeypatch, arguments):
+    module = importlib.import_module(
+        "vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact"
+    )
+    persist = AsyncMock()
+    monkeypatch.setattr(module, "_persist_interactive_state", persist)
+    _, artifact = await render_preview.coroutine(
+        **arguments, runtime=SimpleNamespace(context=SimpleNamespace()),
+    )
+    assert artifact["status"] == "error"
+    assert artifact["error"]["code"] == "invalid_interactive_input"
+    persist.assert_not_awaited()
+
+
+def test_public_schema_is_flat_and_supports_all_preview_types():
+    schema = render_preview.tool_call_schema.model_json_schema()
+    assert set(schema["properties"]) == {"type", "source", "title", "file_type", "description", "version"}
+    assert schema["required"] == ["type"]
+    assert schema["properties"]["type"]["enum"] == ["file", "url", "workflow"]
+    assert all(token not in json.dumps(schema) for token in ("oneOf", "anyOf", "discriminator"))
+    assert "require_human_confirm" not in schema["properties"]
 
 
 @pytest.mark.asyncio
 async def test_url_preview_tool_publishes_isolated_webview_artifact(monkeypatch):
     module = importlib.import_module(
-        "vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive"
+        "vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact"
     )
     persist = AsyncMock()
     monkeypatch.setattr(module, "_persist_interactive_state", persist)
 
-    content, artifact = await render_url_preview.coroutine(
+    content, artifact = await render_preview.coroutine(
+        type="url",
         title="Reference page",
-        url="https://example.com/docs?section=preview",
+        source="https://example.com/docs?section=preview",
         description="External documentation",
         runtime=SimpleNamespace(
             context=SimpleNamespace(
@@ -75,23 +145,24 @@ async def test_url_preview_tool_publishes_isolated_webview_artifact(monkeypatch)
         "description": "External documentation",
     }
     assert definition["height"] == 520
-    assert "render_url_preview → url_preview" in content
-    assert artifact["ref"].startswith("tool://render_url_preview/")
-    assert artifact["meta"]["tool"] == "render_url_preview"
+    assert "render_preview → url_preview" in content
+    assert artifact["ref"].startswith("tool://render_preview/")
+    assert artifact["meta"]["tool"] == "render_preview"
     persist.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_url_preview_rejects_non_http_navigation(monkeypatch):
     module = importlib.import_module(
-        "vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive"
+        "vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact"
     )
     persist = AsyncMock()
     monkeypatch.setattr(module, "_persist_interactive_state", persist)
 
-    content, artifact = await render_url_preview.coroutine(
+    content, artifact = await render_preview.coroutine(
+        type="url",
         title="Unsafe page",
-        url="javascript:alert(1)",
+        source="javascript:alert(1)",
         runtime=SimpleNamespace(context=SimpleNamespace()),
     )
 
@@ -99,37 +170,6 @@ async def test_url_preview_rejects_non_http_navigation(monkeypatch):
     assert artifact["error"]["code"] == "invalid_interactive_input"
     assert "absolute HTTP(S) URL" in content
     persist.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_require_human_confirm_creates_continue_only_post_tool_gate(monkeypatch):
-    module = importlib.import_module(
-        "vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive"
-    )
-    persist = AsyncMock()
-    monkeypatch.setattr(module, "_persist_interactive_state", persist)
-
-    _, artifact = await render_interactive.coroutine(
-        path="/mount/data/review.pdf",
-        title="Review the result",
-        require_human_confirm=True,
-        runtime=SimpleNamespace(
-            context=SimpleNamespace(
-                tenant_id="tenant_1",
-                chat_id="chat_1",
-                turn_id="turn_1",
-            )
-        ),
-    )
-
-    definition = artifact["payload"]["artifact"]
-    assert definition["completion_mode"] == "wait_for_submit"
-    assert definition["require_human_confirm"] is True
-    assert definition["interaction_schema"] == {
-        "interaction_type": "continue",
-        "submit_label": "Continue",
-    }
-    persist.assert_awaited_once()
 
 
 def test_generated_frontend_contract_matches_backend_schema():
@@ -142,8 +182,9 @@ def test_generated_frontend_contract_matches_backend_schema():
 
 @pytest.mark.asyncio
 async def test_invalid_path_is_an_agent_readable_tool_error():
-    content, artifact = await render_interactive.coroutine(
-        path="relative/report.pdf",
+    content, artifact = await render_preview.coroutine(
+        type="file",
+        source="relative/report.pdf",
         runtime=SimpleNamespace(context=SimpleNamespace()),
     )
     assert "Fix these fields and call the tool again" in content
@@ -155,13 +196,14 @@ async def test_invalid_path_is_an_agent_readable_tool_error():
 @pytest.mark.asyncio
 async def test_flat_file_preview_preserves_file_metadata(monkeypatch):
     module = importlib.import_module(
-        "vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive"
+        "vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact"
     )
 
     persist = AsyncMock()
     monkeypatch.setattr(module, "_persist_interactive_state", persist)
-    content, artifact = await render_interactive.coroutine(
-        path="/mount/data/ecommerce-checkout-sequence.drawio",
+    content, artifact = await render_preview.coroutine(
+        type="file",
+        source="/mount/data/ecommerce-checkout-sequence.drawio",
         description="Checkout sequence",
         runtime=SimpleNamespace(
             context=SimpleNamespace(tenant_id="tenant_1", chat_id="chat_1", turn_id="turn_1")
@@ -178,14 +220,15 @@ async def test_flat_file_preview_preserves_file_metadata(monkeypatch):
     }
     assert definition["completion_mode"] == "render_only"
     assert definition["interaction_schema"] == {}
-    assert "render_interactive → file_preview" in content
+    assert "render_preview → file_preview" in content
     persist.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_tool_does_not_return_a_nonrecoverable_card_without_chat_context():
-    content, artifact = await render_interactive.coroutine(
-        path="/mount/data/review.pdf",
+    content, artifact = await render_preview.coroutine(
+        type="file",
+        source="/mount/data/review.pdf",
         runtime=SimpleNamespace(context=SimpleNamespace()),
     )
     assert "durable chat context" in content
@@ -225,19 +268,20 @@ async def test_database_failure_is_not_reported_as_a_successful_card(monkeypatch
 @pytest.mark.asyncio
 async def test_file_preview_defers_type_validation_to_preview(monkeypatch):
     module = importlib.import_module(
-        "vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive"
+        "vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact"
     )
     persist = AsyncMock()
     monkeypatch.setattr(module, "_persist_interactive_state", persist)
     session = SimpleNamespace(sync_workspace_path=AsyncMock(return_value=True))
-    content, artifact = await render_interactive.coroutine(
-        path="/data/diagrams/broken.drawio",
+    content, artifact = await render_preview.coroutine(
+        type="file",
+        source="/data/diagrams/broken.drawio",
         title="Broken flow",
         runtime=SimpleNamespace(context=SimpleNamespace(_attached_session=session)),
     )
 
     assert artifact["status"] == "success"
-    assert "render_interactive → file_preview" in content
+    assert "render_preview → file_preview" in content
     assert artifact["payload"]["artifact"]["props"] == {
         "path": "/data/diagrams/broken.drawio",
         "file_type": "auto",
@@ -252,13 +296,14 @@ async def test_file_preview_defers_type_validation_to_preview(monkeypatch):
 @pytest.mark.asyncio
 async def test_file_preview_preserves_optional_type_hint(monkeypatch):
     module = importlib.import_module(
-        "vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive"
+        "vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact"
     )
     persist = AsyncMock()
     monkeypatch.setattr(module, "_persist_interactive_state", persist)
     session = SimpleNamespace(sync_workspace_path=AsyncMock(return_value=True))
-    _, artifact = await render_interactive.coroutine(
-        path="/data/diagrams/flow.drawio",
+    _, artifact = await render_preview.coroutine(
+        type="file",
+        source="/data/diagrams/flow.drawio",
         title="Interactive flow",
         file_type="drawio",
         runtime=SimpleNamespace(
@@ -284,14 +329,15 @@ async def test_file_preview_preserves_optional_type_hint(monkeypatch):
 @pytest.mark.asyncio
 async def test_unsynced_diagram_file_creates_no_interactive_card(monkeypatch):
     module = importlib.import_module(
-        "vibecanvas_api.services.platform_mcp.interactive_tools.render_interactive"
+        "vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact"
     )
     persist = AsyncMock()
     monkeypatch.setattr(module, "_persist_interactive_state", persist)
     session = SimpleNamespace(sync_workspace_path=AsyncMock(return_value=False))
 
-    content, artifact = await render_interactive.coroutine(
-        path="/data/diagrams/unsynced.drawio",
+    content, artifact = await render_preview.coroutine(
+        type="file",
+        source="/data/diagrams/unsynced.drawio",
         title="Unsynced flow",
         runtime=SimpleNamespace(context=SimpleNamespace(_attached_session=session)),
     )

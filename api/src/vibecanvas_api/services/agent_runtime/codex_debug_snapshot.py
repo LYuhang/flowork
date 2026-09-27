@@ -12,13 +12,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
+from types import SimpleNamespace
 
 
 DEBUG_DIR = "/logs/.debug"
-_MAX_MESSAGE_CHARS = 256 * 1024
-_MAX_SNAPSHOT_CONTENT_CHARS = 3_500_000
+_MESSAGE_PREVIEW_CHARS = 1200
+_MESSAGE_CHUNK_CHARS = 64 * 1024
 _UNSAFE_FILE_COMPONENT = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -36,13 +38,6 @@ def _json_text(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, indent=2, default=str)
     except Exception:
         return str(value)
-
-
-def _truncate(text: str, limit: int = _MAX_MESSAGE_CHARS) -> tuple[str, bool]:
-    if len(text) <= limit:
-        return text, False
-    omitted = len(text) - limit
-    return f"{text[:limit]}\n\n[Codex debug snapshot omitted {omitted} characters]", True
 
 
 def _user_input_text(content: Any) -> str:
@@ -84,7 +79,7 @@ def _base_message(
     error: bool = False,
     runtime_metadata: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], bool]:
-    bounded, truncated = _truncate(content)
+    truncated = False
     message: dict[str, Any] = {
         "debug_id": debug_id,
         "source_message_id": source_id,
@@ -100,7 +95,7 @@ def _base_message(
             "ref": None,
             "compressed": None,
         },
-        "content": bounded,
+        "content": content,
         "runtime_item_type": item_type,
         "runtime_metadata": {
             "codex_turn_id": turn_id,
@@ -289,6 +284,83 @@ def _thread_item_message(
     )
 
 
+def _durable_history_message(
+    entry: Any,
+    *,
+    debug_id: str,
+) -> tuple[dict[str, Any], bool]:
+    """Project one backend-owned durable-transcript row into the debug schema.
+
+    Used only when the native thread projection has nothing to show (for
+    example, right after ``thread/fork`` re-materializes the thread and its
+    own turn list starts empty even though the product conversation is not).
+    """
+    role = str(getattr(entry, "role", "") or "user")
+    text = str(getattr(entry, "text", "") or "")
+    tool_calls = getattr(entry, "tool_calls", None) or []
+    content = text
+    if not content and tool_calls:
+        content = _json_text([
+            {
+                "tool_call_id": getattr(call, "tool_call_id", ""),
+                "name": getattr(call, "name", ""),
+                "arguments": getattr(call, "arguments", ""),
+            }
+            for call in tool_calls
+        ])
+    status = getattr(entry, "status", None)
+    return _base_message(
+        debug_id=debug_id,
+        source_id=str(getattr(entry, "message_id", "") or "") or None,
+        role=role,
+        content=content,
+        item_type="durableHistoryMessage",
+        turn_id=str(getattr(entry, "turn_id", "") or "") or None,
+        tool_call_id=str(getattr(entry, "tool_call_id", "") or "") or None,
+        runtime_metadata={"status": status} if status else None,
+    )
+
+
+def _expand_recovery_message(message: dict[str, Any]) -> list[dict[str, Any]]:
+    """Decode only the platform's known recovery envelope, never arbitrary JSON.
+
+    This is an observational projection: it does not rewrite the native thread
+    or claim that recovered records were individual native model messages.
+    """
+    content = message["content"]
+    marker = "<durable-conversation-history>"
+    if (message["role"] != "user" or marker not in content or not content.startswith("<system-reminder>")
+            or "The native Codex thread did not prove that it covered the durable product transcript." not in content.split(marker, 1)[0]):
+        return [message]
+    start = content.index(marker) + len(marker)
+    encoded = content[start:].lstrip()
+    try:
+        records, end = json.JSONDecoder().raw_decode(encoded)
+    except (ValueError, RecursionError):
+        return [message]
+    suffix = encoded[end:]
+    closing = "</durable-conversation-history>"
+    if not suffix.lstrip().startswith(closing) or not isinstance(records, list):
+        return [message]
+    if not all(isinstance(row, dict) and row.get("role") in {"user", "assistant", "tool", "system"}
+               and isinstance(row.get("text", ""), str)
+               and (row.get("tool_calls") is None or isinstance(row["tool_calls"], list))
+               for row in records):
+        return [message]
+    projected = []
+    for row in records:
+        entry = SimpleNamespace(**{**row, "tool_calls": [SimpleNamespace(**call)
+            for call in (row.get("tool_calls") or []) if isinstance(call, dict)]})
+        item, _ = _durable_history_message(entry, debug_id="pending")
+        item["runtime_item_type"] = "recoveredHistoryMessage"
+        item["runtime_metadata"].update(projection="durable_recovery", native_source_id=message.get("source_message_id"))
+        projected.append(item)
+    # Retain the non-history instructions/current question without the nested list.
+    remainder = content[:start - len(marker)] + f"[Recovered {len(records)} conversation messages; displayed separately.]" + suffix[suffix.index(closing) + len(closing):]
+    projected.append({**message, "content": remainder})
+    return projected
+
+
 def build_codex_debug_snapshot(
     *,
     request: Any,
@@ -303,11 +375,10 @@ def build_codex_debug_snapshot(
         f"{_safe_file_component(request.turn_id)}"
     )
     messages: list[dict[str, Any]] = []
-    content_chars = 0
-    truncated = False
     prior_turns = thread.get("turns")
     prior_turns = prior_turns if isinstance(prior_turns, list) else []
     history_complete = True
+    history_source = "native_thread"
 
     for turn in prior_turns:
         if not isinstance(turn, dict):
@@ -320,22 +391,37 @@ def build_codex_debug_snapshot(
         for item in items:
             if not isinstance(item, dict):
                 continue
-            message, item_truncated = _thread_item_message(
+            message, _ = _thread_item_message(
                 item,
                 debug_id=f"dbg_msg_{len(messages) + 1:04d}",
                 turn_id=native_turn_id,
             )
-            next_chars = len(str(message.get("content") or ""))
-            if content_chars + next_chars > _MAX_SNAPSHOT_CONTENT_CHARS:
-                truncated = True
-                break
             messages.append(message)
-            content_chars += next_chars
-            truncated = truncated or item_truncated
-        if content_chars >= _MAX_SNAPSHOT_CONTENT_CHARS:
-            break
 
-    current_message, current_truncated = _base_message(
+    # ``thread/start``/``thread/fork`` return thread identity/config only, so
+    # ``prior_turns`` is routinely empty right after a fork even though the
+    # product conversation is not (forking re-materializes the native thread
+    # under a new configuration and does not carry its turn list along).
+    # PostgreSQL is the authoritative product transcript in that case: fall
+    # back to it so the Inspector still shows the real prior conversation.
+    durable_history = getattr(request, "durable_history", None)
+    durable_messages = getattr(durable_history, "messages", None)
+    durable_messages = durable_messages if isinstance(durable_messages, list) else []
+    durable_turn_ids: set[str] = set()
+    if not prior_turns and durable_messages:
+        history_source = "durable_history_fallback"
+        history_complete = not bool(getattr(durable_history, "truncated", False))
+        for entry in durable_messages:
+            turn_id = str(getattr(entry, "turn_id", "") or "") or None
+            if turn_id:
+                durable_turn_ids.add(turn_id)
+            message, _ = _durable_history_message(
+                entry,
+                debug_id=f"dbg_msg_{len(messages) + 1:04d}",
+            )
+            messages.append(message)
+
+    current_message, _ = _base_message(
         debug_id=f"dbg_msg_{len(messages) + 1:04d}",
         source_id=f"{request.chat_id}:user:{request.turn_id}",
         role="user",
@@ -345,7 +431,34 @@ def build_codex_debug_snapshot(
         runtime_metadata={"current_turn": True},
     )
     messages.append(current_message)
-    truncated = truncated or current_truncated
+
+    # Recovery JSON is a transport envelope, not one giant human utterance.
+    expanded = []
+    seen_recovered_ids = {
+        m.get("source_message_id") for m in messages
+        if m.get("runtime_item_type") == "durableHistoryMessage"
+    }
+    for message in messages:
+        for projected in _expand_recovery_message(message):
+            source = projected.get("source_message_id")
+            if projected.get("runtime_item_type") == "recoveredHistoryMessage":
+                if source and source in seen_recovered_ids:
+                    continue
+                if source:
+                    seen_recovered_ids.add(source)
+            expanded.append(projected)
+    messages = expanded
+    folded_count = 0
+    for index, message in enumerate(messages, 1):
+        message["debug_id"] = f"dbg_msg_{index:04d}"
+        content = message["content"]
+        message["content_chars"] = len(content)
+        if len(content) > _MESSAGE_PREVIEW_CHARS:
+            folded_count += 1
+            message["content"] = content[:_MESSAGE_PREVIEW_CHARS]
+            message["_full_content"] = content
+            message["content_ref"] = f"{DEBUG_DIR}/{snapshot_id}.messages/{index:04d}"
+            message["content_part_count"] = (len(content) + _MESSAGE_CHUNK_CHARS - 1) // _MESSAGE_CHUNK_CHARS
 
     selected_model = request.model.get("id") if isinstance(request.model, dict) else None
     provider = str(thread.get("modelProvider") or "")
@@ -368,7 +481,12 @@ def build_codex_debug_snapshot(
         "runtime_metadata": {
             "history_complete": history_complete,
             "history_mode": thread.get("historyMode"),
-            "prior_turn_count": len(prior_turns),
+            "history_source": history_source,
+            "prior_turn_count": (
+                len(prior_turns)
+                if history_source == "native_thread"
+                else len(durable_turn_ids) or len(durable_messages)
+            ),
             "mcp_server_count": len(
                 request.mcp_desired_state.servers
                 if request.mcp_desired_state is not None
@@ -376,7 +494,8 @@ def build_codex_debug_snapshot(
             ),
             "skill_count": len(request.skills),
             "reasoning_effort": request.reasoning_effort,
-            "snapshot_truncated": truncated,
+            "snapshot_truncated": False,
+            "folded_message_count": folded_count,
         },
         "memory_config_snapshot": {
             "compaction_v2_enabled": False,
@@ -420,9 +539,23 @@ def write_codex_debug_snapshot(payload: dict[str, Any]) -> str | None:
     path = os.path.abspath(os.path.join(root, f"{payload['snapshot_id']}.json"))
     if not path.startswith(root.rstrip("/") + "/"):
         raise ValueError("Codex debug snapshot path escaped /logs/.debug")
+    # Publish content before the manifest, so every expandable reference exists.
+    public = {**payload, "messages": []}
+    for index, message in enumerate(payload.get("messages", []), 1):
+        record = dict(message)
+        full = record.pop("_full_content", None)
+        if full is not None:
+            directory = os.path.join(root, f"{payload['snapshot_id']}.messages", f"{index:04d}")
+            os.makedirs(directory, mode=0o700, exist_ok=True)
+            for part, offset in enumerate(range(0, len(full), _MESSAGE_CHUNK_CHARS)):
+                content_path = os.path.join(directory, f"{part}.txt")
+                with open(content_path + ".tmp", "w", encoding="utf-8") as handle:
+                    handle.write(full[offset:offset + _MESSAGE_CHUNK_CHARS])
+                os.replace(content_path + ".tmp", content_path)
+        public["messages"].append(record)
     temporary = f"{path}.tmp"
     with open(temporary, "w", encoding="utf-8") as file:
-        json.dump(payload, file, ensure_ascii=False, indent=2)
+        json.dump(public, file, ensure_ascii=False, indent=2)
     os.replace(temporary, path)
     return path
 
@@ -443,8 +576,38 @@ def capture_codex_debug_snapshot(
     ))
 
 
+def capture_codex_command_output_observations(
+    *, request: Any, observations: dict[str, Any],
+) -> str | None:
+    """Persist content-free native pipe evidence outside the snapshot index."""
+    if os.environ.get("AGENT_DEBUG_VIEW_ENABLED") != "1" or not (
+        observations.get("events") or observations.get("alternate_channel_counts")
+    ):
+        return None
+    root = os.path.join(os.path.abspath(DEBUG_DIR), "native-events")
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    path = os.path.join(root, f"{_utc_stamp()}__{_safe_file_component(request.turn_id)}.json")
+    payload = {
+        "kind": "codex_command_output_observations",
+        "chat_id": request.chat_id,
+        "turn_id": request.turn_id,
+        "boundary": "native_app_server_stdout_before_product_projection",
+        **observations,
+    }
+    descriptor, temporary = tempfile.mkstemp(prefix=".command-output-", suffix=".tmp", dir=root)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=True)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return path
+
+
 __all__ = [
     "build_codex_debug_snapshot",
     "capture_codex_debug_snapshot",
+    "capture_codex_command_output_observations",
     "write_codex_debug_snapshot",
 ]

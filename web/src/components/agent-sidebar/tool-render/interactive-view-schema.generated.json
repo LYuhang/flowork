@@ -84,6 +84,38 @@
       ],
       "title": "UrlPreviewView",
       "type": "object"
+    },
+    "WorkflowPreviewView": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "type": {
+          "const": "workflow_preview",
+          "title": "Type",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^v[1-9]\\d*\\.sv\\d+$",
+          "title": "Version",
+          "type": "string"
+        },
+        "workflow_id": {
+          "minLength": 1,
+          "title": "Workflow Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "workflow_id",
+        "version"
+      ],
+      "title": "WorkflowPreviewView",
+      "type": "object"
     }
   },
   "discriminator": {
@@ -98,6 +130,9 @@
     },
     {
       "$ref": "#/$defs/UrlPreviewView"
+    },
+    {
+      "$ref": "#/$defs/WorkflowPreviewView"
     }
   ]
 }

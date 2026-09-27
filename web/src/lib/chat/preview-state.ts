@@ -37,6 +37,17 @@ export function filePreviewItem(fileRef: FileRefV1, title: string): ChatPreviewI
   };
 }
 
+/** Restore non-persisted artifacts from history without discarding open file tabs. */
+export function previewItemToRestore(
+  items: ChatPreviewItem[],
+  resources: ChatPreviewItem[],
+  activeId: string | null,
+): ChatPreviewItem | null {
+  if (items.some((item) => item.id === activeId)) return null;
+  return resources.find((item) => item.id === activeId)
+    ?? (items.length === 0 ? resources[0] ?? null : null);
+}
+
 export interface ChatViewState {
   explorerOpen: boolean;
   debugOpen: boolean;

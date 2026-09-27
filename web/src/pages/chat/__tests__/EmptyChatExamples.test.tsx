@@ -31,6 +31,14 @@ function renderExamples(visible: boolean, onSelect = vi.fn()) {
 }
 
 describe('EmptyChatExamples', () => {
+  it.each(['en', 'zh'])('specifies an editable DOCX report in %s instead of an ambiguous slide brief', async (language) => {
+    await i18n.changeLanguage(language);
+    const onSelect = renderExamples(true);
+    await userEvent.click(document.querySelector('[data-example-id="office:report"]')!);
+    expect(onSelect).toHaveBeenCalledWith(expect.stringContaining('DOCX'));
+    expect(onSelect.mock.calls[0][0]).toMatch(/^\/document /);
+  });
+
   it('renders only while the caller reports a genuinely empty Chat', () => {
     const { rerender } = render(
       <I18nextProvider i18n={i18n}>

@@ -24,8 +24,8 @@ runtime topology is described in the [architecture guide](architecture.md).
 ## Prepare the environment
 
 Full-stack source development is supported on Debian, Ubuntu, and WSL. Run the
-bootstrap as a normal login user; it uses `sudo` only for operating-system
-packages:
+bootstrap as a normal login user; it uses `sudo` for operating-system packages,
+global CLI packages, and executable wrappers:
 
 ```bash
 ./scripts/bootstrap_native_linux.sh --prepare-only
@@ -68,6 +68,20 @@ launches `sandboxd`, the FastAPI application, one DBOS background worker, and
 the Vite Web server. It also builds the Browser Extension for
 the configured application origin. The application is available at
 <http://localhost:9001> and the API at <http://127.0.0.1:8000> by default.
+
+DBOS stores durable queue and schedule state in PostgreSQL. Redis provides
+transient coordination and event delivery. Batch and scheduled executions also
+use database-backed worker ownership, heartbeats, and recovery checks; this is
+part of the background worker, not another daemon. An execution whose worker
+is lost is stopped and reported with an unknown outcome rather than automatically
+rerunning potentially completed external effects.
+
+The native defaults are `SANDBOX_RUNTIME=gvisor` and
+`SANDBOX_TYPE=rootless-warm`. An explicit `bubblewrap` backend is available for
+native development with different isolation and no checkpoint/restore support.
+See [Sandbox backend and lifecycle](installation.md#sandbox-backend-and-lifecycle)
+before changing these settings; Docker uses the separate `rootful-snapshot`
+profile.
 
 `WEB_MODE=dev` enables Vite hot module replacement. The launcher's default
 `preview` mode builds and serves static assets and is more reliable on hosts
@@ -167,6 +181,7 @@ covered by the release process in [`DEPLOY.md`](../DEPLOY.md).
 pnpm --dir web lint
 pnpm --dir web lint:visual
 pnpm --dir web lint:routes
+pnpm --dir web lint:locales
 pnpm --dir web lint:retired-ui
 pnpm --dir web test
 pnpm --dir web build

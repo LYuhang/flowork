@@ -5,6 +5,7 @@ import { useChatStreamStore } from '@/stores/chat-stream';
 import { useExecStreamStore } from '@/stores/exec-stream';
 import { useUIStore } from '@/stores/ui';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
+import { clearRecentChatSelections } from '@/lib/chat/state-key';
 
 /**
  * Clear client-side state that is scoped to the currently authenticated user.
@@ -16,6 +17,7 @@ import { useWorkflowEditStore } from '@/stores/workflow-edit';
  */
 function resetRuntimeScopedClientState(): void {
   queryClient.clear();
+  clearRecentChatSelections();
   clearActiveTurn();
   useChatStreamStore.getState().reset();
   useExecStreamStore.getState().reset();

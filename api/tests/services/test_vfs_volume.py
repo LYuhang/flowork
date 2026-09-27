@@ -159,6 +159,65 @@ def test_encrypted_runtime_volume_rehydrates_sqlite_and_removes_plaintext(tmp_pa
     provider.release(second)
 
 
+def test_runtime_checkpoint_preserves_open_log_inode_and_later_writes(tmp_path):
+    store = FilesystemObjectStore(root=str(tmp_path / "cipher"), master_key=b"L" * 32)
+    provider = EncryptedObjectStoreChatRuntimeVolumeProvider(store)
+    volume = provider.ensure(tenant_id="tenant", user_id="user", chat_scope_id="chat")
+    log = Path(volume.path, "thread.jsonl")
+    with log.open("ab") as writer:
+        writer.write(b'{"turn":1}\n')
+        writer.flush()
+        inode = os.fstat(writer.fileno()).st_ino
+        provider.sync(volume)
+        assert log.stat().st_ino == inode
+        writer.write(b'{"turn":2}\n')
+        writer.flush()
+        provider.sync(volume)
+        assert log.stat().st_ino == inode
+        assert log.read_bytes() == b'{"turn":1}\n{"turn":2}\n'
+    provider.release(volume)
+    restored = provider.ensure(tenant_id="tenant", user_id="user", chat_scope_id="chat")
+    assert Path(restored.path, "thread.jsonl").read_bytes() == b'{"turn":1}\n{"turn":2}\n'
+    provider.release(restored)
+
+
+def test_runtime_checkpoint_preserves_open_sqlite_wal_and_locks(tmp_path):
+    import fcntl
+
+    store = FilesystemObjectStore(root=str(tmp_path / "cipher"), master_key=b"Q" * 32)
+    provider = EncryptedObjectStoreChatRuntimeVolumeProvider(store)
+    volume = provider.ensure(tenant_id="tenant", user_id="user", chat_scope_id="chat")
+    database = Path(volume.path, "state.sqlite")
+    lock = Path(volume.path, "thread.lock")
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE state (value TEXT)")
+        connection.execute("INSERT INTO state VALUES ('first')")
+        connection.commit()
+        with lock.open("wb") as owner:
+            fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            tracked = [database, Path(str(database) + "-wal"), Path(str(database) + "-shm"), lock]
+            inodes = [path.stat().st_ino for path in tracked]
+            provider.sync(volume)
+            assert [path.stat().st_ino for path in tracked] == inodes
+            with lock.open("rb") as contender, pytest.raises(BlockingIOError):
+                fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            connection.execute("INSERT INTO state VALUES ('second')")
+            connection.commit()
+            provider.sync(volume)
+            assert [path.stat().st_ino for path in tracked] == inodes
+            with sqlite3.connect(database) as reader:
+                assert reader.execute("SELECT value FROM state ORDER BY rowid").fetchall() == [("first",), ("second",)]
+    finally:
+        connection.close()
+    provider.release(volume)
+    restored = provider.ensure(tenant_id="tenant", user_id="user", chat_scope_id="chat")
+    with sqlite3.connect(Path(restored.path, "state.sqlite")) as reader:
+        assert reader.execute("SELECT value FROM state ORDER BY rowid").fetchall() == [("first",), ("second",)]
+    provider.release(restored)
+
+
 def test_encrypted_runtime_volume_ignores_symlink_without_reading_target(tmp_path):
     store = FilesystemObjectStore(
         root=str(tmp_path / "cipher"),

@@ -22,18 +22,8 @@ from pydantic import (
 
 
 MCP_RUNTIME_PROTOCOL_VERSION = 1
-PlatformMcpName = Literal[
-    "config",
-    "interactive",
-    "workflow",
-    "task",
-    "deployment",
-    "knowledge",
-    "build",
-    "browser",
-    "diagram",
-    "document",
-]
+PlatformMcpName = Literal["interactive"]
+AgentPlatformCapability = Literal["interactive", "cli", "browser"]
 
 
 class McpRuntimeModel(BaseModel):
@@ -94,7 +84,6 @@ class McpDesiredServer(McpRuntimeModel):
     id: str = Field(min_length=1, max_length=256)
     source: Literal[
         "platform",
-        "builtin_local",
         "custom_remote",
         "custom_stdio",
     ]
@@ -113,7 +102,6 @@ class McpDesiredServer(McpRuntimeModel):
     def source_matches_connection(self) -> "McpDesiredServer":
         expected = {
             "platform": "platform_facade",
-            "builtin_local": "stdio",
             "custom_remote": "host_broker",
             "custom_stdio": "stdio",
         }[self.source]
@@ -125,8 +113,6 @@ class McpDesiredServer(McpRuntimeModel):
             self.required = True
             if self.connection.capability != self.name:
                 raise ValueError("Platform facade capability must match server name")
-        if self.source == "builtin_local":
-            self.required = True
         return self
 
 
@@ -142,6 +128,10 @@ class McpDesiredState(McpRuntimeModel):
     platform_contract_revision: str = Field(min_length=1, max_length=256)
     skill_catalog_revision: str = Field(min_length=1, max_length=256)
     servers: list[McpDesiredServer] = Field(default_factory=list, max_length=128)
+    # Host-approved private CLI authority does not create an MCP server or tool
+    # manifest. Keep this explicit in desired state so activation cannot expand
+    # privileges merely by naming a retired/nonexistent MCP in the context.
+    private_platform_capabilities: list[Literal["cli", "browser"]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def unique_server_identity(self) -> "McpDesiredState":
@@ -160,6 +150,7 @@ class McpDesiredState(McpRuntimeModel):
             self.chat_mcp_config_revision,
             self.platform_contract_revision,
             self.skill_catalog_revision,
+            tuple(sorted(self.private_platform_capabilities)),
             tuple(
                 (server.id, server.configuration_revision)
                 for server in self.servers
@@ -199,7 +190,7 @@ class McpExecutionContext(McpRuntimeModel):
     agent_run_id: str = Field(min_length=1)
     execution_kind: Literal["chat_turn", "background_job"] = "chat_turn"
     active_commands: list[str] = Field(default_factory=list, max_length=32)
-    active_platform_capabilities: list[PlatformMcpName] = Field(
+    active_platform_capabilities: list[AgentPlatformCapability] = Field(
         default_factory=list,
         max_length=16,
     )
@@ -234,7 +225,6 @@ class McpServerStatus(McpRuntimeModel):
     name: str
     source: Literal[
         "platform",
-        "builtin_local",
         "custom_remote",
         "custom_stdio",
     ]

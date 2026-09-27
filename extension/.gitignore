@@ -1,5 +1,6 @@
 node_modules/
 dist/
 vibecanvas-extension.zip
+flowork-extension.zip
 *.log
 .DS_Store

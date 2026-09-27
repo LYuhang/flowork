@@ -338,6 +338,12 @@ def build_oci_config(
             f"{len(mounts)} > {config.sandbox_max_mounts}"
         )
 
+    # Install parents before children, irrespective of read/write ownership.
+    # Pure Chat owns a writable /tmp channel; mounting it after an explicitly
+    # authorized /tmp/<runtime> read-only bind hides that runtime completely.
+    # A stable depth ordering preserves peer order and each mount's permissions.
+    mounts.sort(key=lambda mount: os.path.normpath(mount["destination"]).count("/"))
+
     linux: dict[str, Any] = {
         "namespaces": [
             {"type": "mount"},

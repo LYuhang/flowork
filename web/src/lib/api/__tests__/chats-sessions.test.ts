@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchAllChatSessions } from '@/lib/api/queries/chats';
+import { fetchAllChatSessions, useChatSessions } from '@/lib/api/queries/chats';
+import { createElement, type PropsWithChildren } from 'react';
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider, type QueryObserverOptions } from '@tanstack/react-query';
 
 vi.mock('@/stores/auth', () => ({
   useAuthStore: { getState: () => ({ token: 'test-token', handle401: () => {} }) },
@@ -9,6 +12,28 @@ vi.mock('@/stores/auth', () => ({
 afterEach(() => vi.restoreAllMocks());
 
 describe('fetchAllChatSessions', () => {
+  it('refreshes a lost browser lease until the server marks it inactive', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      items: [{ chat_id: 'chat-lost', browser_control_status: 'lost' }], total: 1,
+    }), { status: 200 }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+    const { result, unmount } = renderHook(() => useChatSessions('scope', 'browser'), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const query = client.getQueryCache().find({ queryKey: ['chats', 'scope', 'browser'] })!;
+    // useQuery installs observer options; Query.options exposes only their
+    // narrower query-level base type, which omits refetchInterval.
+    const interval = (query.options as QueryObserverOptions).refetchInterval;
+    expect(typeof interval).toBe('function');
+    if (typeof interval !== 'function') throw new Error('Missing reconnect refresh');
+    expect(interval(query)).toBe(5000);
+    client.setQueryData(['chats', 'scope', 'browser'], {
+      items: [{ chat_id: 'chat-lost', browser_control_status: 'inactive' }], total: 1,
+    });
+    expect(interval(query)).toBe(false);
+    unmount();
+    client.clear();
+  });
   it('continues through every server page instead of hiding older chats', async () => {
     const firstItems = Array.from({ length: 500 }, (_, index) => ({
       chat_id: `chat-${index}`,

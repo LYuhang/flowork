@@ -139,9 +139,9 @@ def test_turn_settings_are_runtime_neutral_and_per_turn() -> None:
         },
         reasoning_effort="ultra",
         approval_mode="always_ask",
-        active_platform_mcps=["workflow"],
+        active_platform_mcps=["cli"],
         mcp_host_servers=[{
-            "name": "workflow",
+            "name": "cli",
             "source": "platform",
             "connection": {
                 "transport": "host_gateway",
@@ -150,7 +150,7 @@ def test_turn_settings_are_runtime_neutral_and_per_turn() -> None:
         }],
     )
     assert request.reasoning_effort == "ultra"
-    assert request.active_platform_mcps == ["workflow"]
+    assert request.active_platform_mcps == ["cli"]
     assert request.instructions == []
 
 
@@ -238,7 +238,7 @@ def test_runtime_turn_requires_exact_platform_descriptor_set() -> None:
         "model": {"id": "gpt-test", "connection_type": "chatgpt_account"},
     }
     with pytest.raises(ValidationError, match="exactly match"):
-        RuntimeTurnRequest(**common, active_platform_mcps=["workflow"])
+        RuntimeTurnRequest(**common, active_platform_mcps=["cli"])
     with pytest.raises(ValidationError, match="exactly match"):
         RuntimeTurnRequest(
             **common,

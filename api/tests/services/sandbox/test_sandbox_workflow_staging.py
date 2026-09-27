@@ -64,6 +64,30 @@ async def test_vfs_hydration_isolates_folder_transactions_and_skips_unsafe_paths
 
 
 @pytest.mark.asyncio
+async def test_cli_node_job_is_staged_with_its_own_pool_and_no_graph(tmp_path, monkeypatch):
+    runs_root = tmp_path / "runs"
+    session_root = runs_root / "workspace"
+    session_root.mkdir(parents=True)
+    session = SandboxSession(tenant_id="tenant-a", wf_id="chat", run_dir=str(session_root),
+                             overlay_dir=None, provider=object(), base_binds=[], expose_run=True)
+    node = {"node_id": "node_2", "node_type": "CodeNode"}
+    async def submit(job, *, timeout):
+        assert job["kind"] == "node" and job["execution_pool_id"] == "a" * 32
+        result_dir = runs_root / job["run_subpath"] / "__exec__"
+        assert json.loads((result_dir / "job.json").read_text()) == {
+            "kind": "node", "node": node, "inputs": {"value": 3}, "extra": {"code_pythonpath": "/overlay"},
+        }
+        assert not (result_dir / "workflow.json").exists()
+        (result_dir / "result.json").write_text(json.dumps({"final_outputs": {"node_2": 6}, "error_dict": {}}))
+        return {"status": "success"}
+    monkeypatch.setattr(session, "submit_sandbox_job", submit)
+    result = await session.execute_workflow_job(workflow={"node_2": node, "unused": {}}, node_id="node_2",
+        inputs={"value": 3}, extra={"code_pythonpath": "/overlay"}, tenant="tenant-a",
+        run_id="node-run", run_subpath="cli/node-run/0", execution_pool_id="a" * 32)
+    assert result["result"]["final_outputs"] == {"node_2": 6}
+
+
+@pytest.mark.asyncio
 async def test_workflow_job_is_staged_and_collected_by_owning_daemon(
     tmp_path, monkeypatch,
 ) -> None:
@@ -243,6 +267,38 @@ async def test_workflow_job_rejects_cross_tenant_and_traversal(tmp_path) -> None
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("expose_mount", [False, True])
+async def test_task_workspace_is_private_and_mount_is_opt_in(tmp_path, monkeypatch, expose_mount):
+    from vibecanvas_api.services.sandbox import manager as module
+    root = tmp_path / "tenant" / "schedule-test"
+    root.mkdir(parents=True)
+    (root.parent / "other-chat.mount").mkdir()
+    class LocalStore:
+        pass
+    hydrate = AsyncMock(return_value=0)
+    monkeypatch.setattr(module, "FilesystemObjectStore", LocalStore)
+    monkeypatch.setattr(module, "get_object_store", LocalStore)
+    monkeypatch.setattr(module, "build_run_context", lambda *args: {"run_dir": str(root)})
+    monkeypatch.setattr(module, "_hydrate_run_folders", AsyncMock(return_value=0))
+    monkeypatch.setattr(module, "hydrate_user_mount", hydrate)
+    monkeypatch.setattr(module, "get_sandbox_provider", lambda: object())
+    monkeypatch.setattr(module, "_workflow_python_binds", lambda: [])
+    monkeypatch.setattr(module.config, "agent_overlay_root", str(tmp_path / "overlay"))
+    monkeypatch.setattr(module.config, "agent_runtime_root", str(tmp_path / "runtime"))
+    manager = module.SandboxManager(max_resident=2, idle_ttl_s=60)
+    session = await manager._build_session("tenant", "schedule-test", user_id="a724f901-bd3b-45b0-91fb-a5c4a3b2d739", expose_mount=expose_mount)
+    try:
+        assert session.expose_mount is expose_mount
+        assert bool(session.mount_dir) is expose_mount
+        assert hydrate.await_count == int(expose_mount)
+        assert any(dest == "/mount" for dest, _ in session._rw_binds) is expose_mount
+        assert session.pool_runs_root != str(root.parent)
+        assert not Path(session.pool_runs_root, "other-chat.mount").exists()
+    finally:
+        shutil.rmtree(session.materialized_projection_root)
+
+
+@pytest.mark.asyncio
 async def test_object_backed_session_uses_private_logical_mount_projection(
     tmp_path, monkeypatch,
 ) -> None:
@@ -358,4 +414,5 @@ def test_sync_workflow_runner_delegates_logical_job_to_sandbox_service(
         },
         "allow_hosts": ["models.example.test"],
         "requirements": "httpx==0.28.1",
+        "expose_mount": True,
     }

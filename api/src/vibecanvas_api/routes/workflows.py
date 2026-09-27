@@ -37,9 +37,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..audit import actions
 from ..audit.context import extract_request_audit_context
-from ..audit.service import record_audit
 from ..auth.deps import (
     AuthContext,
     current_user,
@@ -90,7 +88,6 @@ from ..schemas.access import (
 from ..services.background_queue import enqueue_background_job_async
 from ..services.batch_output import build_output_sink
 from ..services.access_presentation import direct_binding_out
-from ..services.object_store import get_object_store
 from ..services.resource_provenance import ResourceProvenanceBuilder
 from ..services.service_account_credentials import bind_workflow_credentials
 from ..services.sandbox.manager import get_sandbox_manager
@@ -105,8 +102,6 @@ from ..storage import stop_registry
 from ..storage.execution_repo import running_execution_ids
 from ..storage.repo_tasks import TasksRepo
 from ..storage.repo_service_accounts import ServiceAccountsRepo
-from ..storage.vfs_run_repo import VfsRunRepo
-from ..storage.vfs_store import VfsRepo
 from ..storage.workflow_repo import WorkflowRepo
 from ..utils.updater import WorkflowUpdater
 from .deps import get_workflow_repo
@@ -647,95 +642,26 @@ async def delete_workflow(
         wf_id=wf_id,
         action=Action.DELETE,
     )
-    # Deployments T5 — Spec §10.4 app-layer guard. The deployments→workflows
-    # FK is ``ON DELETE RESTRICT``, but workflows are soft-deleted (the
-    # ``deleted_at`` column UPDATE bypasses RESTRICT). Block the delete
-    # while an enabled, non-soft-deleted deployment still references this
-    # workflow — otherwise an attacker / accidental delete leaves live
-    # deployments pointing at a tombstoned workflow.
-    #
-    # RLS-scoped (tenant_db session) so this check naturally only sees the
-    # caller's own deployments — a foreign-tenant deployment, even if it
-    # referenced ``wf_id`` (it can't, the workflows FK is tenant-pinned),
-    # would not register as in_use here, which is correct.
-    in_use = (await session.execute(
-        text(
-            "SELECT 1 FROM deployments "
-            "WHERE wf_id = :wf AND enabled = TRUE "
-            "AND deleted_at IS NULL LIMIT 1"
-        ),
-        {"wf": wf_id},
-    )).one_or_none()
-    if in_use:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "workflow has enabled deployments — "
-                "disable or delete them first"
-            ),
-        )
-    # Capture the workflow name BEFORE the soft-delete for the audit snapshot.
-    meta = await repo.get_meta(wf_id)
-    if not meta:
-        raise HTTPException(status_code=404, detail=f"workflow {wf_id} not found")
-    workflow_name = meta.get("workflow_name")
-    # Re-check at the transaction boundary before any destructive side effect.
-    await _authorize_workflow(
-        request=request,
-        auth=ctx,
-        service=service,
-        wf_id=wf_id,
-        action=Action.DELETE,
-    )
-    await get_sandbox_manager().close_session(ctx.tenant_id, wf_id)
-    vfs_deleted = await VfsRepo(
-        session,
-        object_store=get_object_store(),
-    ).delete_scope_prefixes(
-        wf_id=wf_id,
-        prefixes=["/data"],
-    )
-    run_deleted = await VfsRunRepo(
-        session,
-        get_object_store(),
-        ctx.tenant_id,
-    ).purge_workflow_runs(wf_id=wf_id)
-    await repo.delete_workflow(wf_id)
+    from vibecanvas_api.agents.tools.decorator import ToolError
+    from vibecanvas_api.services.workflow_deletion import commit_deletion
     coordinator = mutation_coordinator_for_request(
         request,
         ctx.active_organization_id,
     )
-    mutation_ids = await enqueue_structural_delta(
-        session=session,
-        coordinator=coordinator,
-        actor_type="user",
-        actor_id=ctx.user_id,
-        before=resource_root_edges(
-            organization_id=ctx.active_organization_id,
-            object_type="workflow",
-            object_id=wf_id,
-            owner_relation="manager",
-            owner_type="user",
-            owner_id=str(meta["owner_id"]),
-        ),
-        after=frozenset(),
-        operation_id=uuid.uuid4().hex,
-        source="workflow-delete",
-    )
-    await record_audit(
-        session,
-        action=actions.WORKFLOW_DELETE,
-        actor_user_id=ctx.user_id,
-        actor_email=ctx.email,
-        target_type=actions.TARGET_WORKFLOW,
-        target_id=wf_id,
-        target_name=workflow_name,
-        outcome="success",
-        audit_ctx=extract_request_audit_context(request),
-        meta={"vfs_deleted": vfs_deleted, "run_deleted": run_deleted},
-    )
-    await session.commit()
-    await apply_committed_structural_mutations(coordinator, mutation_ids)
+    async def authorize():
+        await _authorize_workflow(request=request, auth=ctx, service=service,
+                                  wf_id=wf_id, action=Action.DELETE)
+    try:
+        _, mutation_ids = await commit_deletion(session, workflow_id=wf_id,
+            user_id=ctx.user_id, tenant_id=ctx.tenant_id, coordinator=coordinator,
+            authorize=authorize, audit_ctx=extract_request_audit_context(request), actor_email=ctx.email)
+    except ToolError as exc:
+        raise HTTPException(status_code=404 if str(exc) == "workflow_unavailable" else 409,
+                            detail=exc.message) from exc
+    try:
+        await apply_committed_structural_mutations(coordinator, mutation_ids)
+    except Exception:
+        pass  # Deletion committed; the durable authorization outbox retries.
 
 
 @router.get(
@@ -1227,9 +1153,12 @@ async def check_workflow(
         wf_id=wf_id,
         action=Action.VIEW,
     )
-    from ..services.platform_mcp.config_tools import workflow_model_catalog_for_user
+    from ..services.workflow_model_policy import workflow_model_catalog_for_user
 
-    model_catalog = await workflow_model_catalog_for_user(session, auth.user_id)
+    model_catalog = await workflow_model_catalog_for_user(
+        session, auth.user_id, service=service, principal=principal_for_auth(auth),
+        authz_context=context_for_auth(auth, request, consistency=ConsistencyPreference.HIGHER_CONSISTENCY),
+    )
     return await _check_workflow_content(
         wf_id,
         body=body,
@@ -1259,7 +1188,7 @@ async def _check_workflow_content(
         wf = await repo.get_current_workflow(wf_id) or {}
     result = Workflow.check(wf)
     if available_model_ids is not None:
-        from ..services.platform_mcp.build_tools.workflow_file import (
+        from ..services.agent_resources.workflow_graph import (
             validate_workflow_model_names,
         )
 
@@ -1352,6 +1281,9 @@ class BatchSubmitBody(BaseModel):
     output_columns: list | None = None
     # How many rows run in parallel (thread pool). Clamped 1..16 in the task.
     concurrency: int = 1
+    mount_enabled: bool = False
+    major: str | None = None
+    version: str | None = None
 
 
 @router.post("/{wf_id}/batch", status_code=status.HTTP_201_CREATED)
@@ -1390,6 +1322,9 @@ async def submit_batch(
                 detail=str(e),
             ) from e
 
+    from vibecanvas_api.services.task_snapshots import freeze_workflow
+    snapshot = await freeze_workflow(session, ctx.user_id, wf_id,
+                                     major=body.major, version=body.version)
     task_id = uuid.uuid4()
     service_account_id = uuid.uuid4()
     await ServiceAccountsRepo(session).create_for_owner(
@@ -1406,9 +1341,7 @@ async def submit_batch(
         tenant_id=uuid.UUID(ctx.tenant_id),
         service_account_id=service_account_id,
         created_by=ctx.user_id,
-        workflow=await WorkflowRepo(
-            session, ctx.user_id
-        ).get_current_workflow(wf_id),
+        workflow=snapshot["workflow"],
     )
     await TasksRepo(session).create(
         task_id=task_id,
@@ -1416,7 +1349,7 @@ async def submit_batch(
         user_id=uuid.UUID(ctx.user_id),
         workflow_id=wf_id,
         task_type="batch_exec",
-        payload=body.model_dump(),
+        payload={**body.model_dump(), "workflow_snapshot": snapshot},
         background_job_id=str(task_id),
         service_account_id=service_account_id,
     )
@@ -1474,9 +1407,13 @@ async def submit_batch(
     # The Task row and authorization intent must become durable before the
     # external queue observes the task id.
     await session.commit()
-    await apply_committed_structural_mutations(coordinator, mutation_ids)
-    await _rebind_request_organization(session, ctx)
-
+    try:
+        await apply_committed_structural_mutations(coordinator, mutation_ids)
+        await _rebind_request_organization(session, ctx)
+    except Exception:
+        # The durable outbox owns projection retries. Report the committed ID,
+        # never invite another create after the Task has already been accepted.
+        return {"task_id": str(task_id), "version": snapshot["version"], "authorization_pending": True}
     # A failure here is safe: the business row is already durably queued and
     # the periodic reconciler will idempotently enqueue it again.
     try:
@@ -1492,4 +1429,4 @@ async def submit_batch(
         # ``queued`` AND return 5xx to the client (worst of both).
         pass
 
-    return {"task_id": str(task_id)}
+    return {"task_id": str(task_id), "version": snapshot["version"]}

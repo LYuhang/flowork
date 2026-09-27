@@ -37,6 +37,10 @@ import time
 _LEN = struct.Struct(">I")
 
 
+class JobKilled(Exception):
+    """The supervisor received a kill request for one job, not the pool."""
+
+
 class _Worker:
     """One spawned worker subprocess + its two control pipes.
 
@@ -50,7 +54,8 @@ class _Worker:
     (e.g. ``job_worker``) passes ``no_site=False``.
     """
 
-    def __init__(self, worker_script, cwd, env, no_site=True):
+    def __init__(self, worker_script, cwd, env, no_site=True, own_process_group=False):
+        self._own_process_group = own_process_group
         # job pipe: parent writes job_w, child reads job_r
         job_r, job_w = os.pipe()
         # result pipe: child writes result_w, parent reads result_r
@@ -67,6 +72,7 @@ class _Worker:
                 cwd=cwd,
                 env=env,
                 pass_fds=(job_r, result_w),
+                start_new_session=own_process_group,
                 # Leave stdout/stderr to inherit (control is on the dedicated
                 # pipes); close_fds defaults True so no OTHER parent fds leak.
             )
@@ -85,28 +91,31 @@ class _Worker:
         while total < len(frame):
             total += os.write(self._job_w, view[total:])
 
-    def read_result(self, timeout):
+    def read_result(self, timeout, *, kill_path=None):
         """Read one framed result with a wall-clock ``timeout`` (seconds).
 
         Returns the decoded dict, raises ``TimeoutError`` if the deadline passes
         with no complete frame, or ``EOFError`` if the worker closed the pipe
         (crash) before sending a result.
         """
-        deadline = time.monotonic() + timeout
-        header = self._read_exact(_LEN.size, deadline)
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        header = self._read_exact(_LEN.size, deadline, kill_path)
         (length,) = _LEN.unpack(header)
-        body = self._read_exact(length, deadline)  # body shares the header's deadline
+        body = self._read_exact(length, deadline, kill_path)
         return json.loads(body.decode("utf-8"))
 
-    def _read_exact(self, n, _deadline):
+    def _read_exact(self, n, _deadline, kill_path=None):
         buf = bytearray()
         while len(buf) < n:
-            remaining = _deadline - time.monotonic()
-            if remaining <= 0:
+            if kill_path and os.path.exists(kill_path):
+                raise JobKilled()
+            remaining = _deadline - time.monotonic() if _deadline is not None else None
+            if remaining is not None and remaining <= 0:
                 raise TimeoutError("worker result timed out")
-            r, _, _ = select.select([self._result_r], [], [], remaining)
+            wait = min(remaining, 0.1) if remaining is not None else 0.1
+            r, _, _ = select.select([self._result_r], [], [], wait if kill_path else remaining)
             if not r:
-                raise TimeoutError("worker result timed out")
+                continue
             chunk = os.read(self._result_r, n - len(buf))
             if not chunk:
                 raise EOFError("worker closed pipe before result")
@@ -115,12 +124,13 @@ class _Worker:
 
     def kill(self):
         """SIGKILL the worker and close the parent's pipe ends. Idempotent."""
-        self.kill_proc_only()
+        stopped = self.kill_proc_only()
         for fd in (self._job_w, self._result_r):
             try:
                 os.close(fd)
             except Exception:
                 pass
+        return stopped
 
     def kill_proc_only(self):
         """SIGKILL the worker subprocess but DO NOT close the parent's pipe fds.
@@ -132,17 +142,25 @@ class _Worker:
         closes the fds). Closing the fds HERE would race that concurrent
         ``os.read`` on the same descriptor. Idempotent."""
         try:
-            self.proc.send_signal(signal.SIGKILL)
-        except Exception:
+            if self._own_process_group:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            else:
+                self.proc.send_signal(signal.SIGKILL)
+        except ProcessLookupError:
             pass
+        except Exception:
+            return False
         try:
             self.proc.wait(timeout=5)
         except Exception:
-            pass
+            return False
+        return True
 
     def terminate(self):
         """Graceful-ish shutdown: close the job pipe (worker sees EOF → exits),
         then ensure it's gone."""
+        if self._own_process_group:
+            return self.kill()
         try:
             os.close(self._job_w)
         except Exception:
@@ -159,16 +177,18 @@ class _Worker:
             os.close(self._result_r)
         except Exception:
             pass
+        return self.proc.poll() is not None
 
 
 class BoundedSubprocessPool:
     """A bounded, thread-safe pool of worker subprocesses over a pluggable script."""
 
-    def __init__(self, worker_script, cwd, env, max_workers=4, no_site=True):
+    def __init__(self, worker_script, cwd, env, max_workers=4, no_site=True, own_process_group=False):
         self._worker_script = worker_script
         self._cwd = cwd
         self._env = env
         self._no_site = no_site
+        self._own_process_group = own_process_group
         self._max_workers = max(1, int(max_workers))
 
         self._lock = threading.Lock()
@@ -182,14 +202,17 @@ class BoundedSubprocessPool:
         """Spawn a fresh worker subprocess. The caller has already RESERVED the
         slot (bumped ``_total`` under the lock); this runs OUTSIDE the lock so
         concurrent acquisitions don't serialize on the (slow) ``Popen`` fork/exec."""
-        return _Worker(self._worker_script, self._cwd, self._env, self._no_site)
+        return _Worker(self._worker_script, self._cwd, self._env, self._no_site,
+                       own_process_group=self._own_process_group)
 
-    def _acquire(self):
+    def _acquire(self, kill_path=None):
         """Check out a worker: reuse an idle one, else spawn up to the cap, else
         wait for one to be returned/freed. Recorded in ``_busy`` so ``close()``
         can SIGKILL it even while mid-run (cancellation)."""
         with self._cond:
             while True:
+                if kill_path and os.path.exists(kill_path):
+                    raise JobKilled()
                 if self._closed:
                     raise RuntimeError("BoundedSubprocessPool is closed")
                 if self._idle:
@@ -199,7 +222,7 @@ class BoundedSubprocessPool:
                 if self._total < self._max_workers:
                     self._total += 1   # reserve under the lock; spawn outside it
                     break
-                self._cond.wait()      # at cap and none idle — wait for a release
+                self._cond.wait(timeout=0.1 if kill_path else None)
         # --- outside the lock: the slow part ---
         try:
             w = self._spawn()
@@ -235,15 +258,28 @@ class BoundedSubprocessPool:
             self._total -= 1
             self._cond.notify()
 
-    def run(self, job: dict, timeout, *, timeout_msg=None, crash_msg=None) -> dict:
+    def run(self, job: dict, timeout, *, timeout_msg=None, crash_msg=None, kill_path=None) -> dict:
         """Run one ``job`` (a JSON-serializable dict) on a worker with a hard
         ``timeout``. Returns the worker's result envelope on success, or an
         error envelope on timeout / worker crash. ``timeout_msg`` / ``crash_msg``
         customize the error text (consumers keep their own wording)."""
-        worker = self._acquire()
+        if kill_path and os.path.exists(kill_path):
+            return {"status": "cancelled", "error_message": "Job was stopped before execution."}
         try:
+            worker = self._acquire(kill_path=kill_path) if kill_path else self._acquire()
+        except JobKilled:
+            return {"status": "cancelled", "error_message": "Job was stopped while waiting for a worker."}
+        try:
+            if kill_path and os.path.exists(kill_path):
+                raise JobKilled()
             worker.send_job(job)
-            result = worker.read_result(timeout)
+            result = worker.read_result(timeout, kill_path=kill_path) if kill_path else worker.read_result(timeout)
+        except JobKilled:
+            stopped = worker.kill()
+            self._discard(worker)
+            if not stopped:
+                return {"ok": False, "status": "unknown", "error_message": "Worker kill could not be confirmed."}
+            return {"status": "cancelled", "error_message": "Job worker was killed."}
         except TimeoutError:
             worker.kill()
             self._discard(worker)
@@ -268,20 +304,24 @@ class BoundedSubprocessPool:
             idle = list(self._idle)
             self._idle.clear()
             busy = list(self._busy)
+            reserved = self._total - len(idle) - len(busy)
             # Do NOT clear _busy — the owning run() discards its worker itself.
             self._cond.notify_all()
         if already:
-            return
+            return getattr(self, "_close_confirmed", False)
+        confirmed = reserved == 0
         for w in busy:
             try:
-                w.kill_proc_only()
+                confirmed = (w.kill_proc_only() is not False) and confirmed
             except Exception:
-                pass
+                confirmed = False
         for w in idle:
             try:
-                w.terminate()
+                confirmed = (w.terminate() is not False) and confirmed
             except Exception:
-                pass
+                confirmed = False
+        self._close_confirmed = confirmed
+        return confirmed
 
     def __enter__(self):
         return self

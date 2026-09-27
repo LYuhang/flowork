@@ -18,6 +18,8 @@ from vibecanvas_api.services.agent_runtime.codex import (
     _CODEX_SUPPRESSED_ITEM_KINDS,
     _CODEX_SUPPRESSED_NOTIFICATIONS,
     _ToolCompletionEvidence,
+    _workflow_cli_events,
+    _record_workflow_cli_completion,
     _approval_policy,
     _approval_response,
     _broker_model_catalog,
@@ -32,6 +34,7 @@ from vibecanvas_api.services.agent_runtime.codex import (
     _read_history_coverage,
     _McpItemCorrelator,
     _command_completion_reminder,
+    _completion_file_path,
     _missing_command_completion_tools,
     _normalize_codex_plan,
     _RuntimeControlRouter,
@@ -41,6 +44,8 @@ from vibecanvas_api.services.agent_runtime.codex import (
     _write_history_coverage,
     run_codex_turn as _run_codex_turn,
 )
+
+
 from vibecanvas_api.services.agent_runtime.codex_app_server import (
     CodexAppServerError,
 )
@@ -54,6 +59,40 @@ from vibecanvas_api.services.agent_runtime.mcp_runtime_protocol import (
     McpExecutionContext,
 )
 from vibecanvas_engine.sandbox_bus import MSG_RUNTIME_RESULT
+
+
+def test_retired_version_set_has_no_projection():
+    assert _workflow_cli_events("workflow.version.set", {}, {"id": "wf", "version": "v1.sv8"}) == []
+
+
+@pytest.mark.parametrize("changed", [True, False])
+def test_layout_refresh_and_completion_follow_actual_saved_changes(changed):
+    result = {"id": "wf", "version": "v2.sv5", "changed": changed}
+    events = _workflow_cli_events("workflow.layout", {}, result)
+    evidence = {}
+    _record_workflow_cli_completion(evidence, "workflow.layout", result)
+    if changed:
+        assert len(events) == 2
+        assert events[0]["payload"]["apply_auto_layout"] is False
+        assert evidence["workflow.saved"][0].tool_input == {"id": "wf", "version": "v2.sv5"}
+    else:
+        assert events == [] and evidence == {}
+
+
+def test_cli_operation_partial_success_refreshes_saved_prefix_only():
+    result = {"id": "wf", "version": "v1.sv8", "applied": 2, "error": "node_not_found"}
+    events = _workflow_cli_events("workflow.operation", {}, result)
+    assert [event["event_type"] for event in events] == ["VIBE_ACTION", "META_SYNC"]
+    assert _workflow_cli_events("workflow.operation", {}, {**result, "applied": 0}) == []
+    assert _workflow_cli_events("workflow.operation", {}, {"error": "result_unknown"}) == []
+
+
+@pytest.mark.parametrize("operation", ["workflow.upload", "workflow.version.create"])
+def test_cli_saved_graph_refreshes_canvas_and_chat(operation):
+    events = _workflow_cli_events(operation, {}, {"id": "wf", "version": "v4.sv0"})
+    assert [event["event_type"] for event in events] == ["VIBE_ACTION", "META_SYNC"]
+    assert events[0]["payload"]["apply_auto_layout"] is (operation == "workflow.upload")
+    assert events[1]["payload"]["meta"]["workflow_version"] == 4
 
 _BROKER_MODEL = {
     "id": "gpt-codex-current",
@@ -110,41 +149,43 @@ def test_command_completion_gate_is_format_aware(tmp_path):
     deck.write_bytes(b"presentation-v1")
     deck_hash = hashlib.sha256(deck.read_bytes()).hexdigest()
     review = _ToolCompletionEvidence(
-        tool_input={"path": str(deck)},
+        tool_input={"path": str(deck), "status": "passed"},
         path=str(deck),
         sha256=deck_hash,
     )
     assert _missing_command_completion_tools(request, {}) == (
-        "review_document",
-        "render_interactive",
+        "flowork-cli document review",
+        "render_preview",
     )
     assert _missing_command_completion_tools(
         request,
-        {"review_document": [review]},
-    ) == ("render_document_feedback", "render_interactive")
+        {"document.review": [review]},
+    ) == ("flowork-cli document render", "view_image (every rendered page of the current document)", "render_preview")
     brief = tmp_path / "brief.md"
     brief.write_text("Ready", encoding="utf-8")
     brief_hash = hashlib.sha256(brief.read_bytes()).hexdigest()
     brief_evidence = _ToolCompletionEvidence(
-        tool_input={"path": str(brief)},
+        tool_input={"path": str(brief), "status": "passed"},
         path=str(brief),
         sha256=brief_hash,
     )
     assert _missing_command_completion_tools(
         request,
         {
-            "review_document": [brief_evidence],
+            "document.review": [brief_evidence],
             "render_interactive": [brief_evidence],
         },
     ) == ()
 
 
-def test_command_completion_gate_invalidates_stale_file_evidence(tmp_path):
+@pytest.mark.parametrize("preview_tool", ["render_preview", "render_interactive"])
+def test_command_completion_gate_invalidates_stale_file_evidence(tmp_path, preview_tool):
     path = tmp_path / "report.xlsx"
     path.write_bytes(b"accepted-v1")
     accepted_hash = hashlib.sha256(path.read_bytes()).hexdigest()
     item = _ToolCompletionEvidence(
-        tool_input={"path": str(path)},
+        tool_input={"path": str(path), "status": "passed", "total_pages": 1,
+                    "images": [{"page": 1, "file": str(path)}], "_image_hashes": {str(path): accepted_hash}},
         path=str(path),
         sha256=accepted_hash,
     )
@@ -173,22 +214,24 @@ def test_command_completion_gate_invalidates_stale_file_evidence(tmp_path):
         }],
     )
     evidence = {
-        "review_document": [item],
-        "render_document_feedback": [item],
-        "render_interactive": [item],
+        "document.review": [item],
+        "document.render": [item],
+        "view_image": [item],
+        preview_tool: [item],
     }
     assert _missing_command_completion_tools(request, evidence) == ()
 
     path.write_bytes(b"modified-after-preview")
 
     assert _missing_command_completion_tools(request, evidence) == (
-        "review_document",
-        "render_document_feedback",
-        "render_interactive",
+        "flowork-cli document review",
+        "flowork-cli document render",
+        "view_image (every rendered page of the current document)",
+        "render_preview",
     )
 
 
-def test_command_completion_gate_requires_validated_workflow_publication():
+def test_command_completion_gate_verifies_writes_without_inventing_write_authority():
     request = RuntimeTurnRequest(
         tenant_id="tenant",
         user_id="user",
@@ -213,62 +256,93 @@ def test_command_completion_gate_requires_validated_workflow_publication():
             "activated_this_turn": True,
         }],
     )
-    checked = _ToolCompletionEvidence(
-        tool_input={"workflow_path": "/data/workflow.json"},
-        path="/data/workflow.json",
-        sha256=None,
-    )
     published = _ToolCompletionEvidence(
-        tool_input={"workflow_path": "/data/workflow.json"},
-        path="/data/workflow.json",
+        tool_input={"id": "wf", "version": "v1.sv3"},
+        path="",
         sha256=None,
     )
 
-    assert _missing_command_completion_tools(request, {}) == (
-        "check_workflow",
-        "update_canvas",
-    )
+    assert _missing_command_completion_tools(request, {}) == ()
     assert _missing_command_completion_tools(
         request,
-        {"check_workflow": [checked]},
-    ) == ("update_canvas",)
+        {"workflow.upload": [published]},
+    ) == ("render_preview",)
     assert _missing_command_completion_tools(
         request,
-        {"check_workflow": [checked], "update_canvas": [published]},
+        {"workflow.upload": [published], "workflow.preview": [published]},
+    ) == ()
+    assert _missing_command_completion_tools(
+        request,
+        {"workflow.saved": [published], "workflow.preview": [published]},
     ) == ()
 
-    wrong_file = _ToolCompletionEvidence(
-        tool_input={"workflow_path": "/data/other.json"},
-        path="/data/other.json",
+    wrong_version = _ToolCompletionEvidence(
+        tool_input={"id": "wf", "version": "v1.sv2"},
+        path="",
         sha256=None,
     )
     assert _missing_command_completion_tools(
         request,
-        {"check_workflow": [checked], "update_canvas": [wrong_file]},
-    ) == ("check_workflow",)
+        {"workflow.upload": [published], "workflow.preview": [wrong_version]},
+    ) == ("render_preview",)
 
-    bypassed_validation = _ToolCompletionEvidence(
-        tool_input={
-            "workflow_path": "/data/workflow.json",
-            "require_valid": False,
-        },
-        path="/data/workflow.json",
-        sha256=None,
-    )
+    # Terminal text is not trusted evidence that a graph was written. Without
+    # a confirmed write the gate must never invent a compulsory upload.
     assert _missing_command_completion_tools(
         request,
         {
-            "check_workflow": [checked],
-            "update_canvas": [bypassed_validation],
+            "update_canvas": [published],
+            "shell": [published],
         },
-    ) == ("update_canvas",)
+    ) == ()
+
+    for operation in ("workflow.status", "workflow.connect", "workflow.version.set", "workflow.disconnect", "workflow.download", "workflow.check", "workflow.update"):
+        read_only_evidence = {}
+        _record_workflow_cli_completion(read_only_evidence, operation, {"id": "wf", "version": "v1.sv3"})
+        assert _missing_command_completion_tools(request, read_only_evidence) == ()
+
+
+def test_workflow_completion_forgets_deleted_probe_but_keeps_real_deliverable():
+    from vibecanvas_api.services.agent_runtime.codex import _record_workflow_cli_completion
+    evidence = {}
+    _record_workflow_cli_completion(evidence, "workflow.upload", {"id": "main", "version": "v2.sv1"})
+    _record_workflow_cli_completion(evidence, "workflow.create", {"id": "probe", "version": "v1.sv0"})
+    assert evidence["workflow.saved"][-1].tool_input["id"] == "probe"
+    _record_workflow_cli_completion(evidence, "workflow.delete", {"id": "probe", "error": "approval_denied"})
+    assert len(evidence["workflow.saved"]) == 2
+    _record_workflow_cli_completion(evidence, "workflow.delete", {"id": "probe", "deleted": True, "cleanup": "pending"})
+    assert [item.tool_input for item in evidence["workflow.saved"]] == [{"id": "main", "version": "v2.sv1"}]
+    _record_workflow_cli_completion(evidence, "workflow.delete", {"id": "main", "deleted": True})
+    assert evidence["workflow.saved"] == []
+
+
+@pytest.mark.parametrize("operation", ["workflow.create", "workflow.upload", "workflow.operation", "workflow.version.create"])
+def test_workflow_completion_tracks_only_confirmed_graph_changes(operation):
+    evidence = {}
+    result = {"id": "wf", "version": "v2.sv5", "applied": 1}
+    if operation == "workflow.operation":
+        result["error"] = "node_not_found"  # A committed successful prefix.
+    _record_workflow_cli_completion(evidence, operation, result)
+    assert evidence["workflow.saved"][0].tool_input == {"id": "wf", "version": "v2.sv5"}
+    for action in ("workflow.connect", "workflow.disconnect", "workflow.version.set"):
+        _record_workflow_cli_completion(evidence, action, {"id": "other", "version": "v1.sv0"})
+        assert evidence["workflow.saved"][0].tool_input == {"id": "wf", "version": "v2.sv5"}
+    _record_workflow_cli_completion(evidence, "workflow.operation", {"error": "node_not_found", "applied": 0})
+    assert evidence["workflow.saved"][0].tool_input["version"] == "v2.sv5"
+    _record_workflow_cli_completion(evidence, "workflow.upload", {"error": "result_unknown"})
+    assert "workflow.saved" not in evidence and "workflow.upload" not in evidence
+
+
+@pytest.mark.parametrize("kind,expected", [("file", "/data/final/report.xlsx"), ("url", "")])
+def test_unified_preview_completion_only_uses_file_sources(kind, expected):
+    assert _completion_file_path({"type": kind, "source": "/data/final/report.xlsx"}) == expected
 
 
 def test_command_completion_reminder_identifies_reviewed_publication_path():
     reminder = _command_completion_reminder(
-        ("render_interactive",),
+        ("render_preview",),
         {
-            "review_document": [
+            "document.review": [
                 _ToolCompletionEvidence(
                     tool_input={"path": "/data/final/report.xlsx"},
                     path="/data/final/report.xlsx",
@@ -278,9 +352,9 @@ def test_command_completion_reminder_identifies_reviewed_publication_path():
         },
     )
 
-    assert "path=\"/data/final/report.xlsx\"" in reminder
+    assert 'type="file", source="/data/final/report.xlsx"' in reminder
     assert "do not merely describe the call" in reminder
-    assert "your very next action must be that `render_interactive` tool call" in reminder
+    assert "your very next action must be that `render_preview` tool call" in reminder
     assert "Do not inspect, edit, review, render feedback" in reminder
 
 
@@ -310,6 +384,30 @@ def _isolate_broker_capability_file(monkeypatch):
     monkeypatch.setattr(
         "vibecanvas_api.services.agent_runtime.codex._write_history_coverage",
         lambda *_args, **_kwargs: None,
+    )
+    for name in ("prepare_platform_guidance", "mark_guidance_loaded"):
+        monkeypatch.setattr(
+            f"vibecanvas_api.services.agent_runtime.codex.{name}",
+            lambda *_args, **_kwargs: None,
+        )
+    monkeypatch.setattr(
+        "vibecanvas_api.services.agent_runtime.codex.needs_guidance_update",
+        lambda *_args: False,
+    )
+
+    class FakeCliGateway:
+        async def activate(self, invoke, **_kwargs):
+            self.invoke = invoke
+            return {"PATH": "/tmp/test-cli:/usr/bin", "FLOWORK_CLI_SOCKET": "/tmp/test-cli/socket"}
+
+        async def deactivate(self):
+            self.invoke = None
+
+        async def close(self):
+            await self.deactivate()
+
+    monkeypatch.setattr(
+        "vibecanvas_api.services.agent_runtime.codex.CliGateway", FakeCliGateway,
     )
 
 
@@ -1351,6 +1449,19 @@ async def test_codex_publishes_reviewed_document_through_completion_hub(
     monkeypatch,
 ):
     gateway_calls: list[tuple[str, dict]] = []
+    from vibecanvas_api.services.agent_runtime.codex import CliGateway
+    original_activate = CliGateway.activate
+
+    async def activate_cli(self, invoke, **kwargs):
+        env = await original_activate(self, invoke, **kwargs)
+        callback = kwargs["document_complete"]
+        base = {"file": "/data/deck.pptx", "source_hash": "sha256:" + "a" * 64}
+        callback("document.review", {}, {**base, "status": "passed"})
+        callback("document.render", {}, {**base, "status": "succeeded", "total_pages": 1,
+            "images": [{"page": 1, "file": "/data/page.png"}], "_image_hashes": {"/data/page.png": "a" * 64}})
+        return env
+
+    monkeypatch.setattr(CliGateway, "activate", activate_cli)
 
     class FakeCallResult:
         isError = False
@@ -1373,7 +1484,7 @@ async def test_codex_publishes_reviewed_document_through_completion_hub(
                             "require_human_confirm": False,
                         },
                     },
-                    "meta": {"tool": "render_interactive"},
+                    "meta": {"tool": "render_preview"},
                 },
             }
 
@@ -1384,7 +1495,7 @@ async def test_codex_publishes_reviewed_document_through_completion_hub(
         async def activate(self, **_kwargs):
             return [{
                 "name": "interactive",
-                "tools": [{"name": "render_interactive"}],
+                "tools": [{"name": "render_preview"}],
             }]
 
         async def call_tool(self, name, arguments):
@@ -1429,15 +1540,11 @@ async def test_codex_publishes_reviewed_document_through_completion_hub(
                     }
                 },
             }
-            for item_id, tool in (
-                ("review", "review_document"),
-                ("feedback", "render_document_feedback"),
-            ):
+            for item_id in ("image-review",):
                 item = {
                     "id": item_id,
-                    "type": "mcpToolCall",
-                    "tool": tool,
-                    "arguments": {"path": "/data/deck.pptx"},
+                    "type": "imageView",
+                    "path": "/data/page.png",
                 }
                 yield {"method": "item/started", "params": {"item": item}}
                 yield {
@@ -1470,7 +1577,7 @@ async def test_codex_publishes_reviewed_document_through_completion_hub(
     )
     monkeypatch.setattr(
         "vibecanvas_api.services.agent_runtime.codex._completion_file_hash",
-        lambda path: "stable" if path == "/data/deck.pptx" else None,
+        lambda path: "a" * 64 if path in {"/data/deck.pptx", "/data/page.png"} else None,
     )
     monkeypatch.setattr(
         "vibecanvas_api.services.agent_runtime.codex.CodexMcpHubGateway",
@@ -1511,13 +1618,13 @@ async def test_codex_publishes_reviewed_document_through_completion_hub(
     ]
     assert len(turn_starts) == 1
     assert gateway_calls == [
-        ("render_interactive", {"path": "/data/deck.pptx"}),
+        ("render_preview", {"type": "file", "source": "/data/deck.pptx"}),
     ]
     events = [message["event"] for message in channel.sent if "event" in message]
     preview = next(
         event for event in events
         if event["type"] == "tool.end"
-        and event["payload"]["name"] == "render_interactive"
+        and event["payload"]["name"] == "render_preview"
     )
     assert preview["payload"]["status"] == "done"
     assert preview["payload"]["artifact"]["payload"]["artifact"][
@@ -2471,12 +2578,11 @@ async def test_codex_request_user_input_resumes_the_same_native_turn(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_codex_aggregate_hub_emits_runtime_neutral_approval(monkeypatch):
+async def test_codex_aggregate_hub_has_no_retired_business_approval_bridge(monkeypatch):
     gateways = []
 
     class FakeGateway:
         def __init__(self, _hub, _adapter):
-            self.request_approval = None
             self.url = None
             gateways.append(self)
 
@@ -2484,11 +2590,8 @@ async def test_codex_aggregate_hub_emits_runtime_neutral_approval(monkeypatch):
             self,
             *,
             desired_servers,
-            request_approval,
-            requires_approval,
         ):
-            del desired_servers, requires_approval
-            self.request_approval = request_approval
+            del desired_servers
             self.url = f"http://127.0.0.1:{43210 + len(gateways)}/"
             return []
 
@@ -2526,7 +2629,7 @@ async def test_codex_aggregate_hub_emits_runtime_neutral_approval(monkeypatch):
                     "item": {
                         "id": "exec-browser-click-1",
                         "type": "mcpToolCall",
-                        "tool": "browser_click",
+                        "tool": "custom_browser__click",
                         "arguments": {
                             "handle": "submit",
                             "require_user_auth": True,
@@ -2535,17 +2638,6 @@ async def test_codex_aggregate_hub_emits_runtime_neutral_approval(monkeypatch):
                     }
                 },
             }
-            assert gateways[0].request_approval is not None
-            action = await gateways[0].request_approval(
-                "browser_click",
-                {
-                    "handle": "submit",
-                    "require_user_auth": True,
-                    "approval_reason": "Submit the form",
-                },
-                "gateway-call-1",
-            )
-            assert action == "approve"
             yield {
                 "method": "turn/completed",
                 "params": {"turn": {"id": "codex-turn", "status": "completed"}},
@@ -2586,7 +2678,7 @@ async def test_codex_aggregate_hub_emits_runtime_neutral_approval(monkeypatch):
         message={"role": "user", "content": "/browser submit"},
         model=_BROKER_MODEL,
         approval_mode="agent",
-        active_platform_mcps=["config", "interactive", "workflow", "browser"],
+        active_platform_mcps=["cli", "interactive", "browser"],
         mcp_host_servers=[
             *[
                 {
@@ -2597,7 +2689,7 @@ async def test_codex_aggregate_hub_emits_runtime_neutral_approval(monkeypatch):
                         "capability": f"{name}-private",
                     },
                 }
-                for name in ("config", "interactive", "workflow")
+                for name in ("cli", "interactive")
             ],
             {
                 "name": "browser",
@@ -2621,22 +2713,9 @@ async def test_codex_aggregate_hub_emits_runtime_neutral_approval(monkeypatch):
         "message.start",
         "tool.start",
         "message.end",
-        "approval.requested",
-        "approval.resolved",
         "runtime.completed",
     ]
-    required = events[5]["payload"]
-    assert required["agent_payload"]["tool"] == "browser_click"
-    assert required["prompt_text"] == "Submit the form"
-    assert required["runtime_correlation"] == {
-        "source": "platform_mcp",
-        "runtime_request_id": "gateway-call-1",
-        "runtime_method": "tools/call",
-        "runtime_thread_id": "codex-thread",
-        "runtime_turn_id": "codex-turn",
-        "runtime_item_id": "exec-browser-click-1",
-    }
-    assert events[6]["payload"]["status"] == "approved"
+    assert not any(event["type"].startswith("approval.") for event in events)
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,7 @@ export interface MarkdownProps {
   children: string;
   className?: string;
   streaming?: boolean;
+  publicView?: boolean;
   onOpenFilePreview?: (path: string) => void;
 }
 
@@ -32,6 +33,7 @@ export function Markdown({
   children,
   className,
   streaming = false,
+  publicView = false,
   onOpenFilePreview,
 }: MarkdownProps) {
   return (
@@ -46,6 +48,9 @@ export function Markdown({
           p: ({ children }) => <p>{children}</p>,
           a: ({ children, href }) => {
             const filePath = agentFilePathFromHref(href);
+            if (publicView && (filePath !== null || !/^https?:\/\//i.test(href ?? ''))) {
+              return <span>{children}</span>;
+            }
             const opensPreview = filePath !== null && onOpenFilePreview !== undefined;
             return (
               <a
@@ -67,6 +72,8 @@ export function Markdown({
               </a>
             );
           },
+          // Public snapshots never fetch private files or third-party tracking images.
+          ...(publicView ? { img: ({ alt }: { alt?: string }) => <span>{alt || '[image]'}</span> } : {}),
           ul: ({ children }) => <ul>{children}</ul>,
           ol: ({ children }) => <ol>{children}</ol>,
           li: ({ children }) => <li>{children}</li>,

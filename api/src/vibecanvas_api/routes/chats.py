@@ -368,7 +368,6 @@ async def get_chat_workspace(
         "workspace_scope_id": scope_id,
         "mount_scope_id": _mount_scope_id(auth.user_id),
         "chat_id": chat_id,
-        "current_workflow_id": await chat_repo.get_current_workflow_id(chat_id),
     }
 
 
@@ -805,7 +804,6 @@ async def start_chat_sandbox(
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
     scope_id = _chat_workspace_scope_id(chat_id)
-    current_workflow_id = await chat_repo.get_current_workflow_id(chat_id)
     session = await get_sandbox_manager().get_session(
         auth.tenant_id,
         scope_id,
@@ -817,7 +815,6 @@ async def start_chat_sandbox(
     return {
         "scope_id": scope_id,
         "mount_scope_id": _mount_scope_id(auth.user_id),
-        "current_workflow_id": current_workflow_id,
         **status,
     }
 
@@ -1262,6 +1259,12 @@ def _hitl_history_projection(artifact_row, hitl_row) -> tuple[str, HistoryMessag
     payload["hitl_request_id"] = hitl_row.hitl_request_id
     payload["hitl_type"] = hitl_row.hitl_type
     meta["hitl_type"] = hitl_row.hitl_type
+    correlation = getattr(hitl_row, "runtime_correlation_json", None) or {}
+    if correlation.get("source") in {"flowork_cli", "browser_transfer"}:
+        method = str(correlation.get("runtime_method") or "")
+        meta["cli_tool_name"] = "flowork-cli " + method.replace(".", " ") if method else "flowork-cli"
+        agent_payload = getattr(hitl_row, "agent_payload_json", None) or {}
+        meta["cli_arguments"] = agent_payload.get("arguments") or {}
     if is_pre_tool_approval:
         payload["pending_approval"] = pending
         meta["pending_approval"] = pending
@@ -1320,6 +1323,19 @@ def _merge_hitl_history_projections(
                 projected_history.extend(
                     by_tool_call.pop(str(tool_call_id), [])
                 )
+    # A CLI approval originates inside a shell command, not a native MCP call.
+    # Restore its own persisted card even when the native transcript has no
+    # matching synthetic call. Never manufacture calls for other providers.
+    for tool_call_id, pending in by_tool_call.items():
+        if tool_call_id.startswith(("cli_", "transfer_")):
+            for projection in pending:
+                cli_meta = (projection.artifact or {}).get("meta") or {}
+                projected_history.append(HistoryMessage(
+                    id=f"{projection.id}:call", role="assistant", content="", ts=projection.ts,
+                    tool_calls=[{"id": tool_call_id, "name": cli_meta.get("cli_tool_name", "flowork-cli"),
+                                 "args": cli_meta.get("cli_arguments", {})}],
+                ))
+                projected_history.append(projection)
     return projected_history
 
 
@@ -1730,12 +1746,15 @@ async def decide_hitl_request(
         not_found_detail="hitl_request_not_found",
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    row, decision_applied = await hitl_repo.resolve(
-        hitl_request_id=hitl_request_id,
-        decision=effective_decision,
-        decision_payload=body.decision_payload,
-        interaction_result=body.interaction_result,
-    )
+    try:
+        row, decision_applied = await hitl_repo.resolve(
+            hitl_request_id=hitl_request_id,
+            decision=effective_decision,
+            decision_payload=body.decision_payload,
+            interaction_result=body.interaction_result,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if row is None:
         raise HTTPException(status_code=404, detail=f"hitl request {hitl_request_id} not found")
     await hitl_repo.commit()
@@ -2685,11 +2704,8 @@ async def post_message(
             await chat_repo.set_active_modes(chat_id, active_modes)
 
     chat_workspace_scope_id = _chat_workspace_scope_id(chat_id)
-    current_workflow_id = await chat_repo.get_current_workflow_id(chat_id)
-    effective_current_workflow_id = current_workflow_id
-    # ``wf_id`` passed to AgentContext is the chat workspace owner for
-    # /data, /memory, and /logs. ``current_workflow_id`` separately mounts the
-    # selected Workflow is resolved by Platform MCP and does not alter mounts.
+    # AgentContext owns the Chat workspace mounts. Explicit Workflow targets
+    # are command arguments and never remount the workspace.
     agent_wf_id = chat_workspace_scope_id
     # NOTE: `/browser` is no longer a handoff. A side-panel `/browser` activates
     # browser mode (additive, above) and runs a normal agent turn below; a
@@ -3128,7 +3144,6 @@ async def post_message(
             "is_first": is_first,
             "chat_context": stripped[:80],
             "workspace_scope_id": agent_wf_id,
-            "current_workflow_id": effective_current_workflow_id,
             "agent_surface": agent_surface,
             "available_commands": sorted(available_commands),
             "active_modes": sorted(effective_active_modes),
@@ -3146,7 +3161,7 @@ async def post_message(
         if bootstrap_sidepanel_browser:
             # Sending from the side panel is the explicit user action that
             # authorizes the visible page for this Chat. Reserve the durable
-            # lease before official Playwright MCP connects; the CDP endpoint
+            # lease before Browser CLI connects; the CDP endpoint
             # confirms it only after the extension initializes successfully.
             from ..browser.session_control import (
                 reserve_sidepanel_browser_session,
@@ -3163,7 +3178,6 @@ async def post_message(
                 open_request=open_request,
                 turn_request=turn_request,
                 workspace_scope_id=agent_wf_id,
-                current_workflow_id=effective_current_workflow_id,
                 stop_event=stop_ev,
             ):
                 yield product_event
@@ -3175,7 +3189,7 @@ async def post_message(
 
                 await release_unconfirmed_browser_session(
                     browser_lease,
-                    reason="playwright_mcp_startup_incomplete",
+                    reason="browser_runtime_startup_incomplete",
                 )
 
     # Authorization may have changed while model/MCP/runtime inputs were being

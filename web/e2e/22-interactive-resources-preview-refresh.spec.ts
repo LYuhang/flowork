@@ -162,9 +162,9 @@ test('dynamic Interactive resources survive save failures; Preview follows VFS e
   const prompt = [
     'Create /data/interactive-acceptance/index.html using this exact HTML without changing it:',
     html,
-    'Then call render_interactive exactly once with path="/data/interactive-acceptance/index.html",',
+    'Then call render_preview exactly once with type="file", source="/data/interactive-acceptance/index.html",',
     'title="Dynamic Resource Acceptance", and require_human_confirm=true.',
-    'Do not use the retired nested view/type arguments and do not emit prose after the Preview call.',
+    'Use flat arguments, not a nested view, and do not emit prose after the Preview call.',
   ].join(' ');
   const { scopeId, chatId } = await sendPrompt(page, prompt);
   const workspace = await api(

@@ -9,10 +9,6 @@ from __future__ import annotations
 
 
 _BUILTIN_TOOL_NAMES = frozenset({
-    "read_file",
-    "write_file",
-    "edit_file",
-    "grep",
     "read_images",
     "bash",
     "todo",

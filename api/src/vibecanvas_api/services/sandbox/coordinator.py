@@ -50,10 +50,19 @@ class EmbeddedSandboxClient:
         self._specs: dict[str, SandboxSpec] = {}
 
     async def capabilities(self) -> SandboxCapabilities:
+        # bubblewrap has no checkpoint/restore and no post-boot dynamic mount
+        # support (see services/sandbox/bubblewrap.py); report a reduced
+        # capability set unconditionally rather than deriving it from the
+        # gVisor-only snapshot-mode settings below.
+        is_bubblewrap = str(getattr(config, "sandbox_runtime", "gvisor")) == "bubblewrap"
         return SandboxCapabilities(
-            snapshot_restore=bool(
-                getattr(self.manager, "snapshot_sessions", False)
-                or getattr(config, "sandbox_resident_mode", "coldboot") == "snapshot"
+            snapshot_restore=(
+                False
+                if is_bubblewrap
+                else bool(
+                    getattr(self.manager, "snapshot_sessions", False)
+                    or getattr(config, "sandbox_resident_mode", "coldboot") == "snapshot"
+                )
             ),
             hard_cancel=True,
             persistent_volume=True,
@@ -71,6 +80,7 @@ class EmbeddedSandboxClient:
             user_id=spec.principal_id,
             expose_run=spec.expose_run,
             expose_runtime=spec.expose_runtime,
+            expose_mount=spec.expose_mount,
             lease=(
                 "resident"
                 if spec.lifecycle_policy == "resident"
@@ -168,6 +178,7 @@ class SandboxCoordinator:
         expose_run: bool = True,
         expose_runtime: bool = False,
         lease: str = "interactive",
+        expose_mount: bool = True,
     ):
         """Compatibility surface used while Runtime execution is phased over."""
         spec = SandboxSpec(
@@ -180,6 +191,7 @@ class SandboxCoordinator:
             lifecycle_policy=lease,
             expose_run=expose_run,
             expose_runtime=expose_runtime,
+            expose_mount=expose_mount,
         )
         ref = await self.acquire(spec)
         session_resolver = getattr(self.client, "session", None)

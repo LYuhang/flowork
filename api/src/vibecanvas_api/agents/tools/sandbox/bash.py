@@ -1,119 +1,110 @@
-"""bash tool — run a shell command in the current Agent Runtime sandbox.
-
-The Agent Runtime process already runs inside a sandbox, so this tool invokes bash
-directly against the mounted workspace. It does not resolve or inject a nested
-``SandboxSession``. Network and persistent overlay behavior are properties of
-the owning Runtime sandbox.
-
-OUTPUT: same two-channel design as the fs tools (``@tool_output`` + render) —
-``content`` is the command's terminal output (stdout, plus a ``[stderr]`` section
-when present), the exit_code is the chaining handle on the artifact, and a large
-stdout is offloaded to a re-readable ref by the decorator. NEVER raises a Python
-exception to the agent loop — a workspace/run failure becomes a clean error
-envelope; a non-zero exit is a SUCCESSFUL tool call whose output the agent reads.
-"""
+"""Direct, cancellable shell execution for the Workflow SubAgent."""
 from __future__ import annotations
 
-import time
+import asyncio
+import json
+import os
+from pathlib import Path
+import signal
+import tempfile
 
-from vibecanvas_api.services.platform_mcp.tool_runtime import tool
-import structlog
-
-from vibecanvas_api.agents.tools.decorator import tool_output, ToolError
-from vibecanvas_api.agents.tools.render import register_render, Rendered
 from vibecanvas_api.agents.tools import workspace_fs
 
-_STDERR_CAP = 2000
-logger = structlog.get_logger(__name__)
+_INLINE_CHARS = 24000
 
 
-def _abstract(command: str, exit_code, stdout: str) -> str:
-    lines = stdout.count("\n") + (1 if stdout and not stdout.endswith("\n") else 0)
-    cmd = command if len(command) <= 120 else command[:117] + "…"
-    return f"ran `{cmd}`, exit {exit_code}, {lines} lines"
-
-
-@register_render("bash")
-def _render(raw: dict, ctx) -> Rendered:
-    """bash presentation: content = the command's terminal output (stdout, plus a
-    trailing ``[stderr]`` section when present) — the agent reads it like a terminal.
-    exit_code is the chaining handle on the artifact; a non-zero exit is still a
-    successful tool call whose output the agent inspects."""
-    stdout = raw.get("stdout", "")
-    stderr = (raw.get("stderr") or "")[:_STDERR_CAP]
-    exit_code = raw.get("exit_code")
-    body = stdout
-    if stderr:
-        body = (body.rstrip("\n") + "\n" if body else "") + f"[stderr]\n{stderr}"
-    return Rendered(content=body, content_type="text/shell",
-                    abstract=_abstract(raw.get("command", ""), exit_code, stdout),
-                    extras={
-                        "command": raw.get("command", ""),
-                        "exit_code": exit_code,
-                        "stderr": stderr,
-                        "duration_ms": raw.get("duration_ms"),
-                    })
-
-
-@tool_output(content_type="text/shell", tool="bash")
-async def _bash(command: str, timeout_s: int) -> dict:
-    """Run the command directly in the current sandbox Runtime. Returns
-    the raw ``{command, stdout, stderr, exit_code}`` payload (the render lays it out
-    as terminal output; a large stdout is offloaded by the decorator). A non-zero
-    exit is NOT a tool error — it rides the output. Boot/run failures raise a
-    ToolError with a CLEAN message (caught by the decorator → error envelope)."""
-    started = time.perf_counter()
-    logger.warning(
-        "agent_runtime_bash_start",
-        timeout_s=timeout_s,
-        command_len=len(command or ""),
-    )
+async def _terminate(process):
     try:
-        res = await workspace_fs.run_command(command, timeout_s=timeout_s)
-    except Exception:  # boot/run failure — clean message, never leak the raw cause
-        logger.warning(
-            "bash_tool_run_failed",
-            elapsed_ms=int((time.perf_counter() - started) * 1000),
-            exc_info=True,
-        )
-        raise ToolError("run_failed", "the command could not be run in the workspace sandbox")
-    logger.warning(
-        "agent_runtime_bash_done",
-        exit_code=res.get("exit_code"),
-        stdout_chars=len(res.get("stdout") or ""),
-        stderr_chars=len(res.get("stderr") or ""),
-        elapsed_ms=int((time.perf_counter() - started) * 1000),
-    )
-    return {"command": command, "stdout": res.get("stdout") or "",
-            "stderr": res.get("stderr") or "", "exit_code": res.get("exit_code"),
-            "duration_ms": int((time.perf_counter() - started) * 1000)}
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    await process.wait()
 
 
-@tool(response_format="content_and_artifact")
-async def bash(command: str, timeout_s: int = 60) -> str:
-    """Run a shell command and return its output.
+def _result(payload: dict) -> tuple[str, dict]:
+    return json.dumps(payload, ensure_ascii=False), payload
 
-    The working environment persists across commands — anything you install or
-    create stays available to later commands.
 
-    This tool returns stdout/stderr exactly as produced by bash. Many useful
-    commands are naturally quiet: downloads, redirects, writes, moves, and some
-    validation commands may print nothing on success. When you need to know what
-    happened, add explicit status/verification commands to your shell command.
+def _output(path: Path) -> dict:
+    # Output is streamed to disk while running, not accumulated in process RAM.
+    with path.open(encoding="utf-8", errors="replace") as stream:
+        preview = stream.read(_INLINE_CHARS + 1)
+    if len(preview) <= _INLINE_CHARS:
+        path.unlink()
+        return {"text": preview}
+    return {"text": preview[:_INLINE_CHARS], "truncated": True, "file": str(path)}
 
-    Good patterns:
-    - `python script.py && echo "OK: script completed"`
-    - `jq empty /data/workflow.json && echo "OK: valid json"`
-    - `curl -fL -S -s -o /data/frame.jpg "$URL" && ls -lh /data/frame.jpg`
-    - `curl -fL -S -s -o /data/frame.jpg "$URL" && python - <<'PY'\nfrom pathlib import Path\np=Path('/data/frame.jpg')\nprint(f'OK: {p} {p.stat().st_size} bytes')\nPY`
-    - `cat > /data/out.txt <<'EOF'\n...\nEOF\nwc -c /data/out.txt && echo "OK: wrote file"`
 
-    Args:
-        command: the shell command to run.
-        timeout_s: max seconds to allow (default 60).
+async def bash(command: str, timeout_s: float | None = None, *, cwd: str | None = None) -> tuple:
+    """Execute a shell command in the current Workflow sandbox.
 
-    Returns:
-        content = the command's output (like a terminal). A non-zero exit is still a
-        successful tool call — inspect the output.
+    Use shell commands or Python scripts to read, search, create and edit files.
+    Each call starts a new shell in the run directory: file changes persist,
+    but cd and shell variables do not carry over to the next call.
+    Inspect exit_code, stdout and stderr. Long output is saved to the returned
+    file path; read it in portions with a subsequent command.
+    timeout_s is optional; no extra command deadline is imposed when omitted.
+    Workflow cancellation and sandbox lifetime still apply. Commands are awaited;
+    do not leave background processes running after the delegated task finishes.
     """
-    return await _bash(command, timeout_s)
+    if not command.strip() or (timeout_s is not None and timeout_s <= 0):
+        return _result({"status": "error", "error": {
+            "code": "invalid_arguments", "message": "Provide a command and, if set, a positive timeout_s.",
+        }})
+    process = None
+    paths = []
+    try:
+        directory = cwd or workspace_fs.roots()[0]
+        # Per-invocation files also isolate concurrent nodes. Full output is
+        # retained when too long for inline display or when the command fails.
+        with tempfile.NamedTemporaryFile(dir=directory, prefix=".subagent-stdout-", suffix=".log", delete=False) as stdout:
+            paths.append(Path(stdout.name))
+            with tempfile.NamedTemporaryFile(dir=directory, prefix=".subagent-stderr-", suffix=".log", delete=False) as stderr:
+                paths.append(Path(stderr.name))
+                process = await asyncio.create_subprocess_exec(
+                    "/bin/bash", "-c", command, cwd=directory,
+                    stdout=stdout, stderr=stderr, start_new_session=True,
+                )
+                timed_out = False
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=timeout_s)
+                except asyncio.TimeoutError:
+                    timed_out = True
+                    await _terminate(process)
+                except asyncio.CancelledError:
+                    await _terminate(process)
+                    raise
+        out, err = (_output(path) for path in paths)
+        payload = {
+            "exit_code": process.returncode, "stdout": out.pop("text"), "stderr": err.pop("text"),
+        }
+        if out:
+            payload["stdout_file"] = out["file"]
+            payload["stdout_truncated"] = True
+        if err:
+            payload["stderr_file"] = err["file"]
+            payload["stderr_truncated"] = True
+        if out or err:
+            payload["hint"] = "Full output is saved to the returned file paths. Read it in portions."
+        if timed_out:
+            payload.update(status="error", error={
+                "code": "command_timeout",
+                "message": f"The command exceeded timeout_s={timeout_s} and was terminated.",
+            })
+        elif process.returncode != 0:
+            payload.update(status="error", error={
+                "code": "command_failed", "message": "The command exited unsuccessfully. Inspect stdout and stderr.",
+            })
+        else:
+            payload["status"] = "success"
+        return _result(payload)
+    except asyncio.CancelledError:
+        for path in paths:
+            path.unlink(missing_ok=True)
+        raise
+    except (OSError, RuntimeError) as exc:
+        for path in paths:
+            path.unlink(missing_ok=True)
+        return _result({"status": "error", "error": {
+            "code": "run_failed", "message": f"Could not execute command: {type(exc).__name__}. Check the run directory and available disk space.",
+        }})

@@ -1,0 +1,54 @@
+# Flowork cloud Agent guidance
+
+Managed by Flowork, not a memory file. This guidance and active /command playbooks are injected into your context. Do not search the filesystem for an AGENTS.md copy or a /knowledge directory.
+
+Flowork is a cloud platform for workflows, tasks, deployments and Knowledge packages. You work in a Chat's Agent sandbox. Platform access uses the active user's current permissions; the CLI needs no separate login. The platform checks identity, permissions and required approvals on each request. Do not provide user IDs, credentials or permission claims to gain resource access. Use the provided flowork-cli on PATH; if a custom shell resets PATH, invoke "$FLOWORK_CLI_BIN" instead of searching for platform installation directories. Workflow commands are stateless: always pass --workflow_id ID; graph commands also require --major vN. There is no current or connected Workflow.
+
+## Available commands
+
+Use `flowork-cli config get --scope workflow --workflow_id ID --major vN` for saved Workflow settings, or `config get --scope model_api` to discover your authorized manually added model APIs. Account connections and platform defaults are not Workflow model candidates.
+
+Use `flowork-cli workflow <command>`:
+
+- `list`: discover accessible workflows.
+- `create`: create a workflow and return its ID.
+- `get / update / delete`: read or edit metadata, or delete a workflow (approval policy applies).
+- `download / upload`: export or replace workflow JSON.
+- `operation`: apply incremental node and edge edits.
+- `layout`: arrange saved node positions; use named --workflow_id and --major.
+- `get-spec / check`: discover node definitions (`get-spec --list-types`, then --type) and validate workflows.
+- `version list / create`: inspect majors or fork a new major from an explicit source.
+- `run / run-batch`: execute a workflow or batch; `run --node` runs one node.
+
+Platform resource operations use the CLI. `render_preview` MCP displays files, URLs and saved workflows without waiting. `render_choices` asks the user to choose options and waits for their confirmation or cancellation within that tool call; it does not grant approval.
+
+Use `flowork-cli task` for durable asynchronous work. Flat commands include `create/status/history/logs/download/cancel`; use named `--task_type` and `--task_id`. Types are `batch_exec` and `schedule_run`; scheduled execution queries also require `--execution_id` from history. See leaf help for syntax. Submission returns an ID, not completed work; Tasks survive Chat exit. Repeated `--mapping` configures output columns, not input names. Consult subcommand help; there is no Task MCP or current task. Read returned status/message/hint: command success does not mean execution success. Both task types default to no user storage; `--mount true|false` controls /mount.
+
+Use `flowork-cli deployment` for published API/webhook entry points. Named --deployment_id identifies the resource; --execution_id identifies one call in history. Creation does not execute; run is a real test. Creation/rotation save one-time credentials to a required private --secret_file, never stdout. Do not preview/share credentials. No Deployment MCP or connection state.
+
+Use `flowork-cli knowledge` for file packages: list/status/create/update, download/upload/search/delete. Always use named --knowledge_id; no connection state or Knowledge MCP. update edits metadata; upload replaces the entire package and automatically increments its version. Read leaf help and README.md. Publishing files succeeds separately from asynchronous search indexing.
+
+Use `flowork-cli document review / render` for sandbox document structure checks and page images. Always pass --file; render defaults to all pages. No Document MCP or connection state. Inspect PNGs with the image tool; publish native files with render_preview. Read leaf help; /document supplies the delivery workflow.
+
+Use `flowork-cli diagram search-shapes / review / render` for native .drawio files. Author formatted uncompressed XML with ordinary file tools; search returns exact shape styles, review checks structure, render produces page PNGs. No Diagram MCP or connection state. /diagram guides the inspection workflow.
+
+Use `flowork-cli browser` in side-panel Browser Chats to control real authorized tabs: `tab-list` → `snapshot --tab_id ID` → act → verify. Named --tab_id is explicit, not a current-tab state or list index. No Browser MCP. Files use sandbox paths; Cookie export requires separate user permission and uses temporary private files. Downloads first stay on the user's computer, then follow the turn's transfer approval policy. If candidates need selection, use render_choices with the returned choice_set_id, then download-receive; do not repeat the download click. Uploads and file drops use the same approval policy before sending bytes to the page. Browser work ends with this Agent turn; poll unfinished shell sessions before answering. Read leaf --help for syntax and /browser for the operating workflow.
+
+## Find details when needed
+
+Start with `flowork-cli --help`, then `flowork-cli workflow --help` and the relevant subcommand's `--help`. Help owns syntax, examples, outputs and edge cases; `get-spec` supplies node schemas on demand. Do not invent unsupported commands. Read stdout and exit codes, including partial failures. Reconcile unknown write outcomes before retrying. Active command-mode instructions describe task workflows. Link workspace files by their actual path; optional line references use `#L24`, not a `:24` filename suffix. Report missing prerequisites rather than claiming that a placeholder or a status flag implements the requested capability.
+
+## Paths and visibility
+
+These are sandbox paths, not host paths. Visibility depends on the execution entrypoint; a Workflow ID does not remount the Chat workspace.
+
+| Path | Agent | Workflow nodes | Purpose and lifetime |
+| --- | --- | --- | --- |
+| `/data` | Read/write | Visible in Chat CLI runs; not a portable dependency for independent runs | Chat workspace: working files, CLI inputs/results; platform writeback/restore |
+| `/memory` | Read/write | Same as `/data` | Chat notes; platform writeback/restore, not connection state |
+| `/logs` | Read/write | Same as `/data` | Chat diagnostics; platform writeback/restore |
+| `/mount` | Read/write when mounted | Read/write when the execution enables the user's mount | User-scoped persistent files, independent of Chat/Workflow target |
+| `/run` | Not mounted into the Agent runtime; file/shell tools may expose it | Execution/debug space; layout depends on the entrypoint | Temporary; not a durable handoff or a portable per-job directory |
+| `/skills` | Read-only when configured | Not part of the workflow mount contract | Platform-provided skill instructions |
+
+Chat CLI workers currently inherit the workspace mounts; independent Task or deployment execution must not rely on them. For reusable file inputs, use an enabled `/mount` or explicit workflow inputs/producers, not an Agent-local path. Separate sandboxes have their own mount projections: do not assume immediate cross-sandbox synchronization. Writeback is not a guarantee against abrupt loss. Use CLI-reported result paths instead of guessing `/run` internals. `/runtime` is platform-private runtime state, excluded from file tools and workflow mounts; do not use it for user files, memory or connection state.

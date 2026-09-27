@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import socket
-import uuid
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 import uvicorn
@@ -18,25 +16,6 @@ from .mcp_hub_adapter import (
     project_hub_tools,
 )
 from .mcp_runtime_protocol import McpDesiredServer
-
-
-ApprovalCallback = Callable[[str, dict[str, Any], str], Awaitable[str]]
-ApprovalPredicate = Callable[[str, dict[str, Any]], bool]
-
-
-def _not_executed_result(tool_name: str, action: str) -> types.CallToolResult:
-    reason = "user_cancelled" if action == "cancel" else "user_denied"
-    message = "Tool call was not executed because user approval was not granted."
-    return types.CallToolResult(
-        content=[types.TextContent(type="text", text=message)],
-        structuredContent={
-            "status": "error",
-            "error": {"code": reason, "message": message},
-            "tool": tool_name,
-            "not_executed": True,
-        },
-        isError=True,
-    )
 
 
 def _inactive_result(tool_name: str) -> types.CallToolResult:
@@ -61,8 +40,6 @@ class CodexMcpHubGateway:
         self._adapter = adapter
         self._tools: list[types.Tool] = []
         self._routes: dict[str, tuple[str, str]] = {}
-        self._request_approval: ApprovalCallback | None = None
-        self._requires_approval: ApprovalPredicate | None = None
         self._active = False
         self._mcp: FastMCP | None = None
         self._server: uvicorn.Server | None = None
@@ -75,8 +52,6 @@ class CodexMcpHubGateway:
         self,
         *,
         desired_servers: list[McpDesiredServer],
-        request_approval: ApprovalCallback,
-        requires_approval: ApprovalPredicate,
     ) -> list[dict[str, Any]]:
         projections, catalog = await project_hub_tools(
             self._hub,
@@ -88,16 +63,12 @@ class CodexMcpHubGateway:
             item.tool.name: (item.server_name, item.upstream_name)
             for item in projections
         }
-        self._request_approval = request_approval
-        self._requires_approval = requires_approval
         self._active = True
         await self.start()
         return catalog
 
     def deactivate(self) -> None:
         self._active = False
-        self._request_approval = None
-        self._requires_approval = None
 
     async def call_tool(
         self,
@@ -115,18 +86,6 @@ class CodexMcpHubGateway:
                 )],
                 isError=True,
             )
-        request_approval = self._request_approval
-        requires_approval = self._requires_approval
-        if request_approval is None or requires_approval is None:
-            return _inactive_result(name)
-        if requires_approval(name, arguments):
-            action = await request_approval(
-                name,
-                dict(arguments),
-                f"mcp_{uuid.uuid4().hex}",
-            )
-            if action != "approve":
-                return _not_executed_result(name, action)
         server_name, upstream_name = route
         return hub_call_result(await self._hub.call(
             server_name,

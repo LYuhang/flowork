@@ -54,6 +54,27 @@ def test_hot_reads_use_active_materialization_without_redecrypting(tmp_path, mon
     assert b"".join(store.iter_bytes(key, start=8, end=14, chunk_size=3)) == b"current"
 
 
+def test_writeback_preserves_live_inode_and_encrypts_snapshot(tmp_path):
+    store = FilesystemObjectStore(root=str(tmp_path / "cipher"))
+    key = "run/t1/r1/results.jsonl"
+    directory = store.materialize_prefix("run/t1/r1/")
+    path = Path(directory, "results.jsonl")
+    with path.open("wb") as writer:
+        inode = os.fstat(writer.fileno()).st_ino
+        store.persist_materialized_bytes(key, b"")
+        writer.write(b'{"y":7}\n')
+        writer.flush()
+        store.persist_materialized_bytes(key, b"")  # delayed older snapshot
+        assert path.stat().st_ino == inode
+        assert path.read_bytes() == b'{"y":7}\n'
+        writer.write(b'{"y":9}\n')
+        writer.flush()
+        store.persist_materialized_bytes(key, path.read_bytes())
+    assert (tmp_path / "cipher" / key).read_bytes().startswith(MAGIC)
+    store.release_materialized_prefix("run/t1/r1/", directory)
+    assert store.fetch_bytes(key) == b'{"y":7}\n{"y":9}\n'
+
+
 def test_release_materialized_prefix_keeps_ciphertext_only(tmp_path):
     store = FilesystemObjectStore(root=str(tmp_path / "cipher"))
     key = "run/t1/r1/private.txt"

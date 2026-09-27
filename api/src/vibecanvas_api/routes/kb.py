@@ -475,6 +475,11 @@ async def _create_knowledge_package(
         source="knowledge-base-create",
     )
     await session.commit()
+    if request is not None and getattr(request.state, "cli_knowledge", False):
+        request.state.cli_knowledge_receipt = {
+            "status": "succeeded", "knowledge_id": str(kb.id),
+            "package_version": kb.package_version, "file_count": len(package_files),
+        }
     await apply_committed_structural_mutations(coordinator, mutation_ids)
     await enqueue_package_indexing(
         tenant_id=str(kb.tenant_id),
@@ -734,7 +739,7 @@ async def update_kb(
         action=Action.UPDATE,
     )
     repo = KbRepo(session)
-    kb = await repo.get_active(kb_id)
+    kb = await repo.get_active(kb_id, for_update=True)
     if not kb:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -789,7 +794,7 @@ async def delete_kb(
         action=Action.DELETE,
     )
     repo = KbRepo(session)
-    kb = await repo.get_active(kb_id)
+    kb = await repo.get_active(kb_id, for_update=True)
     if not kb:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -846,6 +851,10 @@ async def delete_kb(
         source="knowledge-base-delete",
     )
     await session.commit()
+    if request is not None and getattr(request.state, "cli_knowledge", False):
+        request.state.cli_knowledge_receipt = {
+            "status": "succeeded", "knowledge_id": str(kb_id), "deleted": True,
+        }
     await apply_committed_structural_mutations(coordinator, mutation_ids)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -879,7 +888,7 @@ async def upload_file(
         action=Action.UPDATE,
     )
     repo = KbRepo(session)
-    kb = await repo.get_active(kb_id)
+    kb = await repo.get_active(kb_id, for_update=True)
     if not kb:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1082,6 +1091,8 @@ async def delete_file(
         action=Action.DELETE,
     )
     repo = KbRepo(session)
+    if await repo.get_active(kb_id, for_update=True) is None:
+        raise HTTPException(status_code=404, detail="kb_not_found")
     file_obj = await repo.get_file(file_id)
     if not file_obj or file_obj.kb_id != kb_id:
         raise HTTPException(

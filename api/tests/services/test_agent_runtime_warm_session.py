@@ -552,19 +552,19 @@ async def test_codex_account_runtime_is_reused_until_session_close(
     )
 
 
-def test_codex_runtime_mounts_resolved_playwright_mcp_package(
+def test_codex_runtime_mounts_resolved_browser_cli_package(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     provider = _FakeProvider()
-    package_root = tmp_path / "playwright-mcp"
+    package_root = tmp_path / "browser-runtime"
     package_root.mkdir()
-    launcher = package_root / "launch.cjs"
+    launcher = package_root / "browser-runtime.cjs"
     launcher.write_text("#!/usr/bin/env node\n", encoding="utf-8")
     launcher.chmod(0o755)
     shim_root = tmp_path / "bin"
     shim_root.mkdir()
-    shim = shim_root / "flowork-playwright-mcp"
+    shim = shim_root / "flowork-browser-runtime"
     shim.symlink_to(launcher)
 
     monkeypatch.setattr(manager_module, "resolve_codex_executable", lambda: "/bin/true")
@@ -574,7 +574,7 @@ def test_codex_runtime_mounts_resolved_playwright_mcp_package(
         lambda _executable: "/bin",
     )
     monkeypatch.setattr(manager_module, "codex_cli_node_runtime", lambda _path: None)
-    monkeypatch.setenv("PLAYWRIGHT_MCP_COMMAND", str(shim))
+    monkeypatch.setenv("BROWSER_CLI_COMMAND", str(shim))
     session = SandboxSession(
         tenant_id="tenant",
         wf_id="chat",
@@ -593,19 +593,19 @@ def test_codex_runtime_mounts_resolved_playwright_mcp_package(
     assert str(package_root) in ro_binds
 
 
-def test_codex_runtime_mounts_diagram_mcp_package(
+def test_codex_runtime_mounts_diagram_search_package(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     provider = _FakeProvider()
     package_root = tmp_path / "drawio-mcp"
     package_root.mkdir()
-    launcher = package_root / "launch.mjs"
+    launcher = package_root / "search.mjs"
     launcher.write_text("#!/usr/bin/env node\n", encoding="utf-8")
     launcher.chmod(0o755)
     shim_root = tmp_path / "bin"
     shim_root.mkdir()
-    shim = shim_root / "flowork-diagram-mcp"
+    shim = shim_root / "flowork-diagram-search"
     shim.symlink_to(launcher)
     desktop_root = tmp_path / "drawio-desktop"
     desktop_root.mkdir()
@@ -622,8 +622,8 @@ def test_codex_runtime_mounts_diagram_mcp_package(
         lambda _executable: "/bin",
     )
     monkeypatch.setattr(manager_module, "codex_cli_node_runtime", lambda _path: None)
-    monkeypatch.setenv("PLAYWRIGHT_MCP_COMMAND", str(tmp_path / "missing"))
-    monkeypatch.setenv("DIAGRAM_MCP_COMMAND", str(shim))
+    monkeypatch.setenv("BROWSER_CLI_COMMAND", str(tmp_path / "missing"))
+    monkeypatch.setenv("DIAGRAM_SEARCH_COMMAND", str(shim))
     monkeypatch.setenv("DRAWIO_CLI_COMMAND", str(desktop_shim))
     session = SandboxSession(
         tenant_id="tenant",

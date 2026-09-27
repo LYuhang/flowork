@@ -33,3 +33,37 @@ def test_codex_cli_node_runtime_is_not_required_for_native_binary(tmp_path):
     executable.chmod(0o755)
 
     assert codex_cli.codex_cli_node_runtime(str(executable)) is None
+
+
+def test_native_bundle_root_keeps_sibling_resources_visible_through_entrypoint_symlink(tmp_path):
+    package = tmp_path / "codex-0.147.0"
+    executable = package / "bin" / "codex"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"\x7fELF")
+    (package / "codex-package.json").write_text('{"layoutVersion":1}', encoding="utf-8")
+    (package / "codex-resources").mkdir()
+    (package / "codex-path").mkdir()
+    shim = tmp_path / "codex"
+    shim.symlink_to(executable)
+
+    assert codex_cli.codex_cli_readonly_root(str(shim)) == str(package)
+
+
+def test_unmarked_native_binary_mount_stays_narrow(tmp_path):
+    executable = tmp_path / "bin" / "codex"
+    executable.parent.mkdir()
+    executable.write_bytes(b"\x7fELF")
+
+    assert codex_cli.codex_cli_readonly_root(str(executable)) == str(executable.parent)
+    # A directory with the marker's name is not a native package marker.
+    (tmp_path / "codex-package.json").mkdir()
+    assert codex_cli.codex_cli_readonly_root(str(executable)) == str(executable.parent)
+
+
+def test_native_package_marker_does_not_widen_unrelated_entrypoint(tmp_path):
+    executable = tmp_path / "bin" / "other-runtime"
+    executable.parent.mkdir()
+    executable.write_bytes(b"\x7fELF")
+    (tmp_path / "codex-package.json").write_text("{}", encoding="utf-8")
+
+    assert codex_cli.codex_cli_readonly_root(str(executable)) == str(executable.parent)

@@ -55,7 +55,9 @@ export function isInteractiveArtifactCall(call: MergedToolCall): boolean {
   // terminal history merge that preserves the older status).
   if (call.status !== 'done' && !backendSucceeded) return false;
   if (!backendSucceeded) return false;
-  return call.name === 'render_interactive'
+  return call.name === 'render_preview'
+    || call.name === 'render_interactive'
+    || call.name === 'render_url_preview'
     || hasInteractiveProjection(call.artifact)
     || hasInteractiveProjection(parseEnvelope(call.result)?.output?.data);
 }

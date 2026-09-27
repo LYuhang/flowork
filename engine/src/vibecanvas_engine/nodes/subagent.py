@@ -3,147 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import glob as _glob
 import jsonschema
-import os
-import re
-import subprocess
 from copy import deepcopy
-from pathlib import Path
 
 from ..register import node_registry
 from ..utils import safe_call_with_args
 from .base import BaseNode
 from .prompt import PromptNode
-
-
-class _LocalRunSession:
-    """Minimal session adapter for agent fs/data/bash tools inside a workflow run."""
-
-    def __init__(self, run_dir: str | None):
-        self.run_dir = os.path.abspath(run_dir or os.getcwd())
-        roots = [self.run_dir]
-        for p in ("/run", "/mount", "/data", "/memory", "/logs"):
-            if os.path.exists(p):
-                roots.append(os.path.abspath(p))
-        self.roots = tuple(dict.fromkeys(roots))
-
-    def _resolve(self, path: str) -> str:
-        raw = path or "."
-        candidate = raw if os.path.isabs(raw) else os.path.join(self.run_dir, raw)
-        resolved = os.path.abspath(candidate)
-        if not any(resolved == root or resolved.startswith(root + os.sep) for root in self.roots):
-            raise ValueError("path_outside_roots")
-        return resolved
-
-    async def read_file(self, path: str) -> dict:
-        try:
-            resolved = self._resolve(path)
-            if not os.path.exists(resolved):
-                return {"ok": False, "error": "not_found"}
-            try:
-                text = await asyncio.to_thread(Path(resolved).read_text, encoding="utf-8")
-                return {"ok": True, "kind": "text", "content": text}
-            except UnicodeDecodeError:
-                return {"ok": True, "kind": "binary", "size": os.path.getsize(resolved)}
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
-    async def write_file(self, path: str, text: str) -> dict:
-        try:
-            resolved = self._resolve(path)
-            os.makedirs(os.path.dirname(resolved), exist_ok=True)
-            await asyncio.to_thread(Path(resolved).write_text, text or "", encoding="utf-8")
-            return {"ok": True, "bytes": len((text or "").encode("utf-8"))}
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
-    async def read_bytes(self, path: str) -> dict:
-        try:
-            resolved = self._resolve(path)
-            if not os.path.exists(resolved):
-                return {"ok": False, "error": "not_found"}
-            data = await asyncio.to_thread(Path(resolved).read_bytes)
-            return {"ok": True, "data": data}
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
-    async def write_bytes(self, path: str, payload: bytes) -> dict:
-        try:
-            resolved = self._resolve(path)
-            os.makedirs(os.path.dirname(resolved), exist_ok=True)
-            await asyncio.to_thread(Path(resolved).write_bytes, payload or b"")
-            return {"ok": True, "bytes": len(payload or b"")}
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
-    async def grep(self, pattern: str, prefix: str = "/", glob_filter: str = "", context: int = 0) -> dict:
-        try:
-            base = self._resolve(prefix or ".")
-            files = []
-            if os.path.isfile(base):
-                files = [base]
-            else:
-                glob_pat = glob_filter or "**/*"
-                files = [p for p in _glob.glob(os.path.join(base, glob_pat), recursive=True)
-                         if os.path.isfile(p)]
-            try:
-                rx = re.compile(pattern)
-            except re.error:
-                return {"ok": False, "error": "invalid_regex"}
-            matches = []
-            for fp in files[:500]:
-                try:
-                    lines = Path(fp).read_text(encoding="utf-8").splitlines()
-                except Exception:
-                    continue
-                for i, line in enumerate(lines, start=1):
-                    if rx.search(line):
-                        matches.append(f"{fp}:{i}:{line}")
-                        if len(matches) >= 200:
-                            return {
-                                "ok": True,
-                                "matches": matches,
-                                "match_count": len(matches),
-                                "truncated": True,
-                            }
-            return {"ok": True, "matches": matches, "match_count": len(matches), "truncated": False}
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
-    async def run_command(self, command: str, timeout_s: int = 60) -> dict:
-        def _run():
-            return subprocess.run(
-                command,
-                shell=True,
-                cwd=self.run_dir,
-                text=True,
-                capture_output=True,
-                timeout=max(1, int(timeout_s or 60)),
-            )
-        try:
-            cp = await asyncio.to_thread(_run)
-            return {
-                "stdout": cp.stdout or "",
-                "stderr": cp.stderr or "",
-                "exit_code": cp.returncode,
-            }
-        except subprocess.TimeoutExpired as exc:
-            return {
-                "stdout": exc.stdout or "",
-                "stderr": (exc.stderr or "") + "\ncommand timed out",
-                "exit_code": 124,
-            }
 
 
 @node_registry.register()
@@ -166,8 +32,8 @@ class SubAgentNode(BaseNode):
                 "type": "string",
                 "minLength": 1,
                 "description": (
-                    "The exact public model_id key returned by "
-                    "get_config(scope='global'). Fetch it in the current build "
+                    "The exact models key returned by "
+                    "flowork-cli config get --scope model_api. Fetch it in the current build "
                     "turn and copy one enabled key verbatim; never use the chat "
                     "Agent model, a provider model id, or a guessed name."
                 ),
@@ -184,18 +50,18 @@ class SubAgentNode(BaseNode):
     AGENT_SPEC = {
         "summary": "Run a bounded tool-using worker and return structured output.",
         "when_to_use": (
-            "Subtasks that need file/data/media/web/bash tools or several intermediate steps before producing output."
+            "Subtasks that need shell/file operations, web search, image inspection, or several intermediate steps before producing output. Tools: bash, web_search, read_images; set_output submits the result."
         ),
         "when_not_to_use": (
             "Use PromptNode for a single LLM call with no tool use. Use CodeNode for deterministic logic."
         ),
         "constraints": [
-            "Mandatory model-discovery gate: in the current build turn, call get_config(scope='global') before writing any SubAgentNode, then copy one enabled models key exactly into model_name.",
+            "Mandatory model-discovery gate: in the current build turn, call flowork-cli config get --scope model_api before writing any SubAgentNode, then copy one enabled models key exactly into model_name.",
             "Never use the chat Agent's runtime model id, a provider model id, or a guessed/familiar model name. If global config returns no model, do not create this node; ask the user to configure an API model first.",
         ],
         "config_guide": {
             "model_name": (
-                "Exact enabled key from get_config(scope='global'). Fetch it in "
+                "Exact enabled key from flowork-cli config get --scope model_api. Fetch it in "
                 "this build turn and copy it verbatim; never guess or substitute "
                 "the Agent runtime model."
             ),
@@ -219,7 +85,7 @@ class SubAgentNode(BaseNode):
                     },
                     "node_config": {
                         "task_template": "# Task\nRead {{file_path}} and summarize its key points.\n\n# Instructions\nUse file tools to read the file, identify the important information, and produce a concise summary.\n\n# Output\nReturn the requested summary field.",
-                        "model_name": "<model-name-from-get_config>",
+                        "model_name": "<manual-api-name>",
                         "max_iterations": 10,
                     },
                     "children": ["node_5"],
@@ -295,7 +161,10 @@ class SubAgentNode(BaseNode):
             if entry.get("timeout"):
                 agent_cfg["timeout"] = int(entry["timeout"])
             return agent_cfg
-        return {"model": model_name}
+        raise RuntimeError(
+            "Workflow model is unavailable; select your enabled manually added API. "
+            "Platform defaults and account connections are not supported."
+        )
 
     @staticmethod
     def _system_prompt() -> str:
@@ -303,12 +172,15 @@ class SubAgentNode(BaseNode):
             "You are a bounded workflow sub-agent. Complete only the delegated "
             "task from the user message. Use tools when they are necessary to "
             "inspect or modify workspace files, and avoid unrelated exploration. "
+            "Use bash for file reading, editing and scripts; web_search returns "
+            "source links and snippets, not full pages; read_images provides "
+            "image pixels to your vision capability. "
             "When the task is complete, call set_output exactly once with the "
             "requested structured fields."
         )
 
     async def _call_async(self, inputs: dict, extra: dict | None) -> dict:
-        from vibecanvas_api.services.platform_mcp.tool_runtime import AgentContext
+        from vibecanvas_api.agents.tool_runtime import AgentContext
         from vibecanvas_api.services.workflow_subagent import build_workflow_chat_model
         from vibecanvas_api.agents.tools.subagent.core import run_bounded_agent
         from vibecanvas_api.agents.tools.subagent.toolset import build_agent_subagent_tools
@@ -325,11 +197,9 @@ class SubAgentNode(BaseNode):
             agent_cfg=agent_cfg,
             stop_event=(extra or {}).get("stop_event"),
         )
-        ctx._attached_session = _LocalRunSession((extra or {}).get("run_dir"))
-
         result = await run_bounded_agent(
             model=model,
-            tools=build_agent_subagent_tools(),
+            tools=build_agent_subagent_tools(working_dir=(extra or {}).get("run_dir")),
             system_prompt=self._system_prompt(),
             user_input=task,
             output_fields=self.output_fields,

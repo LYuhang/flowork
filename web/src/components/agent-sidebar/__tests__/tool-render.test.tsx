@@ -1528,7 +1528,7 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
         <InteractiveArtifactBlock
           call={{
             id: 'tc_diagram',
-            name: 'render_interactive',
+            name: 'render_preview',
             arguments: '{}',
             result: '',
             status: 'done',
@@ -1609,12 +1609,16 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
     );
   });
 
-  it('renders a URL artifact as an isolated interactive WebView', async () => {
+  it.each(['render_preview', 'render_url_preview'])(
+    'opens a URL from %s in the main Preview pane', async (toolName) => {
+    const onOpenInteractivePreview = vi.fn();
+    const user = userEvent.setup();
     render(
       <InteractiveArtifactBlock
+        onOpenInteractivePreview={onOpenInteractivePreview}
         call={{
           id: 'tc_url',
-          name: 'render_url_preview',
+          name: toolName,
           arguments: '{}',
           result: '',
           status: 'done',
@@ -1643,8 +1647,49 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
     expect(frame).toHaveAttribute('src', 'https://example.com/docs');
     expect(frame).toHaveAttribute('sandbox', expect.stringContaining('allow-scripts'));
     expect(screen.getByText('External documentation')).toBeInTheDocument();
-    expect(screen.getByText('Web preview')).toBeInTheDocument();
-    expect(document.querySelector('[data-tool-name="render_url_preview"]')).toBeInTheDocument();
+    expect(screen.getByText(toolName === 'render_preview' ? 'Preview' : 'Web preview')).toBeInTheDocument();
+    expect(document.querySelector(`[data-tool-name="${toolName}"]`)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open in preview' }));
+    expect(onOpenInteractivePreview).toHaveBeenCalledWith(expect.objectContaining({
+      artifact_id: 'ia_url', component_type: 'url_preview',
+      props: { url: 'https://example.com/docs', description: 'External documentation' },
+    }));
+  });
+
+  it('opens a pinned workflow in a new page from the compact browser card without an inline canvas', () => {
+    render(<InteractiveArtifactBlock compact call={{
+      id: 'tc_workflow_compact', name: 'render_preview', arguments: '{}', result: '', status: 'done',
+      artifact: { status: 'success', payload: { artifact: {
+        kind: 'interactive_artifact', artifact_id: 'ia_workflow_compact', title: 'Historical workflow',
+        component_type: 'workflow_preview', completion_mode: 'render_only',
+        props: { workflow_id: 'wf', version: 'v2.sv3' },
+      } } },
+    }} />, { wrapper: QueryWrapper });
+    const links = screen.getAllByRole('link', { name: /Open in a new Preview tab/ });
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf&version=v2.sv3');
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    }
+    expect(document.querySelector('[data-role="workflow-preview"]')).not.toBeInTheDocument();
+  });
+
+  it('keeps unified URL previews inline in the browser side panel', async () => {
+    render(<InteractiveArtifactBlock
+      compact
+      onOpenInteractivePreview={vi.fn()}
+      call={{
+        id: 'tc_url_compact', name: 'render_preview', arguments: '{}', result: '', status: 'done',
+        artifact: { status: 'success', payload: { artifact: {
+          kind: 'interactive_artifact', artifact_id: 'ia_url_compact', title: 'Compact page',
+          component_type: 'url_preview', completion_mode: 'render_only',
+          props: { url: 'https://example.com' },
+        } } },
+      }}
+    />, { wrapper: QueryWrapper });
+    expect(await screen.findByTitle('Compact page')).toHaveAttribute('src', 'https://example.com/');
+    expect(screen.queryByRole('button', { name: 'Open in preview' })).not.toBeInTheDocument();
   });
 
   it('loads an HTML file path and renders it through the isolated HTML runtime', async () => {
@@ -2119,6 +2164,22 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
     expect(onSubmitAsNewMessage).not.toHaveBeenCalled();
   });
 
+  it('distinguishes command cancellation from a user denying approval', () => {
+    render(<InteractiveArtifactBlock call={{
+      id: 'cli_cancelled', name: 'flowork-cli task schedule_run run', arguments: '{}', result: '', status: 'done',
+      artifact: { status: 'success', meta: { hitl_type: 'pre_tool_approval' }, payload: {
+        artifact: { kind: 'interactive_artifact', component_type: 'approval', completion_mode: 'wait_for_submit',
+          props: { fields: [{ name: 'tool', value: 'flowork-cli task schedule_run run' }] },
+          interaction_state: { status: 'cancelled', is_interacted: true },
+        },
+      } },
+    }} />, { wrapper: QueryWrapper });
+    expect(screen.getByText('Cancelled')).toBeInTheDocument();
+    expect(screen.queryByText('Denied')).not.toBeInTheDocument();
+    expect(screen.queryByText('File preview')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+  });
+
   it('does not submit a new user message for pre-tool approval cards', async () => {
     const user = userEvent.setup();
     const onSubmitAsNewMessage = vi.fn();
@@ -2211,6 +2272,7 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
       { wrapper: QueryWrapper },
     );
 
+    expect(screen.queryByText('File preview')).not.toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: /Approve|允许/ }));
 
     expect(postedDecision).toBe('approve');

@@ -36,6 +36,7 @@ from vibecanvas_api.services.tenant_db import (
 )
 from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
 from vibecanvas_api.storage.repo_deployments import DeploymentsRepo
+from vibecanvas_api.services.deployment_snapshots import resolve_workflow
 
 
 async def resolve_deployment_and_bind_tenant(
@@ -107,6 +108,8 @@ class DeploymentsService:
         """Durably dispatch a ``deployment_invoke`` background workflow."""
         task_id = invocation_id or uuid.uuid4()
         inv_repo = DeploymentInvocationsRepo(self.session)
+        snapshot = {"workflow": await resolve_workflow(self.session, deployment["user_id"], deployment),
+                    "mount_enabled": deployment.get("mount_enabled", True)}
         await inv_repo.create(
             invocation_id=task_id,
             tenant_id=deployment["tenant_id"],
@@ -116,6 +119,7 @@ class DeploymentsService:
             source=source,
             status="queued",
             inputs=payload,
+            snapshot=snapshot,
         )
         try:
             await enqueue_background_job_in_transaction(

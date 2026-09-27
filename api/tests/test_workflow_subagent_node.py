@@ -35,7 +35,7 @@ def test_subagent_node_is_registered_and_sandbox_runnable():
     assert "SubAgentNode" in SANDBOX_RUNNABLE_NODE_TYPES
 
 
-def test_subagent_node_populates_declared_output_fields():
+def test_subagent_node_populates_declared_output_fields(tmp_path):
     node = _make_node()
     result = SubAgentResult("done", {"answer": "ok"})
 
@@ -58,6 +58,7 @@ def test_subagent_node_populates_declared_output_fields():
             {},
             extra={
                 "run_id": "r1",
+                "run_dir": str(tmp_path),
                 "llm_credentials": {
                     "m1": {
                         "provider": "openai",

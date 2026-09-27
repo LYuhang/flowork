@@ -72,6 +72,7 @@ class DeploymentInvocationsRepo:
         source: str,
         status: str,
         inputs: dict | None = None,
+        snapshot: dict | None = None,
     ) -> uuid.UUID:
         invocation_id = invocation_id or uuid.uuid4()
         private = None
@@ -83,7 +84,7 @@ class DeploymentInvocationsRepo:
                 resource_id=str(invocation_id),
                 purpose="deployment_invocation_private",
                 record_id=str(invocation_id),
-                value={"inputs": inputs},
+                value={"inputs": inputs, "snapshot": snapshot},
             )
         await self.session.execute(
             text(
@@ -166,6 +167,7 @@ class DeploymentInvocationsRepo:
             "tenant_id": str(row["tenant_id"]),
             "deployment_id": str(row["deployment_id"]),
             "inputs": private["inputs"],
+            "snapshot": private.get("snapshot"),
         }
 
     async def mark_running(self, invocation_id: uuid.UUID) -> None:

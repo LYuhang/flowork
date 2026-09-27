@@ -278,8 +278,7 @@ class MessagePostBody(BaseModel):
     # `agent_surface` controls prompt/tool assembly boundaries.
     agent_surface: Literal["chat", "browser"] = "chat"
     # Complete custom-MCP selection rendered by the composer for this Turn.
-    # Platform workflow/browser MCPs are activated only through commands and
-    # never appear in this list.
+    # Built-in render tools and private CLI/browser authority never appear here.
     mcp_server_ids: list[str] = Field(default_factory=list)
     chat_config_revision: int = Field(default=0, ge=0)
     # Browser projection of the user's platform timezone.  It is consulted

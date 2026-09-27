@@ -84,9 +84,8 @@ What makes Flowork different:
   and failures remain inspectable from Chat and the canvas.
 - ♻️ **Reusable automation** — Convert one-off agent work into a durable,
   versioned workflow that can run again or be published.
-- 🧩 **Extensible agent capabilities** — Combine sandboxed Codex with MCP
-  servers, Skills, Knowledge, and browser control through a Runtime-neutral
-  platform contract.
+- 🧩 **Extensible agent capabilities** — Combine sandboxed Codex with built-in
+  automation, external MCP servers, Skills, Knowledge, and browser control.
 - 🛡️ **Self-hosted execution boundaries** — Keep control of models and data
   while routing untrusted execution through isolated sandboxes.
 
@@ -106,8 +105,9 @@ cd flowork
 ```
 
 The launcher generates local secrets, builds the services, waits for their
-health checks, and verifies the deployment. The first build can take several
-minutes.
+health checks, and verifies the deployment. The first build includes a patched
+Codex source build and can take tens of minutes, with substantial build-cache
+disk usage.
 
 #### Native Linux or WSL
 
@@ -162,6 +162,11 @@ Open <http://localhost:9001> after startup verification succeeds.
    Stored API keys are encrypted and write-only: they cannot be read back from
    the application after saving. The application filters every source by the
    selected Runtime and API protocol before displaying its models.
+
+   Workflow Prompt and SubAgent nodes use enabled, manually added model API
+   credentials that the user is authorized to use. A connected OpenRouter
+   account or Codex account for Chat does not supply these node credentials;
+   a manually added OpenRouter API key can.
 
 3. **Start a Chat and build the Workflow.** Open **Chat**, create a new
    conversation, choose a source and model below the composer, and select a
@@ -226,7 +231,9 @@ platform-built-in resources are not shareable objects.
 
 Slash Commands tell Flowork which specialized capabilities the current
 conversation needs. Activating a command gives the agent the corresponding
-tools and operating guidance for the rest of that Chat. Commands can be
+operating guidance for the rest of that Chat. Built-in operations use the
+platform's sandbox command interface; previews and user choices retain MCP
+rendering tools, and external MCP servers remain supported. Commands can be
 combined when a task spans more than one area.
 
 | Command | Purpose | Availability |
@@ -235,7 +242,7 @@ combined when a task spans more than one area.
 | `/task` | Ask the agent to find or manage Tasks, or export searchable event and execution diagnostics for troubleshooting | Main app and extension; Codex |
 | `/deployment` | Ask the agent to find or manage Deployments, or export searchable invocation logs and metrics for troubleshooting | Main app and extension; Codex |
 | `/knowledge` | Let the Agent read, create, and version Knowledge file packages in the active organization | Main app and extension; Codex |
-| [`/diagram`](docs/diagram.md) | Create and refine native draw.io diagrams with the official sandbox-local MCP, then preview and export them | Main app and extension; Codex |
+| [`/diagram`](docs/diagram.md) | Create native draw.io files, check their structure, and render them with draw.io Desktop before publishing a preview | Main app and extension; Codex |
 | `/document` | Create or revise professional PPTX, DOCX, XLSX, or PDF files, review their structure and rendered output, then publish the native file in Preview | Main app and extension; Codex |
 | `/browser` | Let the agent read or operate tabs and authenticated pages in the connected browser | Extension side panel only; Codex |
 
@@ -245,6 +252,12 @@ The experimental Chrome MV3 extension connects a Chat to the current browser
 session. It is intended for work that must reuse the user's current signed-in
 state. Within its authorized scope, the agent can read pages, switch tabs,
 click, type, select options, and take screenshots.
+
+Downloads first go through Chrome to the user's computer; transferring them
+into the Agent workspace follows the selected approval mode. Chrome's separate
+**Allow access to file URLs** setting is required for this transfer. Ambiguous
+download sources require local user confirmation, and Cookie export requires
+separate site-specific consent. See the [extension guide](extension/README.md).
 
 Download the extension package that matches the current deployment from
 **Settings → Extensions → Download extension**. Extract the ZIP to a permanent
@@ -294,6 +307,13 @@ PostgreSQL is the system of record. OpenFGA and row-level security enforce
 authorization boundaries, object storage holds durable file content, and
 DBOS persists queues in PostgreSQL, while Valkey provides transient coordination. The sandbox service keeps
 agent and workflow execution outside the API process.
+
+`sandboxd` selects the configured sandbox backend: gVisor is the default;
+bubblewrap is an alternative for local, trusted development with a weaker
+shared-kernel boundary and no checkpoint/restore. Batch and scheduled Tasks
+also enforce database-backed worker ownership and recovery fences; DBOS
+redelivery is not permission to repeat an already-running task or unknown
+external side effects.
 
 See the [architecture guide](docs/architecture.md) for runtime lifecycle, MCP
 boundaries, storage ownership, authorization, and network isolation.

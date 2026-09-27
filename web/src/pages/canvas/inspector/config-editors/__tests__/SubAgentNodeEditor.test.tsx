@@ -28,6 +28,7 @@ vi.mock('@/lib/api/queries/config-options', () => ({
 // Saved-credential list for the model picker (public projection — no secrets).
 vi.mock('@/lib/api/queries/llm-credentials', () => ({
   useLlmCredentials: () => ({ data: [] }),
+  useWorkflowModels: () => ({ data: { models: { 'manual-model': { provider: 'openai' } } }, isPending: false, isError: false }),
 }));
 
 vi.mock('../CodeMirrorField', () => ({

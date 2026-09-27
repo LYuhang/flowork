@@ -328,8 +328,11 @@ class WorkflowRepo:
         await self._s.flush()
         return await self._meta_to_dict(w)
 
-    async def get_meta(self, wf_id: str) -> dict:
-        w = await self._s.get(Workflow, wf_id)
+    async def get_meta(self, wf_id: str, *, for_update: bool = False) -> dict:
+        # Version operations must refresh any instance loaded before waiting
+        # for the lock; otherwise content and parent pointers can diverge.
+        options = {"with_for_update": True, "populate_existing": True} if for_update else {}
+        w = await self._s.get(Workflow, wf_id, **options)
         if not w or w.deleted_at is not None:
             return {}
         return await self._meta_to_dict(w)
@@ -349,7 +352,8 @@ class WorkflowRepo:
 
     async def commit(self, wf_id: str, workflow: dict, note: str = "",
                      editor: str = "",
-                     target_major: int | None = None) -> "VersionPointer":
+                     target_major: int | None = None,
+                     stamp_metadata: bool = False) -> "VersionPointer":
         """Allocate a sub-version atomically with bounded conflict retries.
 
         ``target_major`` (editable-historical-versions, UX-5):
@@ -374,8 +378,8 @@ class WorkflowRepo:
         retry block below is kept verbatim as defense-in-depth (with
         the row lock it simply won't contend).
         """
-        w = await self._s.get(Workflow, wf_id, with_for_update=True)
-        if not w:
+        w = await self._s.get(Workflow, wf_id, with_for_update=True, populate_existing=True)
+        if not w or w.deleted_at is not None:
             raise ValueError(f"Workflow {wf_id} not found")
         if target_major is None:
             major = w.active_major
@@ -404,6 +408,13 @@ class WorkflowRepo:
                 .where(WorkflowVersion.wf_id == wf_id,
                        WorkflowVersion.major == major)
             )).scalar_one())
+            if stamp_metadata:
+                workflow = copy.deepcopy(workflow)
+                current_meta = await self._meta_to_dict(w)
+                workflow.setdefault("__meta__", {}).update(
+                    workflow_id=wf_id, workflow_name=current_meta.get("workflow_name", ""),
+                    workflow_version=major, workflow_subversion=next_sub,
+                )
             storage_values = await self._workflow_storage_values(
                 workflow_row=w,
                 workflow=workflow,
@@ -438,26 +449,40 @@ class WorkflowRepo:
         raise RuntimeError(f"sv allocation failed after 5 retries for {wf_id}")
 
     async def new_version(self, wf_id: str, workflow: dict,
-                          note: str = "New Major Version") -> int:
+                          note: str = "New Major Version", *,
+                          stamp_metadata: bool = False,
+                          source_version: tuple[int, int] | None = None) -> int:
         """Create a new major version (sub=0) and move HEAD to it.
 
         Legacy return shape: the new major version number (``int``).
+
+        ``source_version`` records a Chat-selected parent rather than global
+        HEAD. Callers supplying a snapshot must lock the workflow BEFORE
+        reading it and hold that lock through this method and transaction commit.
 
         Row-lock the ``Workflow`` row with ``FOR UPDATE``
         so the ``MAX(major)+1`` read-modify-write is race-free per
         ``wf_id`` and the HEAD-pointer move is serialized at the DB
         (the asyncio lock did not cover the teardown commit).
         """
-        w = await self._s.get(Workflow, wf_id, with_for_update=True)
-        if not w:
+        w = await self._s.get(Workflow, wf_id, with_for_update=True, populate_existing=True)
+        if not w or w.deleted_at is not None:
             raise ValueError(f"Workflow {wf_id} not found")
-        cur_major = w.active_major
-        cur_sub = w.active_sub
+        cur_major, cur_sub = source_version or (w.active_major, w.active_sub)
+        if source_version is not None and await self._s.get(WorkflowVersion, (wf_id, cur_major, cur_sub)) is None:
+            raise ValueError("The source workflow version does not exist")
         max_major = (await self._s.execute(
             select(func.coalesce(func.max(WorkflowVersion.major), 0))
             .where(WorkflowVersion.wf_id == wf_id)
         )).scalar_one()
         new_v = (max_major + 1) if max_major else 1
+        if stamp_metadata:
+            workflow = copy.deepcopy(workflow)
+            current_meta = await self._meta_to_dict(w)
+            workflow.setdefault("__meta__", {}).update(
+                workflow_id=wf_id, workflow_name=current_meta.get("workflow_name", ""),
+                workflow_version=new_v, workflow_subversion=0,
+            )
         storage_values = await self._workflow_storage_values(
             workflow_row=w,
             workflow=workflow,
@@ -541,8 +566,14 @@ class WorkflowRepo:
 
         The DB trigger owns ``updated_at`` — never set it manually.
         """
-        w = await self._s.get(Workflow, wf_id)
-        if not w or w.deleted_at is not None:
+        # Metadata is encrypted as one object. Serialize read/merge/write for
+        # all callers (HTTP and CLI), refreshing any previously loaded row.
+        w = (await self._s.execute(
+            select(Workflow).where(
+                Workflow.wf_id == wf_id, Workflow.deleted_at.is_(None),
+            ).with_for_update().execution_options(populate_existing=True)
+        )).scalar_one_or_none()
+        if w is None:
             return {}
         allowed = {
             "workflow_name", "description", "domain",
@@ -608,12 +639,13 @@ class WorkflowRepo:
         Row-lock the ``Workflow`` row with ``FOR UPDATE``
         before the read-modify-write so the HEAD-pointer move is
         serialized at the DB across the dependency-teardown commit
-        (the asyncio lock did not cover it). The ``{}``-when-no-rows
-        contract is preserved exactly (the lock is a no-op when the
-        workflow itself does not exist — the max-sub check below still
-        governs the return value).
+        (the asyncio lock did not cover it). Missing/deleted workflows or
+        missing majors return an empty dict. The stateless CLI has no checkout command; graph writes target an
+        explicit major and do not create a Chat pointer.
         """
-        await self._s.get(Workflow, wf_id, with_for_update=True)
+        w = await self._s.get(Workflow, wf_id, with_for_update=True, populate_existing=True)
+        if not w or w.deleted_at is not None:
+            return {}
         max_sv = (await self._s.execute(
             select(func.max(WorkflowVersion.sub))
             .where(WorkflowVersion.wf_id == wf_id,

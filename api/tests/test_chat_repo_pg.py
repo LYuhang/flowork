@@ -38,6 +38,22 @@ async def _seed_and_bind(session):
 
 
 @pytest.mark.asyncio
+async def test_chat_metadata_rejects_retired_workflow_state_without_losing_browser_state(pg_session):
+    await _seed_and_bind(pg_session)
+    repo = ChatRepo(pg_session, str(USER))
+    chat_id = await repo.register_session("__chat_versions", name="No selection")
+    chat = await pg_session.get(Chat, chat_id)
+    await repo._store_chat_private(chat, name="Preserved", meta={
+        "browser_last_release_reason": "manual", "notes": {"keep": True}})
+    await pg_session.flush()
+    await repo._materialize_chat_private(chat)
+    assert chat.meta == {"browser_last_release_reason": "manual", "notes": {"keep": True}}
+    assert chat.name == "Preserved"
+    binding = await repo.get_platform_context_binding(chat_id)
+    assert not any(key.startswith("current_workflow") for key in binding)
+
+
+@pytest.mark.asyncio
 async def test_session_and_per_message_persist(pg_session):
     await _seed_and_bind(pg_session)
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
@@ -311,25 +327,20 @@ async def test_chat_command_and_workflow_context_are_user_scoped(pg_session):
         "__chat_owner", name="owned chat", chat_id="owned_chat"
     )
     await owner.set_active_modes(chat_id, {"workflow"})
-    await owner.set_current_workflow_id(chat_id, wf["wf_id"])
 
     other = ChatRepo(pg_session, str(other_user))
     assert await other.list_sessions("__chat_owner") == []
     assert await other.get_active_modes(chat_id) == set()
-    assert await other.get_current_workflow_id(chat_id) is None
     assert await other.get_platform_context_binding(chat_id) is None
 
     await other.set_active_modes(chat_id, {"browser"})
-    await other.set_current_workflow_id(chat_id, None)
 
     assert await owner.get_active_modes(chat_id) == {"workflow"}
-    assert await owner.get_current_workflow_id(chat_id) == wf["wf_id"]
     assert await owner.get_platform_context_binding(chat_id) == {
         "chat_id": chat_id,
         "carrier_scope_id": "__chat_owner",
         "runtime_session_id": None,
         "runtime_type": None,
-        "current_workflow_id": wf["wf_id"],
     }
 
 

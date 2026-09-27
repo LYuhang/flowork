@@ -1,20 +1,39 @@
-"""Soft-cancellation behavior for the shared batch runtime."""
+"""Cancel the batch-owned pool without dispatching any further rows."""
 from __future__ import annotations
 
+import asyncio
 import threading
+
+import pytest
 
 from vibecanvas_api.services import batch_runtime
 
 
-async def test_soft_cancel_wins_at_safe_boundary_and_skips_waiting_rows(monkeypatch):
+@pytest.mark.parametrize("silent", [False, True])
+@pytest.mark.parametrize("mount_enabled", [False, True])
+async def test_cancel_kills_owned_pool_and_skips_waiting_rows(monkeypatch, silent, mount_enabled):
     stop_event = threading.Event()
 
     class FakeSession:
         calls = 0
+        close_calls = 0
+        killed = asyncio.Event()
+        pool_id = None
+
+        async def close_workflow_pool(self, *, tenant, pool_id):
+            assert tenant == "tenant-1" and pool_id == self.pool_id
+            self.close_calls += 1
+            self.killed.set()
+            return {"closed": True}
 
         async def execute_workflow_job(self, **_kwargs):
+            assert _kwargs["timeout"] is None
+            self.pool_id = _kwargs["execution_pool_id"]
+            assert len(self.pool_id) == 32
             self.calls += 1
             stop_event.set()
+            if silent:
+                await asyncio.wait_for(self.killed.wait(), 2)
             return {
                 "status": {
                     "status": "error",
@@ -29,6 +48,7 @@ async def test_soft_cancel_wins_at_safe_boundary_and_skips_waiting_rows(monkeypa
             self.closed = []
 
         async def get_session(self, *_args, **_kwargs):
+            assert _kwargs["expose_mount"] is mount_enabled
             return self.session
 
         async def close_session(self, tenant_id, scope_id):
@@ -51,11 +71,13 @@ async def test_soft_cancel_wins_at_safe_boundary_and_skips_waiting_rows(monkeypa
         rows=[{"value": "first"}, {"value": "waiting"}],
         column_mapping={},
         concurrency=1,
+        mount_enabled=mount_enabled,
         stop_event=stop_event,
         prepared_run_extra={},
     )
 
     assert coordinator.session.calls == 1
+    assert coordinator.session.close_calls == 1
     assert coordinator.closed == [("tenant-1", "batch-task-soft-cancel")]
     assert result.status == "interrupted"
     assert result.summary["cancelled"] == 2

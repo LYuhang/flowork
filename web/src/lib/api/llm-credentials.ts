@@ -178,6 +178,17 @@ async function jsonOrThrow<T>(resp: Response, label: string): Promise<T> {
 // Public API.
 // ---------------------------------------------------------------------------
 
+export interface WorkflowModel {
+  provider: string;
+  description: string | null;
+  context_window_tokens: number | null;
+}
+
+export async function listWorkflowModels(): Promise<{ models: Record<string, WorkflowModel> }> {
+  const resp = await authedFetch('/api/v1/llm-credentials/workflow-models');
+  return jsonOrThrow(resp, 'listWorkflowModels');
+}
+
 export async function listLlmCredentials(): Promise<CredentialPublic[]> {
   const resp = await authedFetch('/api/v1/llm-credentials');
   return jsonOrThrow<CredentialPublic[]>(resp, 'listLlmCredentials');

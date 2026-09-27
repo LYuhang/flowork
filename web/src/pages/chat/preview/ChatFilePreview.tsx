@@ -164,7 +164,7 @@ export const ChatFilePreview = forwardRef<ChatFilePreviewHandle, {
         {allowOpenInNewPage ? (
           <Button asChild variant="ghost" size="sm">
             <a
-              href={standalonePreviewHref(fileRef, fileType)}
+              href={standalonePreviewHref(descriptor.fileRef, fileType)}
               target="_blank"
               rel="noopener noreferrer"
               aria-label={t('preview.action.openInNewPage', 'Open in new page')}

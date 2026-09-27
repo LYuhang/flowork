@@ -15,6 +15,7 @@ import {
 
 beforeEach(() => {
   localStorage.clear();
+  useAgentSettingsStore.getState().reset();
   // Reset the runtime mirror to all-defaults between tests.
   useAgentSettingsStore.getState().setAll({
     modelId: null,
@@ -58,6 +59,7 @@ describe('useAgentSettingsStore', () => {
     // Persisted to localStorage under the documented key.
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) as string);
     expect(raw).toEqual({
+      approvalMode: 'always_allow',
       modelId: 'codex:credential:cred-123',
       temperature: 0.7,
       maxTokens: 2048,
@@ -86,6 +88,7 @@ describe('useAgentSettingsStore', () => {
   });
 
   it('reset clears runtime state and persisted credential selection', () => {
+    useAgentSettingsStore.getState().setApprovalMode('always_ask');
     useAgentSettingsStore.getState().setAll({
       modelId: 'codex:credential:cred-old-user',
       temperature: 0.2,
@@ -105,5 +108,6 @@ describe('useAgentSettingsStore', () => {
       reasoningEffort: null,
     });
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(useAgentSettingsStore.getState().approvalMode).toBe('always_allow');
   });
 });

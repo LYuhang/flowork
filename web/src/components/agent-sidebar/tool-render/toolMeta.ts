@@ -58,6 +58,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   read_images: { icon: Image, labelKey: 'tool.meta.read_images' },
   // ── Conversation-native Preview artifacts ─────────────────────────────
   render_interactive: { icon: Eye, labelKey: 'tool.meta.render_interactive' },
+  render_preview: { icon: Eye, labelKey: 'tool.meta.render_preview' },
   render_url_preview: { icon: Globe, labelKey: 'tool.meta.render_url_preview' },
   // ── Browser-automation tools ───────────────────────────────────────────
   browser_navigate: { icon: Globe, labelKey: 'tool.meta.browser_navigate' },

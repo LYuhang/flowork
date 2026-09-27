@@ -21,6 +21,7 @@ import {
   deleteLlmCredential,
   getLlmCredential,
   listLlmCredentials,
+  listWorkflowModels,
   disconnectOpenRouter,
   getOpenRouterConnection,
   refreshOpenRouterModels,
@@ -33,6 +34,13 @@ import type {
 } from '@/lib/api/llm-credentials';
 
 const LIST_KEY = ['llm-credentials', 'list'] as const;
+const WORKFLOW_MODELS_KEY = ['llm-credentials', 'workflow-models'] as const;
+
+export const useWorkflowModels = () => useQuery({
+  queryKey: WORKFLOW_MODELS_KEY,
+  queryFn: listWorkflowModels,
+  staleTime: 0,
+});
 const itemKey = (id: string) => ['llm-credentials', 'item', id] as const;
 export const openRouterConnectionKey = [
   'llm-credentials', 'openrouter', 'connection',
@@ -60,6 +68,7 @@ export const useCreateLlmCredential = () => {
     mutationFn: (body: CreateCredentialBody) => createLlmCredential(body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: LIST_KEY });
+      void qc.invalidateQueries({ queryKey: WORKFLOW_MODELS_KEY });
     },
   });
 };
@@ -71,6 +80,7 @@ export const useUpdateLlmCredential = () => {
       updateLlmCredential(id, body),
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: LIST_KEY });
+      void qc.invalidateQueries({ queryKey: WORKFLOW_MODELS_KEY });
       void qc.invalidateQueries({ queryKey: itemKey(vars.id) });
     },
   });
@@ -82,6 +92,7 @@ export const useDeleteLlmCredential = () => {
     mutationFn: (id: string) => deleteLlmCredential(id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: LIST_KEY });
+      void qc.invalidateQueries({ queryKey: WORKFLOW_MODELS_KEY });
     },
   });
 };

@@ -4,7 +4,7 @@
   "name": "Flowork Browser Automation",
   "version": "0.3.0",
   "description": "Holds a tenant-scoped WebSocket channel to the Flowork backend for browser automation.",
-  "minimum_chrome_version": "116",
+  "minimum_chrome_version": "125",
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"
@@ -34,7 +34,8 @@
       "world": "ISOLATED"
     }
   ],
-  "permissions": ["offscreen", "sidePanel", "storage", "debugger", "tabs", "scripting", "downloads", "clipboardWrite"],
+  "permissions": ["offscreen", "sidePanel", "storage", "debugger", "tabs", "scripting", "downloads", "webRequest", "clipboardWrite"],
+  "host_permissions": ["http://*/*", "https://*/*", "file:///*"],
   "externally_connectable": {
     "matches": []
   }

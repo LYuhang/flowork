@@ -18,7 +18,34 @@ def test_command_instructions_are_resolved_once_by_backend_policy() -> None:
     assert instructions[1].activated_this_turn is True
     assert "Browser mode" in instructions[0].content
     assert "WORKFLOW mode" in instructions[1].content
-    assert all(item.version == 1 for item in instructions)
+    assert all(item.version == 29 for item in instructions)
+
+
+def test_workflow_command_is_a_playbook_not_a_parameter_reference():
+    content = command_instructions_for_modes({"workflow"})[0].content
+    assert "there is no connect, status or version set" in content
+    assert "flowork-cli workflow <command> --help" in content
+    assert "node_schema" in content
+    assert "version list" in content
+    assert "Small saved changes" in content and "Large rewrites" in content
+    assert "flowork-cli workflow check" in content
+    assert 'render_preview(type="workflow"' in content
+    assert "never replay the saved prefix" in content
+    assert "do not upload again" in content
+    assert 'flowork-cli config get --scope model_api' in content
+    assert 'flowork-cli config get --scope workflow' in content
+    assert 'OpenRouter account connections' in content
+    assert "--clear-tags" not in content
+    assert "current_workflow_major" not in content
+    assert "CONFIG_SCHEMA" not in content
+    assert "Core node specs" not in content
+
+
+@pytest.mark.parametrize("mode", ["workflow", "task", "deployment"])
+def test_workflow_discovery_instructions_use_cli(mode):
+    instruction = command_instructions_for_modes({mode})[0]
+    assert ("flowork-cli workflow list" in instruction.content or "Use list to discover" in instruction.content)
+    assert "list_workflows" not in instruction.content
 
 
 def test_command_instruction_activation_must_be_active() -> None:

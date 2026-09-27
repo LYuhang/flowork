@@ -1,10 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   agentFilePathFromHref,
+  fileCitationTarget,
   fileRefFromAgentPath,
 } from '@/lib/preview/protocol';
 
 describe('Agent file preview protocol', () => {
+  it('parses citation coordinates separately while preserving scope and colon filenames', () => {
+    const ref = { schemaVersion: 1, scope: 'chat', chatId: 'c1', path: '/data/notes:review.md:24:3' } as const;
+    expect(fileCitationTarget(ref)).toEqual({
+      fileRef: { ...ref, path: '/data/notes:review.md' }, line: 24, column: 3,
+    });
+    expect(agentFilePathFromHref('/data/notes%3Areview.md%3A24')).toBe('/data/notes:review.md:24');
+    for (const path of ['/data/notes:review.md', '/data/report.pdf:2', '/data/a.md:0', '/data/a.md:1:0', '/data/a.md:99999999999999999', '/data/../a.md:2']) {
+      expect(fileCitationTarget({ ...ref, path: path as `/data/${string}` })).toBeNull();
+    }
+  });
+
   it('recognizes private VFS paths from Markdown links', () => {
     expect(agentFilePathFromHref('/data/workflow.json')).toBe('/data/workflow.json');
     expect(agentFilePathFromHref('/data/My%20Report.pdf#page=2')).toBe('/data/My Report.pdf');

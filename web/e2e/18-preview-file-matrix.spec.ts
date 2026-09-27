@@ -130,9 +130,9 @@ test('Preview renders real office, PDF, and table files and protects text revisi
   const prompt = [
     'Create /data/preview-acceptance/index.html with this exact HTML body:',
     `<main>${links}</main>.`,
-    'Then call render_interactive exactly once with path="/data/preview-acceptance/index.html",',
+    'Then call render_preview exactly once with type="file", source="/data/preview-acceptance/index.html",',
     'title="Preview Acceptance Index", and require_human_confirm=false.',
-    'Do not use the retired nested view/type arguments and do not emit prose after the Preview call.',
+    'Use flat arguments, not a nested view, and do not emit prose after the Preview call.',
   ].join(' ');
   const composer = page.locator('[data-role="agent-composer-input"]');
   await composer.fill(prompt);

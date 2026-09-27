@@ -63,7 +63,7 @@ import {
   type TaskType,
 } from '@/lib/api/tasks';
 import { useWorkspaceList } from '@/lib/api/queries/workflows';
-import { useWorkflow } from '@/lib/api/queries/workflow';
+import { TaskWorkflowVersion, useTaskWorkflowVersion } from './TaskWorkflowVersion';
 import { getStartNodeFields } from '@/lib/workflow/start-node';
 import { useFormatDateTime } from '@/lib/timezone';
 import { TIMEZONE_GROUPS } from '@/lib/timezone-list';
@@ -264,7 +264,8 @@ function BatchTaskCreatePanel({
   const effectiveWorkflowId = selectedWorkflowId || workflows[0]?.wf_id || '';
 
   const selectedWorkflow = workflows.find((wf) => wf.wf_id === effectiveWorkflowId);
-  const snapshotQuery = useWorkflow(effectiveWorkflowId);
+  const versionSelection = useTaskWorkflowVersion(effectiveWorkflowId);
+  const snapshotQuery = versionSelection.snapshot;
   const workflowSnapshot = snapshotQuery.data?.workflow ?? null;
 
   return (
@@ -307,6 +308,7 @@ function BatchTaskCreatePanel({
                 triggerClassName="w-full"
               />
             </Suspense>
+            <TaskWorkflowVersion selection={versionSelection} batch />
             {workflowsQuery.isLoading ? (
               <p className="mt-2 text-xs text-muted-foreground">
                 {t('workspace_loading', 'Loading workflows...')}
@@ -341,11 +343,11 @@ function BatchTaskCreatePanel({
         </aside>
 
         <div className="min-w-0">
-          {snapshotQuery.isLoading && effectiveWorkflowId ? (
+          {(snapshotQuery.isLoading || versionSelection.loading) && effectiveWorkflowId ? (
             <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
               {t('tasks.new.loadingWorkflow', 'Loading workflow...')}
             </div>
-          ) : snapshotQuery.isError ? (
+          ) : snapshotQuery.isError || versionSelection.error ? (
             <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
               {t('tasks.new.workflowLoadError', 'Failed to load workflow.')}
             </div>
@@ -354,6 +356,7 @@ function BatchTaskCreatePanel({
               <BatchTab
                 wfId={effectiveWorkflowId}
                 workflow={workflowSnapshot}
+                versionTarget={versionSelection.frozenTarget}
                 showTaskList={false}
                 onSubmitted={onCreated}
               />
@@ -499,7 +502,8 @@ function ScheduledRunCreatePanel({
       ? `${selectedWorkflow.workflow_name || selectedWorkflow.wf_id} schedule`
       : 'Scheduled run'
   );
-  const snapshotQuery = useWorkflow(effectiveWorkflowId);
+  const versionSelection = useTaskWorkflowVersion(effectiveWorkflowId);
+  const snapshotQuery = versionSelection.snapshot;
   const workflowSnapshot = snapshotQuery.data?.workflow as Record<string, unknown> | null | undefined;
   const fields = useMemo(() => getStartNodeFields(workflowSnapshot), [workflowSnapshot]);
 
@@ -512,6 +516,7 @@ function ScheduledRunCreatePanel({
       return createScheduledRun({
         name,
         workflow_id: effectiveWorkflowId,
+        ...versionSelection.target,
         enabled,
         schedule_type: scheduleMode === 'calendar' ? 'cron' : 'interval',
         interval_seconds: scheduleMode === 'interval' ? intervalSeconds : null,
@@ -589,6 +594,7 @@ function ScheduledRunCreatePanel({
                 triggerClassName="w-full"
               />
             </Suspense>
+            <TaskWorkflowVersion selection={versionSelection} />
             {selectedWorkflow && (
               <div className="mt-3 rounded-md bg-surface-sunken p-2 text-xs text-muted-foreground">
                 <div className="truncate font-medium text-foreground">
@@ -821,7 +827,7 @@ function ScheduledRunCreatePanel({
         </Button>
         <Button
           onClick={() => createMutation.mutate()}
-          disabled={!effectiveWorkflowId || createMutation.isPending}
+          disabled={!effectiveWorkflowId || !versionSelection.selector || versionSelection.loading || versionSelection.error || snapshotQuery.isLoading || snapshotQuery.isError || createMutation.isPending}
         >
           {t('common.finish', 'Finish')}
         </Button>
@@ -1418,7 +1424,9 @@ export function TasksListPage() {
                                 </DropdownMenuItem>
                               </>
                             )}
-                            {RESUMABLE.includes(task.status) && capabilities.has('resume') && !!(task.result as { artifact_uris?: { jsonl?: string } } | null)?.artifact_uris?.jsonl && (
+                            {RESUMABLE.includes(task.status) && capabilities.has('resume')
+                              && (task.result as { can_resume?: boolean } | null)?.can_resume !== false
+                              && !!(task.result as { artifact_uris?: { jsonl?: string } } | null)?.artifact_uris?.jsonl && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem

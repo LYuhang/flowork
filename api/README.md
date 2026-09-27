@@ -19,12 +19,13 @@ The API package owns:
 - Agent Runtime orchestration and model/MCP brokering;
 - application persistence, database migrations, and object-store integration;
 - tenant authorization through OpenFGA;
-- durable and scheduled work through DBOS and PostgreSQL; and
+- durable delivery and scheduling through DBOS/PostgreSQL, plus execution
+  ownership and recovery for batch and scheduled Tasks; and
 - the control contracts used to request isolated execution from `sandboxd`.
 
 Framework-independent workflow definitions and execution primitives belong to
 the sibling [`engine/`](../engine/) package. Browser-facing product behavior
-belongs to [`web/`](../web/), while privileged sandbox lifecycle management is
+belongs to [`web/`](../web/), while sandbox lifecycle management is
 implemented by the dedicated sandbox service. See the
 [architecture guide](../docs/architecture.md) for the complete system design.
 
@@ -36,10 +37,10 @@ standalone web server:
 | Component | Role |
 | --- | --- |
 | **API** | Serves HTTP and streaming requests, validates access, coordinates Agent Runtime operations, and submits durable work |
-| **DBOS background worker** | Executes queued interactive, deployment, knowledge-indexing, maintenance, and periodic jobs |
-| **`sandboxd`** | Owns gVisor processes and isolated execution lifecycle; API and worker processes communicate with it through the sandbox service contract |
-| **PostgreSQL** | Stores application state, authorization projections, execution records, and Agent Runtime checkpoints |
-| **Redis-compatible service** | Provides transient event fanout, counters, rate limits, and locks; it is not the task broker |
+| **DBOS background worker** | Consumes durable queues, runs periodic jobs, and reconciles Task worker ownership and interrupted executions |
+| **`sandboxd`** | Owns isolated execution processes and lifecycle through the selected gVisor or bubblewrap provider; API and worker processes use the sandbox service contract |
+| **PostgreSQL** | Stores application state, DBOS delivery/schedule state, Task worker ownership, authorization projections, execution records, and Agent Runtime checkpoints |
+| **Redis-compatible service** | Valkey in Compose, Redis in native setup; provides transient event fanout, counters, rate limits, and locks |
 | **OpenFGA** | Evaluates tenant and resource authorization from the pinned model |
 | **Object store** | Stores encrypted file and content payloads shared across backend processes |
 
@@ -141,12 +142,43 @@ registrations live in
 business implementations live under
 [`background_tasks/`](src/vibecanvas_api/background_tasks/). One background
 worker process handles asynchronous deployments, scheduled runs, knowledge
-indexing, reconciliation, and maintenance.
+indexing, reconciliation, and maintenance. Its queues are `interactive`,
+`deployments`, `kb_indexing`, `control`, and `maintenance`. DBOS uses PostgreSQL
+for delivery, recovery, and schedules; Valkey/Redis does not serve as the task
+broker. Durable submission arguments contain opaque record IDs, and workers
+load the associated inputs from application storage. Submission uses stable
+delivery IDs; where the producer supports it, the business update and enqueue
+share a database transaction. A periodic reconciler repairs queued records
+whose separate enqueue did not complete.
+
+[`services/task_worker.py`](src/vibecanvas_api/services/task_worker.py) adds
+ownership checks for batch Tasks and scheduled executions inside this worker
+process. A database row lock permits one eligible attempt to claim a token;
+heartbeats and token checks prevent duplicate delivery or a revoked worker from
+publishing results. Heartbeats measure worker liveness, not workflow duration.
+If a worker is lost,
+[`background_tasks/task_recovery.py`](src/vibecanvas_api/background_tasks/task_recovery.py)
+revokes its write authority, confirms termination of its isolated sandbox, and
+records an unknown outcome. Cleanup is retried if termination cannot be
+confirmed. Recovery does not automatically rerun work whose external effects
+may already have occurred; inspect diagnostics and external results before
+submitting another attempt. This boundary does not guarantee exactly-once
+external effects.
 
 Sandbox contracts and clients live under
 [`services/sandbox/`](src/vibecanvas_api/services/sandbox/). In the supported
-topology, only `sandboxd` starts and owns gVisor processes; the API and background
-worker request execution through its Unix-socket or mTLS gRPC interface. The
+topology, only `sandboxd` starts and owns sandbox processes; the API and background
+worker request execution through its Unix-socket or mTLS gRPC interface.
+`SANDBOX_RUNTIME` selects `gvisor` (the default) or `bubblewrap`.
+`SANDBOX_TYPE` separately selects the privilege/lifecycle profile: native
+launches default to `rootless-warm`, while Compose uses `rootful-snapshot`.
+The bubblewrap provider supports resident workers and Agent/Workflow execution,
+but lacks checkpoint/restore and post-start dynamic mounts. It shares the host
+kernel and currently exposes a read-only host `/proc`; it is not equivalent to
+the gVisor isolation boundary. The coordinator rejects requests that require
+snapshots when the selected backend cannot provide them. Production deployment
+continues to use the reviewed gVisor snapshot configuration in
+[`DEPLOY.md`](../DEPLOY.md). The
 [sandbox lifecycle](../docs/architecture.md#sandbox-lifecycle) section explains
 the isolation and ownership boundary in detail.
 
@@ -193,6 +225,8 @@ the Compose topology; it is not a complete deployment by itself. Use the
 | [`storage/`](src/vibecanvas_api/storage/) | PostgreSQL repositories and persistence models |
 | [`authorization/`](src/vibecanvas_api/authorization/) | Authorization manifest, OpenFGA model, and adapters |
 | [`background_tasks/`](src/vibecanvas_api/background_tasks/) | Runtime-neutral asynchronous and scheduled job implementations |
+| [`services/background_queue.py`](src/vibecanvas_api/services/background_queue.py) | Durable submission/cancellation boundary backed by DBOS |
+| [`services/task_worker.py`](src/vibecanvas_api/services/task_worker.py) | Database-backed ownership, heartbeat, and write checks for Task workers |
 | [`services/sandbox/`](src/vibecanvas_api/services/sandbox/) | Sandbox service contracts, clients, and lifecycle implementation |
 | [`security/`](src/vibecanvas_api/security/) | Production security validation, cryptography, and security controls |
 | [`alembic/`](alembic/) | Database migration environment and revisions |

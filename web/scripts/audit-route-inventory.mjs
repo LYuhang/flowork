@@ -11,6 +11,7 @@ const inventory = [
   ['signup', 'signup'],
   ['reset-password', 'reset-password'],
   ['chat', 'chat'],
+  ['share/:token', 'shared-chat-error'],
   ['preview', 'standalone-preview-error'],
   ['workspace', 'workspace'],
   ['management', 'management'],

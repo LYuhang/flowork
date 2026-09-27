@@ -27,6 +27,9 @@ from vibecanvas_api.services.sandbox.coordinator import (
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.scheduled_runs import compute_next_run_at, utc_now
 from vibecanvas_api.services.workflow_sandbox_runner import stream_workflow_job
+from vibecanvas_api.services.task_worker import (
+    WorkerOwnershipLost, assert_worker_owner, claim_worker, current_claim, watch_worker,
+)
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 from vibecanvas_api.storage.models_tasks import (
     ScheduledRunExecution,
@@ -72,6 +75,7 @@ def _publish(task_id: uuid.UUID, tenant_id: uuid.UUID, message: dict) -> None:
 
 def _emit(task_id: uuid.UUID, tenant_id: uuid.UUID, event_type: str, payload: dict) -> None:
     async def _runner(session) -> int:
+        await assert_worker_owner(session)
         return await TasksRepo(session).insert_event(task_id, event_type, payload, tenant_id)
 
     ev_id = run_in_short_session(_runner)
@@ -84,6 +88,7 @@ def _emit(task_id: uuid.UUID, tenant_id: uuid.UUID, event_type: str, payload: di
 
 def _update_task(task_id: uuid.UUID, **fields: object) -> None:
     async def _runner(session) -> None:
+        await assert_worker_owner(session)
         await TasksRepo(session).update_status(task_id, **fields)
 
     run_in_short_session(_runner)
@@ -91,6 +96,7 @@ def _update_task(task_id: uuid.UUID, **fields: object) -> None:
 
 def _update_execution(execution_id: uuid.UUID, **fields: object) -> None:
     async def _runner(session) -> None:
+        await assert_worker_owner(session)
         await TasksRepo(session).update_scheduled_execution(execution_id, **fields)
 
     run_in_short_session(_runner)
@@ -98,6 +104,7 @@ def _update_execution(execution_id: uuid.UUID, **fields: object) -> None:
 
 def _update_schedule(schedule_id: uuid.UUID, **fields: object) -> None:
     async def _runner(session) -> None:
+        await assert_worker_owner(session)
         await TasksRepo(session).update_schedule(schedule_id, **fields)
 
     run_in_short_session(_runner)
@@ -214,7 +221,7 @@ async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
             active = (await session.execute(
                 select(ScheduledRunExecution.id).where(
                     ScheduledRunExecution.schedule_id == schedule.id,
-                    ScheduledRunExecution.status.in_(("queued", "running")),
+                    ScheduledRunExecution.status.in_(("queued", "running", "cancelling")),
                 ).limit(1)
             )).first()
             schedule_snapshot = {
@@ -320,6 +327,21 @@ def execute_scheduled_run(
 
 
 async def _execute_scheduled_run(
+    **kwargs,
+) -> None:
+    claim = await _claim_execution(kwargs["execution_id"])
+    if claim is None:
+        return
+    context = current_claim.set(claim)
+    try:
+        await _execute_owned_scheduled_run(**kwargs)
+    except WorkerOwnershipLost:
+        logger.warning("scheduled_run_worker_ownership_lost", execution_id=str(kwargs["execution_id"]))
+    finally:
+        current_claim.reset(context)
+
+
+async def _execute_owned_scheduled_run(
     *,
     task_id: uuid.UUID,
     schedule_id: uuid.UUID,
@@ -329,14 +351,6 @@ async def _execute_scheduled_run(
     workflow_id: str,
 ) -> None:
     tenant_uuid = uuid.UUID(tenant_id)
-    if await _execution_cancelled(execution_id):
-        logger.info(
-            "scheduled_run_execution_cancelled_before_start",
-            task_id=str(task_id),
-            schedule_id=str(schedule_id),
-            execution_id=str(execution_id),
-        )
-        return
     try:
         lease = _scheduled_execution_lease(
             task_id=task_id,
@@ -378,7 +392,6 @@ async def _execute_scheduled_run(
         return
     user_id = str(lease.created_by)
     started = datetime.now(timezone.utc)
-    _update_execution(execution_id, status="running", started_at=started)
     _update_task(task_id, status="running", started_at=started, error=None)
     _emit(task_id, tenant_uuid, "state", {
         "schema_version": 1,
@@ -394,21 +407,37 @@ async def _execute_scheduled_run(
         "error": None,
     })
 
-    final_status = "succeeded"
+    # A vanished sandbox / exhausted stream is not evidence of success.
+    final_status = "failed"
     result_payload: dict | None = None
-    error_message: str | None = None
+    error_message: str | None = "Execution ended without a result."
+    stop = asyncio.Event()
+    watcher = asyncio.create_task(_watch_cancellation(execution_id, stop))
+    claim = current_claim.get()
+    ownership_watcher = asyncio.create_task(watch_worker(claim, stop)) if claim else None
+    workflow_stream = None
+    execution_scope = claim.scope_id if claim else f"schedule-{execution_id}"
+    manager = get_sandbox_manager()
+    session = None
     try:
-        async def _input_snapshot(session) -> dict:
+        async def _input_snapshot(session) -> tuple:
+            await assert_worker_owner(session)
             ex = await TasksRepo(session).get_scheduled_execution(execution_id)
-            return (ex.input_snapshot if ex is not None else {}) or {}
+            frozen = getattr(ex, "workflow_snapshot", None) or {}
+            schedule = await TasksRepo(session).get_schedule(schedule_id)
+            return ((ex.input_snapshot if ex is not None else {}) or {},
+                    frozen.get("workflow"),
+                    frozen.get("mount_enabled", bool(schedule and schedule.mount_enabled)))
 
-        input_snapshot = run_in_short_session(_input_snapshot)
-        workflow = SyncWorkflowRepo(username=user_id).get_current_workflow(workflow_id)
-        session = await get_sandbox_manager().get_session(
+        input_snapshot, workflow, mount_enabled = run_in_short_session(_input_snapshot)
+        if workflow is None:  # Legacy execution queued before snapshot support.
+            workflow = SyncWorkflowRepo(username=user_id).get_current_workflow(workflow_id)
+        session = await manager.get_session(
             tenant_id,
-            workflow_id,
+            execution_scope,
             user_id=user_id,
             expose_run=True,
+            expose_mount=mount_enabled,
         )
         creds = (
             await inject_into_run_context_async(
@@ -424,29 +453,22 @@ async def _execute_scheduled_run(
                 principal_generation=lease.generation,
             )
         ).get("llm_credentials")
-        stop = asyncio.Event()
         node_events = 0
         workflow_stream = stream_workflow_job(
             stop=stop,
             workflow=workflow,
             inputs=input_snapshot,
-            workflow_run_id=workflow_id,
+            workflow_run_id=execution_scope,
             tenant_id=tenant_id,
             session=session,
             exec_id=str(execution_id),
-            timeout=600.0,
+            timeout=None,
             runtime_extra=(
                 {"llm_credentials": creds} if creds else None
             ),
             clear_run=True,
         )
         async for msg in workflow_stream:
-            if await _execution_cancelled(execution_id):
-                stop.set()
-                await workflow_stream.aclose()
-                final_status = "cancelled"
-                error_message = "Execution cancelled."
-                break
             mtype = msg.get("type")
             if mtype == "node_event":
                 node_events += 1
@@ -474,6 +496,8 @@ async def _execute_scheduled_run(
                 })
             elif mtype == "result":
                 error_dict = msg.get("error_dict") or {}
+                final_status = "failed" if error_dict else "succeeded"
+                error_message = None
                 result_payload = {
                     "final_outputs": msg.get("final_outputs") or {},
                     "error_dict": error_dict,
@@ -491,6 +515,28 @@ async def _execute_scheduled_run(
         final_status = "failed"
         error_message = str(exc)
         logger.warning("scheduled_run_execution_failed", exc_info=True)
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+        if ownership_watcher is not None:
+            ownership_watcher.cancel()
+            ownership_result = (await asyncio.gather(ownership_watcher, return_exceptions=True))[0]
+        try:
+            if workflow_stream is not None:
+                await workflow_stream.aclose()
+        except Exception:
+            logger.warning("scheduled_run_stream_cleanup_failed", exc_info=True)
+        finally:
+            if session is not None:
+                try:
+                    await manager.close_session(tenant_id, execution_scope)
+                except Exception:
+                    logger.warning("scheduled_run_sandbox_cleanup_failed", exc_info=True)
+        if ownership_watcher is not None and isinstance(ownership_result, WorkerOwnershipLost):
+            raise ownership_result
+    if stop.is_set() or await _execution_cancelled(execution_id):
+        final_status = "cancelled"
+        error_message = "Execution cancelled."
 
     finished = datetime.now(timezone.utc)
     task_status = "enabled"
@@ -555,10 +601,25 @@ async def _execute_scheduled_run(
     })
 
 
+async def _claim_execution(execution_id: uuid.UUID):
+    """Serialize worker startup against cancellation and duplicate delivery."""
+    return await asyncio.to_thread(run_in_short_session,
+        lambda session: claim_worker(session, "schedule", execution_id))
+
+
+async def _watch_cancellation(execution_id: uuid.UUID, stop: asyncio.Event) -> None:
+    # A long silent node may emit no events; cancellation must not wait for it.
+    while not stop.is_set():
+        if await _execution_cancelled(execution_id):
+            stop.set()
+            return
+        await asyncio.sleep(0.5)
+
+
 async def _execution_cancelled(execution_id: uuid.UUID) -> bool:
     async def _runner(session) -> bool:
         ex = await TasksRepo(session).get_scheduled_execution(execution_id)
-        return ex is not None and ex.status == "cancelled"
+        return ex is not None and ex.status in {"cancelled", "cancelling"}
 
     return await asyncio.to_thread(run_in_short_session, _runner)
 

@@ -177,7 +177,7 @@ async def package_snapshot(
     result: list[PackageFile] = []
     for file in await repo.list_files(kb_id):
         if not file.object_store_key:
-            continue
+            raise ValueError(f"Knowledge package file content is unavailable: {file.name}")
         data = await asyncio.to_thread(store.fetch_bytes, file.object_store_key)
         result.append(PackageFile(file.name, data, file.mime_type))
     return result
@@ -188,14 +188,16 @@ async def replace_package(
     *,
     kb_id: uuid.UUID,
     actor_user_id: uuid.UUID,
-    expected_version: int,
+    expected_version: int | None,
     files: list[PackageFile],
     increment_version: bool = True,
     derive_index: bool = True,
 ) -> tuple[int, list[uuid.UUID]]:
     """Replace one package tree under a row lock.
 
-    The optimistic version check and metadata swap are transactional. Object
+    A None expected_version means unconditional publication against the latest
+    row-locked version. Legacy callers can still request optimistic checking.
+    The version increment and metadata swap are transactional. Object
     writes use opaque, revision-specific keys, so a failed transaction cannot
     overwrite the prior authoritative package.
     """
@@ -205,11 +207,12 @@ async def replace_package(
             select(KnowledgeBase)
             .where(KnowledgeBase.id == kb_id, KnowledgeBase.deleted_at.is_(None))
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if kb is None:
         raise LookupError("knowledge_not_found")
-    if kb.package_version != expected_version:
+    if expected_version is not None and kb.package_version != expected_version:
         raise RuntimeError(f"knowledge_version_conflict:{kb.package_version}")
 
     repo = KbRepo(session)
@@ -217,7 +220,7 @@ async def replace_package(
         await repo.soft_delete_file(previous.id)
     await session.flush()
 
-    next_version = expected_version + 1 if increment_version else expected_version
+    next_version = kb.package_version + 1 if increment_version else kb.package_version
     store = get_object_store()
     pending: list[uuid.UUID] = []
     for item in package:

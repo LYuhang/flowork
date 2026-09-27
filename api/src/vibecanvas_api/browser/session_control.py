@@ -1,7 +1,7 @@
 """Durable browser-session control plane for Playwright-backed Chats.
 
-This module owns the database lease transitions required before the official
-Playwright MCP may connect to the authenticated CDP endpoint.  It intentionally
+This module owns the database lease transitions required before the sandbox
+Browser CLI runtime may connect to the authenticated CDP endpoint. It intentionally
 does not expose Agent tools and does not send the legacy DOM command protocol.
 """
 
@@ -38,7 +38,7 @@ async def reserve_sidepanel_browser_session(
     user_id: str,
     chat_id: str,
 ) -> BrowserSessionLease:
-    """Reserve or reuse this Chat's sole browser lease before MCP startup."""
+    """Reserve or reuse this Chat's sole browser lease before CLI startup."""
 
     requested_session_id = f"brs_{uuid.uuid4().hex}"
     async with session_scope(tenant_id=str(tenant_id)) as session:
@@ -51,7 +51,15 @@ async def reserve_sidepanel_browser_session(
         code = str(result.get("error_code") or "browser_session_conflict")
         raise BrowserSessionControlError(
             code,
-            "The browser is unavailable or already controlled by another Chat.",
+            (
+                "Another Chat already controls this browser. Continue in that Chat, "
+                "or ask the user to cancel its browser control before sending from this Chat. "
+                "Creating a new Chat does not transfer browser permission. "
+                "No browser command was executed; do not retry automatically."
+                if code == "browser_busy" else
+                "The browser-control lease could not be reserved. "
+                "No browser command was executed. Check the extension connection and retry only after resolving the reported error."
+            ),
         )
     binding = result.get("binding")
     if not isinstance(binding, dict):

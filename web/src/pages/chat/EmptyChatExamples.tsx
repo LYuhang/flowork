@@ -40,7 +40,7 @@ const EXAMPLES: Record<ExampleCategory, readonly ExampleDefinition[]> = {
       descriptionKey: 'chat.examples.office.report.description',
       description: 'Structure evidence and recommendations into a professional report.',
       promptKey: 'chat.examples.office.report.prompt',
-      prompt: '/document Create a polished, editable 3-page decision brief for a mid-sized customer-support team evaluating Flowork. Do not browse the web; use only these assumptions: the team handles 20,000 tickets per month, spends 35% of staff time on repetitive browser and reporting work, and requires human review before production actions. Cover the current problem, a proposed pilot using browser automation, Workflows, Tasks and Deployments, expected benefits and risks, and a 30-day rollout with measurable success criteria.',
+      prompt: '/document Create a polished, editable 3-page Word (DOCX) decision brief for a mid-sized customer-support team evaluating Flowork. Do not browse the web; use only these assumptions: the team handles 20,000 tickets per month, spends 35% of staff time on repetitive browser and reporting work, and requires human review before production actions. Cover the current problem, a proposed pilot using browser automation, Workflows, Tasks and Deployments, expected benefits and risks, and a 30-day rollout with measurable success criteria.',
     },
     {
       id: 'spreadsheet',

@@ -191,7 +191,20 @@ async def test_runs_returns_202_without_task_row(
             )
         ).one()
     assert all(invocation)
-    assert "21" not in invocation.private_ciphertext
+    # A short digit pair can occur randomly in base64 ciphertext, especially
+    # now that the encrypted document also contains the frozen graph.
+    assert '"x": 21' not in invocation.private_ciphertext
+    assert '"inputs"' not in invocation.private_ciphertext
+
+    # Accepted calls own an encrypted, frozen graph/mount snapshot; later
+    # deployment edits cannot change the worker's selected content.
+    from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+    from vibecanvas_api.storage.db import session_scope
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        payload = await DeploymentInvocationsRepo(session).load_worker_payload(uuid.UUID(task_id))
+        assert payload["inputs"] == {"x": 21}
+        assert payload["snapshot"]["workflow"]["__meta__"]["workflow_version"] == 1
+        assert payload["snapshot"]["mount_enabled"] is False
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,7 @@
  */
 import { resolveAllowedWebBase, WEB_BASE } from "./shared/config";
 import { projectBrowserControlForWindow } from "./shared/browser-control-projection";
+import type { CookieConsent } from "./playwright/cookie-consent";
 
 interface Binding {
   wf_id: string;
@@ -59,6 +60,171 @@ let shellLang: "zh" | "en" = "en";
 let shellTheme: "light" | "dark" | undefined;
 let currentBinding: Binding | null = null;
 let loadTimer: ReturnType<typeof setTimeout> | undefined;
+let cookieConsents: CookieConsent[] = [];
+let cookieDecisionPending = false;
+const cookiePanel = document.getElementById("cookie-permissions") as HTMLDetailsElement | null;
+const cookieSites = document.getElementById("cookie-sites");
+const cookieFeedback = document.getElementById("cookie-feedback");
+type LocalDownloadConfirmation = { capture_id: string; files: { id: string; name: string; bytes: number }[] };
+let localDownloadConfirmation: LocalDownloadConfirmation | null = null;
+let localDownloadSelection: string | null = null;
+let localDownloadBusy = false;
+let localDownloadFeedback = "";
+let localDownloadRevision = 0;
+function renderLocalDownload(): void {
+  const panel = document.getElementById("download-confirmation");
+  if (!panel) return;
+  panel.hidden = !localDownloadConfirmation;
+  panel.replaceChildren();
+  if (!localDownloadConfirmation) return;
+  const zh = shellLang === "zh";
+  const title = document.createElement("h2"); title.id = "download-confirm-title";
+  title.textContent = zh ? "确认本地下载文件" : "Confirm local download";
+  const explanation = document.createElement("p");
+  explanation.textContent = zh
+    ? "浏览器无法确定文件来自哪个标签页。请仅选择本次请求的文件；也可能包含其他窗口的下载。确认前，文件信息仅在此插件中显示。传输仍遵循当前审批模式。"
+    : "Chrome cannot identify the source tab. Select only the file requested now; downloads from other windows may appear. File details stay in this extension until confirmed. Transfer still follows your approval mode.";
+  panel.append(title, explanation);
+  for (const file of localDownloadConfirmation.files) {
+    const label = document.createElement("label"), radio = document.createElement("input"), text = document.createElement("span");
+    radio.type = "radio"; radio.name = "local-download"; radio.value = file.id;
+    radio.checked = localDownloadSelection === file.id; radio.disabled = localDownloadBusy;
+    radio.addEventListener("change", event => {
+      if (!event.isTrusted) return;
+      localDownloadSelection = file.id;
+      const confirm = panel.querySelector<HTMLButtonElement>("[data-download-confirm]");
+      if (confirm) confirm.disabled = localDownloadBusy;
+    });
+    text.textContent = `${file.name} · ${file.bytes.toLocaleString()} bytes`;
+    label.append(radio, text); panel.append(label);
+  }
+  const actions = document.createElement("div"); actions.className = "cookie-actions";
+  for (const allow of [false, true]) {
+    const button = document.createElement("button"); button.type = "button"; button.className = "cookie-action";
+    button.textContent = allow ? (zh ? "确认文件" : "Confirm file") : (zh ? "取消" : "Cancel");
+    button.disabled = localDownloadBusy || (allow && !localDownloadSelection);
+    if (allow) { button.dataset.primary = "true"; button.dataset.downloadConfirm = "true"; }
+    button.addEventListener("click", event => { if (event.isTrusted) void decideLocalDownload(allow); });
+    actions.append(button);
+  }
+  const feedback = document.createElement("p"); feedback.setAttribute("role", "status"); feedback.textContent = localDownloadFeedback;
+  panel.append(actions, feedback);
+}
+async function refreshLocalDownload(): Promise<void> {
+  const revision = ++localDownloadRevision;
+  const response = await sendToSw<{ ok?: boolean; confirmation?: LocalDownloadConfirmation | null }>({
+    type: "DOWNLOAD_CONFIRM_LIST", panelContextId, windowId: currentWindowId,
+  });
+  if (revision !== localDownloadRevision || !response?.ok || localDownloadBusy) return;
+  const next = response.confirmation ?? null;
+  if (JSON.stringify(next) === JSON.stringify(localDownloadConfirmation)) return;
+  if (next?.capture_id !== localDownloadConfirmation?.capture_id) localDownloadFeedback = "";
+  localDownloadConfirmation = next;
+  if (!next?.files.some(file => file.id === localDownloadSelection))
+    localDownloadSelection = next?.files.length === 1 ? next.files[0].id : null;
+  renderLocalDownload();
+}
+async function decideLocalDownload(allow: boolean): Promise<void> {
+  if (localDownloadBusy || !localDownloadConfirmation || (allow && !localDownloadSelection)) return;
+  localDownloadBusy = true; ++localDownloadRevision;
+  const captureId = localDownloadConfirmation.capture_id;
+  renderLocalDownload();
+  const response = await sendToSw<{ ok?: boolean; confirmation?: LocalDownloadConfirmation | null }>({
+    type: "DOWNLOAD_CONFIRM_DECIDE", capture_id: captureId, file_id: allow ? localDownloadSelection : null,
+    panelContextId, windowId: currentWindowId,
+  });
+  localDownloadBusy = false;
+  if (response?.ok) localDownloadConfirmation = response.confirmation ?? null;
+  else localDownloadFeedback = shellLang === "zh" ? "确认已失效或文件发生变化，请检查下载记录。" : "Confirmation expired or the file changed. Inspect browser Downloads.";
+  renderLocalDownload(); void refreshLocalDownload();
+}
+// Also restores pending confirmation after reloading the shell and removes
+// expired controls even if a one-shot service-worker notification was missed.
+setInterval(() => { void refreshLocalDownload(); }, 1000);
+const COOKIE_COPY = {
+  zh: {
+    title: "Cookie 导出权限",
+    explanation: "允许 Agent 在本次浏览器控制期间，将所列站点的 Cookie（可能包含登录凭证）导出到云端沙盒获取资源。文件不会进入普通预览、分享或持久化存储，并在撤销授权或本轮执行结束后清理。普通网页操作无需此权限。",
+    requested: "等待您决定；Agent 无法自行授权。",
+    allowed: "已允许。可以告诉 Agent 继续；您可随时撤销。",
+    denied: "已拒绝。正常浏览和页面交互不受影响。",
+    allow: "允许导出", deny: "拒绝", revoke: "撤销授权", updating: "正在更新权限…",
+    failed: "权限更新失败，请重试。", updated: "权限已更新。",
+  },
+  en: {
+    title: "Cookie export permissions",
+    explanation: "Allow the Agent to export Cookies, which may include login credentials, for the listed sites into your cloud sandbox during this browser-control session. Exported files are excluded from normal previews, sharing and durable storage, and are removed on revocation or when this Agent turn ends. Normal page interaction does not need this permission.",
+    requested: "Your decision is required. The Agent cannot grant permission.",
+    allowed: "Allowed. Tell the Agent to continue. You can revoke access at any time.",
+    denied: "Denied. Normal browsing and page interaction are unaffected.",
+    allow: "Allow export", deny: "Deny", revoke: "Revoke access", updating: "Updating permission…",
+    failed: "Permission could not be updated. Try again.", updated: "Permission updated.",
+  },
+} as const;
+
+function renderCookieConsents(): void {
+  if (!cookiePanel || !cookieSites) return;
+  const copy = COOKIE_COPY[shellLang];
+  cookiePanel.hidden = cookieConsents.length === 0;
+  const summary = document.getElementById("cookie-summary");
+  const explanation = document.getElementById("cookie-explanation");
+  if (summary) summary.textContent = copy.title;
+  if (explanation) explanation.textContent = copy.explanation;
+  cookieSites.replaceChildren();
+  for (const consent of cookieConsents) {
+    const section = document.createElement("section");
+    section.className = "cookie-site";
+    const origin = document.createElement("h2");
+    origin.className = "cookie-origin";
+    origin.textContent = consent.origin;
+    const state = document.createElement("p");
+    state.className = "cookie-state";
+    state.textContent = copy[consent.state];
+    const actions = document.createElement("div");
+    actions.className = "cookie-actions";
+    for (const allow of consent.state === "allowed" ? [false] : consent.state === "denied" ? [true] : [false, true]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "cookie-action";
+      button.disabled = cookieDecisionPending;
+      button.textContent = allow ? copy.allow : consent.state === "allowed" ? copy.revoke : copy.deny;
+      button.setAttribute("aria-label", `${button.textContent}: ${consent.origin}`);
+      if (allow) button.dataset.primary = "true";
+      button.addEventListener("click", event => {
+        // No synthetic approval from iframe scripts or content scripts.
+        if (event.isTrusted) void decideCookieConsent(consent.id, allow);
+      });
+      actions.append(button);
+    }
+    section.append(origin, state, actions);
+    cookieSites.append(section);
+  }
+}
+
+async function refreshCookieConsents(): Promise<void> {
+  const response = await sendToSw<{ ok?: boolean; consents?: CookieConsent[] }>({
+    type: "COOKIE_CONSENT_LIST", panelContextId, windowId: currentWindowId,
+  });
+  if (!response?.ok) return;
+  const previous = new Set(cookieConsents.map(item => item.id));
+  cookieConsents = response.consents || [];
+  if (cookiePanel && cookieConsents.some(item => item.state === "requested" && !previous.has(item.id))) cookiePanel.open = true;
+  renderCookieConsents();
+}
+
+async function decideCookieConsent(id: string, allow: boolean): Promise<void> {
+  if (cookieDecisionPending) return;
+  cookieDecisionPending = true;
+  if (cookieFeedback) cookieFeedback.textContent = COOKIE_COPY[shellLang].updating;
+  renderCookieConsents();
+  const response = await sendToSw<{ ok?: boolean; consents?: CookieConsent[] }>({
+    type: "COOKIE_CONSENT_DECIDE", consent_id: id, allow, panelContextId, windowId: currentWindowId,
+  });
+  cookieDecisionPending = false;
+  if (response?.ok) cookieConsents = response.consents || [];
+  renderCookieConsents();
+  if (cookieFeedback) cookieFeedback.textContent = response?.ok ? COOKIE_COPY[shellLang].updated : COOKIE_COPY[shellLang].failed;
+}
 
 const SHELL_COPY = {
   zh: {
@@ -162,6 +328,7 @@ async function reportWindow(): Promise<void> {
     if (typeof w?.id === "number") {
       currentWindowId = w.id;
       void sendToSw({ type: "SIDEPANEL_WINDOW", windowId: w.id, panelContextId });
+      void refreshCookieConsents();
     }
   } catch {
     /* windows API unavailable — non-fatal */
@@ -247,6 +414,8 @@ window.addEventListener("message", (ev: MessageEvent) => {
     shellLang = m.lang === "zh" ? "zh" : "en";
     document.documentElement.lang = shellLang === "zh" ? "zh-CN" : "en";
     if (iframe) iframe.title = SHELL_COPY[shellLang].frameTitle;
+    renderCookieConsents();
+    renderLocalDownload();
   } else if (m.type === "SET_THEME") {
     applyShellTheme(m.theme);
     void sendToSw({ type: "SET_THEME", theme: shellTheme });
@@ -300,11 +469,14 @@ chrome.runtime.onMessage.addListener((msg: unknown) => {
     postToIframe({ type: "BROWSER_WS_AUTH_REQUIRED" });
   }
   if (m?.type === "BROWSER_SESSION_CHANGED") {
+    void refreshCookieConsents();
     postToIframe(projectBrowserControlForWindow(
       m as unknown as Record<string, unknown>,
       currentWindowId,
     ));
   }
+  if (m?.type === "COOKIE_CONSENT_CHANGED") void refreshCookieConsents();
+  if (m?.type === "DOWNLOAD_CONFIRM_CHANGED" || m?.type === "BROWSER_SESSION_CHANGED") void refreshLocalDownload();
   if (m?.type === "BROWSER_STOP_REQUESTED") postToIframe(m);
   return false;
 });

@@ -48,6 +48,8 @@ import { StatusDot } from '@/components/ui/status';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   ChatDeleteError,
+  CHAT_HISTORY_GC_TIME_MS,
+  CHAT_HISTORY_STALE_TIME_MS,
   useDeleteChatSession,
   useRenameChatSession,
   fetchChatHistory,
@@ -306,7 +308,8 @@ export function AppSidebar({
     void queryClient.prefetchQuery({
       queryKey: ['chat-history', carrierScopeId, chatId, null],
       queryFn: () => fetchChatHistory(carrierScopeId, chatId),
-      staleTime: 15_000,
+      staleTime: CHAT_HISTORY_STALE_TIME_MS,
+      gcTime: CHAT_HISTORY_GC_TIME_MS,
     }).catch(() => undefined);
   };
 

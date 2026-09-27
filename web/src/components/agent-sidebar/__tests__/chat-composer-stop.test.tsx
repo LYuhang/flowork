@@ -884,6 +884,15 @@ describe('ChatComposer Stop', () => {
     }
   });
 
+  it('lets the user choose and persist next-turn approval from Options', async () => {
+    renderComposer('chat_approval_mode', true);
+    await userEvent.click(screen.getByRole('button', { name: /options/i }));
+    await userEvent.click(screen.getByRole('combobox', { name: /authorization/i }));
+    await userEvent.click(screen.getByRole('option', { name: 'Always ask' }));
+    expect(useAgentSettingsStore.getState().approvalMode).toBe('always_ask');
+    expect(JSON.parse(localStorage.getItem('vibecanvas.agentSettings.v2')!)).toMatchObject({ approvalMode: 'always_ask' });
+  });
+
   it('does not render active commands as composer attachment chips', async () => {
     server.use(
       http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({

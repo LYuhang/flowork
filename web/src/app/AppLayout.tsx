@@ -138,7 +138,7 @@ export function AppLayout() {
 
   return (
     <ErrorBoundary scope="page">
-      <div className="surface-shell flex h-screen w-screen flex-col overflow-hidden text-foreground">
+      <div className="surface-shell relative flex h-screen w-screen flex-col overflow-hidden text-foreground">
         <a
           href="#main-content"
           className="sr-only z-toast rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground focus:not-sr-only focus:fixed focus:left-3 focus:top-3"

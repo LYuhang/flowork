@@ -1,13 +1,22 @@
 {
-  "name": "flowork-playwright-mcp-runtime",
-  "version": "0.3.0",
+  "name": "flowork-browser-runtime",
+  "version": "0.4.0",
   "private": true,
-  "description": "Pinned official Playwright MCP launcher for Flowork remote browser sessions.",
+  "description": "Sandbox-owned Browser CLI worker for Flowork real browser sessions.",
   "license": "Apache-2.0",
+  "engines": { "node": ">=20" },
+  "files": [
+    "browser-runtime.cjs",
+    "browser-actions.cjs",
+    "browser-files.cjs",
+    "browser-script-page.cjs",
+    "browser-native-downloads.cjs",
+    "browser-private-files.cjs"
+  ],
   "bin": {
-    "flowork-playwright-mcp": "launch.cjs"
+    "flowork-browser-runtime": "browser-runtime.cjs"
   },
   "dependencies": {
-    "@playwright/mcp": "0.0.79"
+    "playwright-core": "1.63.0-alpha-2026-08-05"
   }
 }

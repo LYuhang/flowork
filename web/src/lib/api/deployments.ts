@@ -31,7 +31,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 export type TriggerType = 'api' | 'webhook';
-export type VersionPin = 'head' | 'specific';
+export type VersionPin = 'head' | 'major' | 'specific';
 
 /** Shape returned by `GET /deployments` (list items) and `GET /{id}`.
  *
@@ -53,6 +53,7 @@ export interface Deployment {
   pinned_major: number | null;
   pinned_sub: number | null;
   enabled: boolean;
+  mount_enabled?: boolean;
   rate_limit_qps: number;
   invoke_count: number;
   last_invoked_at: string | null;
@@ -94,6 +95,8 @@ export interface CreateDeploymentBody {
   pinned_major?: number;
   pinned_sub?: number;
   rate_limit_qps?: number;
+  mount_enabled?: boolean;
+  enabled?: boolean;
 }
 
 /** The one-shot create response. Plaintext credentials appear here ONCE
@@ -116,6 +119,7 @@ export interface PatchDeploymentBody {
   version_pin?: VersionPin;
   pinned_major?: number;
   pinned_sub?: number;
+  mount_enabled?: boolean;
 }
 
 export interface RotateKeyResponse {

@@ -96,9 +96,9 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     assert "fonts-wqy-zenhei=0.9.45-8" in text
     assert "ARG DEBIAN_MIRROR=http://deb.debian.org/debian" in text
     assert "ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security" in text
-    assert "libreoffice-writer-nogui=4:25.2.3-2+deb13u6" in text
-    assert "libreoffice-impress-nogui=4:25.2.3-2+deb13u6" in text
-    assert "libreoffice-calc-nogui=4:25.2.3-2+deb13u6" in text
+    assert "libreoffice-writer-nogui=4:25.2.3-2+deb13u7" in text
+    assert "libreoffice-impress-nogui=4:25.2.3-2+deb13u7" in text
+    assert "libreoffice-calc-nogui=4:25.2.3-2+deb13u7" in text
     assert "poppler-utils=25.03.0-5+deb13u4" in text
     assert "USER 10001:10001" in text
 

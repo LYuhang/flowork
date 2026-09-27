@@ -40,7 +40,7 @@ is available in
 The supported toolchain is:
 
 - Python 3.11.16 in `.venv/`;
-- Node.js 22 or 24 (CI and container builds pin 24.21.0) and pnpm 10.34.4;
+- Node.js 22.12+ or 24 (CI and container builds pin 24.21.0) and pnpm 10.34.4;
 - PostgreSQL server binaries, a Redis-compatible local server, and bubblewrap; and
 - OpenFGA, started automatically with the local stack.
 

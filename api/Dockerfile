@@ -148,7 +148,7 @@ RUN set -eux; \
         curl=8.14.1-2+deb13u5 \
         file=1:5.46-5 \
         git=1:2.47.3-0+deb13u1 \
-        jq=1.7.1-6+deb13u3 \
+        jq=1.7.1-6+deb13u4 \
         openssh-client=1:10.0p1-7+deb13u4 \
         patch=2.8-2 \
         procps=2:4.0.4-9 \
@@ -170,9 +170,9 @@ RUN set -eux; \
         libsecret-1-0=0.21.7-1 \
         libgbm1=25.0.7-2+deb13u1 \
         libasound2t64=1.2.14-1+deb13u1 \
-        libreoffice-writer-nogui=4:25.2.3-2+deb13u6 \
-        libreoffice-impress-nogui=4:25.2.3-2+deb13u6 \
-        libreoffice-calc-nogui=4:25.2.3-2+deb13u6 \
+        libreoffice-writer-nogui=4:25.2.3-2+deb13u7 \
+        libreoffice-impress-nogui=4:25.2.3-2+deb13u7 \
+        libreoffice-calc-nogui=4:25.2.3-2+deb13u7 \
         poppler-utils=25.03.0-5+deb13u4; \
     arch="$(uname -m)"; \
     base="https://storage.googleapis.com/gvisor/releases/release/${RUNSC_RELEASE}/${arch}"; \

@@ -32,7 +32,7 @@ services:
   # coordination service. Durable background delivery is owned by DBOS/Postgres.
   # Keep the service name `redis` so existing REDIS_URL values remain stable.
   redis:
-    image: valkey/valkey:9.1.1-alpine3.24@sha256:ee91f7a174ac4d6a6b0685b3a60e321f0a9dbbb691f9b0e285be2ba1d1be8328
+    image: valkey/valkey:9.1.2-alpine3.24@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
     ports:
       - "${VIBECANVAS_INTERNAL_BIND_ADDRESS:-127.0.0.1}:${VIBECANVAS_REDIS_PORT:-6379}:6379"
     volumes:
@@ -51,7 +51,7 @@ services:
   # OpenFGA has its own datastore and credentials. Relationship metadata is
   # never mixed into the application database or exposed to sandboxes.
   openfga_postgres:
-    image: postgres:17.11-trixie@sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449
+    image: postgres:17.11-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
     environment:
       POSTGRES_DB: openfga
       POSTGRES_USER: openfga
@@ -84,7 +84,7 @@ services:
   # Provision a separate role that can only execute Flowork's identity-history
   # erasure function; runtime workers never receive OpenFGA's owner password.
   openfga_erasure_bootstrap:
-    image: postgres:17.11-trixie@sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449
+    image: postgres:17.11-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
     command: ["/opt/flowork/bootstrap_openfga_erasure.sh"]
     environment:
       OPENFGA_ADMIN_DATABASE_URL: postgresql://openfga:${OPENFGA_POSTGRES_PASSWORD:-openfga-development-only}@openfga_postgres:5432/openfga?sslmode=disable

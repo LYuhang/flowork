@@ -67,7 +67,7 @@ RUN mkdir -p /out && \
     python -m zipfile -t /out/flowork-extension.zip
 
 # ---------- Stage 2: serve via nginx ----------
-FROM nginx:1.30.4-alpine3.24@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
+FROM nginx:1.30.5-trixie@sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442
 
 # Vite emits the bundle to /app/dist in the build stage.
 COPY --from=build /app/dist /usr/share/nginx/html

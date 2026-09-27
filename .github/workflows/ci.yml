@@ -49,7 +49,12 @@ jobs:
           .venv/bin/python scripts/verify_dependency_locks.py
           .venv/bin/python -m pip check
       - name: Run engine tests
-        run: PATH="$PWD/.venv/bin:$PATH" .venv/bin/python -m pytest -q engine/tests
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/python-test-reports"
+          PATH="$PWD/.venv/bin:$PATH" .venv/bin/python -m pytest -q engine/tests \
+            --junitxml="$RUNNER_TEMP/python-test-reports/engine.xml" \
+            2>&1 | tee "$RUNNER_TEMP/python-test-reports/engine.log"
       - name: Run Python correctness and import checks
         run: .venv/bin/ruff check api/src engine/src scripts
       - name: Run API tests
@@ -60,11 +65,22 @@ jobs:
           # profile is verified by the real Docker checkpoint/restore gate.
           SANDBOX_GVISOR_PLATFORM: ptrace
         run: |
+          set -o pipefail
           runsc_path="$(bash scripts/get_runsc.sh)"
           PATH="$PWD/.venv/bin:$PATH" RUNSC_PATH="$runsc_path" \
             .venv/bin/python -c 'from vibecanvas_api.services.sandbox import _gvisor_runnable; print(f"rootless_gvisor_full_profile={_gvisor_runnable()}")'
           PATH="$PWD/.venv/bin:$PATH" RUNSC_PATH="$runsc_path" \
-            .venv/bin/python -m pytest -q api/tests
+            .venv/bin/python -m pytest -q api/tests \
+            --junitxml="$RUNNER_TEMP/python-test-reports/api.xml" \
+            2>&1 | tee "$RUNNER_TEMP/python-test-reports/api.log"
+      - name: Upload Python test diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-test-reports-${{ github.sha }}
+          path: ${{ runner.temp }}/python-test-reports
+          if-no-files-found: warn
+          retention-days: 14
 
   web:
     name: Web lint, tests, and build

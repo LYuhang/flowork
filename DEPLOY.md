@@ -78,7 +78,8 @@ routing to one daemon per scope.
 
 Keep `SANDBOX_RUNTIME=gvisor` with the release overlay's
 `SANDBOX_TYPE=rootful-snapshot` for this deployment procedure. Native development
-defaults to `rootless-warm` and also has an explicit `bubblewrap` backend. Those
+defaults to `SANDBOX_RUNTIME=bubblewrap` with `SANDBOX_TYPE=rootless-warm`;
+gVisor is an explicitly selected alternative. Those
 development options do not provide the same checkpoint/restore capability or
 isolation boundary: bubblewrap shares the host kernel, currently binds the host
 `/proc` read-only, and does not implement real snapshots. Do not use a backend

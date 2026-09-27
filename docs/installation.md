@@ -290,7 +290,7 @@ The generated Web defaults honor inherited overrides.
 | --- | --- |
 | `WEB_HOST`, `WEB_PORT`, `VIBECANVAS_PUBLIC_URL` | Listener and actual browser-facing URL |
 | `API_PORT` | Loopback API listener and native Web proxy target (default `8000`) |
-| `PGPORT`, `REDISPORT` | Native database and queue ports |
+| `PGPORT`, `REDISPORT` | Native database and queue ports (defaults: `5433`, `6380`; separate from system services) |
 | `OPENFGA_HTTP_PORT`, `OPENFGA_GRPC_PORT`, `OPENFGA_METRICS_PORT` | Authorization listeners |
 | `PGDATA`, `OBJSTORE` | Persistent database and object-store locations |
 | `AGENT_RUNTIME_ROOT`, `VFS_VOLUME_ROOT`, `VIBECANVAS_STORAGE_ROOT` | Persistent application/runtime storage |

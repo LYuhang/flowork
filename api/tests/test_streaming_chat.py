@@ -59,6 +59,7 @@ async def _parse_sse_stream(byte_aiter) -> list[tuple[str, dict]]:
     return events
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_chat_message_stream_has_started_and_terminator(client, pg_engine):
     tok = await _register(client)

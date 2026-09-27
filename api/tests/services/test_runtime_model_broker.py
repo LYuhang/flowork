@@ -877,6 +877,7 @@ def test_model_proxy_allows_only_inference_paths_and_strips_query_key():
     )
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_chat_runtime_broker_injects_provider_key_only_on_host(
     client,
@@ -1011,6 +1012,7 @@ async def test_chat_runtime_broker_injects_provider_key_only_on_host(
     assert denied.json()["detail"]["code"] == "runtime_model_session_revoked"
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_privileged_chat_runtime_broker_keeps_exact_scope_and_revokes(
     pg_engine,

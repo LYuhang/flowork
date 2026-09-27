@@ -273,6 +273,7 @@ async def test_stdio_mcp_allows_only_secretless_chat_sandbox_descriptor(
         )
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_chat_custom_mcp_broker_keeps_remote_secrets_on_host(
     client,

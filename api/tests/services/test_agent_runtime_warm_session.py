@@ -194,6 +194,7 @@ def test_codex_account_auth_is_staged_without_nested_mount_and_reconciled(
     )
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_main_runtime_process_is_reused_across_turns(
     monkeypatch: pytest.MonkeyPatch,
@@ -235,6 +236,7 @@ async def test_main_runtime_process_is_reused_across_turns(
     assert provider.stops == 1
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_stale_runtime_transport_is_restored_before_user_turn_fails(
     monkeypatch: pytest.MonkeyPatch,
@@ -273,6 +275,7 @@ async def test_stale_runtime_transport_is_restored_before_user_turn_fails(
     await session.close()
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_cancelled_turn_invalidates_runtime_before_next_turn(
     monkeypatch: pytest.MonkeyPatch,
@@ -304,6 +307,7 @@ async def test_cancelled_turn_invalidates_runtime_before_next_turn(
     await session.close()
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_runtime_is_reused_when_external_destination_changes(
     monkeypatch: pytest.MonkeyPatch,

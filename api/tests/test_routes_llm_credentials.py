@@ -266,6 +266,7 @@ async def test_llm_credential_cross_organization_is_indistinguishable(
     assert "api_key" not in owner_detail.json()
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_llm_credential_is_not_a_tenant_wide_runtime_model(
     client,

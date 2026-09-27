@@ -134,6 +134,26 @@ def _explicit_test_agent_runtime(monkeypatch):
 
 
 @pytest.fixture
+def fake_codex_cli(monkeypatch, tmp_path: Path) -> Path:
+    """Explicit CLI discovery for tests using fake providers/orchestrators.
+
+    Opt in only where the native runtime is not under test. Do not make this
+    autouse: missing-executable tests must retain the production fail-closed
+    behavior. Unexpected native execution fails instead of using a developer's
+    globally installed Codex or contacting a real model provider.
+    """
+    executable = tmp_path / "fake-codex" / "codex"
+    executable.parent.mkdir()
+    executable.write_text(
+        '#!/bin/sh\necho "Unexpected invocation of test Codex CLI" >&2\nexit 64\n',
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    monkeypatch.setattr(_live_config, "codex_cli_path", str(executable))
+    return executable
+
+
+@pytest.fixture
 def tmp_storage_root(tmp_path: Path) -> Path:
     """Per-test fresh storage root."""
     root = tmp_path / "vibecanvas_test"

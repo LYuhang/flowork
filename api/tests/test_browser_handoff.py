@@ -112,6 +112,7 @@ async def test_browser_command_in_main_app_emits_notice_and_skips_turn(client, p
     assert notice.get("code") == "browser_sidepanel_only", notice
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_browser_command_in_side_panel_runs_turn(client, pg_engine):
     """From the SIDE PANEL (surface="sidepanel") `/browser` activates browser
@@ -135,6 +136,7 @@ async def test_browser_command_in_side_panel_runs_turn(client, pg_engine):
     assert "MODE_CONTROL" not in names, names
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_normal_message_unaffected_runs_agent_turn(client, pg_engine):
     tok = await _register(client)

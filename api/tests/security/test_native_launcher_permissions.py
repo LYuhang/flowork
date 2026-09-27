@@ -25,6 +25,27 @@ def test_native_launcher_repairs_preexisting_runtime_permissions() -> None:
     )
 
 
+def test_native_database_ports_do_not_collide_with_package_services():
+    source = LAUNCHER.read_text()
+    defaults = "\n".join(
+        line for line in source.splitlines()
+        if line.startswith(('PGPORT=', 'REDISPORT='))
+    )
+    script = defaults + '\nprintf "%s:%s" "$PGPORT" "$REDISPORT"'
+    clean_env = {key: value for key, value in os.environ.items() if key not in {"PGPORT", "REDISPORT"}}
+    result = subprocess.run(
+        ["bash", "-eu", "-c", script], env=clean_env,
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout == "5433:6380"
+    overridden = subprocess.run(
+        ["bash", "-eu", "-c", script],
+        env={**clean_env, "PGPORT": "15433", "REDISPORT": "16379"},
+        capture_output=True, text=True, check=True,
+    )
+    assert overridden.stdout == "15433:16379"
+
+
 def test_openfga_preserves_capacity_and_cancels_timed_out_database_work() -> None:
     source = LAUNCHER.read_text(encoding="utf-8")
     assert '--datastore-max-open-conns "${OPENFGA_DATASTORE_MAX_OPEN_CONNS:-30}"' in source

@@ -25,7 +25,7 @@
 #   BACKEND_INSTALL 1=install api+engine wheels before up (default: 1)
 #   PGPORT     postgres port                         (default: 5433)
 #   API_PORT   loopback API port                     (default: 8000)
-#   REDISPORT  redis port                            (default: 6379)
+#   REDISPORT  redis port                            (default: 6380)
 #   RESET      1=wipe + re-provision the db on up    (default: 0, data persists)
 #   PGDATA     postgres data dir                     (default: $HOME/.vibecanvas/pgdata)
 #   OBJSTORE   shared object-store root              (default: $HOME/.vibecanvas/objectstore)
@@ -54,7 +54,9 @@ SUPERVISOR="$REPO_ROOT/scripts/supervise_process.py"
 PGBIN="${PGBIN:-$(pg_config --bindir 2>/dev/null || true)}"
 PGPORT="${PGPORT:-5433}"
 export API_PORT="${API_PORT:-8000}"
-REDISPORT="${REDISPORT:-6379}"
+# Debian/Ubuntu packages may start the system Redis on 6379. Like PostgreSQL
+# on 5433, keep the launcher-owned instance separate from that system service.
+REDISPORT="${REDISPORT:-6380}"
 OPENFGA_HTTP_PORT="${OPENFGA_HTTP_PORT:-8080}"
 OPENFGA_GRPC_PORT="${OPENFGA_GRPC_PORT:-8081}"
 OPENFGA_METRICS_PORT="${OPENFGA_METRICS_PORT:-2112}"

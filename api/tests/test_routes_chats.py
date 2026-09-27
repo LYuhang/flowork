@@ -647,6 +647,7 @@ async def test_browser_reconnect_snapshot_restores_matching_lost_session(
     assert ack and ack["event_seq"] == 41
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_existing_chat_workflow_command_commits_metadata_before_stream(
     client, pg_engine, monkeypatch, openfga_allow_all,
@@ -959,6 +960,7 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
         await agent_context.resolve_context(rotated_capability)
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_hitl_continue_is_hidden_in_product_history_and_sent_as_new_human_turn(
     client, pg_engine, monkeypatch,
@@ -1134,6 +1136,7 @@ async def test_hitl_continue_is_hidden_in_product_history_and_sent_as_new_human_
     assert len(dispatched_turns) == 2
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_background_results_are_claimed_as_one_hidden_turn_with_visible_notice(
     client, pg_engine, monkeypatch, openfga_allow_all,

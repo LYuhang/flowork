@@ -73,6 +73,7 @@ async def test_openrouter_start_is_safely_disabled_without_public_url(
     }
 
 
+@pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
 async def test_openrouter_connect_refresh_reconnect_and_disconnect(
     client,

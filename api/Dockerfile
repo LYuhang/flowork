@@ -127,7 +127,7 @@ RUN set -eux; \
         /etc/apt/sources.list.d/debian.sources; \
     apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates=20250419 \
-        curl=8.14.1-2+deb13u4 \
+        curl=8.14.1-2+deb13u5 \
         file=1:5.46-5 \
         git=1:2.47.3-0+deb13u1 \
         jq=1.7.1-6+deb13u3 \
@@ -135,8 +135,8 @@ RUN set -eux; \
         patch=2.8-2 \
         procps=2:4.0.4-9 \
         ripgrep=14.1.1-1+b4 \
-        unzip=6.0-29 \
-        zip=3.0-15 \
+        unzip=6.0-29+deb13u1 \
+        zip=3.0-15+deb13u1 \
         fonts-dejavu-core=2.37-8 \
         fonts-wqy-zenhei=0.9.45-8 \
         xvfb=2:21.1.16-1.3+deb13u3 \
@@ -147,11 +147,11 @@ RUN set -eux; \
         libxss1=1:1.2.3-1+b3 \
         libxtst6=2:1.2.5-1 \
         xdg-utils=1.2.1-2 \
-        libatspi2.0-0t64=2.56.2-1+deb13u1 \
+        libatspi2.0-0t64=2.56.2-1+deb13u2 \
         libuuid1=2.41.5-0+deb13u1 \
         libsecret-1-0=0.21.7-1 \
         libgbm1=25.0.7-2+deb13u1 \
-        libasound2t64=1.2.14-1 \
+        libasound2t64=1.2.14-1+deb13u1 \
         libreoffice-writer-nogui=4:25.2.3-2+deb13u6 \
         libreoffice-impress-nogui=4:25.2.3-2+deb13u6 \
         libreoffice-calc-nogui=4:25.2.3-2+deb13u6 \

@@ -3,7 +3,7 @@
 
 The old CodeNode in-process jail is gone. CodeNode user code now runs in a
 per-run subprocess pool
-(:class:`vibecanvas_engine.code_runner.CodeWorkerPool`) — gVisor is the isolation
+(:class:`vibecanvas_engine.code_runner.CodeWorkerPool`) — the selected OS sandbox is the isolation
 boundary, so no in-process AST/builtins/open jail is needed for user code.
 
 What REMAINS here is the small, controlled expression evaluator used by

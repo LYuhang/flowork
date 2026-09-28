@@ -45,3 +45,10 @@ def test_node_error_propagates_out_of_sandbox(tmp_path):
         run_dir=str(tmp_path), node=bad, inputs={}, run_id="n-err", timeout=120.0)
     assert "__engine__" not in res.error_dict
     assert "kaboom" in (res.error_dict.get("node_1", "") or "")
+
+
+@pytest.fixture(autouse=True)
+def select_gvisor_backend(monkeypatch):
+    """These guarded tests exercise the explicitly selected gVisor backend."""
+    from vibecanvas_api.config import config
+    monkeypatch.setattr(config, "sandbox_runtime", "gvisor")

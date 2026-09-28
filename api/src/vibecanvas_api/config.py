@@ -1550,12 +1550,12 @@ class AppConfig:
             os.environ.get("BWRAP_PATH") or raw.get("bwrap_path") or None
         )
         # Which OS-sandbox backend ``get_sandbox_provider`` resolves.
-        # Native launchers explicitly default to ``bubblewrap``; the separate
-        # rootful Compose profile uses ``gvisor``. bubblewrap supports resident
+        # Native, Compose, release images and direct startup default to
+        # ``bubblewrap`` with rootless warm sessions. It supports resident
         # workers and the runtime bus, but not checkpoint/restore or dynamic
         # mounts — see ``services/sandbox/bubblewrap.py`` for its boundaries.
         self.sandbox_runtime: str = (
-            os.environ.get("SANDBOX_RUNTIME") or raw.get("sandbox_runtime") or "gvisor"
+            os.environ.get("SANDBOX_RUNTIME") or raw.get("sandbox_runtime") or "bubblewrap"
         ).strip().lower()
         if self.sandbox_runtime not in {"gvisor", "bubblewrap"}:
             raise ValueError("SANDBOX_RUNTIME must be gvisor or bubblewrap")

@@ -222,8 +222,9 @@ services:
           --socket /run/vibecanvas-sandbox/sandboxd.sock
     env_file:
       - ${VIBECANVAS_ENV_FILE:-.env}
-    # runsc save/restore is unavailable rootless. This is the only privileged
-    # service in the stack; API, workers, databases and Web remain unprivileged.
+    # Nested sandbox namespaces require privileges on the container host.
+    # Workers inside bubblewrap still use the rootless-warm profile. This is
+    # the only privileged service; API, workers, databases and Web are unprivileged.
     user: "0:10001"
     privileged: true
     security_opt:
@@ -385,7 +386,7 @@ services:
       AGENT_RUNTIME_ROOT: /var/lib/vibecanvas/agent-runtime
       VFS_VOLUME_ROOT: /var/lib/vibecanvas/vfs-volumes
       # The image contains runsc, but this unprivileged API service never launches
-      # it. Only sandboxd owns gVisor processes and host capabilities.
+      # it. Only sandboxd owns sandbox processes and host capabilities.
       RUNSC_PATH: /usr/local/bin/runsc
       SANDBOX_SERVICE_MODE: service
       SANDBOX_SERVICE_SOCKET: /run/vibecanvas-sandbox/sandboxd.sock
@@ -566,7 +567,8 @@ volumes:
   # block/CSI volume; do not replace this mount with an object-store FUSE shim
   # without validating SQLite WAL, mmap, locking, fsync, and crash recovery.
   vfs_volume_data:
-  # Root-owned gVisor checkpoint images. Only sandboxd may mount this volume.
+  # Optional gVisor checkpoint cache; unused by the default bubblewrap profile.
+  # Only sandboxd may mount this volume.
   sandbox_snapshot_data:
   # Private IPC endpoint shared only by sandboxd and trusted backend services.
   sandbox_socket:

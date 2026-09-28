@@ -962,7 +962,7 @@ async def _produce_node_execution(
     """Run ONE node (the draft node from the request body) and yield its
     synthesized ``running`` to ``completed`` or ``error`` frames.
 
-    P2 (sandbox-only): the node is run INSIDE the gVisor sandbox via the
+    P2 (sandbox-only): the node is run INSIDE the selected OS sandbox via the
     provider's ``run_node``. There is NO in-process fallback any more — a
     non-sandbox-runnable node (``classify_workflow`` raises), a provider/
     admission failure, or an in-sandbox engine crash all surface a CLEAR
@@ -1027,7 +1027,7 @@ async def _produce_node_execution(
             execution_resource_type=ResourceType.WORKFLOW_EXECUTION.value,
         )
 
-    # P2 (sandbox-only): the node ALWAYS runs inside the gVisor sandbox via
+    # P2 (sandbox-only): the node ALWAYS runs inside the selected OS sandbox via
     # the provider's ``run_node``. The legacy in-process node-synthesizer
     # fallback was REMOVED (#629) — the sandbox is the sole isolation
     # boundary, so a non-runnable node / provider-admission failure /

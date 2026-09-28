@@ -4,9 +4,9 @@
 background worker ``batch_exec`` worker body (a synchronous context: no running event
 loop) and the deployment-invoke path. Workflow loading goes through the
 ``SyncWorkflowRepo`` facade, which opens its own short NullPool async
-session per call. The workflow is executed inside a gVisor OS sandbox, which is
+session per call. The workflow is executed inside the selected OS sandbox, which is
 the sole execution path; there is no in-process
-fallback) and the legacy ``(previous_outputs, error_dict, execution_time)``
+fallback, and the legacy ``(previous_outputs, error_dict, execution_time)``
 tuple still falls out byte-identically.
 
 RLS contract: ``current_sync_tenant_id`` must be set
@@ -70,7 +70,7 @@ def run_workflow_sandboxed_sync(
     execution_principal_generation: int = 0,
     mount_enabled: bool = True,
 ) -> tuple[dict, dict, float]:
-    """Run the workflow once INSIDE a gVisor OS-sandbox (the sole sync runner).
+    """Run the workflow once INSIDE the selected OS sandbox (the sole sync runner).
 
     Returns the canonical ``(previous_outputs, error_dict, execution_time)``
     tuple (seconds) consumed by the background worker batch worker and deployment-invoke
@@ -81,14 +81,14 @@ def run_workflow_sandboxed_sync(
     (possibly non-head) version is honored. When ``None`` (batch +
     REST), load the CURRENT/head version as before.
 
-    There is no in-process fallback: the gVisor
+    There is no in-process fallback: the configured
     sandbox is the sole execution path for the sync (batch/deploy) runner. The
     three previously-tolerated fall-throughs now raise CLEAR errors instead of
     silently running in-process:
 
     * **No sandbox available** (``SandboxUnavailable`` — e.g. a box with no
-      ``runsc``): re-raised with a clear message — workflow execution requires
-      the gVisor sandbox.
+      ``bwrap``): re-raised with a clear message — workflow execution requires
+      the selected sandbox backend.
     * **In-memory object store** (``run_dir is None`` — the process-local dict
       can't be bind-mounted into the sandbox): raises ``RuntimeError``.
     * **Host-only node** (``EngineNeedsHostNode`` — the provider's pure-engine
@@ -203,10 +203,9 @@ def run_workflow_sandboxed_sync(
     try:
         provider = get_sandbox_provider()
     except SandboxUnavailable as exc:
-        # SANDBOX-ONLY: no OS-sandbox here (runsc missing) → hard error, NOT an
-        # in-process fallback. The gVisor sandbox is the sole execution path.
+        # A missing selected backend is a hard error, never an in-process fallback.
         raise SandboxUnavailable(
-            "workflow execution requires the gVisor sandbox (runsc); there is "
+            "workflow execution requires the configured sandbox backend; there is "
             "no in-process fallback"
         ) from exc
 

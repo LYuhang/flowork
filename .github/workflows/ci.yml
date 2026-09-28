@@ -52,8 +52,8 @@ jobs:
         env:
           # GitHub-hosted runners are nested VMs. Probe the complete rootless
           # mount/Python/UDS profile on ptrace; guarded integration tests skip
-          # when the hosted kernel rejects that profile. The release rootful
-          # profile is verified by the real Docker checkpoint/restore gate.
+          # when the hosted kernel rejects that optional profile. Deployment
+          # defaults are checked separately against the rendered Compose files.
           SANDBOX_GVISOR_PLATFORM: ptrace
         run: |
           set -o pipefail

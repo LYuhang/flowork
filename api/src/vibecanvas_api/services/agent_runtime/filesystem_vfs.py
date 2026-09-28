@@ -2,7 +2,7 @@
 
 The API host hydrates `/data`, `/memory`, `/logs`, and `/mount` before a turn
 and writes them back after it.  Agent middleware can therefore use the legacy
-sync VFS protocol without a platform database credential inside gVisor.
+sync VFS protocol without a platform database credential inside the OS sandbox.
 """
 
 from __future__ import annotations

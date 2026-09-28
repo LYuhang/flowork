@@ -27,9 +27,9 @@ the [`api/`](../api/) and [`web/`](../web/) packages.
 
 The Engine also does not create the platform's operating-system sandbox. In the
 supported Flowork topology, the API-side `sandboxd` service starts the configured
-sandbox backend and runs the Engine inside it. gVisor is the default; the
-optional bubblewrap development backend has different isolation and lifecycle
-capabilities. The distinction is described in
+sandbox backend and runs the Engine inside it. bubblewrap + rootless-warm is
+the default for every deployment entrypoint; optional gVisor profiles provide
+different isolation and lifecycle capabilities. The distinction is described in
 [Execution isolation](#execution-isolation) below and in the repository
 [architecture guide](../docs/architecture.md).
 
@@ -137,7 +137,7 @@ boundary:
   sandbox for untrusted code.
 - [`sandbox_entry.py`](src/vibecanvas_engine/sandbox_entry.py) is the
   credential-free Engine entry point executed inside the platform sandbox.
-- gVisor lifecycle, filesystem bindings, network policy, and host capabilities
+- Sandbox lifecycle, filesystem bindings, network policy, and host capabilities
   are owned by the API-side
   [sandbox service](../api/src/vibecanvas_api/services/sandbox/).
 

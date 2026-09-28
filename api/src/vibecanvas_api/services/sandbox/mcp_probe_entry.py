@@ -1,7 +1,7 @@
 """One-shot in-sandbox MCP manifest probe.
 
 The API host writes ``/run/request.json`` and starts this module inside a fresh
-gVisor instance.  User-controlled stdio commands and remote MCP clients are
+OS-sandbox instance.  User-controlled stdio commands and remote MCP clients are
 therefore never instantiated in the API process.
 """
 from __future__ import annotations

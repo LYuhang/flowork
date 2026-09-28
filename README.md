@@ -316,9 +316,9 @@ authorization boundaries, object storage holds durable file content, and
 DBOS persists queues in PostgreSQL, while Valkey provides transient coordination. The sandbox service keeps
 agent and workflow execution outside the API process.
 
-`sandboxd` selects the configured sandbox backend: fresh native/local Compose
-installs use bubblewrap with a shared-kernel boundary and no checkpoint/restore;
-the production release profile explicitly uses gVisor snapshots. See
+`sandboxd` defaults to bubblewrap + rootless-warm across native, Compose,
+release and image-only deployments. It shares the host kernel and has no
+process checkpoint/restore; gVisor snapshots require explicit configuration. See
 [Docker image deployment](docs/docker-deployment.zh-CN.md). Batch and scheduled Tasks
 also enforce database-backed worker ownership and recovery fences; DBOS
 redelivery is not permission to repeat an already-running task or unknown

@@ -54,7 +54,7 @@ class EmbeddedSandboxClient:
         # support (see services/sandbox/bubblewrap.py); report a reduced
         # capability set unconditionally rather than deriving it from the
         # gVisor-only snapshot-mode settings below.
-        is_bubblewrap = str(getattr(config, "sandbox_runtime", "gvisor")) == "bubblewrap"
+        is_bubblewrap = str(getattr(config, "sandbox_runtime", "bubblewrap")) == "bubblewrap"
         return SandboxCapabilities(
             snapshot_restore=(
                 False

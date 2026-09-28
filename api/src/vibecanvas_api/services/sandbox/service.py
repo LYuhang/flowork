@@ -1,7 +1,7 @@
 """gRPC sandboxd transport and process-neutral session proxies.
 
 The daemon is the only process that owns :class:`SandboxManager` and therefore
-the only process that owns gVisor handles, brokers and resident session locks.
+the only process that owns sandbox handles, brokers and resident session locks.
 API and background worker processes use the classes in this module as serializable gRPC
 proxies. Local deployments use a Unix socket; the same protobuf contract can
 be exposed over mTLS TCP by a remote Sandbox Service deployment.
@@ -693,7 +693,7 @@ class _SandboxGrpcService(pb_grpc.SandboxServiceServicer):
     def _ref(self, scope: pb.SandboxScope) -> pb.SandboxRef:
         return pb.SandboxRef(
             sandbox_id=_sandbox_id(scope.tenant_id, scope.scope_id),
-            provider="gvisor-local",
+            provider=f"{config.sandbox_runtime}-local",
             endpoint=getattr(
                 self.daemon, "endpoint", f"unix://{self.daemon.socket_path}"
             ),

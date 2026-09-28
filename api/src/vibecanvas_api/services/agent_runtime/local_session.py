@@ -1,7 +1,7 @@
 """Filesystem adapter used by an Agent Runtime already inside the sandbox.
 
 Host-side tools historically acquired a ``SandboxSession`` and submitted JSON
-file operations to a warm worker.  Once the runtime itself is inside gVisor,
+file operations to a warm worker.  Once the runtime itself is inside the selected OS sandbox,
 starting another sandbox would be both wasteful and incorrect.  This adapter
 keeps the existing tool-facing method contract while executing against the
 already-mounted filesystem.  ``/runtime`` is deliberately absent from the

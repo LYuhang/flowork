@@ -388,3 +388,10 @@ async def test_gvisor_bus_cancel_killpg_retains_run_dir(tmp_path):
     # The runsc process group is dead (killed).
     handle.proc.wait(timeout=10)
     assert handle.proc.returncode is not None
+
+
+@pytest.fixture(autouse=True)
+def select_gvisor_backend(monkeypatch):
+    """These guarded tests exercise the explicitly selected gVisor backend."""
+    from vibecanvas_api.config import config
+    monkeypatch.setattr(config, "sandbox_runtime", "gvisor")

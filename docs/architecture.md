@@ -231,15 +231,15 @@ execution through its private service interface rather than launching sandboxes
 themselves. `SANDBOX_RUNTIME` selects the backend; `SANDBOX_TYPE` selects its
 session mode. These are separate settings.
 
-Native deployment defaults to bubblewrap with rootless warm sessions. The
-separate Compose profile uses gVisor in rootful snapshot mode, where `sandboxd`
-is the only privileged application service. The bubblewrap backend uses Linux
+Native, Compose, release and image-only deployments default to bubblewrap
+with rootless warm sessions. In Compose, `sandboxd` is the only privileged
+application service so it can create nested namespaces. The bubblewrap backend uses Linux
 namespaces and shares the host kernel rather than providing gVisor's
 userspace-kernel boundary. It supports resident workers and Agent/Workflow
 execution, but not process checkpoint/restore or post-start dynamic mounts.
 Its current read-only host `/proc` binding also does not provide PID hiding.
-Treat it as a weaker local-development option, not an equivalent replacement
-for the documented production sandbox profile.
+gVisor is an explicitly selected alternative with a different isolation boundary
+and optional checkpoint/restore; release promotion does not change the backend.
 
 The daemon interface is implemented in
 [`service.py`](../api/src/vibecanvas_api/services/sandbox/service.py), session
@@ -587,7 +587,7 @@ API reaches PostgreSQL and Valkey through the data network, OpenFGA through the
 authorization network, and `sandboxd` through the control network. OpenFGA has
 a separate network for its own database.
 
-The default snapshot profile configures gVisor with `SANDBOX_NETWORK=none` and
+The default sandbox configuration uses `SANDBOX_NETWORK=none` and
 `SANDBOX_EGRESS_MODE=proxy`. A controlled egress proxy handles outbound HTTP(S)
 and WebSocket traffic. It allows public destinations according to policy and
 private destinations only when they are explicitly configured. Host-network

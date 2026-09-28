@@ -155,11 +155,9 @@ class CodexAppServer:
             await self.close()
         arguments = [self._executable, "-c", _CODEX_FILE_CREDENTIAL_CONFIG]
         if self._outer_sandboxed:
-            # The Agent Runtime already runs inside a dedicated gVisor
-            # container. Asking Codex to create a second Linux sandbox here
-            # would require bubblewrap inside gVisor without adding a security
-            # boundary, and can make startup fail before the per-thread policy
-            # is applied.
+            # The Agent Runtime already runs inside the selected OS sandbox.
+            # Asking Codex to create another nested sandbox here can fail
+            # before the per-thread policy is applied.
             arguments.extend(("-c", _CODEX_OUTER_SANDBOX_CONFIG))
         for override in self._config_overrides:
             arguments.extend(("-c", override))

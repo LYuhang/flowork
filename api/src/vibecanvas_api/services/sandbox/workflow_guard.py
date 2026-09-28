@@ -1,4 +1,4 @@
-"""Credential-free workflow admission for gVisor execution.
+"""Credential-free workflow admission for isolated sandbox execution.
 
 Only engine-native node types may enter a workflow sandbox. Platform data
 access belongs behind host brokers/Platform MCP; an API node must never become

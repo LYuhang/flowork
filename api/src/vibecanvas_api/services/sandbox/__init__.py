@@ -1,11 +1,11 @@
 """OS-sandbox provider package (RE-6 P1).
 
-api-side gVisor (runsc) sandbox — distinct from the in-process
+API-side bubblewrap/gVisor sandbox — distinct from the in-process
 ``engine/.../sandbox.py``. The engine never imports this package.
 
 Public surface: ``SandboxProvider`` / ``SandboxResult`` / ``SandboxUnavailable``
 (interface), ``build_oci_config`` (bundle builder), and ``get_sandbox_provider``
-(the P1 resolver stub).
+(the configured backend resolver).
 """
 
 from __future__ import annotations
@@ -259,15 +259,14 @@ def _gvisor_runnable() -> bool:
 def get_sandbox_provider(*, trust: str = "trusted") -> SandboxProvider:
     """Resolve an OS-sandbox provider, or raise ``SandboxUnavailable``.
 
-    Returns the provider selected by ``SANDBOX_TYPE`` (gVisor privilege/
-    lifecycle profile) if ``runsc`` is resolvable, unless ``SANDBOX_RUNTIME``
-    selects the lighter-weight bubblewrap provider instead — see
-    ``bubblewrap.py`` for what that alternative does and does not support.
+    ``SANDBOX_RUNTIME`` selects bubblewrap by default or explicit gVisor.
+    ``SANDBOX_TYPE`` selects the privilege/lifecycle profile. Missing provider
+    binaries fail explicitly; this function never switches backends silently.
     """
     # TODO RE-6 P3: trust×config policy + prod startup-assert + ManagedApiProvider
     from vibecanvas_api.config import config
 
-    if str(getattr(config, "sandbox_runtime", "gvisor")) == "bubblewrap":
+    if str(getattr(config, "sandbox_runtime", "bubblewrap")) == "bubblewrap":
         bwrap_path = _resolve_bwrap()
         if not bwrap_path:
             raise SandboxUnavailable(

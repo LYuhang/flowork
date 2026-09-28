@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """RE-6 P2 — in-sandbox entrypoint (PURE ENGINE — NO api import).
 
-Runs a pure-engine workflow INSIDE a gVisor sandbox. The bind-mounted run-tier
+Runs a pure-engine workflow INSIDE the selected OS sandbox. The bind-mounted run-tier
 is the result channel (no socket / stdout protocol):
 
   - Host writes ``{run_root}/__exec__/workflow.json`` + ``inputs.json`` before

@@ -61,7 +61,7 @@ application containers:
 | **File scanning** | A capacity-tested ClamAV daemon available through a local Unix socket |
 | **Audit and observability** | Immutable HTTPS audit export, private metrics and tracing, alerting, and defined retention |
 | **Email** | SMTP credentials retrieved from a managed secret reference rather than plaintext environment values |
-| **Sandbox host** | Rootful gVisor support, controlled egress, sufficient storage, and successful checkpoint/restore validation |
+| **Sandbox host** | Linux namespace/bubblewrap support, controlled egress, sufficient storage, and a successful selected-backend startup probe |
 
 The application validates these assumptions before a production API or worker
 starts. The executable requirements are defined in the
@@ -69,7 +69,7 @@ starts. The executable requirements are defined in the
 
 ### Sandbox ownership
 
-In the single-node topology, one `sandboxd` instance manages all gVisor
+In the single-node topology, one `sandboxd` instance manages all sandbox
 sessions through a private Unix socket. It is the only application service that
 requires elevated container privileges; the Web, API, workers, databases, and
 migration jobs remain unprivileged.
@@ -80,14 +80,16 @@ because distributed session ownership and lease transfer are not implemented.
 A future multi-node deployment must use deterministic sharding or sticky
 routing to one daemon per scope.
 
-Keep `SANDBOX_RUNTIME=gvisor` with the release overlay's
-`SANDBOX_TYPE=rootful-snapshot` for this deployment procedure. Native development
-defaults to `SANDBOX_RUNTIME=bubblewrap` with `SANDBOX_TYPE=rootless-warm`;
-gVisor is an explicitly selected alternative. Those
-development options do not provide the same checkpoint/restore capability or
-isolation boundary: bubblewrap shares the host kernel, currently binds the host
-`/proc` read-only, and does not implement real snapshots. Do not use a backend
-switch to bypass the production gVisor startup and checkpoint/restore gates.
+All deployment entrypoints default to `SANDBOX_RUNTIME=bubblewrap` and
+`SANDBOX_TYPE=rootless-warm`, including this release overlay. Release promotion
+changes image provenance and production security settings, not the sandbox
+backend or the DBOS background-task framework.
+
+bubblewrap shares the host kernel, binds the host `/proc` read-only, and has no
+process checkpoint/restore. Operators who explicitly require gVisor snapshots
+can select `SANDBOX_RUNTIME=gvisor` and `SANDBOX_TYPE=rootful-snapshot`; the host
+must then pass the corresponding checkpoint/restore probe. These optional
+capabilities are not requirements for the default deployment.
 
 For the underlying lifecycle and network model, see
 [Sandbox lifecycle](docs/architecture.md#sandbox-lifecycle) and
@@ -327,7 +329,7 @@ After deployment:
 2. verify the public health endpoint through the HTTPS reverse proxy;
 3. test registration or login with a dedicated non-production identity;
 4. verify both an allowed action and an authorization denial;
-5. execute a representative Chat turn and Workflow inside gVisor;
+5. execute a representative Chat turn and Workflow inside the selected sandbox backend;
 6. confirm that audit events reach the immutable sink;
 7. confirm that metrics, traces, and alerts are active;
 8. verify that the current extension package matches the release; and
@@ -389,7 +391,7 @@ A recoverable deployment protects all authoritative state:
 - production environment metadata and secret-manager references; and
 - KMS keys and policies required to decrypt retained data.
 
-gVisor hibernation snapshots are a performance cache, not an authoritative data
+When explicitly enabled, gVisor hibernation snapshots are a performance cache, not an authoritative data
 store, and do not need to be part of application recovery.
 
 Test restoration in an isolated environment on a defined schedule. A restore

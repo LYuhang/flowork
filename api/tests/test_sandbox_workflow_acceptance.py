@@ -122,3 +122,10 @@ def test_parallel_workflow_error_propagates_out(tmp_path):
         run_dir=str(tmp_path), workflow=wf, inputs={"x": 1}, run_id="wacc-err", timeout=120.0)
     assert res.error_dict, "a raising CodeNode in a parallel branch must surface in error_dict"
     assert "branch-boom" in str(res.error_dict)
+
+
+@pytest.fixture(autouse=True)
+def select_gvisor_backend(monkeypatch):
+    """These guarded tests exercise the explicitly selected gVisor backend."""
+    from vibecanvas_api.config import config
+    monkeypatch.setattr(config, "sandbox_runtime", "gvisor")

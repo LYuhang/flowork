@@ -87,12 +87,12 @@ part of the background worker, not another daemon. An execution whose worker
 is lost is stopped and reported with an unknown outcome rather than automatically
 rerunning potentially completed external effects.
 
-The native defaults are `SANDBOX_RUNTIME=bubblewrap` and
+The defaults for native, Docker and release deployments are `SANDBOX_RUNTIME=bubblewrap` and
 `SANDBOX_TYPE=rootless-warm`. It uses Linux namespace isolation without
 checkpoint/restore support. gVisor is available through explicit configuration.
 See [Sandbox backend and lifecycle](installation.md#sandbox-backend-and-lifecycle)
-before changing these settings; Docker uses the separate `rootful-snapshot`
-profile.
+before changing these settings; no deployment entrypoint automatically switches
+to a snapshot profile.
 
 `WEB_MODE=dev` enables Vite hot module replacement. The launcher's default
 `preview` mode builds and serves static assets and is more reliable on hosts

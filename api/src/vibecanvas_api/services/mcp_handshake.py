@@ -1,4 +1,4 @@
-"""Single MCP server handshake through a one-shot gVisor sandbox.
+"""Single MCP server handshake through the configured one-shot OS sandbox.
 
 Used by MCP management probes at
 agent-build time AND by the routes that need to probe a server up-front

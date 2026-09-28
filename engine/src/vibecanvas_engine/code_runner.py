@@ -2,7 +2,7 @@
 """Parent-side per-RUN CodeNode worker pool.
 
 A LEAN, per-run, bounded pool of ``code_worker.py`` subprocesses. Isolation is
-gVisor's job (the workflow runs inside the sandbox), so this layer does NO
+the selected OS sandbox's job (the workflow runs inside it), so this layer does NO
 jailing — it only spawns/routes/timeouts/kills. The generic pool/worker/pipe
 machinery lives in :mod:`vibecanvas_engine.subprocess_pool`
 (``BoundedSubprocessPool``); ``CodeWorkerPool`` is the CodeNode-specific subclass

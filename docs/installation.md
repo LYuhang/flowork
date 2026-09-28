@@ -166,7 +166,7 @@ distribution: the two daemons use different sockets, images, and volumes.
 It is normal for `systemctl is-active docker` to report an inactive service in
 this configuration. `docker info` must still succeed from the shell where
 Flowork is started. The startup probe determines whether the Docker Desktop
-kernel supports the required gVisor mode.
+kernel supports the selected sandbox backend (bubblewrap by default).
 
 ## Native Linux or WSL
 
@@ -318,9 +318,9 @@ continue with the [development guide](development.md).
 ### Sandbox backend and lifecycle
 
 `SANDBOX_RUNTIME` selects the execution backend; `SANDBOX_TYPE` selects its
-privilege and lifecycle profile. Fresh native and local Docker deployments
-default to `bubblewrap` with `rootless-warm`. The production release overlay
-explicitly uses `gvisor` with `rootful-snapshot`.
+privilege and lifecycle profile. Native, Docker, release and image-only
+deployments all default to `bubblewrap` with `rootless-warm`. The release
+overlay preserves these defaults and any explicit operator selection.
 Checkpoint/restore belongs to the rootful gVisor snapshot profile; a warm native
 session does not imply that its process state can be checkpointed.
 
@@ -329,8 +329,7 @@ The native bootstrap installs
 supports resident workers and Agent/Workflow execution, but has no real
 checkpoint/restore or post-start dynamic mount support. It shares the host
 kernel and the current implementation binds the host `/proc` read-only, so its
-isolation differs from gVisor. It is not an equivalent replacement for the
-production snapshot configuration. See
+isolation differs from the optional gVisor backend. See
 [Sandbox lifecycle](architecture.md#sandbox-lifecycle) for the capability boundary.
 
 Installing `runsc` is not proof that the host supports the full sandbox profile.
@@ -400,8 +399,8 @@ following runtime settings are occasionally changed independently:
 | --- | --- | --- |
 | `VIBECANVAS_HTTP_PORT` | `9001` | Docker Web application port |
 | `WEB_PORT` | `9001` | Native launcher Web application port |
-| `SANDBOX_RUNTIME` | Native/local Docker: `bubblewrap`; production: `gvisor` | Sandbox backend |
-| `SANDBOX_TYPE` | Native/local Docker: `rootless-warm`; production: `rootful-snapshot` | Sandbox privilege and lifecycle profile |
+| `SANDBOX_RUNTIME` | `bubblewrap` (all deployment entrypoints) | Sandbox backend |
+| `SANDBOX_TYPE` | `rootless-warm` (all deployment entrypoints) | Sandbox privilege and lifecycle profile |
 | `SANDBOX_MAX_RESIDENT` | `2` | Caps concurrently warm Agent/Workflow sandboxes; raise only after sizing per-session memory |
 | `OBJECT_STORE_PROVIDER` | `filesystem` | Local file-backed object storage; production deployments normally use `s3` |
 | `SANDBOX_EGRESS_MODE` | `proxy` | Routes sandbox HTTP(S) and WebSocket traffic through the controlled egress proxy |
@@ -535,7 +534,7 @@ The verification steps are implemented in
 | `Docker daemon is unavailable` | Run `docker info`. Start Docker Engine or enable Docker Desktop integration for the current WSL distribution. |
 | `Docker Compose v2 plugin is unavailable` | Install or update the Compose v2 plugin; the legacy `docker-compose` command is not supported. |
 | A Docker service port is already in use | Change the corresponding `VIBECANVAS_*_PORT` value in `.env`. For a new Web port, run `local_server.sh up --public-url` with the matching URL as described above. Native Web uses `WEB_PORT` in `.env.launch.local`. |
-| `sandbox_prewarm` or checkpoint/restore fails | Inspect the `sandboxd` logs. Confirm that the active Docker kernel permits privileged containers and the configured gVisor platform. |
+| `sandbox_prewarm` or checkpoint/restore fails | Inspect the `sandboxd` logs. Confirm that the active Docker kernel permits the selected sandbox backend and nested namespaces. Check checkpoint/restore only if gVisor snapshots were explicitly enabled. |
 | Native startup reports a missing `.venv` | Run `./scripts/bootstrap_native_linux.sh --prepare-only`, then retry. |
 | The application opens but Chat cannot start | Configure a model under **Settings → Agent Runtime**, then inspect the API logs for provider or credential errors. |
 | The extension cannot connect | Download the package from the current deployment again and confirm that `VIBECANVAS_PUBLIC_URL` matches the URL opened in Chrome. |

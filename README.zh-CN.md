@@ -213,7 +213,7 @@ Flowork 将平台管理与任务执行分为两层。Web 应用提供 Chat、可
 
 PostgreSQL 是系统的权威数据源；OpenFGA 与行级安全策略共同保证访问控制边界；对象存储保存需要持久化的文件内容；DBOS 将队列和调度状态持久化在 PostgreSQL，Valkey 只提供临时通知、限流和协调，不承担任务队列。沙盒服务确保 Agent 与工作流不会在 API 进程内直接执行。
 
-`sandboxd` 按配置选择执行后端：新建原生和本地 Compose 部署默认使用 bubblewrap + rootless-warm，共享宿主内核，不支持进程检查点与恢复；严格生产发布配置显式使用 gVisor 快照。见 [Docker 镜像部署](docs/docker-deployment.zh-CN.md)。批量和定时任务还通过数据库中的 Worker 所有权、心跳和写入校验防止重复领取及旧 Worker 回写；DBOS 重投递不等于可以重跑已启动任务或重复执行结果未知的外部操作。
+`sandboxd` 按配置选择执行后端：原生、Compose、release 和纯镜像部署统一默认使用 bubblewrap + rootless-warm，共享宿主内核，不支持进程检查点与恢复；gVisor 快照仅在用户显式配置时启用。见 [Docker 镜像部署](docs/docker-deployment.zh-CN.md)。批量和定时任务还通过数据库中的 Worker 所有权、心跳和写入校验防止重复领取及旧 Worker 回写；DBOS 重投递不等于可以重跑已启动任务或重复执行结果未知的外部操作。
 
 有关运行时生命周期、MCP 边界、存储职责、权限控制和网络隔离的详细说明，请参阅[架构指南](docs/architecture.md)。
 

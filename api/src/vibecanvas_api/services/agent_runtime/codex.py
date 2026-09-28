@@ -52,7 +52,7 @@ from vibecanvas_api.services.chat_workspace import chat_working_directory
 
 _BROKER_PROVIDER_ID = "vibecanvas_runtime_model"
 # Agent Runtime sandboxes intentionally do not mount the workflow-only /run
-# tier. /tmp is an isolated tmpfs in every gVisor container, making it the
+# tier. /tmp is an isolated tmpfs in every OS sandbox, making it the
 # correct crash-discarded location for a short-lived broker capability.
 _BROKER_CAPABILITY_DIR = "/tmp/vibecanvas-runtime"
 _BROKER_CAPABILITY_PATH = f"{_BROKER_CAPABILITY_DIR}/model-capability"

@@ -88,7 +88,7 @@ RUN python /tmp/patch_python_tarfile.py && \
     rm /tmp/patch_python_tarfile.py
 
 # Install bubblewrap for lightweight self-hosting and retain gVisor for the
-# explicitly selected snapshot/production profile. Fetch the SAME
+# explicitly selected optional snapshot profile. Fetch the SAME
 # pinned, sha512-verified release as scripts/get_runsc.sh (keep the pin in sync)
 # to /usr/local/bin/runsc (on PATH → resolved by which(runsc); RUNSC_PATH in
 # compose makes it explicit). The image is shared by the unprivileged API/worker
@@ -96,7 +96,7 @@ RUN python /tmp/patch_python_tarfile.py && \
 # runsc and receives the required host capabilities; its startup probe validates
 # the selected platform plus checkpoint/restore support on the actual host.
 ARG RUNSC_RELEASE=20260601.0
-# Small, version-pinned command-line baseline exposed inside every gVisor
+# Small, version-pinned command-line baseline exposed inside every OS
 # sandbox. These are runtime inspection/editing tools; compilers and language
 # package managers remain opt-in environment dependencies to keep the trusted
 # base image lean and its attack surface bounded.
@@ -218,7 +218,7 @@ RUN chmod 0755 /usr/local/bin/flowork-drawio-export && \
 
 # API/worker images do not need a package installer. The dedicated sandboxd
 # image opts into pip because it owns the narrow, wheel-only, content-addressed
-# Workflow dependency builder; third-party code still executes only in gVisor.
+# Workflow dependency builder; third-party code still executes only in a sandbox.
 ARG VIBECANVAS_RUNTIME_ENV_BUILDER=0
 RUN if [ "${VIBECANVAS_RUNTIME_ENV_BUILDER}" = "1" ]; then \
       python -m pip --version; \
@@ -231,7 +231,7 @@ RUN if [ "${VIBECANVAS_RUNTIME_ENV_BUILDER}" = "1" ]; then \
     fi
 
 # Every API-derived service is unprivileged by default. Compose explicitly
-# overrides only sandboxd to UID 0 for rootful gVisor checkpoint/restore.
+# overrides only sandboxd to UID 0 to create nested sandbox namespaces.
 RUN groupadd --gid 10001 vibecanvas && \
     useradd --uid 10001 --gid 10001 --create-home \
       --home-dir /home/vibecanvas --shell /usr/sbin/nologin vibecanvas && \

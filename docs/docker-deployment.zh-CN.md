@@ -101,11 +101,14 @@ Web/API 默认使用同源路径，`VITE_API_BASE` 保持空。内部服务地�
 
 ## 4. 资源与持久化
 
-默认 `SANDBOX_RUNTIME=bubblewrap`、`SANDBOX_TYPE=rootless-warm`、
+原生、默认 Compose、release overlay 和纯镜像部署统一默认
+`SANDBOX_RUNTIME=bubblewrap`、`SANDBOX_TYPE=rootless-warm`、
 `SANDBOX_MAX_RESIDENT=2`、`DBOS_MAX_EXECUTOR_THREADS=2`、
 `BACKGROUND_QUEUE_CONCURRENCY=1`（每个队列）。bubblewrap 共享宿主内核，
 没有 gVisor 的进程快照恢复能力。Compose 中只有 sandboxd 是特权服务，
 用于嵌套沙盒命名空间；API、worker、Web 不以特权模式运行。
+release overlay 使用相同默认值，并保留用户的显式配置，不会自动切换到
+gVisor。镜像中保留的 runsc 仅供显式选择 gVisor 时使用，默认不启动它。
 
 小规模运行可从 2 vCPU / 2 GiB RAM 加 swap 起步，4 GiB 更宽裕。
 这不表示能同时处理多个模型、浏览器和 Office 作业。镜像构建所需资源与

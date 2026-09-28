@@ -4,8 +4,9 @@
 # scripts/security/verify_release_attestations.sh.
 x-openfga-production: &openfga-production
   VIBECANVAS_ENV: production
-  SANDBOX_RUNTIME: gvisor
-  SANDBOX_TYPE: rootful-snapshot
+  # Release promotion keeps the same runtime defaults as every other entrypoint.
+  SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-bubblewrap}
+  SANDBOX_TYPE: ${SANDBOX_TYPE:-rootless-warm}
   SANDBOX_NETWORK: none
   SANDBOX_EGRESS_MODE: proxy
   SANDBOX_AGENT_EGRESS_POLICY: "${SANDBOX_AGENT_EGRESS_POLICY:-public}"

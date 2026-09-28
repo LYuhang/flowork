@@ -169,16 +169,15 @@ Sandbox contracts and clients live under
 [`services/sandbox/`](src/vibecanvas_api/services/sandbox/). In the supported
 topology, only `sandboxd` starts and owns sandbox processes; the API and background
 worker request execution through its Unix-socket or mTLS gRPC interface.
-`SANDBOX_RUNTIME` selects `gvisor` (the default) or `bubblewrap`.
-`SANDBOX_TYPE` separately selects the privilege/lifecycle profile: native
-launches default to `rootless-warm`, while Compose uses `rootful-snapshot`.
+`SANDBOX_RUNTIME` defaults to `bubblewrap`; `gvisor` is explicitly opt-in.
+`SANDBOX_TYPE` defaults to `rootless-warm`. Direct startup, native launchers,
+Compose and the release overlay all use these same defaults.
 The bubblewrap provider supports resident workers and Agent/Workflow execution,
 but lacks checkpoint/restore and post-start dynamic mounts. It shares the host
 kernel and currently exposes a read-only host `/proc`; it is not equivalent to
 the gVisor isolation boundary. The coordinator rejects requests that require
-snapshots when the selected backend cannot provide them. Production deployment
-continues to use the reviewed gVisor snapshot configuration in
-[`DEPLOY.md`](../DEPLOY.md). The
+snapshots when the selected backend cannot provide them. The release procedure
+in [`DEPLOY.md`](../DEPLOY.md) preserves the configured backend. The
 [sandbox lifecycle](../docs/architecture.md#sandbox-lifecycle) section explains
 the isolation and ownership boundary in detail.
 

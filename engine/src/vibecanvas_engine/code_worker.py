@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """CodeNode worker shim — runs as ``python -m vibecanvas_engine.code_worker``.
 
-This is the in-subprocess half of the LEAN CodeNode execution model. gVisor (the
+This is the in-subprocess half of the LEAN CodeNode execution model. The selected OS sandbox (the
 sandbox the whole workflow runs inside) is the isolation boundary now, so this
 shim deliberately has NO in-process jail: user ``process_fn`` code runs with the
 NORMAL Python builtins, NO AST check, NO ``open``/``import`` whitelist. The only

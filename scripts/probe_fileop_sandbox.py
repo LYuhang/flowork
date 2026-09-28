@@ -16,17 +16,19 @@ import time
 import sys
 
 from vibecanvas_api.services.object_store import FilesystemObjectStore
-from vibecanvas_api.services.sandbox import _gvisor_runnable, _resolve_runsc
-from vibecanvas_api.services.sandbox.gvisor import RootlessGvisorProvider
+from vibecanvas_api.config import config
+from vibecanvas_api.services.sandbox import get_sandbox_provider, SandboxUnavailable
 from vibecanvas_api.services.sandbox.warm import WarmGvisorPool
 import vibecanvas_api.services.sandbox.warm as warm_mod
 
 
 def main() -> int:
     command = sys.argv[1] if len(sys.argv) > 1 else "ls -la /data/"
-    print(f"gvisor_runnable={_gvisor_runnable()} runsc={_resolve_runsc()}")
-    if not _resolve_runsc():
-        print("runsc not found; cannot run the real gVisor fileop probe on this machine.")
+    print(f"sandbox_runtime={config.sandbox_runtime} sandbox_type={config.sandbox_type}")
+    try:
+        provider = get_sandbox_provider()
+    except SandboxUnavailable as exc:
+        print(f"Selected sandbox unavailable: {exc}")
         return 2
 
     root = tempfile.mkdtemp(prefix="vc-fileop-probe-")
@@ -41,10 +43,10 @@ def main() -> int:
 
     warm_mod.get_object_store = lambda: FilesystemObjectStore(root=store_root)
     pool = WarmGvisorPool(
-        provider=RootlessGvisorProvider(_resolve_runsc()),
+        provider=provider,
         store_root=store_root,
         work_root=work_root,
-        size=int(os.environ.get("SANDBOX_FILEOP_WORKERS", "16")),
+        size=config.sandbox_fileop_workers,
         fileops=True,
         db=False,
         fileop_binds=[

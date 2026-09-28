@@ -49,7 +49,7 @@ def codex_cli_node_runtime(executable: str) -> str | None:
 
     ``resolve_codex_executable`` intentionally resolves symlinks, so the common
     npm installation becomes ``.../@openai/codex/bin/codex.js``. Mounting that
-    package into gVisor is not enough: its ``#!/usr/bin/env node`` interpreter
+    package into the OS sandbox is not enough: its ``#!/usr/bin/env node`` interpreter
     may live in an nvm directory that is outside the sandbox's standard binds.
     Native Codex binaries return ``None`` and need no additional mount.
     """

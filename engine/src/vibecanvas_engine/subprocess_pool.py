@@ -3,7 +3,7 @@
 
 A LEAN, bounded, lazily-grown pool of worker subprocesses that the parent
 spawns / routes jobs to / times out / kills. Isolation is NOT this layer's job
-(gVisor is the boundary when this runs in a sandbox) — it only manages worker
+(the selected OS sandbox provides the isolation boundary) — it only manages worker
 lifecycle and the job/result transport.
 
 Two consumers reuse this skeleton (A1, sandbox parallel-execution design):

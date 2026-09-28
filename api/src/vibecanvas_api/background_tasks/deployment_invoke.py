@@ -15,8 +15,8 @@ Architecture choice — async-driven worker (deviation from batch_exec):
   engine run itself goes through the sandbox runner:
   ``_run`` calls the sync+blocking
   ``run_workflow_sandboxed_sync`` (offloaded via ``asyncio.to_thread`` since
-  ``_run`` is on a loop), which runs the engine inside gVisor when available and
-  falls back in-process otherwise. The runner owns the whole run-dir lifecycle
+  ``_run`` is on a loop), which runs the engine inside the selected sandbox backend without
+  an in-process fallback. The runner owns the whole run-dir lifecycle
   (RunWorkspace: temporary run_dir + cleanup), so
   ``_run`` no longer builds its own run context. ``run_id=task_id`` keeps the
   run-tier id consistent with the invocation id and the sync shell's release.
@@ -194,13 +194,10 @@ async def _run(
 
     # Cut over to the sandbox runner. ``load_workflow_version`` still resolves
     # the deployment's pinned, possibly non-head version and is
-    # threaded through to the runner so the sandbox/in-process fallback both
-    # run that exact content. ``run_workflow_sandboxed_sync`` is sync+blocking
+    # threaded through to the sandbox runner to execute that exact content. ``run_workflow_sandboxed_sync`` is sync+blocking
     # and owns the whole temporary run-dir lifecycle, so ``_run`` no longer
     # builds its own ``build_run_context`` nor sweeps it. It runs the
-    # engine inside gVisor when a sandbox is available and falls back in-process
-    # on SandboxUnavailable / EngineNeedsHostNode / in-memory-store (run_dir
-    # None). ``_run`` is driven by ``asyncio.run(_run())`` so it's ON a loop —
+    # engine inside the selected sandbox and fails if isolation is unavailable. ``_run`` is driven by ``asyncio.run(_run())`` so it's ON a loop —
     # the blocking sync runner is offloaded via ``asyncio.to_thread``.
     #
     # ``run_id=task_id`` keeps the run-tier id consistent with the ``tasks`` row

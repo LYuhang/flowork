@@ -1924,11 +1924,13 @@ class AppConfig:
             or 5.0
         )
         # ``sandbox_max_resident`` — global cap on CONCURRENT resident sandboxes
-        # (admission control for the resident fleet). env > yaml > default(8).
+        # (admission control for the resident fleet). Keep the default small so
+        # a low-memory single-node install cannot retain eight Chat runtimes.
+        # env > yaml > default(2).
         self.sandbox_max_resident: int = int(
             os.environ.get("SANDBOX_MAX_RESIDENT")
             or raw.get("sandbox_max_resident")
-            or 8
+            or 2
         )
         # ``sandbox_resident_mode`` — how a resident sandbox is (re)started:
         # ``"coldboot"`` (DEFAULT) = fresh boot per session; ``"snapshot"`` =

@@ -395,6 +395,7 @@ following runtime settings are occasionally changed independently:
 | `WEB_PORT` | `9001` | Native launcher Web application port |
 | `SANDBOX_RUNTIME` | Native: `bubblewrap`; Docker: `gvisor` | Sandbox backend; native gVisor is an explicit alternative |
 | `SANDBOX_TYPE` | Docker: `rootful-snapshot`; native: `rootless-warm` | Sandbox privilege and lifecycle profile |
+| `SANDBOX_MAX_RESIDENT` | `2` | Caps concurrently warm Agent/Workflow sandboxes; raise only after sizing per-session memory |
 | `OBJECT_STORE_PROVIDER` | `filesystem` | Local file-backed object storage; production deployments normally use `s3` |
 | `SANDBOX_EGRESS_MODE` | `proxy` | Routes sandbox HTTP(S) and WebSocket traffic through the controlled egress proxy |
 | `SANDBOX_EGRESS_POLICY` | `public` | Controls whether sandboxes may reach public destinations, an allowlist, or platform services only |

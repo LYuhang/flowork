@@ -19,6 +19,7 @@ _SANDBOX_ENV = (
     "SANDBOX_SNAPSHOT_MAX_COUNT",
     "SANDBOX_SNAPSHOT_MAX_BYTES",
     "SANDBOX_MAX_MOUNTS",
+    "SANDBOX_MAX_RESIDENT",
 )
 
 
@@ -52,6 +53,15 @@ def test_snapshot_ttls_are_independent_stage_durations(
 
     assert configured.sandbox_warm_idle_ttl_s == 45
     assert configured.sandbox_snapshot_idle_ttl_s == 10
+
+
+def test_sandbox_resident_capacity_defaults_to_two_and_is_overridable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert AppConfig({}).sandbox_max_resident == 2
+
+    monkeypatch.setenv("SANDBOX_MAX_RESIDENT", "4")
+    assert AppConfig({}).sandbox_max_resident == 4
 
 
 @pytest.mark.parametrize(

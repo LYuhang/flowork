@@ -109,9 +109,9 @@ _BROKER_MODEL = {
     ],
     "default_reasoning_effort": "high",
 }
-_LOCKED_CODEX_VERSION = "codex-cli 0.147.0"
+_LOCKED_CODEX_VERSION = "codex-cli 0.157.1"
 _LOCKED_CODEX_SCHEMA_SHA256 = (
-    "babfd5c98cd978dd858b4762cdfbc9fba941e1a0e4053de0050e4082ae1f075a"
+    "d6d70a4b2af4c6bb03dee46af2cda9c8b7b4d656cd5a55c54f748146985cdb43"
 )
 _RESIDENT_TEST_HUBS: dict[
     int,

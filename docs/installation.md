@@ -190,35 +190,14 @@ review native diagrams. The
 installer verifies these runtime commands before creating the local
 configuration and starting Flowork.
 
-Codex 0.147.0 is built with Flowork's reviewed early-command-output fix and the
-same-version official companion programs. The native bootstrap keeps its Rust
-1.95.0 toolchain and build cache under `.tools/codex-runtime`. This managed build
-does not change your shell profile or replace the global Codex executable; the
-bootstrap separately installs the pinned official npm package for its companion
-programs. This source build can
-take tens of minutes and consume substantial build-cache disk space on its
-first run. `CODEX_BUILD_JOBS` controls compilation parallelism (default: 4).
-Installation memory is not the same as idle service memory: concurrent Rust
-compilers can exceed the running application's footprint by several times.
-Reducing `CODEX_BUILD_JOBS` to `1` reduces concurrency, but does not cap the
-memory of an individual compiler process. A complete source installation on
-a 2 GiB host has not been validated; do not infer support from idle-service
-measurements. The Docker resource table above is not a source-build memory cap.
-Docker builds the same patch in a separate Rust stage, without shipping the
-compiler in the final image.
-
-For an existing native checkout, prepare the managed runtime before restarting:
-
-```bash
-bash scripts/prepare_codex_runtime.sh
-```
-
-The preparation checks three isolated output-delivery scenarios before
-publishing a new bundle. Startup verifies the bundle's source/patch metadata,
-file inventory and checksums before stopping an existing stack. A missing or
-modified bundle fails with instructions instead of falling back silently.
-`CODEX_CLI_PATH` remains an explicit operator override for custom or diagnostic
-runtimes; those overrides do not receive the managed-bundle guarantee.
+The bootstrap installs the official, version-pinned Codex CLI 0.157.1 package
+and verifies its reported version before starting services. Flowork no longer
+compiles a patched Codex executable from source, so a fresh installation does
+not require a Rust toolchain or a large compilation cache. Container builds copy
+the same official architecture-specific native bundle from the npm package.
+`CODEX_CLI_PATH` remains an explicit operator override for controlled diagnostic
+runtimes, but startup still requires the configured executable to report the
+same pinned version.
 
 To prepare the environment without starting services:
 

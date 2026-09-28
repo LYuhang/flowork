@@ -36,7 +36,7 @@ def test_codex_cli_node_runtime_is_not_required_for_native_binary(tmp_path):
 
 
 def test_native_bundle_root_keeps_sibling_resources_visible_through_entrypoint_symlink(tmp_path):
-    package = tmp_path / "codex-0.147.0"
+    package = tmp_path / "codex-0.157.1"
     executable = package / "bin" / "codex"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"\x7fELF")

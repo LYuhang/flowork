@@ -29,16 +29,14 @@ def test_dockerfile_exists():
 def test_dockerfile_uses_python_3_10_or_later_base():
     lines = _dockerfile_instructions()
     from_lines = [ln for ln in lines if ln.upper().startswith("FROM ")]
-    assert len(from_lines) == 6, (
-        "expected shared Node, Codex vendor/build, Playwright, draw.io, and Python stages, "
+    assert len(from_lines) == 5, (
+        "expected shared Node, official Codex, Playwright, draw.io, and Python stages, "
         f"got {from_lines}"
     )
     assert from_lines[0].startswith("FROM node:24.21.0-bookworm-slim@sha256:")
-    assert from_lines[1] == "FROM node-runtime-base AS codex-vendor"
-    assert from_lines[2].startswith("FROM debian:bookworm-20260918-slim@sha256:")
-    assert from_lines[2].endswith(" AS codex-assets")
-    assert from_lines[3] == "FROM node-runtime-base AS playwright-assets"
-    assert from_lines[4] == "FROM node-runtime-base AS drawio-assets"
+    assert from_lines[1] == "FROM node-runtime-base AS codex-assets"
+    assert from_lines[2] == "FROM node-runtime-base AS playwright-assets"
+    assert from_lines[3] == "FROM node-runtime-base AS drawio-assets"
     m = re.match(r"FROM\s+python:3\.(\d+)([-\w.]*)?@sha256:", from_lines[-1])
     assert m, (
         f"final stage must use a digest-pinned python:3.x base, got: {from_lines[-1]}"
@@ -47,22 +45,17 @@ def test_dockerfile_uses_python_3_10_or_later_base():
     assert minor >= 10
 
 
-def test_codex_builder_keeps_exact_verified_compiler_without_old_buildpack():
+def test_codex_uses_official_prebuilt_package_without_source_toolchain():
     text = DOCKERFILE_PATH.read_text()
-    native = (REPO_ROOT / "scripts/prepare_codex_runtime.sh").read_text()
-    builder = text.split(" AS codex-assets", 1)[1].split("FROM node-runtime-base", 1)[0]
     assert "FROM rust:" not in text
-    assert "--profile minimal --default-toolchain 1.95.0" in builder
-    assert "RUSTUP_TOOLCHAIN=1.95.0" in builder
-    assert "rustup/archive/1.28.2/" in builder
-    assert "sha256sum -c -" in builder
-    for digest in re.findall(r"rustup_sha=([0-9a-f]{64})", native):
-        assert f"rustup_sha={digest}" in builder
+    assert "rustup" not in text
+    assert "cargo build" not in text
+    assert "github.com/openai/codex.git" not in text
+    assert '"@openai/codex@${CODEX_CLI_VERSION}"' in text
     assert "COPY --from=codex-assets /opt/codex /opt/codex" in text
-    assert "COPY --from=codex-assets /opt/rustup" not in text
 
 
-def test_runtime_os_dependencies_do_not_wait_for_codex_compilation():
+def test_runtime_os_dependencies_precede_codex_bundle_copy():
     text = DOCKERFILE_PATH.read_text()
     assert text.index("libreoffice-writer-nogui=") < text.index(
         "COPY --from=codex-assets /opt/codex /opt/codex"
@@ -71,7 +64,7 @@ def test_runtime_os_dependencies_do_not_wait_for_codex_compilation():
 
 def test_dockerfile_pins_and_verifies_external_runtime_assets():
     text = DOCKERFILE_PATH.read_text()
-    assert "ARG CODEX_CLI_VERSION=0.147.0" in text
+    assert "ARG CODEX_CLI_VERSION=0.157.1" in text
     assert "ARG NPM_VERSION=11.19.0" in text
     assert "ARG PLAYWRIGHT_CORE_VERSION=1.63.0-alpha-2026-08-05" in text
     assert "ARG DRAWIO_DESKTOP_VERSION=31.1.8" in text
@@ -154,15 +147,12 @@ def test_browser_runtime_packages_every_local_module_without_retired_interceptio
             assert dependency in shipped, f"{filename} depends on unpackaged {dependency}"
 
 
-def test_docker_build_uses_reviewed_codex_source_and_preserves_vendor_companions():
+def test_docker_build_preserves_official_codex_bundle_and_companions():
     text = DOCKERFILE_PATH.read_text()
-    assert "COPY --from=codex-vendor /opt/codex /build/codex-vendor" in text
     assert "COPY --from=codex-assets /opt/codex /opt/codex" in text
-    assert "git -C /build/codex fetch --depth 1 origin be6e8eac029b183056b7e4402879f15d2c85f61b" in text
-    assert "scripts/build_codex_runtime.py" in text
-    assert "codex-0.147.0-output-subscription.candidate.patch" in text
-    assert "--source_dir /build/codex --vendor_dir /build/codex-vendor" in text
-    assert '--output_dir /opt/codex --jobs "${CODEX_BUILD_JOBS}"' in text
+    assert "scripts/build_codex_runtime.py" not in text
+    assert "output-subscription" not in text
+    assert "CODEX_BUILD_JOBS" not in text
 
 
 def test_drawio_export_wrapper_allocates_and_reaps_desktop_processes():

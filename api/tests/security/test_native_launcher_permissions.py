@@ -58,8 +58,9 @@ def test_native_launcher_checks_managed_codex_before_starting_services() -> None
     startup = source.split("cmd_up() {", 1)[1].split("\n}", 1)[0]
     assert startup.index("resolve_codex_runtime") < startup.index("start_pg")
     assert 'if [[ -z "${CODEX_CLI_PATH:-}" ]]' in source
-    assert '--verify_bundle "$codex_bundle"' in source
-    assert 'export CODEX_CLI_PATH="$codex_bundle/bin/codex"' in source
+    assert 'CODEX_CLI_PATH="$(command -v codex || true)"' in source
+    assert '"codex-cli ${CODEX_CLI_VERSION}"' in source
+    assert 'export CODEX_CLI_PATH' in source
     outer = (ROOT / "launch.sh").read_text().split("start_stack() {", 1)[1].split("\n}", 1)[0]
     assert outer.index('"$NATIVE_LAUNCHER" check-runtime') < outer.index("stop_stack")
     configured = outer.split("configure_debug_stack", 1)[1]
@@ -67,20 +68,13 @@ def test_native_launcher_checks_managed_codex_before_starting_services() -> None
     assert 'check-runtime) resolve_backend_python; resolve_codex_runtime' in source
 
 
-def test_native_codex_preparation_is_isolated_and_probe_gated() -> None:
-    source = (ROOT / "scripts/prepare_codex_runtime.sh").read_text()
+def test_native_codex_install_uses_the_exact_official_version_without_source_build() -> None:
     bootstrap = (ROOT / "scripts/bootstrap_native_linux.sh").read_text()
-    assert 'bash "$REPO_ROOT/scripts/prepare_codex_runtime.sh"' in bootstrap
-    assert '--no-modify-path --profile minimal --default-toolchain 1.95.0' in source
-    assert '"RUSTUP_TOOLCHAIN=1.95.0"' in source
-    assert '"RUSTUP_HOME=$codex_root/rustup"' in source
-    assert '"CARGO_HOME=$codex_root/cargo"' in source
-    assert 'flock 9' in source
-    assert 'sha256sum -c -' in source
-    assert 'for probe in direct code-mode background' in source
-    assert 'codex_probe_args+=(--background)' in source
-    assert source.index('verify_codex_native_output.py') < source.index('mv -T -n')
-    assert 'sudo' not in source
+    assert 'CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.157.1}"' in bootstrap
+    assert '"@openai/codex@${CODEX_CLI_VERSION}"' in bootstrap
+    assert 'bash "$REPO_ROOT/scripts/prepare_codex_runtime.sh"' not in bootstrap
+    assert "cargo build" not in bootstrap
+    assert "rustup" not in bootstrap
 
 
 @pytest.mark.parametrize(

@@ -11,7 +11,7 @@
 # Build context is the repository root (NOT api/) so the Dockerfile can COPY
 # the engine package from ../engine.
 
-ARG CODEX_CLI_VERSION=0.147.0
+ARG CODEX_CLI_VERSION=0.157.1
 ARG NPM_VERSION=11.19.0
 ARG PLAYWRIGHT_CORE_VERSION=1.63.0-alpha-2026-08-05
 ARG DRAWIO_DESKTOP_VERSION=31.1.8
@@ -27,7 +27,7 @@ RUN set -eux; \
     npm install --global --ignore-scripts --no-audit --no-fund "npm@${NPM_VERSION}"; \
     test "$(npm --version)" = "${NPM_VERSION}"
 
-FROM node-runtime-base AS codex-vendor
+FROM node-runtime-base AS codex-assets
 ARG CODEX_CLI_VERSION
 ARG TARGETARCH
 RUN set -eux; \
@@ -47,45 +47,6 @@ RUN set -eux; \
     CODEX_HOME=/tmp/codex-catalog-home \
         /opt/codex/bin/codex debug models > /opt/codex/model-catalog.json; \
     node -e 'const c=require("/opt/codex/model-catalog.json"); if (!Array.isArray(c.models) || !c.models.length) process.exit(1)'
-
-# The official 0.147.0 executable can lose early unified-exec output events.
-# Build the reviewed fix, retaining the same-version official companion bundle.
-# Keep Rust and build dependencies out of the final API/sandbox image.
-# Install the exact compiler on a maintained minimal OS, rather than carrying
-# the old Rust buildpack image's unrelated development libraries.
-FROM debian:bookworm-20260918-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS codex-assets
-ARG CODEX_BUILD_JOBS=4
-ARG TARGETARCH
-ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo \
-    RUSTUP_TOOLCHAIN=1.95.0 PATH=/opt/cargo/bin:$PATH
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git build-essential python3 pkg-config libssl-dev cmake clang binutils && \
-    rm -rf /var/lib/apt/lists/*
-RUN set -eux; \
-    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
-        amd64|x86_64) rust_target=x86_64-unknown-linux-gnu; rustup_sha=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c ;; \
-        arm64|aarch64) rust_target=aarch64-unknown-linux-gnu; rustup_sha=e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c ;; \
-        *) echo "Unsupported Rust architecture: ${TARGETARCH:-unknown}" >&2; exit 1 ;; \
-    esac; \
-    curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
-        "https://static.rust-lang.org/rustup/archive/1.28.2/${rust_target}/rustup-init" -o /tmp/rustup-init; \
-    echo "${rustup_sha}  /tmp/rustup-init" | sha256sum -c -; \
-    chmod 0700 /tmp/rustup-init; \
-    /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.95.0; \
-    rm /tmp/rustup-init; \
-    rustc --version | grep '^rustc 1\.95\.0 '
-WORKDIR /build
-COPY scripts/build_codex_runtime.py /build/scripts/build_codex_runtime.py
-COPY scripts/patches/codex-0.147.0-output-subscription.candidate.patch /build/scripts/patches/
-COPY --from=codex-vendor /opt/codex /build/codex-vendor
-RUN git init /build/codex && \
-    git -C /build/codex remote add origin https://github.com/openai/codex.git && \
-    git -C /build/codex fetch --depth 1 origin be6e8eac029b183056b7e4402879f15d2c85f61b && \
-    git -C /build/codex checkout --detach FETCH_HEAD && \
-    python3 /build/scripts/build_codex_runtime.py \
-        --source_dir /build/codex --vendor_dir /build/codex-vendor \
-        --output_dir /opt/codex --jobs "${CODEX_BUILD_JOBS}" && \
-    python3 /build/scripts/build_codex_runtime.py --verify_bundle /opt/codex
 
 FROM node-runtime-base AS playwright-assets
 ARG PLAYWRIGHT_CORE_VERSION
@@ -204,8 +165,8 @@ RUN set -eux; \
     rm -f "/tmp/${drawio_deb}"; \
     rm -rf /var/lib/apt/lists/*
 
-# Resolve OS packages before depending on the lengthy native runtime build.
-# This also keeps the OS layer reusable when only the runtime patch changes.
+# Install the official, version-pinned Codex native bundle. No Rust toolchain or
+# source compilation is part of the application image build.
 COPY --from=codex-assets /opt/codex /opt/codex
 COPY --from=node-runtime-base /usr/local/bin/node /usr/local/bin/node
 RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \

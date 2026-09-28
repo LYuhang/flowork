@@ -45,12 +45,9 @@ The supported toolchain is:
 - PostgreSQL server binaries, a Redis-compatible local server, and bubblewrap; and
 - OpenFGA, started automatically with the local stack.
 
-Plan installation memory separately from steady-state service memory. The
-native bootstrap compiles the managed runtime from source with four Rust build
-jobs by default; this can require substantially more memory than running the
-installed services. `CODEX_BUILD_JOBS=1` reduces build concurrency, but does not
-guarantee that a single compiler process fits a small machine. A 2 GiB host is
-not currently a verified target for a complete source installation.
+The native bootstrap installs Flowork's pinned official Codex CLI package; it
+does not compile Codex or install a Rust toolchain. Plan peak dependency install,
+frontend build, and workload memory separately from steady-state service memory.
 
 For service-only operation, the launcher's default `WEB_MODE=preview` serves a
 production Web build. Use `WEB_MODE=dev` only when developing the frontend: its

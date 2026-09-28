@@ -12,7 +12,7 @@ PREPARE_ONLY=0
 UV_VERSION="${UV_VERSION:-0.12.19}"
 NODE_VERSION="${NODE_VERSION:-22.23.3}"
 NODE_MAJOR="${NODE_VERSION%%.*}"
-CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.147.0}"
+CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.157.1}"
 PLAYWRIGHT_CORE_VERSION="${PLAYWRIGHT_CORE_VERSION:-1.63.0-alpha-2026-08-05}"
 DRAWIO_DESKTOP_VERSION="${DRAWIO_DESKTOP_VERSION:-31.1.8}"
 DRAWIO_DESKTOP_AMD64_SHA256="${DRAWIO_DESKTOP_AMD64_SHA256:-f4c49ed84422ea4afd95818f53c54bc666e57b33bd036d468c7096619b47ffd9}"
@@ -213,12 +213,6 @@ cd "$REPO_ROOT"
 bash "$REPO_ROOT/scripts/sync_python_env.sh"
 .venv/bin/python -c \
   'import fastapi, jsonlines, matplotlib, networkx, numpy, pandas, psycopg, seaborn, sqlalchemy, tabulate, vibecanvas_api, vibecanvas_engine; print("Python environment: ok")'
-
-# Keep the verified native runtime independent of the global npm launcher.
-# Explicit CODEX_CLI_PATH remains an operator-controlled override.
-if [[ -z "${CODEX_CLI_PATH:-}" ]]; then
-  bash "$REPO_ROOT/scripts/prepare_codex_runtime.sh"
-fi
 
 echo "[6/7] Installing Web and extension packages"
 pnpm --dir web install --frozen-lockfile

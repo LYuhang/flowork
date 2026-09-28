@@ -65,6 +65,7 @@ OPENFGA_METRICS_PORT="${OPENFGA_METRICS_PORT:-2112}"
 PGDATA="${PGDATA:-$HOME/.vibecanvas/pgdata}"
 OBJSTORE="${OBJSTORE:-$HOME/.vibecanvas/objectstore}"
 BACKEND_INSTALL="${BACKEND_INSTALL:-1}"
+CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.157.1}"
 WEB_DIR="$REPO_ROOT/web"
 WEB_PORT="${WEB_PORT:-5173}"
 # WEB_MODE: 'preview' (build once + static serve — robust everywhere, no file
@@ -252,16 +253,20 @@ PY
 }
 
 resolve_codex_runtime() {
-  # Do not silently fall back to the upstream executable that loses receipts.
-  # Explicit operator overrides (including isolated acceptance candidates) win.
+  # Explicit operator overrides win. Otherwise use the exact official CLI
+  # installed by bootstrap_native_linux.sh; never silently accept PATH drift.
   if [[ -z "${CODEX_CLI_PATH:-}" ]]; then
-    local codex_bundle="$REPO_ROOT/.tools/codex-runtime/0.147.0-output-subscription-1"
-    if ! "$VIBECANVAS_PYTHON" "$REPO_ROOT/scripts/build_codex_runtime.py" --verify_bundle "$codex_bundle"; then
-      echo "ERROR: prepare the managed runtime with: bash scripts/prepare_codex_runtime.sh (or explicitly configure CODEX_CLI_PATH)" >&2
+    CODEX_CLI_PATH="$(command -v codex || true)"
+    if [[ -z "$CODEX_CLI_PATH" ]]; then
+      echo "ERROR: Codex CLI is missing; run ./scripts/bootstrap_native_linux.sh" >&2
       return 1
     fi
-    export CODEX_CLI_PATH="$codex_bundle/bin/codex"
   fi
+  if [[ "$("$CODEX_CLI_PATH" --version 2>/dev/null || true)" != "codex-cli ${CODEX_CLI_VERSION}" ]]; then
+    echo "ERROR: expected codex-cli ${CODEX_CLI_VERSION} at $CODEX_CLI_PATH" >&2
+    return 1
+  fi
+  export CODEX_CLI_PATH
 }
 
 # ─── shared env (API + DBOS worker + sandboxd) ──────────────────────────────

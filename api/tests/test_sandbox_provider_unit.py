@@ -74,8 +74,10 @@ def test_rootful_oci_config_omits_rootless_uid_mappings(tmp_path):
 
 
 def test_resolver_raises_when_runsc_absent(monkeypatch):
+    from vibecanvas_api.config import config
+
+    monkeypatch.setattr(config, "sandbox_runtime", "gvisor")
     monkeypatch.setattr("vibecanvas_api.services.sandbox._resolve_runsc", lambda: None)
-    import pytest
 
     with pytest.raises(SandboxUnavailable):
         get_sandbox_provider()

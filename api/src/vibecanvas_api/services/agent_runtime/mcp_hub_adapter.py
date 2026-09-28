@@ -3,7 +3,7 @@
 The adapter deliberately has no platform database, authorization, or secret
 service imports. Platform tools cross the private Runtime bus to the trusted
 Host Gateway. Credential-free stdio servers are supervised directly by the
-resident Chat Runtime and retain their protocol session across Turns.
+resident Project Runtime and retain their protocol session across Turns.
 """
 
 from __future__ import annotations

@@ -26,7 +26,9 @@ from vibecanvas_api.authorization.openfga_client import (
 )
 from vibecanvas_api.config import config
 from vibecanvas_api.security.redaction import redact_text
-from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
+from vibecanvas_api.services.chat_workspace import (
+    project_workspace_scope_id,
+)
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.tenant_db import session_scope_admin
@@ -34,8 +36,8 @@ from vibecanvas_api.services.user_mount_workspace import (
     host_mount_bridge,
     mount_scope_id,
 )
-from vibecanvas_api.services.vfs_volume import get_chat_runtime_volume_provider
-from vibecanvas_api.storage.models import Base, Chat
+from vibecanvas_api.services.vfs_volume import get_project_runtime_volume_provider
+from vibecanvas_api.storage.models import Base, ChatProject
 from vibecanvas_api.storage.models_purge import DataPurgeJob
 
 
@@ -142,44 +144,27 @@ async def claim_due_purge_job() -> PurgeLease | None:
 
 
 @dataclass(frozen=True, slots=True)
-class ChatRuntimeCoordinate:
+class ProjectRuntimeCoordinate:
     tenant_id: uuid.UUID
-    chat_id: str
-    thread_id: str
+    project_id: str
 
 
-async def _chat_runtime_coordinates(
+async def _project_runtime_coordinates(
     lease: PurgeLease,
-) -> tuple[ChatRuntimeCoordinate, ...]:
+) -> tuple[ProjectRuntimeCoordinate, ...]:
     async with session_scope_admin() as session:
         rows = (
             await session.execute(
                 select(
-                    Chat.tenant_id,
-                    Chat.chat_id,
-                    Chat.scope_id,
-                    Chat.major_version,
+                    ChatProject.tenant_id,
+                    ChatProject.project_id,
                 ).where(
-                    (Chat.tenant_id == lease.tenant_id)
-                    | (Chat.creator_user_id == lease.user_id)
+                    (ChatProject.tenant_id == lease.tenant_id)
+                    | (ChatProject.creator_user_id == lease.user_id)
                 )
             )
         ).all()
-    coordinates: list[ChatRuntimeCoordinate] = []
-    for tenant_id, chat_id, scope_id, major_version in rows:
-        thread_id = (
-            f"{lease.user_id}__{scope_id}__v{major_version}__{chat_id}"
-            if major_version
-            else f"{lease.user_id}__{scope_id}__{chat_id}"
-        )
-        coordinates.append(
-            ChatRuntimeCoordinate(
-                tenant_id=uuid.UUID(str(tenant_id)),
-                chat_id=str(chat_id),
-                thread_id=thread_id,
-            )
-        )
-    return tuple(coordinates)
+    return tuple(ProjectRuntimeCoordinate(uuid.UUID(str(tenant)), project_id) for tenant, project_id in rows)
 
 
 async def _user_tenant_ids(lease: PurgeLease) -> tuple[uuid.UUID, ...]:
@@ -188,7 +173,7 @@ async def _user_tenant_ids(lease: PurgeLease) -> tuple[uuid.UUID, ...]:
             await session.execute(
                 text(
                     "SELECT tenant_id FROM org_memberships WHERE user_id=:user_id "
-                    "UNION SELECT tenant_id FROM chats WHERE creator_user_id=:user_id"
+                    "UNION SELECT tenant_id FROM chat_projects WHERE creator_user_id=:user_id"
                 ),
                 {"user_id": lease.user_id},
             )
@@ -290,14 +275,20 @@ async def _purge_runtime_state(lease: PurgeLease) -> None:
         str(lease.tenant_id),
     )
     await host_mount_bridge.unregister_user(user_id=str(lease.user_id))
-    coordinates = await _chat_runtime_coordinates(lease)
-    volume_provider = get_chat_runtime_volume_provider()
+    coordinates = await _project_runtime_coordinates(lease)
+    volume_provider = get_project_runtime_volume_provider()
+    deleted_runtime_scopes: set[tuple[str, str]] = set()
     for coordinate in coordinates:
+        workspace_scope_id = project_workspace_scope_id(coordinate.project_id)
+        key = (str(coordinate.tenant_id), workspace_scope_id)
+        if key in deleted_runtime_scopes:
+            continue
+        deleted_runtime_scopes.add(key)
         await asyncio.to_thread(
             volume_provider.delete,
             tenant_id=str(coordinate.tenant_id),
             user_id=str(lease.user_id),
-            chat_scope_id=chat_workspace_scope_id(coordinate.chat_id),
+            project_scope_id=workspace_scope_id,
         )
 
     roots = {
@@ -355,6 +346,8 @@ async def _purge_object_store(lease: PurgeLease) -> None:
         f"kb/{tenant}/",
         f"batch/{tenant}/",
         f"skills/{tenant}/",
+        f"project-runtime-v1/{tenant}/",
+        # Erase retired snapshots too; they are never restored into Projects.
         f"chat-runtime-v1/{tenant}/",
     )
     for prefix in prefixes:

@@ -46,6 +46,7 @@ type Attachment = components['schemas']['Attachment'];
 export interface RunAgentTurnArgs {
   wfId: string;
   chatId: string;
+  projectId?: string | null;
   content: string;
   control?: HitlContinueControl;
   attachments?: Attachment[];
@@ -59,8 +60,6 @@ export interface RunAgentTurnArgs {
   agentSurface?: 'chat' | 'browser';
   approvalMode?: ApprovalMode;
   agentSettings?: AgentSettings;
-  mcpServerIds?: string[];
-  chatConfigRevision?: number;
   /** Fires after the backend has durably accepted the Turn, before model output. */
   onAccepted?: () => void;
 }
@@ -68,6 +67,7 @@ export interface RunAgentTurnArgs {
 export async function runAgentTurn({
   wfId,
   chatId,
+  projectId,
   content,
   control,
   attachments,
@@ -76,8 +76,6 @@ export async function runAgentTurn({
   agentSurface,
   approvalMode = getApprovalMode(),
   agentSettings,
-  mcpServerIds,
-  chatConfigRevision,
   onAccepted,
 }: RunAgentTurnArgs): Promise<boolean> {
   const store = useChatStreamStore.getState();
@@ -91,6 +89,7 @@ export async function runAgentTurn({
     surface,
     agentSurface,
     approvalMode,
+    projectId,
   }, chatId);
   // Optimistic start: flip to `streaming` + drop the user's message bubble in
   // immediately (a fresh buffer for this turn) so the UI reacts the instant Send
@@ -106,6 +105,7 @@ export async function runAgentTurn({
     await streamAgentTurn({
       wfId,
       chatId,
+      projectId,
       content,
       control,
       attachments,
@@ -114,8 +114,6 @@ export async function runAgentTurn({
       agentSurface,
       approvalMode,
       agentSettings,
-      mcpServerIds,
-      chatConfigRevision,
       onAccepted,
       signal: ac.signal,
     });

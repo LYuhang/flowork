@@ -4168,6 +4168,696 @@
         }
       }
     },
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "List Chat Projects",
+        "description": "List the current user's Project workspace roots.",
+        "operationId": "list_chat_projects_api_v1_projects_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChatProjectOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Chat Projects Api V1 Projects Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Create Chat Project",
+        "description": "Create the durable Project roots without starting a sandbox.",
+        "operationId": "create_chat_project_api_v1_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatProjectCreateBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatProjectOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/chat-scopes/{scope_id}/chats/{chat_id}": {
+      "put": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Create Chat Session",
+        "description": "Idempotently persist a Chat and its working directory, without a runtime.",
+        "operationId": "create_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scope_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scope Id"
+            }
+          },
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCreateBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatListItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Rename Chat Session",
+        "description": "Rename one Chat without changing its Runtime or transcript.",
+        "operationId": "rename_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scope_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scope Id"
+            }
+          },
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRenameBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatListItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Delete Chat Session",
+        "description": "Delete one Chat thread without deleting its parent Project workspace.",
+        "operationId": "delete_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scope_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scope Id"
+            }
+          },
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          },
+          {
+            "name": "surface",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "chat",
+              "title": "Surface"
+            }
+          },
+          {
+            "name": "delete_files",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Delete Files"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Chat Session Api V1 Chat Scopes  Scope Id  Chats  Chat Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}": {
+      "patch": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Rename Chat Project",
+        "operationId": "rename_chat_project_api_v1_projects__project_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatProjectRenameBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatProjectOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Delete Chat Project",
+        "description": "Delete a Project, all child Chats, and its shared workspace.",
+        "operationId": "delete_chat_project_api_v1_projects__project_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Chat Project Api V1 Projects  Project Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/sandboxes": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Get Project Sandbox Statuses",
+        "operationId": "get_project_sandbox_statuses_api_v1_projects_sandboxes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Project Sandbox Statuses Api V1 Projects Sandboxes Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/mcp": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Get Project Mcp Selection",
+        "operationId": "get_project_mcp_selection_api_v1_projects__project_id__mcp_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMcpSelection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Set Project Mcp Selection",
+        "operationId": "set_project_mcp_selection_api_v1_projects__project_id__mcp_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMcpSelection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMcpSelection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/workspace": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Get Project Workspace",
+        "operationId": "get_project_workspace_api_v1_projects__project_id__workspace_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Project Workspace Api V1 Projects  Project Id  Workspace Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/sandbox": {
+      "post": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Start Project Sandbox",
+        "operationId": "start_project_sandbox_api_v1_projects__project_id__sandbox_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Start Project Sandbox Api V1 Projects  Project Id  Sandbox Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Close Project Sandbox",
+        "operationId": "close_project_sandbox_api_v1_projects__project_id__sandbox_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Close Project Sandbox Api V1 Projects  Project Id  Sandbox Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chats/workspace": {
       "get": {
         "tags": [
@@ -4259,6 +4949,22 @@
               "default": "file",
               "title": "Attachment Type"
             }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
           }
         ],
         "requestBody": {
@@ -4278,354 +4984,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Attachment"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/chats/sandbox": {
-      "get": {
-        "tags": [
-          "chats"
-        ],
-        "summary": "Get Chat Sandbox Status",
-        "description": "Resident Agent sandbox status for the general Chat surface.\n\nThis is read-only and intentionally does not create a sandbox. The resident\nsandbox is still created lazily by tools that require it.",
-        "operationId": "get_chat_sandbox_status_api_v1_chats_sandbox_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "chat_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Chat Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Chat Sandbox Status Api V1 Chats Sandbox Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "chats"
-        ],
-        "summary": "Start Chat Sandbox",
-        "description": "Explicitly warm the resident sandbox for one Chat workspace.",
-        "operationId": "start_chat_sandbox_api_v1_chats_sandbox_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "chat_id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Chat Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Start Chat Sandbox Api V1 Chats Sandbox Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "chats"
-        ],
-        "summary": "Close Chat Sandbox",
-        "description": "Release a Chat sandbox only when no background result still needs it.",
-        "operationId": "close_chat_sandbox_api_v1_chats_sandbox_delete",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "chat_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Chat Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Close Chat Sandbox Api V1 Chats Sandbox Delete"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/chats/sandboxes": {
-      "get": {
-        "tags": [
-          "chats"
-        ],
-        "summary": "Get Chat Sandbox Statuses",
-        "description": "Batch resident sandbox statuses for the Chat history sidebar.\n\nRead-only and non-creating: a history list should show resource placement\nwithout warming missing workspaces or sandboxes.",
-        "operationId": "get_chat_sandbox_statuses_api_v1_chats_sandboxes_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "chat_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "default": [],
-              "title": "Chat Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Chat Sandbox Statuses Api V1 Chats Sandboxes Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/chat-scopes/{scope_id}/chats/{chat_id}": {
-      "patch": {
-        "tags": [
-          "chats"
-        ],
-        "summary": "Rename Chat Session",
-        "description": "Rename one Chat without changing its Runtime or transcript.",
-        "operationId": "rename_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__patch",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "scope_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Scope Id"
-            }
-          },
-          {
-            "name": "chat_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Chat Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatRenameBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatListItem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "chats"
-        ],
-        "summary": "Delete Chat Session",
-        "description": "Delete one chat and its chat-local workspace data.\n\nThe chat row is soft-deleted, persisted message rows are removed, the live\nsandbox is closed, and the chat workspace VFS prefixes `/data`, `/memory`,\nand `/logs` are removed. Creators use their normal carrier; organization\nadmins may use the content-free inventory scope after an explicit DELETE\ndecision and high-risk step-up.",
-        "operationId": "delete_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__delete",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "scope_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Scope Id"
-            }
-          },
-          {
-            "name": "chat_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Chat Id"
-            }
-          },
-          {
-            "name": "surface",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "chat",
-              "title": "Surface"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Delete Chat Session Api V1 Chat Scopes  Scope Id  Chats  Chat Id  Delete"
                 }
               }
             }
@@ -5237,6 +5595,85 @@
                 "schema": {
                   "$ref": "#/components/schemas/HitlRequestOut"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/debug/messages": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Get Chat Debug Messages",
+        "description": "The complete stored conversation, not a native model-input snapshot.\n\nCursor pages preserve every role and full content; the UI folds long\nmessages. No sandbox access, file generation, or streaming-token writes.",
+        "operationId": "get_chat_debug_messages_api_v1_chats__chat_id__debug_messages_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "include_artifacts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Include Artifacts"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -6167,6 +6604,303 @@
         }
       }
     },
+    "/api/v1/chats/{chat_id}/feedback": {
+      "get": {
+        "tags": [
+          "chat-engagement"
+        ],
+        "summary": "Get Feedback",
+        "operationId": "get_feedback_api_v1_chats__chat_id__feedback_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/messages/{message_id}/feedback": {
+      "put": {
+        "tags": [
+          "chat-engagement"
+        ],
+        "summary": "Put Feedback",
+        "operationId": "put_feedback_api_v1_chats__chat_id__messages__message_id__feedback_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Message Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/shares": {
+      "get": {
+        "tags": [
+          "chat-engagement"
+        ],
+        "summary": "List Shares",
+        "operationId": "list_shares_api_v1_chats__chat_id__shares_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "chat-engagement"
+        ],
+        "summary": "Create Share",
+        "operationId": "create_share_api_v1_chats__chat_id__shares_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/shares/{share_id}": {
+      "delete": {
+        "tags": [
+          "chat-engagement"
+        ],
+        "summary": "Revoke Share",
+        "operationId": "revoke_share_api_v1_chats__chat_id__shares__share_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          },
+          {
+            "name": "share_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Share Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public/chat-shares/{token}": {
+      "get": {
+        "tags": [
+          "chat-engagement"
+        ],
+        "summary": "Read Public Share",
+        "operationId": "read_public_share_api_v1_public_chat_shares__token__get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks": {
       "get": {
         "tags": [
@@ -6666,6 +7400,153 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}": {
+      "delete": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Delete Batch Task",
+        "operationId": "delete_batch_task_api_v1_tasks__task_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Task",
+        "description": "Return a single task row (RLS-scoped to caller's tenant).\n\nCross-tenant rows are RLS-filtered to invisible — both ``not found``\nand ``foreign tenant`` collapse to 404 so we don't leak existence.",
+        "operationId": "get_task_api_v1_tasks__task_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/scheduled-runs/{task_id}/executions/{execution_id}/download": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Download Scheduled Execution Results",
+        "operationId": "download_scheduled_execution_results_api_v1_tasks_scheduled_runs__task_id__executions__execution_id__download_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Execution Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/scheduled-runs/{task_id}/executions": {
       "get": {
         "tags": [
@@ -7091,53 +7972,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/DirectBindingOut"
                 }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tasks/{task_id}": {
-      "get": {
-        "tags": [
-          "tasks"
-        ],
-        "summary": "Get Task",
-        "description": "Return a single task row (RLS-scoped to caller's tenant).\n\nCross-tenant rows are RLS-filtered to invisible — both ``not found``\nand ``foreign tenant`` collapse to 404 so we don't leak existence.",
-        "operationId": "get_task_api_v1_tasks__task_id__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Task Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           },
@@ -10197,6 +11031,34 @@
         ]
       }
     },
+    "/api/v1/llm-credentials/workflow-models": {
+      "get": {
+        "tags": [
+          "llm-credentials"
+        ],
+        "summary": "List Workflow Models",
+        "operationId": "list_workflow_models_api_v1_llm_credentials_workflow_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Workflow Models Api V1 Llm Credentials Workflow Models Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/llm-credentials/{credential_id}": {
       "get": {
         "tags": [
@@ -11293,16 +12155,6 @@
               "default": "/",
               "title": "Prefix"
             }
-          },
-          {
-            "name": "include_hidden",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Include Hidden"
-            }
           }
         ],
         "responses": {
@@ -11933,7 +12785,7 @@
             "required": true,
             "schema": {
               "enum": [
-                "chat",
+                "project",
                 "mount",
                 "run"
               ],
@@ -11952,7 +12804,7 @@
             }
           },
           {
-            "name": "chat_id",
+            "name": "project_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -11964,7 +12816,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Chat Id"
+              "title": "Project Id"
             }
           },
           {
@@ -12072,7 +12924,7 @@
             "required": true,
             "schema": {
               "enum": [
-                "chat",
+                "project",
                 "mount",
                 "run"
               ],
@@ -12101,7 +12953,7 @@
             }
           },
           {
-            "name": "chat_id",
+            "name": "project_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -12113,7 +12965,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Chat Id"
+              "title": "Project Id"
             }
           },
           {
@@ -12991,6 +13843,22 @@
                 }
               ],
               "title": "Chat Id"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
             }
           }
         ],
@@ -15401,6 +16269,33 @@
             "type": "integer",
             "title": "Concurrency",
             "default": 1
+          },
+          "mount_enabled": {
+            "type": "boolean",
+            "title": "Mount Enabled",
+            "default": false
+          },
+          "major": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           }
         },
         "type": "object",
@@ -15639,43 +16534,39 @@
         ],
         "title": "CatalogInstallBody"
       },
-      "ChatFileRefV1": {
+      "ChatCreateBody": {
         "properties": {
-          "schemaVersion": {
-            "type": "integer",
-            "const": 1,
-            "title": "Schemaversion"
-          },
-          "scope": {
-            "type": "string",
-            "const": "chat",
-            "title": "Scope"
-          },
-          "chatId": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Chatid"
-          },
-          "path": {
-            "type": "string",
-            "title": "Path"
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           }
         },
-        "additionalProperties": false,
         "type": "object",
-        "required": [
-          "schemaVersion",
-          "scope",
-          "chatId",
-          "path"
-        ],
-        "title": "ChatFileRefV1"
+        "title": "ChatCreateBody"
       },
       "ChatInventoryItem": {
         "properties": {
           "chat_id": {
             "type": "string",
             "title": "Chat Id"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           },
           "scope_id": {
             "type": "string",
@@ -15752,6 +16643,17 @@
             "type": "string",
             "title": "Chat Id"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
           "scope_id": {
             "type": "string",
             "title": "Scope Id"
@@ -15814,6 +16716,111 @@
           "scope_id"
         ],
         "title": "ChatListItem"
+      },
+      "ChatProjectCreateBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "default": "Untitled project"
+          }
+        },
+        "type": "object",
+        "title": "ChatProjectCreateBody"
+      },
+      "ChatProjectOut": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "runtime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Type"
+          },
+          "runtime_connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Connection Id"
+          },
+          "runtime_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Model Id"
+          },
+          "chat_count": {
+            "type": "integer",
+            "title": "Chat Count",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "last_activity_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Activity At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ChatProjectOut"
+      },
+      "ChatProjectRenameBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ChatProjectRenameBody"
       },
       "ChatRenameBody": {
         "properties": {
@@ -15906,19 +16913,6 @@
             },
             "type": "array",
             "title": "Active Modes"
-          },
-          "mcp_server_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Mcp Server Ids"
-          },
-          "mcp_config_revision": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Mcp Config Revision",
-            "default": 0
           }
         },
         "type": "object",
@@ -16532,6 +17526,16 @@
             "type": "integer",
             "title": "Rate Limit Qps",
             "default": 10
+          },
+          "mount_enabled": {
+            "type": "boolean",
+            "title": "Mount Enabled",
+            "default": false
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
           }
         },
         "type": "object",
@@ -17485,6 +18489,30 @@
           "code"
         ],
         "title": "ExtensionExchangeIn"
+      },
+      "FeedbackBody": {
+        "properties": {
+          "rating": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rating"
+        ],
+        "title": "FeedbackBody"
       },
       "GroupListOut": {
         "properties": {
@@ -18993,18 +20021,18 @@
             "title": "Agent Surface",
             "default": "chat"
           },
-          "mcp_server_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Mcp Server Ids"
-          },
-          "chat_config_revision": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Chat Config Revision",
-            "default": 0
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           },
           "timezone": {
             "anyOf": [
@@ -19984,6 +21012,17 @@
               }
             ],
             "title": "Pinned Sub"
+          },
+          "mount_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mount Enabled"
           }
         },
         "type": "object",
@@ -20098,7 +21137,7 @@
           "fileRef": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/ChatFileRefV1"
+                "$ref": "#/components/schemas/ProjectFileRefV1"
               },
               {
                 "$ref": "#/components/schemas/MountFileRefV1"
@@ -20111,8 +21150,8 @@
             "discriminator": {
               "propertyName": "scope",
               "mapping": {
-                "chat": "#/components/schemas/ChatFileRefV1",
                 "mount": "#/components/schemas/MountFileRefV1",
+                "project": "#/components/schemas/ProjectFileRefV1",
                 "run": "#/components/schemas/RunFileRefV1"
               }
             }
@@ -20278,7 +21317,7 @@
           "fileRef": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/ChatFileRefV1"
+                "$ref": "#/components/schemas/ProjectFileRefV1"
               },
               {
                 "$ref": "#/components/schemas/MountFileRefV1"
@@ -20291,8 +21330,8 @@
             "discriminator": {
               "propertyName": "scope",
               "mapping": {
-                "chat": "#/components/schemas/ChatFileRefV1",
                 "mount": "#/components/schemas/MountFileRefV1",
+                "project": "#/components/schemas/ProjectFileRefV1",
                 "run": "#/components/schemas/RunFileRefV1"
               }
             }
@@ -20325,7 +21364,7 @@
           "fileRef": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/ChatFileRefV1"
+                "$ref": "#/components/schemas/ProjectFileRefV1"
               },
               {
                 "$ref": "#/components/schemas/MountFileRefV1"
@@ -20338,8 +21377,8 @@
             "discriminator": {
               "propertyName": "scope",
               "mapping": {
-                "chat": "#/components/schemas/ChatFileRefV1",
                 "mount": "#/components/schemas/MountFileRefV1",
+                "project": "#/components/schemas/ProjectFileRefV1",
                 "run": "#/components/schemas/RunFileRefV1"
               }
             }
@@ -20405,7 +21444,7 @@
           "fileRef": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/ChatFileRefV1"
+                "$ref": "#/components/schemas/ProjectFileRefV1"
               },
               {
                 "$ref": "#/components/schemas/MountFileRefV1"
@@ -20418,8 +21457,8 @@
             "discriminator": {
               "propertyName": "scope",
               "mapping": {
-                "chat": "#/components/schemas/ChatFileRefV1",
                 "mount": "#/components/schemas/MountFileRefV1",
+                "project": "#/components/schemas/ProjectFileRefV1",
                 "run": "#/components/schemas/RunFileRefV1"
               }
             }
@@ -20593,6 +21632,58 @@
         },
         "type": "object",
         "title": "PrivilegedApprovalIn"
+      },
+      "ProjectFileRefV1": {
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schemaversion"
+          },
+          "scope": {
+            "type": "string",
+            "const": "project",
+            "title": "Scope"
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Projectid"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schemaVersion",
+          "scope",
+          "projectId",
+          "path"
+        ],
+        "title": "ProjectFileRefV1"
+      },
+      "ProjectMcpSelection": {
+        "properties": {
+          "mcp_server_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Mcp Server Ids"
+          },
+          "mcp_config_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mcp Config Revision",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "ProjectMcpSelection"
       },
       "PromptHistoryOut": {
         "properties": {
@@ -21196,6 +22287,28 @@
             "type": "string",
             "title": "Workflow Id"
           },
+          "major": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
           "enabled": {
             "type": "boolean",
             "title": "Enabled",
@@ -21292,6 +22405,28 @@
               }
             ],
             "title": "Name"
+          },
+          "major": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Major"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           },
           "enabled": {
             "anyOf": [
@@ -21607,6 +22742,25 @@
         },
         "type": "object",
         "title": "SetGroupMemberBody"
+      },
+      "ShareBody": {
+        "properties": {
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          }
+        },
+        "type": "object",
+        "title": "ShareBody"
       },
       "ShareTargetLookupIn": {
         "properties": {

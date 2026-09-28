@@ -2,7 +2,8 @@
  * AgentSettingsModal — default generation parameters for new Chats. MCP
  * servers and skills are installed globally for the tenant
  * and exposed to the agent through lightweight catalogs; this modal no longer
- * owns per-chat or per-workflow integration allowlists.
+ * owns integration allowlists. Custom MCP selection belongs to the Project;
+ * skill instructions and tool invocation authority remain scoped to each Turn.
  */
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';

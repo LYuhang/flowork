@@ -39,6 +39,13 @@ async def _create_wf(client, token: str) -> str:
 
 
 async def _workspace_scopes(client, token: str, chat_id: str = "chat_vfs") -> tuple[str, str]:
+    headers = _hdr(token)
+    project = await client.post("/api/v1/projects", headers=headers, json={"name": "VFS tests"})
+    assert project.status_code == 201, project.text
+    carrier = (await client.get("/api/v1/chats/bootstrap", headers=headers)).json()["carrier_scope_id"]
+    created = await client.put(f"/api/v1/chat-scopes/{carrier}/chats/{chat_id}", headers=headers,
+                               json={"project_id": project.json()["project_id"]})
+    assert created.status_code == 200, created.text
     r = await client.get(
         f"/api/v1/chats/workspace?chat_id={chat_id}", headers=_hdr(token))
     assert r.status_code == 200, r.text
@@ -144,7 +151,7 @@ async def test_list_empty_new_workflow_scope_returns_empty_entries(client):
 
 
 @pytest.mark.asyncio
-async def test_debug_listing_can_read_only_its_hidden_prefix_when_enabled(
+async def test_retired_debug_directory_stays_hidden_even_when_debug_is_enabled(
     client, app_engine, pg_engine, monkeypatch
 ):
     from vibecanvas_api.routes import vfs as vfs_routes
@@ -181,9 +188,7 @@ async def test_debug_listing_can_read_only_its_hidden_prefix_when_enabled(
         f"/api/v1/vfs?wf_id={wf_id}&prefix=/logs/.debug/&include_hidden=true",
         headers=_hdr(tok),
     )
-    assert [entry["path"] for entry in debug.json()["entries"]] == [
-        "/logs/.debug/snapshot.json"
-    ]
+    assert debug.json()["entries"] == []
 
     broad = await client.get(
         f"/api/v1/vfs?wf_id={wf_id}&prefix=/logs/&include_hidden=true",
@@ -460,13 +465,10 @@ async def test_data_upload_creates_durable_row(client, app_engine, pg_engine):
 
 
 @pytest.mark.asyncio
-async def test_chat_workspace_data_upload_does_not_require_workflow(client, app_engine):
+async def test_project_workspace_data_upload_does_not_require_workflow(client, app_engine):
     tok = await _register(client)
-    ws = await client.get("/api/v1/chats/workspace?chat_id=chat_upload_1",
-                          headers=_hdr(tok))
-    assert ws.status_code == 200, ws.text
-    scope_id = ws.json()["workspace_scope_id"]
-    assert scope_id.startswith("__chatws_")
+    scope_id, _ = await _workspace_scopes(client, tok, "chat_upload_1")
+    assert scope_id.startswith("__projectws_v1_")
 
     r = await client.post(
         f"/api/v1/vfs/upload?wf_id={scope_id}&folder=data",

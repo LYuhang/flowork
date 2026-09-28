@@ -149,7 +149,8 @@ async def test_recovery_stop_is_strict_and_revokes_scope(monkeypatch):
         await manager.terminate_task_scope("tenant", "chat-owned-scope")
     handle = SimpleNamespace(proc=SimpleNamespace(poll=Mock(return_value=None)))
     pool = SimpleNamespace(_handles=[handle], stop=Mock())
-    session = SimpleNamespace(closed=False, _lifecycle_state="warm", _fileop_pool=pool,
+    session = SimpleNamespace(tenant_id="tenant", wf_id=scope,
+        closed=False, _lifecycle_state="warm", _fileop_pool=pool,
         _transition_lifecycle=Mock())
     manager._sessions[("tenant", scope)] = session
     with pytest.raises(RuntimeError, match="not confirmed"):

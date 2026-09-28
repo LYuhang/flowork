@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SandboxScopeKind(str, Enum):
-    CHAT = "chat"
+    PROJECT = "project"
     WORKFLOW_DEBUG = "workflow_debug"
     WORKFLOW_RUN = "workflow_run"
     BACKGROUND_JOB = "background_job"
@@ -50,7 +50,7 @@ class SandboxSpec(BaseModel):
     principal_id: str | None = None
     runtime_profile: str = "agent"
     resource_profile: str = "interactive-medium"
-    lifecycle_policy: str = "resident"
+    lifecycle_policy: str = "interactive"
     mount_specs: tuple[dict[str, Any], ...] = ()
     network_policy_id: str = "default"
     environment_layer_digest: str = "default"

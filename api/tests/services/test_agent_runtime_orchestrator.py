@@ -56,7 +56,7 @@ class _Manager:
 
 
 def test_private_runtime_root_is_codex_owned() -> None:
-    assert private_runtime_root(RuntimeType.CODEX, "chat/unsafe") == "/runtime/.codex"
+    assert private_runtime_root(RuntimeType.CODEX) == "/runtime/.codex"
 
 
 def test_interaction_required_projects_runtime_neutral_waiting_state() -> None:
@@ -130,3 +130,5 @@ async def test_orchestrator_streams_codex_through_resident_sandbox() -> None:
         {"type": "message_replace", "content": "hello"},
     )
     assert manager.calls
+    assert manager.calls[0][0][1] == "workspace"
+    assert manager.calls[0][1]["lease"] == "interactive"

@@ -16,7 +16,7 @@ import tempfile
 from typing import Any
 
 
-_ROOTS = ("/data", "/memory", "/logs", "/mount")
+_ROOTS = ("/data", "/memory", "/logs", "/chats", "/mount")
 _EXTENSIONS = {
     "table/jsonl": "jsonl",
     "table/csv": "csv",
@@ -156,7 +156,7 @@ class FilesystemRuntimeVfsStore:
         abstract: str = "",
     ) -> str:
         del wf_id, wf_version, abstract
-        if category not in {"data", "memory", "logs", "mount"}:
+        if category not in {"data", "memory", "logs", "chats", "mount"}:
             raise ValueError("unsupported Runtime VFS category")
         if not basename or "/" in basename or basename in {".", ".."}:
             raise ValueError("invalid Runtime VFS basename")
@@ -181,7 +181,7 @@ class FilesystemRuntimeVfsStore:
         abstract: str = "",
     ) -> str:
         del wf_id, wf_version, abstract
-        if category not in {"data", "memory", "logs", "mount"}:
+        if category not in {"data", "memory", "logs", "chats", "mount"}:
             raise ValueError("unsupported Runtime VFS category")
         if not basename or "/" in basename or basename in {".", ".."}:
             raise ValueError("invalid Runtime VFS basename")

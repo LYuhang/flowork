@@ -689,6 +689,15 @@ def permission_for_route(
             parent_resolver="file_ref_to_chat_run_or_storage",
         )
 
+    if path.startswith("/api/v1/projects"):
+        return _spec(
+            admission=AdmissionKind.ORGANIZATION,
+            resource_type=ResourceType.ORGANIZATION,
+            action=action,
+            selector="session:active_organization_id",
+            parent_resolver="organization_membership",
+        )
+
     if (
         path.startswith("/api/v1/chat")
         or path.startswith("/api/v1/chats")

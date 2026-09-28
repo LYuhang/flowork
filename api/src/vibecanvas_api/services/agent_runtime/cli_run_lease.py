@@ -7,7 +7,7 @@ from vibecanvas_api.storage.db import session_scope
 
 
 async def reserve(ctx, run_id, workflow_id):
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         await _require_active_chat_write(session, ctx)
         await lock_live_workflow(session, workflow_id)
         await session.execute(text("""INSERT INTO workflow_cli_leases

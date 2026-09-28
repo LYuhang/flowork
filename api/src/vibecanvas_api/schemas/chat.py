@@ -13,6 +13,7 @@ from vibecanvas_api.schemas.access import ResourceAccessOut
 
 class ChatListItem(BaseModel):
     chat_id: str
+    project_id: str | None = None
     scope_id: str
     surface: Literal["chat", "browser"] = "chat"
     chat_context: str = ""
@@ -22,6 +23,10 @@ class ChatListItem(BaseModel):
     ] = "inactive"
     runtime_type: str | None = None
     access: ResourceAccessOut | None = None
+
+
+class ChatCreateBody(BaseModel):
+    project_id: str | None = None
 
 
 class ChatRenameBody(BaseModel):
@@ -38,10 +43,45 @@ class ChatRenameBody(BaseModel):
         return normalized
 
 
+class ChatProjectCreateBody(BaseModel):
+    name: str = Field(default="Untitled project", min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        return normalized or "Untitled project"
+
+
+class ChatProjectRenameBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("project name must not be empty")
+        return normalized
+
+
+class ChatProjectOut(BaseModel):
+    project_id: str
+    name: str
+    runtime_type: str | None = None
+    runtime_connection_id: str | None = None
+    runtime_model_id: str | None = None
+    chat_count: int = 0
+    created_at: str
+    updated_at: str
+    last_activity_at: str | None = None
+
+
 class ChatInventoryItem(BaseModel):
     """Content-free organization inventory projection for private Chats."""
 
     chat_id: str
+    project_id: str | None = None
     scope_id: str
     surface: Literal["chat", "browser"] = "chat"
     runtime_type: str | None = None
@@ -106,7 +146,10 @@ class ChatStateOut(BaseModel):
     todo_items: list[TodoItem] = Field(default_factory=list)
     background_jobs: list[BackgroundJobOut] = Field(default_factory=list)
     active_modes: list[str] = Field(default_factory=list)
-    mcp_server_ids: list[str] = Field(default_factory=list)
+
+
+class ProjectMcpSelection(BaseModel):
+    mcp_server_ids: list[uuid.UUID] = Field(default_factory=list)
     mcp_config_revision: int = Field(default=0, ge=0)
 
 
@@ -132,7 +175,7 @@ class Attachment(BaseModel):
         if self.type in {"file", "image", "video"}:
             if not self.name or not self.path:
                 raise ValueError("file attachments require name and path")
-            if not self.path.startswith(("/data/", "/mount/")):
+            if not self.path.startswith(("/data/", "/chats/", "/mount/")):
                 raise ValueError("file attachment path must be a VFS path")
             if any(part in {"", ".", ".."} for part in self.path.split("/")[1:]):
                 raise ValueError("file attachment path contains an invalid segment")
@@ -277,10 +320,9 @@ class MessagePostBody(BaseModel):
     # above, which is the client container ("main" app vs extension sidepanel).
     # `agent_surface` controls prompt/tool assembly boundaries.
     agent_surface: Literal["chat", "browser"] = "chat"
-    # Complete custom-MCP selection rendered by the composer for this Turn.
-    # Built-in render tools and private CLI/browser authority never appear here.
-    mcp_server_ids: list[str] = Field(default_factory=list)
-    chat_config_revision: int = Field(default=0, ge=0)
+    # Required only when the first Turn materializes a main-app draft Chat.
+    # Persisted Chats derive Project ownership from the database.
+    project_id: str | None = Field(default=None, min_length=1, max_length=128)
     # Browser projection of the user's platform timezone.  It is consulted
     # only while the first Runtime Turn atomically fixes the Chat clock;
     # resumes never replace an existing clock.
@@ -309,21 +351,6 @@ class MessagePostBody(BaseModel):
         if self.mode != "chat":
             raise ValueError("a control message must use chat mode")
         return self
-
-    @field_validator("mcp_server_ids")
-    @classmethod
-    def validate_mcp_server_ids(cls, values: list[str]) -> list[str]:
-        normalized: list[str] = []
-        seen = set()
-        for raw in values:
-            try:
-                value = str(uuid.UUID(raw))
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"invalid MCP server id: {raw!r}") from exc
-            if value not in seen:
-                normalized.append(value)
-                seen.add(value)
-        return normalized
 
 
 class HistoryMessage(BaseModel):

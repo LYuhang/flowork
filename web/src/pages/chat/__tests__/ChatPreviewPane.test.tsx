@@ -30,7 +30,7 @@ const items: ChatPreviewItem[] = [
     resource: {
       schemaVersion: 1,
       kind: 'file',
-      fileRef: { schemaVersion: 1, scope: 'chat', chatId: 'chat-1', path: '/data/notes.md' },
+      fileRef: { schemaVersion: 1, scope: 'project', projectId: 'chat-1', path: '/data/notes.md' },
     },
   },
   {

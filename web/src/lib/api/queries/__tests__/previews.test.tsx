@@ -9,7 +9,7 @@ import {
   useWritePreviewFile,
 } from '@/lib/api/queries/previews';
 import type {
-  ChatFileRefV1,
+  ProjectFileRefV1,
   PreviewDescriptorV1,
 } from '@/lib/preview/protocol';
 import { useAuthStore } from '@/stores/auth';
@@ -29,10 +29,10 @@ vi.mock('@/lib/api/previews', () => ({
   writePreviewFile: mocks.writePreviewFile,
 }));
 
-const fileRef: ChatFileRefV1 = {
+const fileRef: ProjectFileRefV1 = {
   schemaVersion: 1,
-  scope: 'chat',
-  chatId: 'chat-preview-events',
+  scope: 'project',
+  projectId: 'chat-preview-events',
   path: '/data/notes.md',
 };
 

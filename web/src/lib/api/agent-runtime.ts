@@ -241,9 +241,11 @@ export async function disconnectCodexAccount(): Promise<CodexAccountStatus> {
 
 export async function getAgentRuntimeCapabilities(
   chatId?: string | null,
+  projectId?: string | null,
 ): Promise<AgentRuntimeCapabilities> {
   const params = new URLSearchParams();
   if (chatId) params.set('chat_id', chatId);
+  if (projectId) params.set('project_id', projectId);
   const suffix = params.size > 0 ? `?${params.toString()}` : '';
   const response = await authenticatedFetch(
     `/api/v1/agent-runtime/capabilities${suffix}`,

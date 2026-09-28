@@ -18,7 +18,9 @@ from vibecanvas_api.authorization.types import (
 )
 from vibecanvas_api.config import config
 from vibecanvas_api.services.agent_resources.capability import AgentCapability
-from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
+from vibecanvas_api.services.chat_workspace import (
+    project_workspace_scope_id,
+)
 from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
 from vibecanvas_api.storage.chat_repo import ChatRepo
 from vibecanvas_api.storage.db import session_scope
@@ -37,7 +39,7 @@ def set_authorization_client(client) -> None:
 async def resolve_context(capability: AgentCapability) -> AgentContext:
     """Rebuild ephemeral tool context from durable backend state."""
     identity = await resolve_identity(capability)
-    async with session_scope(tenant_id=capability.tenant_id) as session:
+    async with session_scope(tenant_id=capability.tenant_id, user_id=capability.user_id) as session:
         service = authz_service_for_session(
             session=session,
             organization_id=capability.organization_id,
@@ -92,9 +94,7 @@ async def resolve_context(capability: AgentCapability) -> AgentContext:
             raise PermissionError(
                 "Agent resource capability Runtime binding is stale"
             )
-        expected_workspace_scope_id = chat_workspace_scope_id(
-            capability.chat_id
-        )
+        expected_workspace_scope_id = project_workspace_scope_id(binding["project_id"])
         if expected_workspace_scope_id != capability.workspace_scope_id:
             raise PermissionError(
                 "Agent resource capability workspace does not match its Chat"

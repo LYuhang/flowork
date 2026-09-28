@@ -24,6 +24,7 @@ vi.mock('@/components/agent-sidebar/MessageActions', () => ({ MessageActions: ()
 const historyMock = vi.fn();
 const sessionsMock = vi.fn();
 const fetchHistoryPageMock = vi.fn();
+const createChatMock = vi.fn();
 const readServerActiveTurnsMock = vi.fn(async (..._args: unknown[]) => [] as Array<{
   wfId: string;
   chatId: string;
@@ -35,9 +36,19 @@ vi.mock('@/lib/api/queries/chats', () => ({
   fetchChatHistoryPage: (...a: unknown[]) => fetchHistoryPageMock(...a),
   useChatHistory: (...a: unknown[]) => historyMock(...a),
   useChatSessions: (...a: unknown[]) => sessionsMock(...a),
+  useCreateChatSession: () => ({
+    isPending: false,
+    mutateAsync: createChatMock,
+  }),
+  useProjectMcpSelection: () => ({ data: { mcp_server_ids: [], mcp_config_revision: 0 }, isSuccess: true }),
+  useSetProjectMcpSelection: () => ({ mutate: vi.fn(), isPending: false }),
   useChatWorkspace: (chatId: string | null) => ({
     data: chatId
-      ? { chat_id: chatId, workspace_scope_id: `__chatws_test_${chatId}` }
+      ? {
+        chat_id: chatId,
+        project_id: `project_${chatId}`,
+        workspace_scope_id: `__projectws_v1_${btoa(`project_${chatId}`).replace(/=+$/, '')}`,
+      }
       : undefined,
     isLoading: false,
   }),
@@ -949,6 +960,10 @@ function SidebarWrapper({ children }: { children: ReactNode }) {
 
 describe('AgentChatSidebar redesign', () => {
   beforeEach(() => {
+    createChatMock.mockReset();
+    createChatMock.mockImplementation(async ({ chatId, scopeId }: { chatId: string; scopeId: string }) => ({
+      chat_id: chatId, scope_id: scopeId, project_id: `project_${chatId}`, surface: 'browser',
+    }));
     readServerActiveTurnsMock.mockReset();
     readServerActiveTurnsMock.mockResolvedValue([]);
     useUIStore.setState({ lastActiveWorkflowId: 'wf', activeChatIds: { chat: null, browser: null } });
@@ -969,6 +984,20 @@ describe('AgentChatSidebar redesign', () => {
     await userEvent.click(screen.getByRole('button', { name: /new chat/i }));
     const id = useUIStore.getState().activeChatIds.chat;
     expect(typeof id === 'string' && id.length > 0).toBe(true);
+  });
+
+  it('selects the first extension Chat only after its Project and cwd are durable', async () => {
+    let finishCreate!: (value: unknown) => void;
+    createChatMock.mockImplementationOnce(() => new Promise(resolve => { finishCreate = resolve; }));
+    render(<AgentChatSidebar embedded chatSurface="browser" />, { wrapper: SidebarWrapper });
+    await waitFor(() => expect(createChatMock).toHaveBeenCalledTimes(1));
+    expect(useUIStore.getState().activeChatIds.browser).toBeNull();
+    const request = createChatMock.mock.calls[0][0];
+    await act(async () => {
+      finishCreate({ chat_id: request.chatId, project_id: 'persisted-project', surface: 'browser' });
+    });
+    expect(useUIStore.getState().activeChatIds.browser).toBe(request.chatId);
+    expect(createChatMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not let delayed startup discovery replace an explicit New Chat', async () => {

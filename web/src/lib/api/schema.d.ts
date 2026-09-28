@@ -1366,6 +1366,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Chat Projects
+         * @description List the current user's Project workspace roots.
+         */
+        get: operations["list_chat_projects_api_v1_projects_get"];
+        put?: never;
+        /**
+         * Create Chat Project
+         * @description Create the durable Project roots without starting a sandbox.
+         */
+        post: operations["create_chat_project_api_v1_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat-scopes/{scope_id}/chats/{chat_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Create Chat Session
+         * @description Idempotently persist a Chat and its working directory, without a runtime.
+         */
+        put: operations["create_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__put"];
+        post?: never;
+        /**
+         * Delete Chat Session
+         * @description Delete one Chat thread without deleting its parent Project workspace.
+         */
+        delete: operations["delete_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename Chat Session
+         * @description Rename one Chat without changing its Runtime or transcript.
+         */
+        patch: operations["rename_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Chat Project
+         * @description Delete a Project, all child Chats, and its shared workspace.
+         */
+        delete: operations["delete_chat_project_api_v1_projects__project_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename Chat Project */
+        patch: operations["rename_chat_project_api_v1_projects__project_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/projects/sandboxes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Sandbox Statuses */
+        get: operations["get_project_sandbox_statuses_api_v1_projects_sandboxes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Mcp Selection */
+        get: operations["get_project_mcp_selection_api_v1_projects__project_id__mcp_get"];
+        /** Set Project Mcp Selection */
+        put: operations["set_project_mcp_selection_api_v1_projects__project_id__mcp_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Workspace */
+        get: operations["get_project_workspace_api_v1_projects__project_id__workspace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sandbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Project Sandbox */
+        post: operations["start_project_sandbox_api_v1_projects__project_id__sandbox_post"];
+        /** Close Project Sandbox */
+        delete: operations["close_project_sandbox_api_v1_projects__project_id__sandbox_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chats/workspace": {
         parameters: {
             query?: never;
@@ -1408,90 +1551,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/v1/chats/sandbox": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Chat Sandbox Status
-         * @description Resident Agent sandbox status for the general Chat surface.
-         *
-         *     This is read-only and intentionally does not create a sandbox. The resident
-         *     sandbox is still created lazily by tools that require it.
-         */
-        get: operations["get_chat_sandbox_status_api_v1_chats_sandbox_get"];
-        put?: never;
-        /**
-         * Start Chat Sandbox
-         * @description Explicitly warm the resident sandbox for one Chat workspace.
-         */
-        post: operations["start_chat_sandbox_api_v1_chats_sandbox_post"];
-        /**
-         * Close Chat Sandbox
-         * @description Release a Chat sandbox only when no background result still needs it.
-         */
-        delete: operations["close_chat_sandbox_api_v1_chats_sandbox_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/chats/sandboxes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Chat Sandbox Statuses
-         * @description Batch resident sandbox statuses for the Chat history sidebar.
-         *
-         *     Read-only and non-creating: a history list should show resource placement
-         *     without warming missing workspaces or sandboxes.
-         */
-        get: operations["get_chat_sandbox_statuses_api_v1_chats_sandboxes_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/chat-scopes/{scope_id}/chats/{chat_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Chat Session
-         * @description Delete one chat and its chat-local workspace data.
-         *
-         *     The chat row is soft-deleted, persisted message rows are removed, the live
-         *     sandbox is closed, and the chat workspace VFS prefixes `/data`, `/memory`,
-         *     and `/logs` are removed. Creators use their normal carrier; organization
-         *     admins may use the content-free inventory scope after an explicit DELETE
-         *     decision and high-risk step-up.
-         */
-        delete: operations["delete_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__delete"];
-        options?: never;
-        head?: never;
-        /**
-         * Rename Chat Session
-         * @description Rename one Chat without changing its Runtime or transcript.
-         */
-        patch: operations["rename_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__patch"];
         trace?: never;
     };
     "/api/v1/chats/{chat_id}/runtime": {
@@ -1691,6 +1750,29 @@ export interface paths {
         put?: never;
         /** Decide Hitl Request */
         post: operations["decide_hitl_request_api_v1_hitl_requests__hitl_request_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/debug/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Chat Debug Messages
+         * @description The complete stored conversation, not a native model-input snapshot.
+         *
+         *     Cursor pages preserve every role and full content; the UI folds long
+         *     messages. No sandbox access, file generation, or streaming-token writes.
+         */
+        get: operations["get_chat_debug_messages_api_v1_chats__chat_id__debug_messages_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1958,6 +2040,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/{chat_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Feedback */
+        get: operations["get_feedback_api_v1_chats__chat_id__feedback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/messages/{message_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Feedback */
+        put: operations["put_feedback_api_v1_chats__chat_id__messages__message_id__feedback_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Shares */
+        get: operations["list_shares_api_v1_chats__chat_id__shares_get"];
+        put?: never;
+        /** Create Share */
+        post: operations["create_share_api_v1_chats__chat_id__shares_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/shares/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Share */
+        delete: operations["revoke_share_api_v1_chats__chat_id__shares__share_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/chat-shares/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Public Share */
+        get: operations["read_public_share_api_v1_public_chat_shares__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks": {
         parameters: {
             query?: never;
@@ -2091,6 +2259,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Task
+         * @description Return a single task row (RLS-scoped to caller's tenant).
+         *
+         *     Cross-tenant rows are RLS-filtered to invisible — both ``not found``
+         *     and ``foreign tenant`` collapse to 404 so we don't leak existence.
+         */
+        get: operations["get_task_api_v1_tasks__task_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Batch Task */
+        delete: operations["delete_batch_task_api_v1_tasks__task_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/scheduled-runs/{task_id}/executions/{execution_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Scheduled Execution Results */
+        get: operations["download_scheduled_execution_results_api_v1_tasks_scheduled_runs__task_id__executions__execution_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks/scheduled-runs/{task_id}/executions": {
         parameters: {
             query?: never;
@@ -2173,29 +2382,6 @@ export interface paths {
         post: operations["grant_task_access_api_v1_tasks__task_id__access_post"];
         /** Revoke Task Access */
         delete: operations["revoke_task_access_api_v1_tasks__task_id__access_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/tasks/{task_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Task
-         * @description Return a single task row (RLS-scoped to caller's tenant).
-         *
-         *     Cross-tenant rows are RLS-filtered to invisible — both ``not found``
-         *     and ``foreign tenant`` collapse to 404 so we don't leak existence.
-         */
-        get: operations["get_task_api_v1_tasks__task_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3254,6 +3440,23 @@ export interface paths {
          *     IntegrityError → 409.
          */
         post: operations["create_credential_api_v1_llm_credentials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/llm-credentials/workflow-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Workflow Models */
+        get: operations["list_workflow_models_api_v1_llm_credentials_workflow_models_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4747,6 +4950,15 @@ export interface components {
              * @default 1
              */
             concurrency: number;
+            /**
+             * Mount Enabled
+             * @default false
+             */
+            mount_enabled: boolean;
+            /** Major */
+            major?: string | null;
+            /** Version */
+            version?: string | null;
         };
         /** Body_create_custom_skill_api_v1_skills_custom_post */
         Body_create_custom_skill_api_v1_skills_custom_post: {
@@ -4831,22 +5043,10 @@ export interface components {
             /** Source Id */
             source_id: string;
         };
-        /** ChatFileRefV1 */
-        ChatFileRefV1: {
-            /**
-             * Schemaversion
-             * @constant
-             */
-            schemaVersion: 1;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            scope: "chat";
-            /** Chatid */
-            chatId: string;
-            /** Path */
-            path: string;
+        /** ChatCreateBody */
+        ChatCreateBody: {
+            /** Project Id */
+            project_id?: string | null;
         };
         /**
          * ChatInventoryItem
@@ -4855,6 +5055,8 @@ export interface components {
         ChatInventoryItem: {
             /** Chat Id */
             chat_id: string;
+            /** Project Id */
+            project_id?: string | null;
             /** Scope Id */
             scope_id: string;
             /**
@@ -4883,6 +5085,8 @@ export interface components {
         ChatListItem: {
             /** Chat Id */
             chat_id: string;
+            /** Project Id */
+            project_id?: string | null;
             /** Scope Id */
             scope_id: string;
             /**
@@ -4910,6 +5114,43 @@ export interface components {
             /** Runtime Type */
             runtime_type?: string | null;
             access?: components["schemas"]["ResourceAccessOut"] | null;
+        };
+        /** ChatProjectCreateBody */
+        ChatProjectCreateBody: {
+            /**
+             * Name
+             * @default Untitled project
+             */
+            name: string;
+        };
+        /** ChatProjectOut */
+        ChatProjectOut: {
+            /** Project Id */
+            project_id: string;
+            /** Name */
+            name: string;
+            /** Runtime Type */
+            runtime_type?: string | null;
+            /** Runtime Connection Id */
+            runtime_connection_id?: string | null;
+            /** Runtime Model Id */
+            runtime_model_id?: string | null;
+            /**
+             * Chat Count
+             * @default 0
+             */
+            chat_count: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Last Activity At */
+            last_activity_at?: string | null;
+        };
+        /** ChatProjectRenameBody */
+        ChatProjectRenameBody: {
+            /** Name */
+            name: string;
         };
         /** ChatRenameBody */
         ChatRenameBody: {
@@ -4939,13 +5180,6 @@ export interface components {
             background_jobs?: components["schemas"]["BackgroundJobOut"][];
             /** Active Modes */
             active_modes?: string[];
-            /** Mcp Server Ids */
-            mcp_server_ids?: string[];
-            /**
-             * Mcp Config Revision
-             * @default 0
-             */
-            mcp_config_revision: number;
         };
         /** CheckRequest */
         CheckRequest: {
@@ -5155,6 +5389,16 @@ export interface components {
              * @default 10
              */
             rate_limit_qps: number;
+            /**
+             * Mount Enabled
+             * @default false
+             */
+            mount_enabled: boolean;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** CreateGroupBody */
         CreateGroupBody: {
@@ -5508,6 +5752,11 @@ export interface components {
         ExtensionExchangeIn: {
             /** Code */
             code: string;
+        };
+        /** FeedbackBody */
+        FeedbackBody: {
+            /** Rating */
+            rating: ("up" | "down") | null;
         };
         /** GroupListOut */
         GroupListOut: {
@@ -6116,13 +6365,8 @@ export interface components {
              * @enum {string}
              */
             agent_surface: "chat" | "browser";
-            /** Mcp Server Ids */
-            mcp_server_ids?: string[];
-            /**
-             * Chat Config Revision
-             * @default 0
-             */
-            chat_config_revision: number;
+            /** Project Id */
+            project_id?: string | null;
             /** Timezone */
             timezone?: string | null;
         };
@@ -6511,6 +6755,8 @@ export interface components {
             pinned_major?: number | null;
             /** Pinned Sub */
             pinned_sub?: number | null;
+            /** Mount Enabled */
+            mount_enabled?: boolean | null;
         };
         /** PlatformEligibilityIn */
         PlatformEligibilityIn: {
@@ -6565,7 +6811,7 @@ export interface components {
              */
             schemaVersion: 1;
             /** Fileref */
-            fileRef: components["schemas"]["ChatFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
+            fileRef: components["schemas"]["ProjectFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
             /** Name */
             name: string;
             /** Sizebytes */
@@ -6608,7 +6854,7 @@ export interface components {
         /** PreviewFileWriteOut */
         PreviewFileWriteOut: {
             /** Fileref */
-            fileRef: components["schemas"]["ChatFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
+            fileRef: components["schemas"]["ProjectFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
             /** Revision */
             revision: string;
             /** Sizebytes */
@@ -6619,7 +6865,7 @@ export interface components {
         /** PreviewFileWriteV1 */
         PreviewFileWriteV1: {
             /** Fileref */
-            fileRef: components["schemas"]["ChatFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
+            fileRef: components["schemas"]["ProjectFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
             /** Expectedrevision */
             expectedRevision: string;
             /** Contenttype */
@@ -6647,7 +6893,7 @@ export interface components {
         /** PreviewResolveBody */
         PreviewResolveBody: {
             /** Fileref */
-            fileRef: components["schemas"]["ChatFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
+            fileRef: components["schemas"]["ProjectFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
         };
         /** PreviewResourceMount */
         PreviewResourceMount: {
@@ -6725,6 +6971,33 @@ export interface components {
              * @default false
              */
             sensitive_scope_confirmed: boolean;
+        };
+        /** ProjectFileRefV1 */
+        ProjectFileRefV1: {
+            /**
+             * Schemaversion
+             * @constant
+             */
+            schemaVersion: 1;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            scope: "project";
+            /** Projectid */
+            projectId: string;
+            /** Path */
+            path: string;
+        };
+        /** ProjectMcpSelection */
+        ProjectMcpSelection: {
+            /** Mcp Server Ids */
+            mcp_server_ids?: string[];
+            /**
+             * Mcp Config Revision
+             * @default 0
+             */
+            mcp_config_revision: number;
         };
         /** PromptHistoryOut */
         PromptHistoryOut: {
@@ -6951,6 +7224,10 @@ export interface components {
             name: string;
             /** Workflow Id */
             workflow_id: string;
+            /** Major */
+            major?: string | null;
+            /** Version */
+            version?: string | null;
             /**
              * Enabled
              * @default true
@@ -6992,6 +7269,10 @@ export interface components {
         ScheduledRunPatchBody: {
             /** Name */
             name?: string | null;
+            /** Major */
+            major?: string | null;
+            /** Version */
+            version?: string | null;
             /** Enabled */
             enabled?: boolean | null;
             /** Schedule Type */
@@ -7109,6 +7390,11 @@ export interface components {
              * @enum {string}
              */
             status: "active" | "suspended";
+        };
+        /** ShareBody */
+        ShareBody: {
+            /** Message Id */
+            message_id?: string | null;
         };
         /** ShareTargetLookupIn */
         ShareTargetLookupIn: {
@@ -10481,11 +10767,9 @@ export interface operations {
             };
         };
     };
-    get_chat_workspace_api_v1_chats_workspace_get: {
+    list_chat_projects_api_v1_projects_get: {
         parameters: {
-            query: {
-                chat_id: string;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -10498,9 +10782,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ChatProjectOut"][];
+                };
+            };
+        };
+    };
+    create_chat_project_api_v1_projects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatProjectCreateBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatProjectOut"];
                 };
             };
             /** @description Validation Error */
@@ -10514,11 +10820,9 @@ export interface operations {
             };
         };
     };
-    upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post: {
+    create_chat_session_api_v1_chat_scopes__scope_id__chats__chat_id__put: {
         parameters: {
-            query?: {
-                attachment_type?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 scope_id: string;
@@ -10528,7 +10832,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post"];
+                "application/json": components["schemas"]["ChatCreateBody"];
             };
         };
         responses: {
@@ -10538,139 +10842,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Attachment"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_chat_sandbox_status_api_v1_chats_sandbox_get: {
-        parameters: {
-            query?: {
-                chat_id?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    start_chat_sandbox_api_v1_chats_sandbox_post: {
-        parameters: {
-            query: {
-                chat_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    close_chat_sandbox_api_v1_chats_sandbox_delete: {
-        parameters: {
-            query?: {
-                chat_id?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_chat_sandbox_statuses_api_v1_chats_sandboxes_get: {
-        parameters: {
-            query?: {
-                chat_id?: string[];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ChatListItem"];
                 };
             };
             /** @description Validation Error */
@@ -10688,6 +10860,7 @@ export interface operations {
         parameters: {
             query?: {
                 surface?: string;
+                delete_files?: boolean;
             };
             header?: never;
             path: {
@@ -10743,6 +10916,344 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatListItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_chat_project_api_v1_projects__project_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_chat_project_api_v1_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatProjectRenameBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatProjectOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_sandbox_statuses_api_v1_projects_sandboxes_get: {
+        parameters: {
+            query?: {
+                project_id?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_mcp_selection_api_v1_projects__project_id__mcp_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMcpSelection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_project_mcp_selection_api_v1_projects__project_id__mcp_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectMcpSelection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMcpSelection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_workspace_api_v1_projects__project_id__workspace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_project_sandbox_api_v1_projects__project_id__sandbox_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_project_sandbox_api_v1_projects__project_id__sandbox_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chat_workspace_api_v1_chats_workspace_get: {
+        parameters: {
+            query: {
+                chat_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post: {
+        parameters: {
+            query?: {
+                attachment_type?: string;
+                project_id?: string | null;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"];
                 };
             };
             /** @description Validation Error */
@@ -11103,6 +11614,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HitlRequestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chat_debug_messages_api_v1_chats__chat_id__debug_messages_get: {
+        parameters: {
+            query?: {
+                after_id?: number;
+                limit?: number;
+                include_artifacts?: boolean;
+            };
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -11586,6 +12132,200 @@ export interface operations {
             };
         };
     };
+    get_feedback_api_v1_chats__chat_id__feedback_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_feedback_api_v1_chats__chat_id__messages__message_id__feedback_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_shares_api_v1_chats__chat_id__shares_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_share_api_v1_chats__chat_id__shares_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_share_api_v1_chats__chat_id__shares__share_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_public_share_api_v1_public_chat_shares__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tasks_api_v1_tasks_get: {
         parameters: {
             query?: {
@@ -11876,6 +12616,100 @@ export interface operations {
             };
         };
     };
+    get_task_api_v1_tasks__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_batch_task_api_v1_tasks__task_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_scheduled_execution_results_api_v1_tasks_scheduled_runs__task_id__executions__execution_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                execution_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_scheduled_run_executions_api_v1_tasks_scheduled_runs__task_id__executions_get: {
         parameters: {
             query?: {
@@ -12102,37 +12936,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DirectBindingOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_task_api_v1_tasks__task_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -13901,6 +14704,28 @@ export interface operations {
             };
         };
     };
+    list_workflow_models_api_v1_llm_credentials_workflow_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
     get_credential_api_v1_llm_credentials__credential_id__get: {
         parameters: {
             query?: never;
@@ -14519,7 +15344,6 @@ export interface operations {
             query?: {
                 wf_id?: string;
                 prefix?: string;
-                include_hidden?: boolean;
             };
             header?: never;
             path?: never;
@@ -14885,9 +15709,9 @@ export interface operations {
     stream_preview_file_events_api_v1_previews_events_get: {
         parameters: {
             query: {
-                scope: "chat" | "mount" | "run";
+                scope: "project" | "mount" | "run";
                 path: string;
-                chat_id?: string | null;
+                project_id?: string | null;
                 run_id?: string | null;
             };
             header?: never;
@@ -14952,10 +15776,10 @@ export interface operations {
     office_preview_rendition_api_v1_previews_office_rendition_get: {
         parameters: {
             query: {
-                scope: "chat" | "mount" | "run";
+                scope: "project" | "mount" | "run";
                 path: string;
                 revision: string;
-                chat_id?: string | null;
+                project_id?: string | null;
                 run_id?: string | null;
             };
             header?: never;
@@ -15482,6 +16306,7 @@ export interface operations {
         parameters: {
             query?: {
                 chat_id?: string | null;
+                project_id?: string | null;
             };
             header?: never;
             path?: never;

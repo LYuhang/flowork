@@ -7,8 +7,8 @@ from fastapi import HTTPException
 
 from vibecanvas_api.routes import vfs
 from vibecanvas_api.services.chat_workspace import (
-    chat_id_from_workspace_scope,
-    chat_workspace_scope_id,
+    project_id_from_workspace_scope,
+    project_workspace_scope_id,
 )
 
 
@@ -23,9 +23,9 @@ class _WorkflowRepoStub:
 
 
 def test_chat_workspace_scope_roundtrips_without_embedding_owner():
-    scope = chat_workspace_scope_id("chat/含空格/abc")
-    assert scope.startswith("__chatws_v2_")
-    assert chat_id_from_workspace_scope(scope) == "chat/含空格/abc"
+    scope = project_workspace_scope_id("chat/含空格/abc")
+    assert scope.startswith("__projectws_v1_")
+    assert project_id_from_workspace_scope(scope) == "chat/含空格/abc"
     assert "owner" not in scope
 
 
@@ -33,7 +33,7 @@ def test_chat_workspace_scope_roundtrips_without_embedding_owner():
 async def test_writable_vfs_scope_accepts_only_canonical_chat_data(monkeypatch):
     monkeypatch.setattr(vfs, "WorkflowRepo", _WorkflowRepoStub)
     user_id = "user-12345678901234567890"
-    scope = chat_workspace_scope_id("chatabc")
+    scope = project_workspace_scope_id("chatabc")
     await vfs._ensure_writable_vfs_scope(
         session=object(),
         user_id=user_id,
@@ -50,7 +50,7 @@ async def test_writable_vfs_scope_accepts_only_canonical_chat_data(monkeypatch):
 
 
 def test_retired_user_prefixed_chat_scope_is_not_decoded():
-    assert chat_id_from_workspace_scope(
+    assert project_id_from_workspace_scope(
         "__chatws_deadbeefdeadbeefdead_chatabc"
     ) is None
 
@@ -59,7 +59,7 @@ def test_retired_user_prefixed_chat_scope_is_not_decoded():
 async def test_chat_workspace_list_reconciles_loaded_sandbox_without_cold_start(
     monkeypatch,
 ):
-    scope = chat_workspace_scope_id("chat-live")
+    scope = project_workspace_scope_id("chat-live")
     loaded = AsyncMock()
     manager = AsyncMock()
     manager.get_loaded_session.return_value = loaded

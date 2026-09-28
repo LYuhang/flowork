@@ -123,6 +123,7 @@ export function EmbedChatPage() {
     modeParam === 'chat' ? 'chat' : 'browser';
   const setLastWf = useUIStore((s) => s.setLastActiveWorkflowId);
   const setActiveChatId = useUIStore((s) => s.setActiveChatId);
+  const selectedBrowserChatId = useUIStore((s) => s.activeChatIds.browser);
   const authenticated = useAuthStore((s) => s.authenticated);
   const sessionAudience = useAuthStore((s) => s.sessionAudience);
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -200,12 +201,15 @@ export function EmbedChatPage() {
     const latest = (
       browserSessions.data?.items as Array<{ chat_id?: string }> | undefined
     )?.find((item) => typeof item.chat_id === 'string' && item.chat_id)?.chat_id;
-    const next = latest ?? crypto.randomUUID();
+    // The sidebar owns first-Chat creation: its PUT creates the Project and
+    // durable cwd before selecting the Chat. Do not seed a frontend-only ID
+    // here, which would suppress that creation and query a missing workspace.
+    if (!latest) return;
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      setChat(next);
-      setActiveChatId('browser', next);
+      setChat(latest);
+      setActiveChatId('browser', latest);
     });
     return () => {
       cancelled = true;
@@ -303,13 +307,13 @@ export function EmbedChatPage() {
         (e.data as { type?: unknown }).type === 'BROWSER_STOP_REQUESTED'
       ) {
         void (async () => {
-          if (!wf || !chat) return;
-          const cancelled = await cancelActiveTurn(chat);
+          if (!wf || !selectedBrowserChatId) return;
+          const cancelled = await cancelActiveTurn(selectedBrowserChatId);
           if (cancelled) {
             postToExtension(
               {
                 type: 'BROWSER_TURN_CANCELLED',
-                chat_id: chat,
+                chat_id: selectedBrowserChatId,
                 turn_id: cancelled.turnId,
               },
             );
@@ -332,19 +336,19 @@ export function EmbedChatPage() {
         setBrowserControlAvailableHere(availableHere);
         const status = (e.data as { status?: unknown }).status;
         if (status !== 'lost' && status !== 'released' && status !== 'inactive') {
-          if (chat && wf) {
-            void reconcileChatWithServer({ wfId: wf, chatId: chat, surface: 'browser' });
+          if (selectedBrowserChatId && wf) {
+            void reconcileChatWithServer({ wfId: wf, chatId: selectedBrowserChatId, surface: 'browser' });
           }
           return;
         }
-        if (chat && wf) {
+        if (selectedBrowserChatId && wf) {
           // The extension sends the fenced lifecycle event to the backend over
           // its own WebSocket and receives the durable ACK there. The embedded
           // UI only refreshes the resulting projection; it never forwards
           // browser session identity or mutates control state itself.
           void reconcileChatWithServer({
             wfId: wf,
-            chatId: chat,
+            chatId: selectedBrowserChatId,
             surface: 'browser',
           });
         }
@@ -394,7 +398,7 @@ export function EmbedChatPage() {
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [bootstrap, chat, postToExtension, trustedExtensionOrigin, wf]);
+  }, [bootstrap, selectedBrowserChatId, postToExtension, trustedExtensionOrigin, wf]);
 
   // Cold side-panel authentication is a pull handshake, not a one-shot shell
   // push. The extension shell's iframe `load` event can fire before React has
@@ -499,7 +503,7 @@ export function EmbedChatPage() {
     );
   }
 
-  if (browserBootstrap.isLoading || !wf || !chat) {
+  if (browserBootstrap.isLoading || !wf) {
     return (
       <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
         {t('embed.preparing_browser_chat', 'Preparing browser chat…')}

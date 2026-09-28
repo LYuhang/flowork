@@ -54,11 +54,12 @@ async def test_vfs_hydration_isolates_folder_transactions_and_skips_unsafe_paths
     )
 
     assert written == 0
-    assert opened == [0, 1, 2]
+    assert opened == [0, 1, 2, 3]
     assert queried == [
         (0, "/data/"),
         (1, "/memory/"),
         (2, "/logs/"),
+        (3, "/chats/"),
     ]
     assert not (tmp_path / "run" / "escaped.txt").exists()
 

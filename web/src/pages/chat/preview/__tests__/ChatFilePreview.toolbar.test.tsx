@@ -8,8 +8,8 @@ const descriptor = {
   schemaVersion: 1,
   fileRef: {
     schemaVersion: 1,
-    scope: 'chat',
-    chatId: 'chat-1',
+    scope: 'project',
+    projectId: 'project-1',
     path: '/data/brief.pdf',
   },
   name: 'brief.pdf',
@@ -54,7 +54,7 @@ describe('ChatFilePreview toolbar', () => {
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
     expect(link.getAttribute('href')).toContain(
-      '/preview?scope=chat&path=%2Fdata%2Fbrief.pdf&fileType=auto&chatId=chat-1',
+      '/preview?scope=project&path=%2Fdata%2Fbrief.pdf&fileType=auto&projectId=project-1',
     );
     expect(link.getAttribute('href')).not.toMatch(/token|credential|authorization/i);
   });

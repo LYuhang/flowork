@@ -60,7 +60,9 @@ export async function reconcileChatWithServer({
 
   await Promise.allSettled([
     refreshActiveProjection(['chats', wfId, surface]),
-    refreshActiveProjection(['chat-sandbox-statuses']),
+    refreshActiveProjection(['chat-projects']),
+    refreshActiveProjection(['project-sandboxes']),
+    refreshActiveProjection(['project-mcp']),
     chatId
       ? refreshActiveProjection(['chat-history', wfId, chatId])
       : Promise.resolve(),

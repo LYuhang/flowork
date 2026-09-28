@@ -150,7 +150,7 @@ async def test_runtime_erasure_constructs_manager_in_worker_process(
     )
     monkeypatch.setattr(
         purge,
-        "_chat_runtime_coordinates",
+        "_project_runtime_coordinates",
         lambda _lease: _async_value(()),
     )
     monkeypatch.setattr(purge, "_safe_remove_user_directory", lambda *_args: None)

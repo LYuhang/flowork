@@ -82,7 +82,7 @@ async def upload_workflow(ctx, workflow: dict, *, workflow_id: str, major: str, 
         _auto_tidy_workflow(graph)
     except (ValueError, TypeError, KeyError, AttributeError, RecursionError) as exc:
         raise ToolError("invalid_workflow", "Repair the workflow graph and node configuration before uploading.") from exc
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         await _require_active_chat_write(session, ctx)
         selection = await resolve_target(session, ctx, workflow_id, major, for_update=True)
         await _decision(ctx=ctx, service=_service(ctx, session), action=Action.UPDATE,

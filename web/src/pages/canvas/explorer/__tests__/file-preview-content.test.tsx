@@ -47,7 +47,9 @@ describe('canvas binary file preview', () => {
       } satisfies PreviewDescriptorV1);
     }));
     show({ ...binary, path }, runId);
-    const image = await screen.findByRole('img', { name: 'preview.png' });
+    // The first media case also loads the lazy renderer chunk. Cold Vite
+    // transforms on shared disks can exceed Testing Library's 1s default.
+    const image = await screen.findByRole('img', { name: 'preview.png' }, { timeout: 5000 });
     expect(image).toHaveAttribute('src', '/api/v1/previews/content/test-image');
     expect(received).toEqual({ schemaVersion: 1, scope, path, ...(runId ? { runId } : {}) });
     expect(screen.queryByText('This file has no text preview.')).toBeNull();

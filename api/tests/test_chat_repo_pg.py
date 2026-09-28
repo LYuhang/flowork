@@ -1,11 +1,14 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select, text
 from vibecanvas_api.storage.models import Chat, ChatMessage, Workflow
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
 from vibecanvas_api.storage.agent_runtime_repo import AgentRuntimeRepo
 from vibecanvas_api.storage.repo_mcp_servers import McpServersRepo
 from vibecanvas_api.storage.background_delivery_repo import BackgroundDeliveryRepo
@@ -19,6 +22,7 @@ from vibecanvas_api.storage.background_jobs_repo import BackgroundJobsRepo
 # test_workflow_repo_pg.py / test_execution_repo_pg.py).
 TENANT = uuid.uuid4()
 USER = uuid.uuid5(uuid.NAMESPACE_DNS, "chat-repo-user")
+PROJECT = "project-repo-tests"
 
 
 async def _seed_and_bind(session):
@@ -35,13 +39,20 @@ async def _seed_and_bind(session):
     await session.execute(
         text("SELECT set_config('app.tenant_id', :t, false)"), {"t": str(TENANT)}
     )
+    await session.execute(
+        text("SELECT set_config('app.user_id', :u, false)"), {"u": str(USER)}
+    )
+    project_repo = ChatProjectRepo(session, str(USER))
+    if await project_repo.get(PROJECT) is None:
+        await project_repo.create(project_id=PROJECT, name="Test project")
+        await project_repo.create(project_id=f"{PROJECT}-browser", name="Browser project", surface="browser")
 
 
 @pytest.mark.asyncio
 async def test_chat_metadata_rejects_retired_workflow_state_without_losing_browser_state(pg_session):
     await _seed_and_bind(pg_session)
     repo = ChatRepo(pg_session, str(USER))
-    chat_id = await repo.register_session("__chat_versions", name="No selection")
+    chat_id = await repo.register_session("__chat_versions", project_id=PROJECT, name="No selection")
     chat = await pg_session.get(Chat, chat_id)
     await repo._store_chat_private(chat, name="Preserved", meta={
         "browser_last_release_reason": "manual", "notes": {"keep": True}})
@@ -51,6 +62,27 @@ async def test_chat_metadata_rejects_retired_workflow_state_without_losing_brows
     assert chat.name == "Preserved"
     binding = await repo.get_platform_context_binding(chat_id)
     assert not any(key.startswith("current_workflow") for key in binding)
+    assert await repo.get_platform_context_binding(chat_id, for_update=True) == binding
+
+
+@pytest.mark.asyncio
+async def test_history_only_lists_started_chats_regardless_of_title(pg_session):
+    await _seed_and_bind(pg_session)
+    repo = ChatRepo(pg_session, str(USER))
+    scope = "__chat_draft_history"
+    blank = await repo.register_session(scope, project_id=PROJECT, name="Renamed but never sent")
+    started = await repo.register_session(scope, project_id=PROJECT, name="New chat")
+    assert await repo.list_authorized_sessions(scope, [blank, started], surface="chat") == []
+    await repo.persist_message(started, {
+        "message_id": "first_user_message", "role": "user", "content": {"text": "Hello"},
+    })
+    history = await repo.list_authorized_sessions(scope, [blank, started], surface="chat")
+    assert [row["chat_id"] for row in history] == [started]
+    assert history[0]["chat_context"] == "New chat"
+    # Draft storage stays addressable; filtering history never deletes it.
+    assert {row["chat_id"] for row in await repo.list_sessions(scope)} == {blank, started}
+    projects = await ChatProjectRepo(pg_session, str(USER)).list()
+    assert next(row for row in projects if row["project_id"] == PROJECT)["chat_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -59,7 +91,7 @@ async def test_session_and_per_message_persist(pg_session):
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
     wf_id = wf["wf_id"]
     repo = ChatRepo(pg_session, str(USER))
-    chat_id = await repo.register_session(wf_id, name="chat A", major_version=1)
+    chat_id = await repo.register_session(wf_id, project_id=PROJECT, name="chat A", major_version=1)
     await repo.persist_message(
         chat_id, {"message_id": "m_user", "role": "user", "content": {"text": "hi"}}
     )
@@ -72,11 +104,36 @@ async def test_session_and_per_message_persist(pg_session):
 
 
 @pytest.mark.asyncio
+async def test_project_chat_write_fence_uses_live_project_binding(pg_session, monkeypatch):
+    from vibecanvas_api.services.agent_resources import authorization
+    from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
+
+    await _seed_and_bind(pg_session)
+    repo = ChatRepo(pg_session, str(USER))
+    chat_id = await repo.register_session("__chat_write_fence", project_id=PROJECT)
+    binding = await repo.get_platform_context_binding(chat_id)
+    run_id = "write_fence_" + uuid.uuid4().hex
+    await AgentRunsRepo(pg_session).create(
+        run_id=run_id, tenant_id=TENANT, chat_id=chat_id,
+        creator_user_id=USER, client_request_id=run_id, input_snapshot={},
+    )
+    decision = AsyncMock()
+    monkeypatch.setattr(authorization, "_decision", decision)
+    monkeypatch.setattr(authorization, "_service", lambda *_: None)
+    context = SimpleNamespace(
+        tenant_id=str(TENANT), username=str(USER), chat_id=chat_id,
+        turn_id=run_id, runtime_session_id=binding["runtime_session_id"],
+    )
+    await authorization._require_active_chat_write(pg_session, context)
+    decision.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_rename_session_and_tail_page(pg_session):
     await _seed_and_bind(pg_session)
     repo = ChatRepo(pg_session, str(USER))
     chat_id = await repo.register_session(
-        "__rename_chat",
+        "__rename_chat", project_id=PROJECT,
         name="Original title",
         chat_id=f"rename_{uuid.uuid4().hex[:8]}",
     )
@@ -114,7 +171,7 @@ async def test_chat_messages_are_ciphertext_only_without_stream_shape_change(
     await _seed_and_bind(pg_session)
     repo = ChatRepo(pg_session, str(USER))
     chat_id = await repo.register_session(
-        "__encrypted_chat",
+        "__encrypted_chat", project_id=PROJECT,
         name="encrypted",
         chat_id=f"encrypted_{uuid.uuid4().hex[:8]}",
     )
@@ -149,7 +206,7 @@ async def test_active_diagram_context_is_an_ordinary_file_reference(
     await _seed_and_bind(pg_session)
     repo = ChatRepo(pg_session, str(USER))
     chat_id = await repo.register_session(
-        "__diagram_context",
+        "__diagram_context", project_id=PROJECT,
         name="diagram context",
         chat_id=f"diagram_{uuid.uuid4().hex[:8]}",
     )
@@ -168,7 +225,7 @@ async def test_chat_display_metadata_is_ciphertext_only(pg_session):
     repo = ChatRepo(pg_session, str(USER))
     title = "private-chat-title-sentinel"
     chat_id = await repo.register_session(
-        "__encrypted_chat_metadata",
+        "__encrypted_chat_metadata", project_id=PROJECT,
         name=title,
         chat_id=f"metadata_{uuid.uuid4().hex[:8]}",
     )
@@ -194,7 +251,7 @@ async def test_message_identity_is_idempotent_and_active_turn_can_be_excluded(pg
     await _seed_and_bind(pg_session)
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
     repo = ChatRepo(pg_session, str(USER))
-    chat_id = await repo.register_session(wf["wf_id"], name="chat", major_version=1)
+    chat_id = await repo.register_session(wf["wf_id"], project_id=PROJECT, name="chat", major_version=1)
     await repo.persist_message(
         chat_id,
         {
@@ -228,7 +285,7 @@ async def test_todo_snapshot_is_revisioned_with_immutable_runtime_binding(pg_ses
     await _seed_and_bind(pg_session)
     repo = ChatRepo(pg_session, str(USER))
     chat_id = await repo.register_session(
-        "__chat_todo",
+        "__chat_todo", project_id=PROJECT,
         name="Todo chat",
         chat_id="todo_chat",
     )
@@ -268,8 +325,8 @@ async def test_list_sessions_filters_major_version(pg_session):
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
     wf_id = wf["wf_id"]
     repo = ChatRepo(pg_session, str(USER))
-    await repo.register_session(wf_id, name="v1 chat", major_version=1)
-    await repo.register_session(wf_id, name="v2 chat", major_version=2)
+    await repo.register_session(wf_id, project_id=PROJECT, name="v1 chat", major_version=1)
+    await repo.register_session(wf_id, project_id=PROJECT, name="v2 chat", major_version=2)
     v1 = await repo.list_sessions(wf_id, major_version=1)
     assert [s["name"] for s in v1] == ["v1 chat"]
 
@@ -280,8 +337,8 @@ async def test_list_sessions_filters_surface(pg_session):
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
     wf_id = wf["wf_id"]
     repo = ChatRepo(pg_session, str(USER))
-    await repo.register_session(wf_id, name="main chat", surface="chat")
-    await repo.register_session(wf_id, name="browser chat", surface="browser")
+    await repo.register_session(wf_id, project_id=PROJECT, name="main chat", surface="chat")
+    await repo.register_session(wf_id, project_id=f"{PROJECT}-browser", name="browser chat", surface="browser")
 
     main = await repo.list_sessions(wf_id, surface="chat")
     browser = await repo.list_sessions(wf_id, surface="browser")
@@ -298,9 +355,9 @@ async def test_internal_chat_scope_does_not_require_workflow_row(pg_session):
     repo = ChatRepo(pg_session, str(USER))
 
     chat_id = await repo.register_session(
-        scope_id,
-        "chat1",
-        chat_context="hello",
+        scope_id, project_id=PROJECT,
+        chat_id="chat1",
+        name="hello",
         surface="chat",
     )
 
@@ -321,10 +378,10 @@ async def test_chat_command_and_workflow_context_are_user_scoped(pg_session):
         ),
         {"u": other_user, "t": TENANT, "e": "chat-repo-other@test"},
     )
-    wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="Owned")
+    await WorkflowRepo(pg_session, str(USER)).create_workflow(name="Owned")
     owner = ChatRepo(pg_session, str(USER))
     chat_id = await owner.register_session(
-        "__chat_owner", name="owned chat", chat_id="owned_chat"
+        "__chat_owner", project_id=PROJECT, name="owned chat", chat_id="owned_chat"
     )
     await owner.set_active_modes(chat_id, {"workflow"})
 
@@ -336,11 +393,13 @@ async def test_chat_command_and_workflow_context_are_user_scoped(pg_session):
     await other.set_active_modes(chat_id, {"browser"})
 
     assert await owner.get_active_modes(chat_id) == {"workflow"}
+    project = await ChatProjectRepo(pg_session, str(USER)).get(PROJECT)
     assert await owner.get_platform_context_binding(chat_id) == {
         "chat_id": chat_id,
+        "project_id": PROJECT,
         "carrier_scope_id": "__chat_owner",
-        "runtime_session_id": None,
-        "runtime_type": None,
+        "runtime_session_id": project.runtime_session_id,
+        "runtime_type": project.runtime_type,
     }
 
 
@@ -349,7 +408,7 @@ async def test_drop_session_cascades_messages(pg_session):
     await _seed_and_bind(pg_session)
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
     repo = ChatRepo(pg_session, str(USER))
-    cid = await repo.register_session(wf["wf_id"], name="c", major_version=1)
+    cid = await repo.register_session(wf["wf_id"], project_id=PROJECT, name="c", major_version=1)
     await repo.persist_message(
         cid, {"message_id": "m_drop", "role": "user", "content": {"t": 1}}
     )
@@ -358,12 +417,13 @@ async def test_drop_session_cascades_messages(pg_session):
 
 
 @pytest.mark.asyncio
-async def test_chat_mcp_selection_is_durable_and_revision_guarded(pg_session):
+async def test_project_mcp_selection_is_shared_idempotent_and_revision_guarded(pg_session):
     await _seed_and_bind(pg_session)
     chat_repo = ChatRepo(pg_session, str(USER))
-    chat_id = await chat_repo.register_session(
-        "__chat_mcp", name="MCP chat", chat_id="mcp_chat"
+    await chat_repo.register_session(
+        "__chat_mcp", project_id=PROJECT, name="MCP chat", chat_id="mcp_chat"
     )
+    project_repo = ChatProjectRepo(pg_session, str(USER))
     server_id = await McpServersRepo(pg_session).insert(
         tenant_id=TENANT,
         user_id=USER,
@@ -376,10 +436,10 @@ async def test_chat_mcp_selection_is_durable_and_revision_guarded(pg_session):
         connection_config={"args": ["-m", "server"]},
     )
 
-    initial = await chat_repo.get_mcp_selection(chat_id)
+    initial = await project_repo.get_mcp_selection(PROJECT)
     assert initial == {"mcp_server_ids": [], "mcp_config_revision": 0}
-    selected = await chat_repo.set_mcp_selection(
-        chat_id,
+    selected = await project_repo.set_mcp_selection(
+        PROJECT,
         mcp_server_ids=[server_id],
         expected_revision=0,
     )
@@ -387,14 +447,21 @@ async def test_chat_mcp_selection_is_durable_and_revision_guarded(pg_session):
     assert selected["mcp_config_revision"] == 1
     assert selected["mcp_server_ids"] == [str(server_id)]
 
-    same_from_stale_tab = await chat_repo.set_mcp_selection(
-        chat_id,
-        mcp_server_ids=[server_id],
+    await chat_repo.register_session(
+        "__chat_mcp", project_id=PROJECT, name="Sibling", chat_id="mcp_sibling"
+    )
+    same_from_stale_tab = await project_repo.set_mcp_selection(
+        PROJECT,
+        mcp_server_ids=[server_id, server_id],
         expected_revision=0,
     )
     assert same_from_stale_tab["ok"] is True
-    conflict = await chat_repo.set_mcp_selection(
-        chat_id,
+    assert same_from_stale_tab["mcp_config_revision"] == 1
+    assert "mcp_config_revision" not in Chat.__table__.columns
+    other_project = await project_repo.create(name="Independent tools")
+    assert await project_repo.get_mcp_selection(other_project["project_id"]) == initial
+    conflict = await project_repo.set_mcp_selection(
+        PROJECT,
         mcp_server_ids=[],
         expected_revision=0,
     )
@@ -402,7 +469,7 @@ async def test_chat_mcp_selection_is_durable_and_revision_guarded(pg_session):
     assert conflict["error_code"] == "mcp_config_revision_conflict"
 
     await McpServersRepo(pg_session).soft_delete(server_id)
-    removed = await chat_repo.get_mcp_selection(chat_id)
+    removed = await project_repo.get_mcp_selection(PROJECT)
     assert removed == {
         "mcp_server_ids": [],
         "mcp_config_revision": 2,
@@ -416,7 +483,7 @@ async def test_background_job_state_machine_is_idempotent_and_reconciles_stale(
     private_marker = "SENSITIVE_BACKGROUND_MARKER_774a"
     await _seed_and_bind(pg_session)
     chat_id = await ChatRepo(pg_session, str(USER)).register_session(
-        "__chat_jobs",
+        "__chat_jobs", project_id=PROJECT,
         name="Background jobs",
         chat_id=f"jobs_{uuid.uuid4().hex[:10]}",
     )

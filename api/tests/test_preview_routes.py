@@ -9,10 +9,9 @@ from pptx import Presentation
 import pytest
 from sqlalchemy import text
 
-from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
+from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
 from vibecanvas_api.services.file_revision import vfs_content_revision
 from vibecanvas_api.services.object_store import get_object_store
-from vibecanvas_api.storage.chat_repo import ChatRepo
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.vfs_store import VfsRepo
 
@@ -56,16 +55,10 @@ async def _register(client) -> tuple[dict, dict]:
 
 async def _chat_fixture(client, app_engine) -> tuple[dict, dict, str, str]:
     headers, me = await _register(client)
-    boot = await client.get("/api/v1/chats/bootstrap?surface=chat", headers=headers)
-    chat_id = f"c_preview_{uuid.uuid4().hex[:10]}"
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
-        await ChatRepo(session, me["user_id"]).register_session(
-            boot.json()["carrier_scope_id"],
-            name="Preview",
-            chat_id=chat_id,
-            surface="chat",
-        )
-    return headers, me, chat_id, chat_workspace_scope_id(chat_id)
+    created = await client.post("/api/v1/projects", headers=headers, json={"name": "Preview"})
+    assert created.status_code == 201, created.text
+    project_id = created.json()["project_id"]
+    return headers, me, project_id, project_workspace_scope_id(project_id)
 
 
 async def _upload(client, headers, scope_id: str, name: str, data: bytes, mime: str):
@@ -122,7 +115,7 @@ async def _artifact_events(
 async def test_native_drawio_resolves_to_official_viewer_descriptor(
     client, app_engine,
 ):
-    headers, _me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, _me, project_id, scope_id = await _chat_fixture(client, app_engine)
     source = b'''<mxGraphModel><root>
       <mxCell id="0"/><mxCell id="1" parent="0"/>
       <mxCell id="start" value="Start" vertex="1" parent="1">
@@ -148,8 +141,8 @@ async def test_native_drawio_resolves_to_official_viewer_descriptor(
         headers=headers,
         json={"fileRef": {
             "schemaVersion": 1,
-            "scope": "chat",
-            "chatId": chat_id,
+            "scope": "project",
+            "projectId": project_id,
             "path": path,
         }},
     )
@@ -174,7 +167,7 @@ async def test_native_drawio_resolves_to_official_viewer_descriptor(
 async def test_preview_text_save_preserves_bom_newlines_and_revision(
     client, app_engine,
 ):
-    headers, me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, me, project_id, scope_id = await _chat_fixture(client, app_engine)
     path = await _upload(
         client,
         headers,
@@ -185,8 +178,8 @@ async def test_preview_text_save_preserves_bom_newlines_and_revision(
     )
     file_ref = {
         "schemaVersion": 1,
-        "scope": "chat",
-        "chatId": chat_id,
+        "scope": "project",
+        "projectId": project_id,
         "path": path,
     }
     resolved = await client.post(
@@ -284,7 +277,7 @@ async def test_preview_text_save_preserves_bom_newlines_and_revision(
 
 @pytest.mark.asyncio
 async def test_structured_text_tables_are_preview_only(client, app_engine):
-    headers, _me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, _me, project_id, scope_id = await _chat_fixture(client, app_engine)
     path = await _upload(
         client,
         headers,
@@ -295,8 +288,8 @@ async def test_structured_text_tables_are_preview_only(client, app_engine):
     )
     file_ref = {
         "schemaVersion": 1,
-        "scope": "chat",
-        "chatId": chat_id,
+        "scope": "project",
+        "projectId": project_id,
         "path": path,
     }
     resolved = await client.post(
@@ -353,7 +346,7 @@ async def test_native_office_preview_uses_authorized_pdf_rendition(
 ):
     from vibecanvas_api.routes import previews as preview_routes
 
-    headers, _me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, _me, project_id, scope_id = await _chat_fixture(client, app_engine)
     payload = _office_payload(extension)
     path = await _upload(
         client,
@@ -365,8 +358,8 @@ async def test_native_office_preview_uses_authorized_pdf_rendition(
     )
     file_ref = {
         "schemaVersion": 1,
-        "scope": "chat",
-        "chatId": chat_id,
+        "scope": "project",
+        "projectId": project_id,
         "path": path,
     }
     resolved = await client.post(
@@ -425,7 +418,7 @@ async def test_xlsx_preview_uses_native_workbook_source_without_pdf_rendition(
     client,
     app_engine,
 ):
-    headers, _me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, _me, project_id, scope_id = await _chat_fixture(client, app_engine)
     payload = _office_payload("xlsx")
     path = await _upload(
         client,
@@ -441,8 +434,8 @@ async def test_xlsx_preview_uses_native_workbook_source_without_pdf_rendition(
         json={
             "fileRef": {
                 "schemaVersion": 1,
-                "scope": "chat",
-                "chatId": chat_id,
+                "scope": "project",
+                "projectId": project_id,
                 "path": path,
             }
         },
@@ -463,7 +456,7 @@ async def test_xlsx_preview_uses_native_workbook_source_without_pdf_rendition(
 async def test_agent_owned_chat_files_are_read_only_previewable(
     client, app_engine, path,
 ):
-    headers, me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, me, project_id, scope_id = await _chat_fixture(client, app_engine)
     await _write_chat_workspace_file(
         tenant_id=me["tenant_id"],
         scope_id=scope_id,
@@ -473,8 +466,8 @@ async def test_agent_owned_chat_files_are_read_only_previewable(
     )
     file_ref = {
         "schemaVersion": 1,
-        "scope": "chat",
-        "chatId": chat_id,
+        "scope": "project",
+        "projectId": project_id,
         "path": path,
     }
 
@@ -510,7 +503,7 @@ async def test_agent_owned_chat_files_are_read_only_previewable(
 async def test_chat_binary_preview_url_reads_the_same_workspace_resource(
     client, app_engine, root,
 ):
-    headers, me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, me, project_id, scope_id = await _chat_fixture(client, app_engine)
     path = f"/{root}/document-feedback/page-001.png"
     payload = b"\x89PNG\r\n\x1a\n" + b"preview image bytes"
     await _write_chat_workspace_file(
@@ -519,7 +512,7 @@ async def test_chat_binary_preview_url_reads_the_same_workspace_resource(
     )
     resolved = await client.post(
         "/api/v1/previews/resolve", headers=headers,
-        json={"fileRef": {"schemaVersion": 1, "scope": "chat", "chatId": chat_id, "path": path}},
+        json={"fileRef": {"schemaVersion": 1, "scope": "project", "projectId": project_id, "path": path}},
     )
     assert resolved.status_code == 200, resolved.text
     descriptor = resolved.json()
@@ -538,7 +531,7 @@ async def test_chat_binary_preview_url_reads_the_same_workspace_resource(
 async def test_preview_detects_pdf_streams_range_and_rejects_plain_archives(
     client, app_engine,
 ):
-    headers, _me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, _me, project_id, scope_id = await _chat_fixture(client, app_engine)
     pdf_path = await _upload(
         client,
         headers,
@@ -549,8 +542,8 @@ async def test_preview_detects_pdf_streams_range_and_rejects_plain_archives(
     )
     pdf_ref = {
         "schemaVersion": 1,
-        "scope": "chat",
-        "chatId": chat_id,
+        "scope": "project",
+        "projectId": project_id,
         "path": pdf_path,
     }
     pdf = await client.post(
@@ -583,8 +576,8 @@ async def test_preview_detects_pdf_streams_range_and_rejects_plain_archives(
         json={
             "fileRef": {
                 "schemaVersion": 1,
-                "scope": "chat",
-                "chatId": chat_id,
+                "scope": "project",
+                "projectId": project_id,
                 "path": archive_path,
             }
         },
@@ -600,7 +593,7 @@ async def test_preview_detects_pdf_streams_range_and_rejects_plain_archives(
 
 @pytest.mark.asyncio
 async def test_preview_file_ref_is_owner_scoped(client, app_engine):
-    owner_headers, _owner, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    owner_headers, _owner, project_id, scope_id = await _chat_fixture(client, app_engine)
     path = await _upload(
         client,
         owner_headers,
@@ -616,8 +609,8 @@ async def test_preview_file_ref_is_owner_scoped(client, app_engine):
         json={
             "fileRef": {
                 "schemaVersion": 1,
-                "scope": "chat",
-                "chatId": chat_id,
+                "scope": "project",
+                "projectId": project_id,
                 "path": path,
             }
         },
@@ -627,10 +620,41 @@ async def test_preview_file_ref_is_owner_scoped(client, app_engine):
 
 
 @pytest.mark.asyncio
+async def test_project_preview_survives_chat_deletion_but_not_project_deletion(client, app_engine):
+    headers, me, project_id, scope_id = await _chat_fixture(client, app_engine)
+    carrier = (await client.get("/api/v1/chats/bootstrap", headers=headers)).json()["carrier_scope_id"]
+    chat_id = str(uuid.uuid4())
+    created = await client.put(
+        f"/api/v1/chat-scopes/{carrier}/chats/{chat_id}",
+        headers=headers, json={"project_id": project_id},
+    )
+    assert created.status_code == 200, created.text
+    path = f"/chats/{chat_id}/retained.md"
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        await VfsRepo(session, object_store=get_object_store()).upsert_internal_artifact_bytes(
+            wf_id=scope_id, tenant=me["tenant_id"], path=path,
+            data=b"# Durable Project file", content_type="text/markdown",
+        )
+    ref = {"schemaVersion": 1, "scope": "project", "projectId": project_id, "path": path}
+    first = await client.post("/api/v1/previews/resolve", headers=headers, json={"fileRef": ref})
+    assert first.status_code == 200, first.text
+    deleted = await client.delete(f"/api/v1/chat-scopes/{carrier}/chats/{chat_id}", headers=headers)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["vfs_deleted"] == 0
+    retained = await client.post("/api/v1/previews/resolve", headers=headers, json={"fileRef": ref})
+    assert retained.status_code == 200, retained.text
+    assert retained.json()["content"]["inlineText"] == "# Durable Project file"
+    deleted = await client.delete(f"/api/v1/projects/{project_id}", headers=headers)
+    assert deleted.status_code == 200, deleted.text
+    unavailable = await client.post("/api/v1/previews/resolve", headers=headers, json={"fileRef": ref})
+    assert unavailable.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_preview_html_resource_session_maps_workspace_files(
     client, app_engine,
 ):
-    headers, _me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, _me, project_id, scope_id = await _chat_fixture(client, app_engine)
     html_path = await _upload(
         client,
         headers,
@@ -658,8 +682,8 @@ async def test_preview_html_resource_session_maps_workspace_files(
     )
     file_ref = {
         "schemaVersion": 1,
-        "scope": "chat",
-        "chatId": chat_id,
+        "scope": "project",
+        "projectId": project_id,
         "path": html_path,
     }
     response = await client.post(
@@ -692,7 +716,7 @@ async def test_preview_html_resource_session_maps_workspace_files(
 async def test_preview_markdown_resource_session_maps_relative_images(
     client, app_engine,
 ):
-    headers, me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, me, project_id, scope_id = await _chat_fixture(client, app_engine)
     markdown_path = "/data/handbooks/operations-handbook.md"
     image_path = "/data/handbooks/handbook-architecture.svg"
     image = b'<svg xmlns="http://www.w3.org/2000/svg"/>'
@@ -723,8 +747,8 @@ async def test_preview_markdown_resource_session_maps_relative_images(
         json={
             "fileRef": {
                 "schemaVersion": 1,
-                "scope": "chat",
-                "chatId": chat_id,
+                "scope": "project",
+                "projectId": project_id,
                 "path": markdown_path,
             }
         },
@@ -742,7 +766,7 @@ async def test_preview_markdown_resource_session_maps_relative_images(
 async def test_legacy_office_is_download_only_without_conversion(
     client, app_engine,
 ):
-    headers, _me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, _me, project_id, scope_id = await _chat_fixture(client, app_engine)
     path = await _upload(
         client,
         headers,
@@ -753,8 +777,8 @@ async def test_legacy_office_is_download_only_without_conversion(
     )
     file_ref = {
         "schemaVersion": 1,
-        "scope": "chat",
-        "chatId": chat_id,
+        "scope": "project",
+        "projectId": project_id,
         "path": path,
     }
     response = await client.post(
@@ -775,7 +799,7 @@ async def test_legacy_office_is_download_only_without_conversion(
 
 @pytest.mark.asyncio
 async def test_large_table_returns_structured_preview_error(client, app_engine):
-    headers, _me, chat_id, scope_id = await _chat_fixture(client, app_engine)
+    headers, _me, project_id, scope_id = await _chat_fixture(client, app_engine)
     data = b"name,value\n" + b"a,1\n" * (3 * 1024 * 1024)
     assert len(data) > 10 * 1024 * 1024
     path = await _upload(
@@ -792,8 +816,8 @@ async def test_large_table_returns_structured_preview_error(client, app_engine):
         json={
             "fileRef": {
                 "schemaVersion": 1,
-                "scope": "chat",
-                "chatId": chat_id,
+                "scope": "project",
+                "projectId": project_id,
                 "path": path,
             }
         },

@@ -57,8 +57,11 @@ async def test_run_turn_persists_same_sequence_ids_as_sse_buffer():
     class Writer:
         def __init__(self):
             self.events = []
+            self.close_count = 0
 
         async def emit(self, seq, event_type, payload):
+            if event_type in {"done", "error"}:
+                assert self.close_count == 1, "Terminal consumers must see the flushed transcript"
             self.events.append((seq, event_type, payload))
 
         async def heartbeat(self):
@@ -68,7 +71,7 @@ async def test_run_turn_persists_same_sequence_ids_as_sse_buffer():
             return False
 
         async def close(self):
-            return None
+            self.close_count += 1
 
     async def producer(stop):
         yield "CHAT_UPDATE", {"i": 0}
@@ -79,6 +82,7 @@ async def test_run_turn_persists_same_sequence_ids_as_sse_buffer():
     await rt.run_turn(turn_id, buf, stop, producer, durable_writer=writer)
 
     assert [seq for seq, _name, _payload in writer.events] == [1, 2, 3]
+    assert writer.close_count == 1
     assert [name for _seq, name, _payload in writer.events] == [
         "started", "CHAT_UPDATE", "done",
     ]

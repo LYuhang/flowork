@@ -25,8 +25,8 @@ export type ChatPreviewItem =
     };
 
 export function filePreviewItem(fileRef: FileRefV1, title: string): ChatPreviewItem {
-  const owner = fileRef.scope === 'chat'
-    ? fileRef.chatId
+  const owner = fileRef.scope === 'project'
+    ? fileRef.projectId
     : fileRef.scope === 'run'
       ? fileRef.runId
       : 'self';
@@ -80,20 +80,21 @@ function persistedFilePreviewItem(value: unknown): ChatPreviewItem | null {
   const fileRef = resource.fileRef;
   if (!object(fileRef) || fileRef.schemaVersion !== 1 || typeof fileRef.path !== 'string') return null;
   if (
-    fileRef.scope === 'chat'
-    && typeof fileRef.chatId === 'string'
-    && fileRef.chatId.length > 0
+    fileRef.scope === 'project'
+    && typeof fileRef.projectId === 'string'
+    && fileRef.projectId.length > 0
     && (
       fileRef.path.startsWith('/data/')
       || fileRef.path.startsWith('/memory/')
       || fileRef.path.startsWith('/logs/')
+      || fileRef.path.startsWith('/chats/')
     )
   ) {
     return filePreviewItem({
       schemaVersion: 1,
-      scope: 'chat',
-      chatId: fileRef.chatId,
-      path: fileRef.path as Extract<FileRefV1, { scope: 'chat' }>['path'],
+      scope: 'project',
+      projectId: fileRef.projectId,
+      path: fileRef.path as Extract<FileRefV1, { scope: 'project' }>['path'],
     }, value.title);
   }
   if (fileRef.scope === 'mount' && fileRef.path.startsWith('/mount/')) {

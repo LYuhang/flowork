@@ -54,7 +54,7 @@ const ROOTS = [
   { path: '/', label: 'storage', labelKey: 'storage.title' },
   { path: '/mount', label: 'mount', labelKey: 'storage.root.mount' },
   { path: '/workflow', label: 'workflow', labelKey: 'storage.root.workflow' },
-  { path: '/chat', label: 'chat', labelKey: 'storage.root.chat' },
+  { path: '/project', label: 'project', labelKey: 'storage.root.project' },
   { path: '/task', label: 'task', labelKey: 'storage.root.task' },
 ];
 
@@ -79,8 +79,8 @@ function systemDirectoryLabel(
   if (parentPath === '/workflow') {
     return `${t('storage.system.workflowWorkspace', 'Workflow workspace')} · ${shortId}`;
   }
-  if (parentPath === '/chat') {
-    return `${t('storage.system.chatWorkspace', 'Chat workspace')} · ${shortId}`;
+  if (parentPath === '/project') {
+    return `${t('storage.system.projectWorkspace', 'Project workspace')} · ${shortId}`;
   }
   if (parentPath === '/task') {
     return `${t('storage.system.taskArtifacts', 'Task artifacts')} · ${shortId}`;

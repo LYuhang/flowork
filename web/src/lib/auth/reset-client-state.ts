@@ -6,6 +6,7 @@ import { useExecStreamStore } from '@/stores/exec-stream';
 import { useUIStore } from '@/stores/ui';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
 import { clearRecentChatSelections } from '@/lib/chat/state-key';
+import { clearProjectDraftMemory } from '@/lib/chat/project-draft';
 
 /**
  * Clear client-side state that is scoped to the currently authenticated user.
@@ -18,6 +19,7 @@ import { clearRecentChatSelections } from '@/lib/chat/state-key';
 function resetRuntimeScopedClientState(): void {
   queryClient.clear();
   clearRecentChatSelections();
+  clearProjectDraftMemory();
   clearActiveTurn();
   useChatStreamStore.getState().reset();
   useExecStreamStore.getState().reset();
@@ -25,9 +27,9 @@ function resetRuntimeScopedClientState(): void {
   useAgentSettingsStore.getState().reset();
   useUIStore.setState({
     lastActiveWorkflowId: null,
+    activeProjectId: null,
     activeChatIds: { chat: null, browser: null },
     chatEntryIntent: null,
-    draftChatSessions: [],
     optimisticChatSessions: [],
     chatScrollPositions: {},
     chatToolExpansion: {},

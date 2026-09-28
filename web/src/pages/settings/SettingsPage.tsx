@@ -232,7 +232,7 @@ function AgentRuntimePanel() {
     <>
       <SectionBlock
         title={t('settings_runtime_default', 'Default Agent runtime')}
-        description={t('settings_runtime_desc', 'Used when a new chat starts. Existing chats keep the runtime they were created with.')}
+        description={t('settings_runtime_desc', "New projects inherit this default runtime. Chats use their project's runtime, including browser extension conversations.")}
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 max-w-[65ch]">

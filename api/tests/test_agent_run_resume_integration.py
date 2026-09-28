@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from vibecanvas_api.storage.agent_runs_repo import AgentRunActiveError, AgentRunsRepo
 from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.hitl_repo import HitlRepo
 
@@ -52,9 +53,11 @@ async def _seed_chat(
     chat_id: str,
     surface: str,
 ) -> None:
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        project = await ChatProjectRepo(session, me["user_id"]).create(name="Resume", surface=surface)
         await ChatRepo(session, me["user_id"]).register_session(
             scope_id,
+            project_id=project["project_id"],
             chat_id=chat_id,
             surface=surface,
         )

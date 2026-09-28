@@ -21,7 +21,7 @@ from vibecanvas_api.services.sandbox.fileops import run_fileop
 def _available_roots() -> list[str]:
     return [
         path
-        for path in ("/data", "/memory", "/logs", "/mount", "/run")
+        for path in ("/data", "/memory", "/logs", "/chats", "/mount", "/run")
         if os.path.isdir(path)
     ]
 

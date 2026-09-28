@@ -33,6 +33,7 @@ import time
 from pathlib import Path
 
 import pytest
+from vibecanvas_api.config import config
 
 from vibecanvas_api.services.sandbox import (
     EngineNeedsHostNode,
@@ -45,6 +46,12 @@ from vibecanvas_api.services.sandbox.gvisor import (
     _workflow_python_binds,
     _workflow_python_env,
 )
+
+
+@pytest.fixture(autouse=True)
+def select_gvisor_backend(monkeypatch):
+    # The gVisor-specific contract must not follow a native Bubblewrap default.
+    monkeypatch.setattr(config, "sandbox_runtime", "gvisor")
 
 
 # ---------------------------------------------------------------------------

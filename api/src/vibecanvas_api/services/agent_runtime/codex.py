@@ -34,10 +34,6 @@ from vibecanvas_api.services.agent_runtime.codex_app_server import (
     CodexAppServer,
     CodexAppServerError,
 )
-from vibecanvas_api.services.agent_runtime.codex_debug_snapshot import (
-    capture_codex_command_output_observations,
-    capture_codex_debug_snapshot,
-)
 from vibecanvas_api.services.agent_runtime.codex_mcp_hub_gateway import (
     CodexMcpHubGateway,
 )
@@ -51,6 +47,8 @@ from vibecanvas_api.services.agent_runtime.tool_invocation import (
     finish_tool_invocation,
     start_tool_invocation,
 )
+
+from vibecanvas_api.services.chat_workspace import chat_working_directory
 
 _BROKER_PROVIDER_ID = "vibecanvas_runtime_model"
 # Agent Runtime sandboxes intentionally do not mount the workflow-only /run
@@ -1933,7 +1931,7 @@ def _normalize_codex_plan(plan: Any) -> list[dict[str, Any]]:
 
 
 def create_codex_app_server(request: RuntimeTurnRequest) -> CodexAppServer:
-    """Construct the Chat-scoped app-server owned by the resident Runtime."""
+    """Construct the Project-scoped app-server; each thread has its own cwd."""
     config_overrides: tuple[str, ...] = ()
     if not _uses_chatgpt_account(request):
         # Codex resolves its model catalog when app-server starts, before any
@@ -2088,19 +2086,6 @@ async def run_codex_turn(
     stop_event = asyncio.Event()
     active_hub_gateway: CodexMcpHubGateway | None = None
     cli_gateway: CliGateway | None = None
-    debug_snapshot_task: asyncio.Task[str | None] | None = None
-
-    async def finish_debug_snapshot() -> None:
-        nonlocal debug_snapshot_task
-        task = debug_snapshot_task
-        debug_snapshot_task = None
-        if task is None:
-            return
-        try:
-            await task
-        except Exception as exc:
-            # Debug observability must never change Runtime behavior.
-            print(f"⚠️  [codex] debug snapshot write failed: {exc}")
 
     async def controls() -> None:
         while True:
@@ -2414,8 +2399,10 @@ async def run_codex_turn(
         mcp_config.update(broker_model_config)
         mcp_config_ms = int((perf_counter() - phase_started) * 1000)
         selected_model = request.model.get("id")
+        thread_cwd = chat_working_directory(request.chat_id)
+        os.makedirs(thread_cwd, mode=0o700, exist_ok=True)
         common = {
-            "cwd": "/data" if os.path.isdir("/data") else "/mount",
+            "cwd": thread_cwd,
             "approvalPolicy": _approval_policy(request.approval_mode),
             "sandbox": "danger-full-access",
             "config": mcp_config,
@@ -2555,18 +2542,6 @@ async def run_codex_turn(
                 "type": "text",
                 "text": "<system-reminder>\n" + platform_guidance() + "\n</system-reminder>",
             })
-        if os.environ.get("AGENT_DEBUG_VIEW_ENABLED") == "1":
-            # Build/write concurrently with app-server turn startup so the
-            # Inspector adds no model TTFT. The task is drained before the
-            # Runtime result, which guarantees workspace writeback observes it.
-            debug_snapshot_task = asyncio.create_task(asyncio.to_thread(
-                capture_codex_debug_snapshot,
-                request=request,
-                thread=thread if isinstance(thread, dict) else {},
-                thread_id=thread_id,
-                current_input=current_input,
-            ))
-
         client_user_message_id = f"{request.chat_id}:user:{request.turn_id}"
         if request.continuation_index:
             client_user_message_id += (
@@ -3508,7 +3483,6 @@ async def run_codex_turn(
             )
         for message_id in list(open_messages):
             await emit("message.end", {"message_id": message_id})
-        await finish_debug_snapshot()
         if latest_usage_payload is not None:
             await emit("usage", latest_usage_payload)
         if unknown_notification_counts:
@@ -3541,19 +3515,6 @@ async def run_codex_turn(
         if model_capability is not None:
             _remove_broker_capability()
             _remove_forbidden_account_cache(request.runtime_root)
-        await finish_debug_snapshot()
-        if os.environ.get("AGENT_DEBUG_VIEW_ENABLED") == "1":
-            observe_output = getattr(client, "take_command_output_observations", None)
-            if callable(observe_output):
-                try:
-                    await asyncio.to_thread(
-                        capture_codex_command_output_observations,
-                        request=request, observations=observe_output(),
-                    )
-                except Exception:
-                    # Diagnostics may fail without changing the Turn outcome.
-                    # Do not log an exception which could include file contents.
-                    print("[codex] command output diagnostics could not be saved")
         control_router.cancel()
         mcp_item_correlator.cancel()
         control_task.cancel()

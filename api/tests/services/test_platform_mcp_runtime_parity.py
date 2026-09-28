@@ -185,11 +185,13 @@ async def test_codex_platform_mcp_enforces_allow_deny_boundary(
     )
     assert bootstrap.status_code == 200, bootstrap.text
     carrier_scope_id = bootstrap.json()["carrier_scope_id"]
+    project = await client.post("/api/v1/projects", headers=owner_headers, json={"name": "MCP parity"})
+    assert project.status_code == 201, project.text
 
     sent = await client.post(
         f"/api/v1/chat-scopes/{carrier_scope_id}/chats/chat-platform-codex/messages",
         headers=owner_headers,
-        json={"role": "user", "content": "/workflow inspect access"},
+        json={"role": "user", "content": "/workflow inspect access", "project_id": project.json()["project_id"]},
     )
     assert sent.status_code == 200, sent.text
 
@@ -329,11 +331,14 @@ async def test_codex_personal_api_uses_the_host_model_broker(
         await client.get("/api/v1/chats/bootstrap", headers=headers)
     ).json()["carrier_scope_id"]
 
+    project = await client.post("/api/v1/projects", headers=headers, json={"name": "Personal API parity"})
+    assert project.status_code == 201, project.text
     sent = await client.post(
         f"/api/v1/chat-scopes/{scope_id}/chats/codex-personal/messages",
         headers=headers,
         json={
             "role": "user",
+            "project_id": project.json()["project_id"],
             "content": "hello",
             "agent_settings": {"model_id": public_model_id},
         },

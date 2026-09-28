@@ -104,7 +104,7 @@ def _with_chat_model_default(
 ) -> RuntimeCapabilities:
     """Render one Chat's connection-locked model catalog.
 
-    A new Chat may choose any connection compatible with its Runtime. The first
+    Chats inherit their Project's Runtime and connection. The Project's first
     accepted Turn fixes the exact non-secret connection id; later capability
     reads expose only models from that connection. This keeps provider-native
     history, credentials, billing, and audit identity stable while still
@@ -196,6 +196,7 @@ def _settings_out(preferences: dict) -> AgentRuntimeSettingsOut:
 @router.get("/capabilities", response_model=RuntimeCapabilities)
 async def get_agent_runtime_capabilities(
     chat_id: str | None = Query(default=None),
+    project_id: str | None = Query(default=None),
     runtime_repo=Depends(get_agent_runtime_repo),
     session: AsyncSession = Depends(tenant_db),
     auth: AuthContext = Depends(current_user),
@@ -211,6 +212,12 @@ async def get_agent_runtime_capabilities(
         binding = await runtime_repo.get_chat_binding(chat_id)
         if binding is not None:
             runtime_type = binding.get("runtime_type")
+    if binding is None and project_id:
+        project = await runtime_repo.get_project_binding(project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="project_not_found")
+        binding = runtime_repo.project_binding(project)
+        runtime_type = binding.get("runtime_type")
     if runtime_type is None:
         preferences = await runtime_repo.get_preferences()
         runtime_type = preferences["default_runtime_type"]

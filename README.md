@@ -135,7 +135,8 @@ Open <http://localhost:9001> after startup verification succeeds.
 ### Build your first workflow
 
 1. **Choose an Agent runtime.** Open **Settings → Agent runtime** to review the
-   Runtime used by new Chats. Codex runs inside each Chat sandbox. Runtime
+   default Runtime inherited when a Project is created. Codex runs inside each
+   Project's shared sandbox. Runtime
    registration is isolated behind a stable protocol so additional providers
    can be installed without coupling their SDKs to the API.
 
@@ -168,12 +169,16 @@ Open <http://localhost:9001> after startup verification succeeds.
    account or Codex account for Chat does not supply these node credentials;
    a manually added OpenRouter API key can.
 
-3. **Start a Chat and build the Workflow.** Open **Chat**, create a new
-   conversation, choose a source and model below the composer, and select a
-   supported thinking level when the model exposes one. The first accepted
-   turn fixes both the Runtime and the exact account/API connection for that
-   Chat. Between turns, the model and thinking level can still be changed
-   within that connection; start a new Chat to use another source. Activate
+3. **Create a Project and build the Workflow.** Open **Projects** and create a
+   named Project; a blank conversation page opens automatically. **New Chat**
+   opens a draft without adding a history entry; the conversation appears under
+   its Project after the first message is accepted. Choose a source and model
+   below the composer, and a supported thinking level when available. The
+   Project owns the Runtime; its first accepted turn fixes the exact account/API
+   connection. Use **New Chat** for an independent conversation sharing the same
+   files and Runtime, initially using the Project's latest accepted model.
+   Each Chat then retains its own selection. Between turns, it can change its model and thinking
+   level within that connection; create a new Project to use another source. Activate
    `/workflow`, then describe the automation you want to create,
    including its expected inputs, outputs, and important constraints. Inspect
    the generated Workflow on the canvas, validate and run it, then review the
@@ -204,14 +209,14 @@ Task responsibility.
 
 | Surface | What you can do | Demo |
 | --- | --- | --- |
-| **Chat** | Describe a request in conversation and let a sandboxed Codex agent use tools, build Workflows, create diagrams, and organize files. Preview Workflows, common documents, tables, media, and diagrams beside the conversation. Each Chat has its own workspace, with a sandbox that starts, hibernates, and restores as needed. | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
+| **Projects** | Create a named Project, then start Chats inside it. Chats share project files and a sandboxed Codex runtime while keeping independent conversation histories. The Agent can build Workflows, create documents and diagrams, and organize files, with previews beside the conversation. Project sandboxes start, hibernate, and restore as needed. | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
 | **Workflow** | Add, connect, and configure nodes on a visual canvas, validate the graph, and execute either the full Workflow or an individual node. Review run output, generated files, and earlier versions, or use batch execution and JSON import and export. | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
 | **Task** | Run a Workflow across a tabular input file or schedule it for a particular time or interval. Task Center shows queue and execution progress, events, output, and failures, and lets users pause, cancel, or resume work where supported. | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
 | **Deployment** | Publish a verified Workflow as an API or webhook for external systems. Each Deployment provides its invocation details, code examples, test requests, traffic controls, credentials, run history, and health metrics. Use a scheduled Task when the Workflow needs to run on a recurring or calendar-based schedule. | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
 | **Knowledge** | Organize reusable notes and multimodal references as versioned file packages. Each package starts with a README and can be progressively read, edited, and published by the Agent through `/knowledge`. See [Knowledge packages](docs/knowledge.md). | <video src="https://github.com/user-attachments/assets/288b1595-eb1d-4d81-b03b-d75b80e77fea" controls></video> |
-| **MCP Server** | Find external tools through the Official MCP Registry or Smithery, or connect a custom server by URL or command. Review the source, requested access, and credential requirements before installation; after connection, the agent loads its tools when needed. | <video src="https://github.com/user-attachments/assets/621cdb1b-28f0-4e50-ad07-eeb13ab58a33" controls></video> |
+| **MCP Server** | Find external tools through the Official MCP Registry or Smithery, or connect a custom server by URL or command. Review the source, requested access, and credentials before installation. Select connected servers for a Project; its Chats share the selection, while each turn retains its own authorization and approvals. | <video src="https://github.com/user-attachments/assets/621cdb1b-28f0-4e50-ad07-eeb13ab58a33" controls></video> |
 | **Skills** | Find and install reusable instruction packages from sources such as OpenAI and Anthropic, or import a custom Skill. Review its instructions, bundled files, tool requirements, and source before making it available to agents. | <video src="https://github.com/user-attachments/assets/178f664e-0715-475e-9db5-c8d672742ea9" controls></video> |
-| **Storage** | Browse platform files by shared mount, Workflow, Chat, or Task. Search, sort, upload, and download files, and—where permissions allow—create folders, rename or delete items, and preview or edit supported content. | <video src="https://github.com/user-attachments/assets/e7d7d418-7ad8-4dbe-97fc-0adeef7896ea" controls></video> |
+| **Storage** | Browse platform files by shared mount, Workflow, Project, or Task. A Project contains shared folders and persistent Chat working directories. Search, sort, upload, and download files, and—where permissions allow—create folders, rename or delete items, and preview or edit supported content. | <video src="https://github.com/user-attachments/assets/e7d7d418-7ad8-4dbe-97fc-0adeef7896ea" controls></video> |
 
 #### Resource ownership and sharing
 
@@ -249,7 +254,8 @@ combined when a task spans more than one area.
 ### Browser Extension
 
 The experimental Chrome MV3 extension connects a Chat to the current browser
-session. It is intended for work that must reuse the user's current signed-in
+session, automatically creating a one-Chat Project for each conversation.
+It is intended for work that must reuse the user's current signed-in
 state. Within its authorized scope, the agent can read pages, switch tabs,
 click, type, select options, and take screenshots.
 
@@ -300,7 +306,7 @@ Browser / Chrome extension
       FastAPI control plane ─── PostgreSQL / OpenFGA / object storage
             │
             ├── DBOS background worker / transient Valkey
-            └── sandboxd ─── per-Chat agent runtime and workflow sandboxes
+            └── sandboxd ─── Project agent runtimes and workflow sandboxes
 ```
 
 PostgreSQL is the system of record. OpenFGA and row-level security enforce

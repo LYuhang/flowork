@@ -231,7 +231,7 @@ class SnapshotLifecycle:
             extra_rw_binds=extra_rw_binds,
         )
         # Clean, reusable startup snapshots have a different ownership and
-        # retention policy from Chat-owned hibernation images. Never place the
+        # retention policy from workspace-owned hibernation images. Never place the
         # two kinds in one flat namespace.
         snapshot_root = snapshot_category_root(SnapshotKind.BASELINE)
         final_dir = os.path.join(snapshot_root, fingerprint)

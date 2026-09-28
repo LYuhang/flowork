@@ -309,6 +309,30 @@ async def test_cancelled_turn_invalidates_runtime_before_next_turn(
 
 @pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
+async def test_project_sibling_waits_for_cancelled_turn_cleanup(monkeypatch) -> None:
+    provider = _FakeProvider()
+    monkeypatch.setattr(manager_module, "BusBroker", _BlockingResultBroker)
+    session = SandboxSession(
+        tenant_id="tenant", wf_id="project", run_dir=None, overlay_dir=None,
+        provider=provider, base_binds=[], expose_run=False,
+    )
+    first = session.run_agent_runtime_stream(_runtime_request("chat-a-turn"))
+    second = session.run_agent_runtime_stream(_runtime_request("chat-b-turn"))
+    assert (await anext(first))["turn_id"] == "chat-a-turn"
+    pending = asyncio.create_task(anext(second))
+    await asyncio.sleep(0)
+    assert not pending.done()
+    await first.aclose()
+    event = await asyncio.wait_for(pending, timeout=5)
+    assert event["turn_id"] == "chat-b-turn"
+    assert provider.stops == 1
+    assert provider.launches == 2
+    await second.aclose()
+    await session.close()
+
+
+@pytest.mark.usefixtures("fake_codex_cli")
+@pytest.mark.asyncio
 async def test_runtime_is_reused_when_external_destination_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -428,7 +452,7 @@ async def test_failed_turn_syncs_native_runtime_volume_after_process_stop(
     runtime_volume = SimpleNamespace(
         volume_id="runtime-volume",
         path=str(runtime_dir),
-        storage_prefix="chat-runtime-v1/test",
+        storage_prefix="project-runtime-v1/test",
     )
     persisted: list[str] = []
 
@@ -440,7 +464,7 @@ async def test_failed_turn_syncs_native_runtime_volume_after_process_stop(
 
     monkeypatch.setattr(
         manager_module,
-        "get_chat_runtime_volume_provider",
+        "get_project_runtime_volume_provider",
         lambda: RuntimeVolumeProvider(),
     )
     session = SandboxSession(

@@ -4,14 +4,66 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from docx import Document
 from openpyxl import Workbook
 from pptx import Presentation
 from reportlab.pdfgen import canvas
 
 from vibecanvas_api.document_runtime import rendering as render_module
+from vibecanvas_api.document_runtime import review as review_module
 from vibecanvas_api.document_runtime.rendering import render_document
 from vibecanvas_api.document_runtime.review import review_document
+
+
+def test_chat_workspace_supports_relative_review_and_render(tmp_path, monkeypatch):
+    assert "/chats" in review_module._WORKSPACE_ROOTS
+    assert "/chats" in render_module._WORKSPACE_ROOTS
+    chats = tmp_path / "chats"
+    cwd = chats / "example-chat"
+    cwd.mkdir(parents=True)
+    # Model the sandbox mount without creating directories in the host root.
+    for module in (review_module, render_module):
+        monkeypatch.setattr(module, "_WORKSPACE_ROOTS", (str(chats),))
+    monkeypatch.chdir(cwd)
+    pdf = canvas.Canvas("report.pdf")
+    pdf.drawString(72, 760, "Chat working directory")
+    pdf.showPage()
+    pdf.save()
+    assert review_document("report.pdf")["valid"] is True
+    monkeypatch.setattr(render_module, "_required_command", lambda *_: "pdftoppm")
+
+    def fake_run(arguments, **_kwargs):
+        Path(arguments[-1]).with_suffix(".png").write_bytes(b"png")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(render_module.subprocess, "run", fake_run)
+    result = render_document("report.pdf", output_dir="preview")
+    assert result["complete"] is True
+    assert result["file"] == str(cwd / "report.pdf")
+    assert result["output_dir"] == str(cwd / "preview")
+    assert all(Path(item["file"]).is_relative_to(cwd) for item in result["images"])
+
+
+def test_chat_workspace_rejects_sibling_prefix_and_symlink_escape(tmp_path, monkeypatch):
+    chats = tmp_path / "chats"
+    cwd = chats / "example-chat"
+    cwd.mkdir(parents=True)
+    outside = tmp_path / "chats-private"
+    outside.mkdir()
+    secret = outside / "note.txt"
+    secret.write_text("Outside the workspace", encoding="utf-8")
+    (cwd / "outside").symlink_to(outside, target_is_directory=True)
+    for module in (review_module, render_module):
+        monkeypatch.setattr(module, "_WORKSPACE_ROOTS", (str(chats),))
+    monkeypatch.chdir(cwd)
+    for path in (str(secret), "outside/note.txt"):
+        with pytest.raises(review_module.DocumentReviewError, match="inside"):
+            review_module._resolve_workspace_file(path)
+    for path in (str(outside / "preview"), "outside/preview"):
+        with pytest.raises(ValueError, match="inside"):
+            render_module._output_directory(path)
+    assert not (outside / "preview").exists()
 
 
 def test_review_document_covers_native_office_and_delivery_formats(

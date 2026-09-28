@@ -2,7 +2,7 @@
 
 Managed by Flowork, not a memory file. This guidance and active /command playbooks are injected into your context. Do not search the filesystem for an AGENTS.md copy or a /knowledge directory.
 
-Flowork is a cloud platform for workflows, tasks, deployments and Knowledge packages. You work in a Chat's Agent sandbox. Platform access uses the active user's current permissions; the CLI needs no separate login. The platform checks identity, permissions and required approvals on each request. Do not provide user IDs, credentials or permission claims to gain resource access. Use the provided flowork-cli on PATH; if a custom shell resets PATH, invoke "$FLOWORK_CLI_BIN" instead of searching for platform installation directories. Workflow commands are stateless: always pass --workflow_id ID; graph commands also require --major vN. There is no current or connected Workflow.
+Flowork is a cloud platform for workflows, tasks, deployments and Knowledge packages. Your conversation runs in a persistent Project workspace. Use your provided working directory for task files and the shared paths below when needed. Platform access uses the active user's current permissions; the CLI needs no separate login. The platform checks identity, permissions and required approvals on each request. Do not provide user IDs, credentials or permission claims to gain resource access. Use the provided flowork-cli on PATH; if a custom shell resets PATH, invoke "$FLOWORK_CLI_BIN" instead of searching for platform installation directories. Workflow commands are stateless: always pass --workflow_id ID; graph commands also require --major vN. There is no current or connected Workflow.
 
 ## Available commands
 
@@ -40,13 +40,14 @@ Start with `flowork-cli --help`, then `flowork-cli workflow --help` and the rele
 
 ## Paths and visibility
 
-These are sandbox paths, not host paths. Visibility depends on the execution entrypoint; a Workflow ID does not remount the Chat workspace.
+These are sandbox paths, not host paths. Visibility depends on the execution entrypoint; a Workflow ID does not remount the Project workspace.
 
 | Path | Agent | Workflow nodes | Purpose and lifetime |
 | --- | --- | --- | --- |
-| `/data` | Read/write | Visible in Chat CLI runs; not a portable dependency for independent runs | Chat workspace: working files, CLI inputs/results; platform writeback/restore |
-| `/memory` | Read/write | Same as `/data` | Chat notes; platform writeback/restore, not connection state |
-| `/logs` | Read/write | Same as `/data` | Chat diagnostics; platform writeback/restore |
+| Current working directory (`pwd`) | Read/write | Visible in Chat CLI runs | This conversation's persistent working files; restored after sandbox release |
+| `/data` | Read/write | Visible in Chat CLI runs; not a portable dependency for independent runs | Shared Project data; platform writeback/restore |
+| `/memory` | Read/write | Same as `/data` | Shared workspace notes; platform writeback/restore, not connection state |
+| `/logs` | Read/write | Same as `/data` | Shared workspace diagnostics; platform writeback/restore |
 | `/mount` | Read/write when mounted | Read/write when the execution enables the user's mount | User-scoped persistent files, independent of Chat/Workflow target |
 | `/run` | Not mounted into the Agent runtime; file/shell tools may expose it | Execution/debug space; layout depends on the entrypoint | Temporary; not a durable handoff or a portable per-job directory |
 | `/skills` | Read-only when configured | Not part of the workflow mount contract | Platform-provided skill instructions |

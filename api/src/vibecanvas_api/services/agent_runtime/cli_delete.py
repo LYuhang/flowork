@@ -117,7 +117,7 @@ async def execute(call, arguments):
             else "User approved the deletion. Rechecking permissions and dependencies."}})
         ctx = await agent_context.resolve_context(cap)
         coordinator = AuthzMutationCoordinator(client=ctx.authorization_client, organization_id=cap.tenant_id)
-        async with session_scope(tenant_id=cap.tenant_id) as session:
+        async with session_scope(tenant_id=cap.tenant_id, user_id=cap.user_id) as session:
             await _require_active_chat_write(session, ctx)
             async def authorize():
                 await require_workflow_action(ctx, workflow_id, Action.DELETE,

@@ -17,7 +17,7 @@ from .workflow_target import resolve_target
 async def workflow_version_command(ctx, operation: str, arguments: dict) -> dict:
     arguments = validate_arguments(operation, arguments)
     workflow_id = arguments["workflow_id"]
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         repo = WorkflowRepo(session, ctx.username)
         if operation == "workflow.version.list":
             await _require_workflow_read(session, ctx, workflow_id)

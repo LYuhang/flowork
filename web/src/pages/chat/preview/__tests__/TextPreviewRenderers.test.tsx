@@ -25,8 +25,8 @@ const descriptor = {
   schemaVersion: 1,
   fileRef: {
     schemaVersion: 1,
-    scope: 'chat',
-    chatId: 'chat-1',
+    scope: 'project',
+    projectId: 'chat-1',
     path: '/data/notes.md',
   },
   name: 'notes.md',

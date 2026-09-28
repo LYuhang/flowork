@@ -14,12 +14,12 @@ vi.mock('@/pages/chat/preview/ChatFilePreview', () => ({
     fileType,
     allowOpenInNewPage,
   }: {
-    fileRef: { path: string; chatId?: string };
+    fileRef: { path: string; projectId?: string };
     fileType: string;
     allowOpenInNewPage?: boolean;
   }) => (
     <div data-testid="shared-preview">
-      {fileRef.chatId}:{fileRef.path}:{fileType}:{String(allowOpenInNewPage)}
+      {fileRef.projectId}:{fileRef.path}:{fileType}:{String(allowOpenInNewPage)}
     </div>
   ),
 }));
@@ -42,7 +42,7 @@ describe('StandalonePreviewPage', () => {
   it('reuses the shared file Preview for a validated URL', () => {
     render(
       <MemoryRouter initialEntries={[
-        '/preview?scope=chat&chatId=chat-1&path=%2Fdata%2Fbrief.docx&fileType=docx',
+        '/preview?scope=project&projectId=chat-1&path=%2Fdata%2Fbrief.docx&fileType=docx',
       ]}>
         <StandalonePreviewPage />
       </MemoryRouter>,
@@ -57,7 +57,7 @@ describe('StandalonePreviewPage', () => {
   it('does not call the Preview renderer for an invalid file coordinate', () => {
     render(
       <MemoryRouter initialEntries={[
-        '/preview?scope=chat&chatId=chat-1&path=%2Fetc%2Fpasswd',
+        '/preview?scope=project&projectId=chat-1&path=%2Fetc%2Fpasswd',
       ]}>
         <StandalonePreviewPage />
       </MemoryRouter>,

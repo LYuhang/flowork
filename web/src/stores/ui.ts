@@ -14,10 +14,6 @@ import type { ChatViewState } from '@/lib/chat/preview-state';
 
 const MAX_ERROR_LOG_ENTRIES = 50;
 
-function newDraftChatId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `draft_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-}
-
 export interface UIErrorEntry {
   ts: number;
   message: string;
@@ -25,16 +21,12 @@ export interface UIErrorEntry {
 
 export interface UIState {
   lastActiveWorkflowId: string | null;
+  activeProjectId: string | null;
   activeChatIds: Record<'chat' | 'browser', string | null>;
   chatEntryIntent: 'default' | 'select' | null;
-  draftChatSessions: Array<{
-    scopeId: string;
-    chat_id: string;
-    surface: 'chat' | 'browser';
-    created_at: string;
-  }>;
   optimisticChatSessions: Array<{
     scopeId: string;
+    projectId?: string | null;
     chat_id: string;
     chat_context: string;
     surface: 'chat' | 'browser';
@@ -104,12 +96,12 @@ export interface UIState {
   setInspectorOpen: (open: boolean) => void;
   toggleInspector: () => void;
   setLastActiveWorkflowId: (id: string | null) => void;
+  setActiveProjectId: (id: string | null) => void;
   setActiveChatId: (surface: 'chat' | 'browser', id: string | null) => void;
   setChatEntryIntent: (intent: 'default' | 'select' | null) => void;
-  ensureDraftChatSession: (scopeId: string, surface?: 'chat' | 'browser') => string;
-  removeDraftChatSession: (scopeId: string, chatId: string) => void;
   addOptimisticChatSession: (item: {
     scopeId: string;
+    projectId?: string | null;
     chat_id: string;
     chat_context: string;
     surface?: 'chat' | 'browser';
@@ -128,9 +120,9 @@ export interface UIState {
 export const useUIStore = create<UIState>()(
   subscribeWithSelector((set) => ({
     lastActiveWorkflowId: null,
+    activeProjectId: null,
     activeChatIds: { chat: null, browser: null },
     chatEntryIntent: null,
-    draftChatSessions: [],
     optimisticChatSessions: [],
     chatScrollPositions: {},
     chatToolExpansion: {},
@@ -163,56 +155,21 @@ export const useUIStore = create<UIState>()(
     setInspectorOpen: (open) => set({ inspectorOpen: open }),
     toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
     setLastActiveWorkflowId: (id) => set({ lastActiveWorkflowId: id }),
+    setActiveProjectId: (id) => set({ activeProjectId: id }),
     setActiveChatId: (surface, id) =>
       set((state) => ({ activeChatIds: { ...state.activeChatIds, [surface]: id } })),
     setChatEntryIntent: (intent) => set({ chatEntryIntent: intent }),
-    ensureDraftChatSession: (scopeId, surface = 'chat') => {
-      let draftId = '';
-      set((s) => {
-        const existing = s.draftChatSessions.find(
-          (item) => item.scopeId === scopeId && item.surface === surface,
-        );
-        if (existing) {
-          draftId = existing.chat_id;
-          return {};
-        }
-        draftId = newDraftChatId();
-        const next = {
-          scopeId,
-          chat_id: draftId,
-          surface,
-          created_at: new Date().toISOString(),
-        };
-        return {
-          draftChatSessions: [
-            next,
-            ...s.draftChatSessions.filter(
-              (old) => !(old.scopeId === scopeId && old.surface === surface),
-            ),
-          ].slice(0, 20),
-        };
-      });
-      return draftId;
-    },
-    removeDraftChatSession: (scopeId, chatId) =>
-      set((s) => ({
-        draftChatSessions: s.draftChatSessions.filter(
-          (item) => !(item.scopeId === scopeId && item.chat_id === chatId),
-        ),
-      })),
     addOptimisticChatSession: (item) =>
       set((s) => {
         const next = {
           scopeId: item.scopeId,
+          projectId: item.projectId ?? null,
           chat_id: item.chat_id,
           chat_context: item.chat_context,
           surface: item.surface ?? 'chat',
           created_at: new Date().toISOString(),
         };
         return {
-          draftChatSessions: s.draftChatSessions.filter(
-            (old) => !(old.scopeId === next.scopeId && old.chat_id === next.chat_id),
-          ),
           optimisticChatSessions: [
             next,
             ...s.optimisticChatSessions.filter(

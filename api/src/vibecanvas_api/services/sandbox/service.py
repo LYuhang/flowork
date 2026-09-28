@@ -80,7 +80,6 @@ _MANAGER_METHODS = {
     "operational_snapshot",
     "prewarm_base_fileops",
     "drain_background_closes",
-    "set_session_lease",
     "status",
     "close_session",
     "terminate_task_scope",
@@ -144,7 +143,7 @@ def _sandbox_id(tenant_id: str, wf_id: str) -> str:
     return f"sbx_local_{digest}"
 
 
-def _scope(tenant_id: str, wf_id: str, *, kind: str = "chat") -> pb.SandboxScope:
+def _scope(tenant_id: str, wf_id: str, *, kind: str = "project") -> pb.SandboxScope:
     return pb.SandboxScope(tenant_id=tenant_id, kind=kind, scope_id=wf_id)
 
 
@@ -203,7 +202,7 @@ class RemoteSandboxSession:
         )
 
     async def _stream(self, method: str, *args: Any, **kwargs: Any) -> AsyncIterator[dict]:
-        async for item in self._manager._stream_request(
+        async with contextlib.aclosing(self._manager._stream_request(
             "session.call",
             tenant_id=self.tenant_id,
             wf_id=self.wf_id,
@@ -211,8 +210,9 @@ class RemoteSandboxSession:
             method=method,
             args=list(args),
             kwargs=kwargs,
-        ):
-            yield item
+        )) as stream:
+            async for item in stream:
+                yield item
 
     async def run_code(self, script: str, inputs: dict, *, timeout_s: float,
                        network: str = "egress") -> dict:
@@ -241,8 +241,9 @@ class RemoteSandboxSession:
                                 arguments=arguments, timeout_s=timeout_s)
 
     async def run_agent_runtime_stream(self, request: dict) -> AsyncIterator[dict]:
-        async for item in self._stream("run_agent_runtime_stream", request):
-            yield item
+        async with contextlib.aclosing(self._stream("run_agent_runtime_stream", request)) as stream:
+            async for item in stream:
+                yield item
 
     async def send_agent_runtime_control(self, turn_id: str, response: dict) -> None:
         await self._call("send_agent_runtime_control", turn_id, response)
@@ -251,8 +252,9 @@ class RemoteSandboxSession:
         return bool(await self._call("cancel_agent_runtime", turn_id))
 
     async def submit_workflow_stream(self, **kwargs: Any) -> AsyncIterator[dict]:
-        async for item in self._stream("submit_workflow_stream", **kwargs):
-            yield item
+        async with contextlib.aclosing(self._stream("submit_workflow_stream", **kwargs)) as stream:
+            async for item in stream:
+                yield item
 
     async def clear_workflow_run(self, workflow_run_id: str | None = None) -> None:
         await self._call("clear_workflow_run", workflow_run_id)
@@ -515,6 +517,7 @@ class RemoteSandboxManager:
             raise SandboxServiceError("unknown sandbox stream operation")
         stub = self._get_stub()
         method = str(params["method"])
+        call = None
         try:
             call = stub.Execute(pb.ExecuteRequest(
                 scope=_scope(params["tenant_id"], params["wf_id"]),
@@ -534,6 +537,11 @@ class RemoteSandboxManager:
                 yield _json_value(event.payload_json)
         except grpc.aio.AioRpcError as exc:
             raise self._translate_error(exc) from exc
+        finally:
+            # Closing a consumer at a yield must promptly close the daemon's
+            # activity lease, not wait for async-generator garbage collection.
+            if call is not None:
+                call.cancel()
 
     async def health(self) -> dict[str, Any]:
         return await self._request("health")
@@ -563,9 +571,6 @@ class RemoteSandboxManager:
         return await self._request(
             "manager.call", method=method, args=list(args), kwargs=kwargs,
         )
-
-    async def set_session_lease(self, tenant_id: str, wf_id: str, lease: str) -> bool:
-        return bool(await self._manager_call("set_session_lease", tenant_id, wf_id, lease))
 
     async def status(self, tenant_id: str, wf_id: str) -> dict:
         return await self._manager_call("status", tenant_id, wf_id)
@@ -807,18 +812,19 @@ class _SandboxGrpcService(pb_grpc.SandboxServiceServicer):
                 *(call.get("args") or []), **(call.get("kwargs") or {})
             )
             seq = 0
-            async for item in stream:
-                seq += 1
-                yield pb.SandboxEvent(
-                    sandbox_id=_sandbox_id(
-                        request.scope.tenant_id, request.scope.scope_id
-                    ),
-                    generation=self.daemon.generation,
-                    operation_id=request.operation_id,
-                    event_seq=seq,
-                    type=str(item.get("type") or item.get("kind") or "event"),
-                    payload_json=_json_bytes(item),
-                )
+            async with contextlib.aclosing(stream):
+                async for item in stream:
+                    seq += 1
+                    yield pb.SandboxEvent(
+                        sandbox_id=_sandbox_id(
+                            request.scope.tenant_id, request.scope.scope_id
+                        ),
+                        generation=self.daemon.generation,
+                        operation_id=request.operation_id,
+                        event_seq=seq,
+                        type=str(item.get("type") or item.get("kind") or "event"),
+                        payload_json=_json_bytes(item),
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as exc:

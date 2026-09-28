@@ -54,7 +54,8 @@ are defined in [`docker-compose.yml`](../docker-compose.yml).
 | --- | --- | --- |
 | **Organization** | Ownership and RLS boundary used to isolate application resources; an account may work in a personal or business organization | [Organization models](../api/src/vibecanvas_api/storage/models_org.py) |
 | **Resource access** | Object-level ownership and grants for Workflows, Tasks, Deployments, and Knowledge packages; direct sharing does not move the resource | [Resource access API](../api/src/vibecanvas_api/routes/resource_access.py) |
-| **Chat** | Persistent agent workspace containing messages, commands, runtime settings, and optional browser-control state | [Chat models](../api/src/vibecanvas_api/storage/models.py) |
+| **Project** | User-owned workspace sharing files, one sandbox, and one Codex app-server across its Chats | [Project and Chat models](../api/src/vibecanvas_api/storage/models.py) |
+| **Chat** | Independent conversation and Codex thread within a Project, with its own messages, commands, generation settings and persistent `chats/<chat-id>` working directory. Browser-extension conversations each get a dedicated Project using the same ownership model. | [Chat models](../api/src/vibecanvas_api/storage/models.py) |
 | **Agent Run** | Persisted record of one agent response, including ordered events, approval waits, cancellation, and final status | [Agent Run models](../api/src/vibecanvas_api/storage/models_agent_runs.py) |
 | **Workflow** | Reusable automation graph composed of validated nodes and references | [Workflow model](../api/src/vibecanvas_api/storage/models.py) |
 | **Workflow Version** | Stored major/subversion snapshot used for history and version selection | [Workflow repository](../api/src/vibecanvas_api/storage/workflow_repo.py) |
@@ -96,10 +97,12 @@ grouped under [`routes/`](../api/src/vibecanvas_api/routes/).
 
 ### Agent Runtime
 
-A Chat selects an installed Runtime when it first starts. Codex is currently
-the built-in Runtime. The Runtime and exact account or API connection remain fixed for that Chat, while
-the user may switch the model and reasoning effort within that connection
-between idle turns. The API sends runtimes the same internal request format,
+A Project inherits the default Runtime from **Settings → Agent runtime** when
+it is created. Codex is currently
+the built-in Runtime. The Project owns the sandbox, resident app-server and
+exact account or API connection; each Chat owns a separate native thread.
+Users may switch a Chat's model and reasoning effort within the Project's
+connection between idle turns. The API sends runtimes the same internal request format,
 and each adapter translates that
 request into the format expected by its SDK. SDK-specific state and event
 formats are therefore not exposed to the rest of the application. The common
@@ -121,13 +124,33 @@ path, so the Runtime and sandbox see the same tool contract regardless of the
 provider transport. Hosted Web Search remains capability-driven: the broker
 enables it only when OpenRouter reports `web_search_options` for the selected
 model, while ordinary sandbox and MCP tools remain available independently.
-The first accepted turn fixes the Chat row's exact non-secret connection
+The first accepted turn fixes the Project row's exact non-secret connection
 identity. This prevents provider-native history and credentials from crossing
 accounts, while allowing later turns to select another model or reasoning level
-within the same connection. The Chat row stores the latest accepted selection
+within the same connection. New Chats inherit the Project connection and its
+latest accepted model. Each Chat stores its own latest accepted selection
 for Resume; each Agent Run stores an immutable snapshot of the Runtime,
 connection, provider model, source, protocol, and reasoning effort used by that
 turn.
+
+The main application's **New Chat** action opens a local Project-scoped composer,
+not a history entry. Repeated clicks reuse that Project's unsent draft, including
+its text and attachments. The first accepted message promotes it into the
+Project's conversation history. Uploading an attachment may allocate a durable
+Chat directory before sending, but a Chat without messages remains absent from
+history and the Project's conversation count. Draft identifiers and navigation
+hints are account-scoped; no sandbox is started just by opening an empty page.
+
+When enabled, **Agent Debug** reads the Chat's persisted conversation directly
+from PostgreSQL, independently of the Project sandbox. Cursor pagination keeps
+all user, assistant, and tool messages; long content is folded only in the UI.
+The view also includes complete interactive artifact definitions, pinned preview
+versions, current interaction state/results, and non-secret turn configuration,
+status, timing, and recorded usage. It refreshes asynchronously after a user
+message is accepted and after the Agent finishes, rather than querying on each
+token. Debug does not generate snapshot files; users can explicitly download a
+ChatML-style JSON export. This is the platform's stored transcript, not a dump
+of the model's private internal context.
 
 This common interface is defined in the
 [runtime protocol](../api/src/vibecanvas_api/services/agent_runtime/protocol.py).
@@ -232,7 +255,8 @@ reports the selected backend's capabilities.
 
 The optional Chrome MV3 extension embeds Chat in a browser side panel and opens
 an authenticated WebSocket connection limited to the current browser-control
-session. The Agent uses `flowork-cli browser` in the Chat sandbox; its runtime
+session. Each extension Chat has its own automatically created Project. The
+Agent uses `flowork-cli browser` in that Project's sandbox; its runtime
 uses pinned `playwright-core` to control the user's existing browser, not a
 second browser launched in the sandbox. The extension service worker is its
 scoped remote CDP data plane: a relay allow-list attaches approved tabs, forwards CDP
@@ -263,7 +287,7 @@ Authorize Chat and resolve the leading Slash Command
 Create an Agent Run and assemble a common runtime request
     │
     ▼
-Start or resume the Chat sandbox and selected Agent Runtime
+Reuse or restore the Project sandbox, then start or resume the Chat thread
     │
     ▼
 Persist ordered events ──► stream updates to the client over SSE
@@ -274,7 +298,7 @@ Persist ordered events ──► stream updates to the client over SSE
 
 The Chat API authenticates the user, checks access to the Chat, resolves the
 Slash Command available in the main application or extension, and loads the
-runtime selected for that Chat. It then creates an Agent Run as the system of
+Runtime bound to its Project. It then creates an Agent Run as the system of
 record for the turn. The runtime orchestrator calls the appropriate adapter and
 converts its output into a unified event schema.
 
@@ -290,7 +314,13 @@ and [approval repository](../api/src/vibecanvas_api/storage/hitl_repo.py).
 ### Agent tools and MCP integration
 
 Slash Commands provide task-specific operating guidance for a Chat.
-Every resident Chat sandbox owns one aggregate MCP Hub. Codex connects to its
+Every resident Project workspace owns one aggregate MCP Hub. Its Chats share
+the workspace and app-server. Extension conversations automatically create a
+one-Chat Project; there is no separate per-Chat runtime ownership model.
+Custom MCP selection and its revision are Project-owned. Repeated selection
+of the same server is idempotent; each accepted Turn snapshots the selection,
+while invocation authority and user approvals remain Chat/Turn-specific.
+Codex connects to the Hub's
 single loopback Streamable HTTP endpoint. Base capabilities are always
 projected; commands such as `/workflow`
 and `/task` teach authenticated Platform CLI workflows, while `/diagram` and
@@ -409,7 +439,7 @@ See the [Task API](../api/src/vibecanvas_api/routes/tasks.py),
 `/browser` is available only in a Chat opened from the extension side panel.
 The extension establishes an authenticated control channel, and the backend
 stores which Chat currently holds that browser session. The selected Agent
-Runtime starts the Browser CLI worker inside the Chat sandbox.
+Runtime starts the Browser CLI worker inside the Project sandbox.
 Playwright owns page snapshots, locators, actionability, waiting, dialogs, tabs,
 and screenshots; Flowork owns the CLI schema and authorization. Its CDP connection is carried through a
 short-lived, Chat- and generation-fenced WebSocket capability to the extension;
@@ -434,19 +464,19 @@ observation, cancellation or storage failures must not silently repeat page acti
 
 | Component | Primary role | Notes |
 | --- | --- | --- |
-| **PostgreSQL** | System of record for Organizations, users, Chats, messages, Workflows, versions, runs, approvals, Tasks, Deployments, metadata, and ordered events | Tenant-specific business tables use row-level security |
+| **PostgreSQL** | System of record for Organizations, users, Projects, Chats, messages, Workflows, versions, runs, approvals, Tasks, Deployments, metadata, and ordered events | Tenant-specific business tables use row-level security |
 | **OpenFGA** | Relationship-based access control (ReBAC) | Evaluates whether a user can perform an action on a resource |
 | **Object storage** | File content for VFS, artifacts, authoritative Knowledge package files, Task outputs, and run files | Filesystem and S3 backends implement the same storage interface |
 | **DBOS / PostgreSQL** | Durable background queue, recovery, and schedules | Uses the existing application PostgreSQL server; business state remains in Flowork tables |
 | **Valkey** | Transient coordination | Carries short-lived notifications, rate limits, counters, and locks; it is not the task broker or system of record |
-| **Runtime state** | SDK-specific Chat state inside authenticated Runtime volumes | Persists independently of live network connections without exposing SDK internals to the API |
-| **Runtime volumes and snapshots** | Chat-specific runtime files and optional gVisor checkpoints | Used to resume execution efficiently, not to determine identity or permissions |
+| **Runtime state** | Separate native Chat threads inside a Project-owned authenticated Runtime volume | Persists independently of live network connections without exposing SDK internals to the API |
+| **Runtime volumes and snapshots** | Project runtime files and optional gVisor checkpoints | Used to resume execution efficiently, not to determine identity or permissions |
 
 VFS metadata and file content are separated by the
 [VFS store](../api/src/vibecanvas_api/storage/vfs_store.py) and
 [object-store providers](../api/src/vibecanvas_api/services/object_store.py).
 The Sandbox file explorer still reads this durable VFS view. While an
-interactive Chat sandbox is loaded, listing or manually refreshing its files
+interactive Project sandbox is loaded, listing or manually refreshing its files
 first reconciles the live workspace into VFS; recognized file mutations also
 trigger an earlier best-effort writeback. Turn completion remains the final
 durability boundary, so visibility does not depend on a particular Agent tool
@@ -497,7 +527,7 @@ and [capability checks](../api/src/vibecanvas_api/services/agent_resources/capab
 ## Sandbox lifecycle
 
 When a snapshot-capable gVisor profile is enabled, `sandboxd` manages interactive
-Chat and Workflow Debug sessions through the following lifecycle:
+Project and Workflow Debug sessions through the following lifecycle:
 
 ```text
 Released ── acquire ──► Warm ── idle ──► Hibernating ──► Hibernated
@@ -514,6 +544,13 @@ separate activity observations while a session is warm. `released` is the
 status reported when no session is currently loaded, not an internal session
 state.
 
+Agent idleness is measured for the entire Project, not the currently visible
+Chat. Running and queued sibling turns, tool work, and pending writeback keep
+the shared sandbox busy. The idle interval starts after the last activity
+finishes; reading lifecycle status does not reset it. Individual Chats do not
+pin or unpin the Project using a shared resident flag. Closing the runtime
+transport releases its activity lease, including cancellation and disconnect.
+
 Before hibernation, `sandboxd` finishes pending file writes, synchronizes the
 runtime volume, and stops the Agent Runtime process. Live network connections
 and temporary credentials for the current turn are therefore excluded from the
@@ -521,16 +558,20 @@ checkpoint. When the session resumes, these connections and credentials are
 created again. Rootless warm and bubblewrap sessions do not restore a process
 checkpoint: idle sessions are released, then cold-started on demand. Durable
 files and conversation state are restored separately; this is not process-memory
-continuity. Do not configure snapshot mode for a backend that does not support it.
+continuity. Release preserves the Project connection binding and each Chat's
+model, native thread state and persistent working directory; it does not unlock
+the Project for a different account/API source. Do not configure snapshot mode
+for a backend that does not support it.
 
 An explicit release request is a quiescent boundary: it does not return until
 the old Runtime process has stopped and the volume release has completed. This
-prevents a new turn from reacquiring the same Chat scope while stale cleanup is
+prevents a new turn from reacquiring the same Project scope while stale cleanup is
 still able to remove its restored Runtime state. Idle eviction may run in the
-background because it does not promise an immediate same-scope restart to the
-caller.
+background. A same-Project acquire waits for automatic eviction cleanup to
+finish before restoring its volumes; unrelated Projects do not wait for that
+teardown.
 
-Reusable baseline snapshots and Chat-specific hibernation snapshots are stored
+Reusable baseline snapshots and Project-specific hibernation snapshots are stored
 separately and cannot be used interchangeably. The lifecycle states and valid
 transitions are defined in
 [`session_lifecycle.py`](../api/src/vibecanvas_api/services/sandbox/session_lifecycle.py);

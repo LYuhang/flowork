@@ -132,6 +132,7 @@ USER = uuid.uuid5(uuid.NAMESPACE_DNS, "command-modes-user")
 
 
 async def _seed_and_bind(session):
+    from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
     await session.execute(
         text("INSERT INTO tenants(tenant_id, name) VALUES (:t, 'command-modes-test') "
              "ON CONFLICT (tenant_id) DO NOTHING"),
@@ -145,6 +146,8 @@ async def _seed_and_bind(session):
     await session.execute(
         text("SELECT set_config('app.tenant_id', :t, false)"), {"t": str(TENANT)}
     )
+    await session.execute(text("SELECT set_config('app.user_id', :u, false)"), {"u": str(USER)})
+    await ChatProjectRepo(session, str(USER)).create(project_id="command-project", name="Commands")
 
 
 @pytest.mark.asyncio
@@ -152,7 +155,7 @@ async def test_active_modes_round_trip(pg_session):
     await _seed_and_bind(pg_session)
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
     repo = ChatRepo(pg_session, str(USER))
-    cid = await repo.register_session(wf["wf_id"], name="c", major_version=1)
+    cid = await repo.register_session(wf["wf_id"], project_id="command-project", name="c", major_version=1)
 
     # Default: no meta written yet → Base (empty set).
     assert await repo.get_active_modes(cid) == set()
@@ -175,7 +178,7 @@ async def test_set_active_modes_preserves_other_meta(pg_session):
     await _seed_and_bind(pg_session)
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
     repo = ChatRepo(pg_session, str(USER))
-    cid = await repo.register_session(wf["wf_id"], name="c", major_version=1)
+    cid = await repo.register_session(wf["wf_id"], project_id="command-project", name="c", major_version=1)
 
     # Seed an unrelated key through the strict encrypted metadata boundary.
     chat = (
@@ -196,7 +199,7 @@ async def test_deactivate_active_mode_persists_bounded_event(pg_session):
     await _seed_and_bind(pg_session)
     wf = await WorkflowRepo(pg_session, str(USER)).create_workflow(name="W")
     repo = ChatRepo(pg_session, str(USER))
-    cid = await repo.register_session(wf["wf_id"], name="c", major_version=1)
+    cid = await repo.register_session(wf["wf_id"], project_id="command-project", name="c", major_version=1)
     await repo.set_active_modes(cid, {"workflow", "knowledge"})
 
     remaining = await repo.deactivate_active_mode(

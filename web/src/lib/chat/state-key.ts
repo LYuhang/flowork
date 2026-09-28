@@ -9,6 +9,8 @@ const OPAQUE_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 export interface RecentChatLocation {
   chatId: string;
   scopeId: string | null;
+  projectId?: string;
+  draft?: boolean;
 }
 
 export function chatAccountNamespace(identity: ChatAccountIdentity | null | undefined): string {
@@ -43,7 +45,7 @@ export function readRecentChatLocation(
     return { chatId: value, scopeId: null };
   }
   try {
-    const parsed = JSON.parse(value) as { chat_id?: unknown; scope_id?: unknown };
+    const parsed = JSON.parse(value) as { chat_id?: unknown; scope_id?: unknown; project_id?: unknown; draft?: unknown };
     const chatId = typeof parsed.chat_id === 'string' ? parsed.chat_id : '';
     const scopeId = typeof parsed.scope_id === 'string' ? parsed.scope_id : '';
     if (
@@ -54,6 +56,11 @@ export function readRecentChatLocation(
       || scopeId.length > 160
       || !OPAQUE_ID_PATTERN.test(scopeId)
     ) return null;
+    if (parsed.draft === true) {
+      const projectId = typeof parsed.project_id === 'string' ? parsed.project_id : '';
+      if (!projectId || projectId.length > 160 || !OPAQUE_ID_PATTERN.test(projectId)) return null;
+      return { chatId, scopeId, projectId, draft: true };
+    }
     return { chatId, scopeId };
   } catch {
     return null;
@@ -79,6 +86,18 @@ export function writeRecentChatSelection(
     window.sessionStorage.setItem(key, JSON.stringify({ chat_id: chatId, scope_id: scopeId }));
   } else if (chatId) window.sessionStorage.setItem(key, chatId);
   else window.sessionStorage.removeItem(key);
+}
+
+export function writeRecentDraftSelection(
+  identity: ChatAccountIdentity | null | undefined,
+  location: { chatId: string; scopeId: string; projectId: string },
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(recentChatSelectionKey(identity, 'chat'), JSON.stringify({
+      chat_id: location.chatId, scope_id: location.scopeId, project_id: location.projectId, draft: true,
+    }));
+  } catch { /* Navigation still works without storage. */ }
 }
 
 /** Clear account-scoped navigation hints on logout or organization switch. */

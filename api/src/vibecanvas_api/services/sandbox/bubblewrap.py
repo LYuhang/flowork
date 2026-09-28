@@ -27,8 +27,8 @@ restore from) — rootless gVisor itself already refuses both outright for the
 same reason (``RootlessGvisorProvider.checkpoint_serve`` raises
 ``RuntimeError``), so no caller on the rootless path ever depended on a real
 snapshot to begin with. ``launch_agent_runtime_bus``/``launch_workflow_bus``
-(sandboxing the Agent Runtime process itself — the ``__chatws_v2_...``
-sandboxed Chat path, a separate mechanism from both the file/shell-tool warm
+(sandboxing the Agent Runtime process itself — the ``__projectws_v1_...``
+sandboxed Project path, a separate mechanism from both the file/shell-tool warm
 worker above and the *unsandboxed* ``codex.py``/``create_codex_app_server``
 host-direct path some Chats use) are also implemented, reusing
 ``_build_workflow_invocation``/``_sandbox_egress_setup`` inherited from
@@ -392,9 +392,9 @@ class BubblewrapProvider(RootlessGvisorProvider):
         env_overrides: "dict[str, str] | None" = None,
         snapshot: ServeSnapshot | None = None,
     ) -> "BusRunHandle":
-        """Launch one Agent Runtime turn (the sandboxed ``__chatws_v2_...``
+        """Launch one Agent Runtime process (the sandboxed ``__projectws_v1_...``
 
-        Chat path) — same contract as
+        Project path) — same contract as
         ``RootlessGvisorProvider.launch_agent_runtime_bus``, built on
         ``self.run()``'s bind-mount plumbing instead of an OCI bundle.
         """

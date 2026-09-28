@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from vibecanvas_api.storage.agent_runtime_repo import AgentRuntimeRepo
 from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
 from vibecanvas_api.storage.db import session_scope
 
 
@@ -33,14 +34,55 @@ async def _seed(pg_engine) -> tuple[str, str]:
 
 
 async def _insert_chat(tenant_id: str, user_id: str, chat_id: str) -> None:
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
+        project = await ChatProjectRepo(session, user_id).create(name="Runtime")
         await ChatRepo(session, user_id).register_session(
             "__chat_runtime",
+            project_id=project["project_id"],
             name="Runtime",
             chat_id=chat_id,
             surface="chat",
         )
         await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_project_runtime_shared_connection_independent_threads(pg_engine) -> None:
+    tenant_id, user_id = await _seed(pg_engine)
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
+        project = await ChatProjectRepo(session, user_id).create(name="Shared runtime")
+        chats = ChatRepo(session, user_id)
+        first_id = await chats.register_session("__chat_runtime", project_id=project["project_id"])
+        second_id = await chats.register_session("__chat_runtime", project_id=project["project_id"])
+        repo = AgentRuntimeRepo(session, user_id)
+        first = await repo.bind_chat(first_id)
+        await repo.set_runtime_model_selection(
+            first_id, runtime_type="codex", model_id="codex:account:terra",
+            connection_id="codex:account", agent_settings={"reasoning_effort": "low"},
+        )
+        second = await repo.bind_chat(second_id)
+        assert first["runtime_session_id"] == second["runtime_session_id"]
+        assert second["runtime_connection_id"] == "codex:account"
+        assert second["runtime_model_id"] == "codex:account:terra"
+        for chat_id, thread_id in ((first_id, "thread-a"), (second_id, "thread-b")):
+            await repo.set_runtime_state_ref(
+                chat_id, runtime_type="codex", runtime_session_id=first["runtime_session_id"],
+                state_ref=thread_id,
+            )
+        with pytest.raises(ValueError, match="runtime_connection_locked"):
+            await repo.set_runtime_model_selection(
+                second_id, runtime_type="codex", model_id="codex:managed:other:model",
+                connection_id="codex:managed:other", agent_settings={},
+            )
+        await session.commit()
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
+        repo = AgentRuntimeRepo(session, user_id)
+        a = await repo.get_chat_binding(first_id)
+        b = await repo.get_chat_binding(second_id)
+        assert a["runtime_state_ref"] == "thread-a"
+        assert b["runtime_state_ref"] == "thread-b"
+        assert a["runtime_session_id"] == b["runtime_session_id"]
+        assert a["runtime_connection_id"] == b["runtime_connection_id"]
 
 
 @pytest.mark.asyncio
@@ -51,7 +93,7 @@ async def test_chat_runtime_binding_is_immutable_after_first_start(pg_engine) ->
     await _insert_chat(tenant_id, user_id, first_chat)
     await _insert_chat(tenant_id, user_id, second_chat)
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         assert await repo.get_preferences() == {
             "default_runtime_type": "codex",
@@ -67,7 +109,7 @@ async def test_chat_runtime_binding_is_immutable_after_first_start(pg_engine) ->
     assert first["runtime_session_id"].startswith("rt_codex_")
     assert first["runtime_state_ref"] is None
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         await repo.set_default_runtime_type("codex")
         rebound = await repo.bind_chat(first_chat)
@@ -91,7 +133,7 @@ async def test_chat_runtime_model_selection_can_advance_between_turns(
     chat_id = f"runtime_model_{uuid.uuid4().hex[:8]}"
     await _insert_chat(tenant_id, user_id, chat_id)
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         await repo.bind_chat(chat_id, runtime_type="codex")
         first = await repo.set_runtime_model_selection(
@@ -120,7 +162,7 @@ async def test_chat_runtime_model_selection_can_advance_between_turns(
     }
     assert resumed == first
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         switched_model = await repo.set_runtime_model_selection(
             chat_id,
@@ -131,7 +173,7 @@ async def test_chat_runtime_model_selection_can_advance_between_turns(
         )
         with pytest.raises(
             ValueError,
-            match="runtime connection is fixed for the Chat",
+            match="runtime_connection_locked",
         ):
             await repo.set_runtime_model_selection(
                 chat_id,
@@ -154,7 +196,7 @@ async def test_runtime_conversation_clock_is_fixed_across_resume(pg_engine) -> N
     chat_id = f"runtime_clock_{uuid.uuid4().hex[:8]}"
     await _insert_chat(tenant_id, user_id, chat_id)
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         first = await repo.bind_chat(
             chat_id,
@@ -167,7 +209,7 @@ async def test_runtime_conversation_clock_is_fixed_across_resume(pg_engine) -> N
     assert first["runtime_timezone"] == "Asia/Shanghai"
     assert first["runtime_started_at"] is not None
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         # A later browser/resume may report another zone.  The Chat clock is
         # immutable and must not follow it.
@@ -178,7 +220,7 @@ async def test_runtime_conversation_clock_is_fixed_across_resume(pg_engine) -> N
 
     assert resumed == first
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         prefs = await AgentRuntimeRepo(session, user_id).get_preferences()
     assert prefs["preferred_timezone"] == "Asia/Shanghai"
 
@@ -191,7 +233,7 @@ async def test_codex_thread_ref_rotates_only_with_matching_previous_ref(
     chat_id = f"runtime_codex_{uuid.uuid4().hex[:8]}"
     await _insert_chat(tenant_id, user_id, chat_id)
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         binding = await repo.bind_chat(chat_id, runtime_type="codex")
         assert binding is not None
@@ -204,7 +246,7 @@ async def test_codex_thread_ref_rotates_only_with_matching_previous_ref(
         assert saved is not None
         assert saved["runtime_state_ref"] == "codex-thread-1"
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         rotated = await repo.set_runtime_state_ref(
             chat_id,
@@ -216,7 +258,7 @@ async def test_codex_thread_ref_rotates_only_with_matching_previous_ref(
         assert rotated is not None
         assert rotated["runtime_state_ref"] == "codex-thread-2"
 
-    async with session_scope(tenant_id=tenant_id) as session:
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
         repo = AgentRuntimeRepo(session, user_id)
         with pytest.raises(ValueError, match="runtime state ref conflict"):
             await repo.set_runtime_state_ref(

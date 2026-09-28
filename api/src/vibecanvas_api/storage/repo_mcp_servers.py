@@ -195,23 +195,23 @@ class McpServersRepo:
 
         Flipping ``enabled = FALSE`` is required so the loader's
         enabled-only scan (``list_enabled``) stops yielding this row
-        even before any future ``deleted_at`` filter is added. Chat selections
+        even before any future ``deleted_at`` filter is added. Project selections
         are removed in the same transaction and their CAS revisions advance so
-        no persisted Chat continues advertising an uninstalled server."""
+        no Project continues advertising an uninstalled server."""
         await self.session.execute(
             text(
                 "WITH affected AS ("
-                "  DELETE FROM chat_mcp_bindings "
+                "  DELETE FROM project_mcp_bindings "
                 "  WHERE mcp_server_id = :id "
-                "  RETURNING chat_id"
-                "), affected_chats AS ("
-                "  SELECT DISTINCT chat_id FROM affected"
+                "  RETURNING project_id"
+                "), affected_projects AS ("
+                "  SELECT DISTINCT project_id FROM affected"
                 ") "
-                "UPDATE chats AS chat "
-                "SET mcp_config_revision = chat.mcp_config_revision + 1, "
+                "UPDATE chat_projects AS project "
+                "SET mcp_config_revision = project.mcp_config_revision + 1, "
                 "    updated_at = now() "
-                "FROM affected_chats AS affected_chat "
-                "WHERE chat.chat_id = affected_chat.chat_id"
+                "FROM affected_projects AS affected_project "
+                "WHERE project.project_id = affected_project.project_id"
             ),
             {"id": server_id},
         )

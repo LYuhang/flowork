@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.deps import AuthContext, current_user, tenant_db
 from ..storage.chat_repo import ChatRepo
+from ..storage.chat_project_repo import ChatProjectRepo
 from ..storage.agent_runtime_repo import AgentRuntimeRepo
 from ..storage.execution_repo import ExecutionRepo
 from ..storage.workflow_repo import WorkflowRepo
@@ -44,6 +45,14 @@ async def get_chat_repo(
     completed product messages are projected into ChatRepo by the durable Turn
     writer."""
     return ChatRepo(session, ctx.user_id)
+
+
+async def get_chat_project_repo(
+    session: AsyncSession = Depends(tenant_db),
+    ctx: AuthContext = Depends(current_user),
+) -> ChatProjectRepo:
+    """Tenant- and user-bound Project repository."""
+    return ChatProjectRepo(session, ctx.user_id)
 
 
 async def get_agent_runtime_repo(

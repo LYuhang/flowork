@@ -87,7 +87,7 @@ def _desired(
         runtime_session_id="runtime",
         sandbox_id="sandbox",
         sandbox_generation=7,
-        chat_mcp_config_revision=revision,
+        project_mcp_config_revision=revision,
         platform_contract_revision="platform-contract-1",
         skill_catalog_revision="skill-catalog-1",
         servers=list(servers),
@@ -309,6 +309,39 @@ async def test_hub_requires_active_turn_and_filters_platform_capabilities() -> N
     assert adapter.calls == [
         ("platform:interactive", "example_tool", {"value": 1}, "turn")
     ]
+
+
+@pytest.mark.asyncio
+async def test_project_hub_switches_chat_only_between_turns_and_rejects_old_context() -> None:
+    adapter = FakeAdapter()
+    hub = SandboxMcpHub(adapter)
+    first = _desired(_server("platform:interactive"))
+    second = first.model_copy(update={"chat_id": "chat-b"})
+    first_context = _context()
+    second_context = _context(turn_id="turn-b").model_copy(update={"chat_id": "chat-b"})
+    await hub.reconcile(first)
+    await hub.activate(first_context)
+    with pytest.raises(McpHubError, match="deactivated"):
+        await hub.reconcile(second)
+    await hub.deactivate()
+    result = await hub.reconcile(second)
+    assert result.changed_server_ids == []
+    with pytest.raises(McpHubError, match="chat_id"):
+        await hub.activate(first_context)
+    with pytest.raises(McpHubInactiveError):
+        await hub.call("interactive", "example_tool", {})
+    await hub.activate(second_context)
+    await hub.call("interactive", "example_tool", {})
+    assert adapter.calls[-1][-1] == "turn-b"
+    await hub.deactivate()
+    with pytest.raises(McpHubError, match="runtime_session_id"):
+        await hub.reconcile(second.model_copy(update={"runtime_session_id": "other-project"}))
+    await hub.reconcile(first)
+    await hub.activate(first_context)
+    await hub.call("interactive", "example_tool", {})
+    assert adapter.calls[-1][-1] == "turn"
+    assert adapter.started == [("platform:interactive", "rev-1")]
+    await hub.close()
 
 
 @pytest.mark.asyncio

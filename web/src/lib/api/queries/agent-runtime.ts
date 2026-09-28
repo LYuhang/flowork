@@ -20,16 +20,18 @@ export const runtimeCapabilitiesKey = (chatId?: string | null) => [
 
 export function useAgentRuntimeCapabilities(
   chatId?: string | null,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; projectId?: string | null },
 ) {
   return useQuery({
-    queryKey: runtimeCapabilitiesKey(chatId),
-    queryFn: () => getAgentRuntimeCapabilities(chatId),
+    queryKey: options?.projectId
+      ? [...runtimeCapabilitiesKey(chatId), options.projectId]
+      : runtimeCapabilitiesKey(chatId),
+    queryFn: () => getAgentRuntimeCapabilities(chatId, options?.projectId),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
     // Global Settings may be changed in another tab. Existing chats remain
-    // protected by their server-side Runtime binding, while an unstarted chat
-    // should always pick up the latest global default.
+    // protected by their Project Runtime binding. A new Chat inherits its
+    // Project source/model; only an unbound Project uses the global default.
     refetchOnWindowFocus: 'always',
   });
 }

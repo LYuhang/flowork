@@ -23,7 +23,7 @@ async def authorize_browser_cli(*, operation, arguments, token, endpoint):
     if transport is None:
         return {"error": "browser_disconnected", "message": "The authorized browser extension is not connected.",
                 "hint": "Open the Flowork side panel in the intended browser and reconnect. No other browser was selected."}
-    async with session_scope(tenant_id=capability.organization_id) as session:
+    async with session_scope(tenant_id=capability.organization_id, user_id=capability.user_id) as session:
         binding = await ChatRepo(session, capability.user_id).get_browser_binding(capability.chat_id)
     if (not binding or binding.get("status") not in {"attaching", "attached"}
             or not binding.get("browser_session_id") or int(binding.get("browser_session_generation") or 0) <= 0):
@@ -68,7 +68,7 @@ async def commit_browser_artifacts(*, operation, arguments, artifacts, token):
     committed = []
     for artifact in checked:
         path = artifact["file"]
-        if not path.startswith(("/data/", "/memory/", "/logs/")):
+        if not path.startswith(("/data/", "/memory/", "/logs/", "/chats/")):
             committed.append({**artifact, "persistence": "sandbox",
                               "warning": "This path is outside the durable Chat workspace. Use /data for downloads that must survive sandbox release."})
             continue

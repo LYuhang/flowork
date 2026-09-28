@@ -950,9 +950,11 @@ async def test_chat_runtime_broker_injects_provider_key_only_on_host(
     scope_id = (
         await client.get("/api/v1/chats/bootstrap", headers=browser_headers)
     ).json()["carrier_scope_id"]
+    project = await client.post("/api/v1/projects", headers=browser_headers, json={"name": "Model broker"})
+    assert project.status_code == 201, project.text
     sent = await client.post(
         f"/api/v1/chat-scopes/{scope_id}/chats/chat_broker/messages",
-        json={"role": "user", "content": "hello"},
+        json={"role": "user", "content": "hello", "project_id": project.json()["project_id"]},
         headers=browser_headers,
     )
     assert sent.status_code == 200, sent.text
@@ -1130,10 +1132,12 @@ async def test_privileged_chat_runtime_broker_keeps_exact_scope_and_revokes(
             scope_id = (
                 await operator.get("/api/v1/chats/bootstrap")
             ).json()["carrier_scope_id"]
+            project = await operator.post("/api/v1/projects", headers=_cookie_csrf(operator), json={"name": "Support broker"})
+            assert project.status_code == 201, project.text
             initial = await operator.post(
                 f"/api/v1/chat-scopes/{scope_id}/chats/support_broker/messages",
                 headers=_cookie_csrf(operator),
-                json={"role": "user", "content": "initial"},
+                json={"role": "user", "content": "initial", "project_id": project.json()["project_id"]},
             )
             assert initial.status_code == 200, initial.text
             assert len(dispatched_turns) == 1

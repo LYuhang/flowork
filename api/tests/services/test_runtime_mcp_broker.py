@@ -429,12 +429,18 @@ async def test_chat_custom_mcp_broker_keeps_remote_secrets_on_host(
     scope_id = (
         await client.get("/api/v1/chats/bootstrap", headers=browser_headers)
     ).json()["carrier_scope_id"]
+    project = await client.post("/api/v1/projects", headers=browser_headers, json={"name": "MCP broker"})
+    assert project.status_code == 201, project.text
+    project_id = project.json()["project_id"]
+    selection = await client.put(f"/api/v1/projects/{project_id}/mcp", headers=browser_headers,
+                                 json={"mcp_server_ids": [str(server_id)], "mcp_config_revision": 0})
+    assert selection.status_code == 200, selection.text
     sent = await client.post(
         f"/api/v1/chat-scopes/{scope_id}/chats/chat_mcp_broker/messages",
         json={
             "role": "user",
             "content": "use the selected MCP",
-            "mcp_server_ids": [str(server_id)],
+            "project_id": project_id,
         },
         headers=browser_headers,
     )

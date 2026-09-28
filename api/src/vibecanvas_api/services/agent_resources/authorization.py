@@ -260,7 +260,7 @@ async def require_chat_action(
         ConsistencyPreference.MINIMIZE_LATENCY
     ),
 ) -> Decision:
-    """Authorize a Chat-owned workspace resource at the current membership."""
+    """Authorize an operation in the originating Chat at current membership."""
     chat_id = str(getattr(ctx, "chat_id", "") or "").strip()
     if not chat_id:
         raise _permission_error()
@@ -402,7 +402,7 @@ async def _require_workflow_read(session, ctx, workflow_id: str) -> None:
 
 
 async def get_authorized_workflow_metadata(ctx, workflow_id: str, changes: dict | None = None) -> dict:
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         if changes is not None:
             await _require_active_chat_write(session, ctx)
         await _require_workflow_read(session, ctx, workflow_id)
@@ -429,7 +429,7 @@ async def create_authorized_workflow(
     """Create a workflow and its structural relationships atomically."""
     organization_id = str(getattr(ctx, "tenant_id", "") or "")
     principal = _principal(ctx)
-    async with session_scope(tenant_id=organization_id) as session:
+    async with session_scope(tenant_id=organization_id, user_id=ctx.username) as session:
         await _require_active_chat_write(session, ctx)
         service = _service(ctx, session)
         await _decision(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import aclosing
 from typing import AsyncIterator
 
 from vibecanvas_api.services.agent_runtime.protocol import (
@@ -40,10 +41,11 @@ class SandboxProcessRuntime:
             raise RuntimeError("runtime must be opened before run_turn")
         if request.runtime_session_id != self._session.runtime_session_id:
             raise ValueError("turn runtime_session_id does not match open session")
-        async for raw in self._sandbox_session.run_agent_runtime_stream(
+        async with aclosing(self._sandbox_session.run_agent_runtime_stream(
             request.model_dump(mode="json")
-        ):
-            yield RuntimeEvent.model_validate(raw)
+        )) as stream:
+            async for raw in stream:
+                yield RuntimeEvent.model_validate(raw)
 
     async def respond(self, response: RuntimeControlMessage) -> None:
         if self._session is None:

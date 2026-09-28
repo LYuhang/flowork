@@ -66,7 +66,8 @@ from ..schemas.chat import (
     ActiveAgentRun, Attachment,
     BackgroundJobCancelBody, BackgroundJobOut,
     BackgroundResultsControl,
-    BrowserBindingOut, ChatInventoryItem, ChatListItem, ChatRenameBody,
+    BrowserBindingOut, ChatCreateBody, ChatInventoryItem, ChatListItem, ChatRenameBody,
+    ChatProjectCreateBody, ChatProjectOut, ChatProjectRenameBody, ProjectMcpSelection,
     ChatRuntimeBindingOut, ChatStateOut, HistoryMessage,
     HitlContinueControl, HitlDecisionBody, HitlRequestOut,
     InteractiveArtifactResultFileBody,
@@ -76,6 +77,7 @@ from ..schemas.pagination import Page, PageRequest
 from ..services.user_mount_workspace import mount_scope_id as _mount_scope_id
 from ..storage.chat_repo import ChatRepo
 from ..storage.db import session_scope
+from ..storage.agent_runs_repo import AgentRunsRepo
 from ..storage.background_jobs_repo import (
     BackgroundJobsRepo,
     project_background_job,
@@ -93,7 +95,7 @@ from ..streaming.turn_runtime import (
 # turn and the `/browser` handoff producer with the frozen started/done envelope.
 from ..services.object_store import get_object_store
 from ..services.sandbox.manager import get_sandbox_manager
-from ..services.vfs_volume import get_chat_runtime_volume_provider
+from ..services.vfs_volume import get_project_runtime_volume_provider
 from ..services.agent_runtime.capabilities import (
     codex_account_model_id,
     codex_capabilities,
@@ -130,7 +132,8 @@ from ..services.agent_runtime.protocol import (
 )
 from ..services.agent_runtime.registry import AVAILABLE_RUNTIME_TYPES
 from ..services.chat_workspace import (
-    chat_workspace_scope_id as _chat_workspace_scope_id,
+    chat_working_directory,
+    project_workspace_scope_id as _project_workspace_scope_id,
 )
 from ..storage.repo_llm_credentials import LlmCredentialsRepo
 from ..services.preview_resource_policy import (
@@ -141,6 +144,7 @@ from ..services.vfs_signing import issue_vfs_resource_capability
 from .deps import (
     get_agent_runs_repo,
     get_agent_runtime_repo,
+    get_chat_project_repo,
     get_chat_repo,
     get_hitl_repo,
     get_workflow_repo,
@@ -197,6 +201,46 @@ def _chat_resource(auth: AuthContext, chat_id: str) -> ResourceRef:
         chat_id,
         auth.active_organization_id,
     )
+
+
+async def _chat_workspace_scope(
+    chat_repo: ChatRepo,
+    chat_id: str,
+) -> tuple[str, dict]:
+    """Resolve the actual workspace owner for an authorized Chat."""
+    inventory = await chat_repo.get_authorized_inventory(chat_id)
+    if inventory is None:
+        raise HTTPException(status_code=404, detail="chat_not_found")
+    return _project_workspace_scope_id(inventory["project_id"]), inventory
+
+
+async def _require_project(project_repo, project_id: str | None):
+    if not project_id:
+        raise HTTPException(status_code=422, detail="project_id_required")
+    project = await project_repo.get(project_id, for_update=True)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project_not_found")
+    return project
+
+
+async def _new_chat_project(project_repo, session, auth, *, chat_id, surface, project_id, name):
+    """Main app selects a Project; the extension creates one per conversation."""
+    if surface == "browser":
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"browser-project:{auth.user_id}:{chat_id}"},
+        )
+        expected_id = "prj_" + uuid.uuid5(uuid.NAMESPACE_URL, f"flowork:browser:{auth.user_id}:{chat_id}").hex
+        if project_id is not None and project_id != expected_id:
+            raise HTTPException(status_code=422, detail="browser_project_is_automatic")
+        project = await project_repo.get(expected_id, for_update=True)
+        if project is None:
+            await project_repo.create(project_id=expected_id, name=name or "Browser chat", surface="browser")
+        return expected_id
+    project = await _require_project(project_repo, project_id)
+    if project.surface != "chat":
+        raise HTTPException(status_code=404, detail="project_not_found")
+    return project.project_id
 
 
 async def _authorize_chat(
@@ -290,6 +334,10 @@ async def _rebind_request_organization(
         text("SELECT set_config('app.tenant_id', :organization_id, true)"),
         {"organization_id": auth.active_organization_id},
     )
+    await session.execute(
+        text("SELECT set_config('app.user_id', :user_id, true)"),
+        {"user_id": auth.user_id},
+    )
 
 
 async def _commit_new_chat_projection(
@@ -346,6 +394,330 @@ async def bootstrap_general_chat(
     }
 
 
+@router.get(
+    "/projects",
+    response_model=list[ChatProjectOut],
+    dependencies=[Depends(current_user)],
+)
+async def list_chat_projects(
+    project_repo=Depends(get_chat_project_repo),
+) -> list[ChatProjectOut]:
+    """List the current user's Project workspace roots."""
+    return [ChatProjectOut(**item) for item in await project_repo.list()]
+
+
+@router.post(
+    "/projects",
+    response_model=ChatProjectOut,
+    status_code=201,
+    dependencies=[Depends(current_user)],
+)
+async def create_chat_project(
+    body: ChatProjectCreateBody,
+    request: Request,
+    project_repo=Depends(get_chat_project_repo),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+) -> ChatProjectOut:
+    """Create the durable Project roots without starting a sandbox."""
+    await authorize_resource(
+        request=request,
+        auth=auth,
+        service=service,
+        resource=ResourceRef(
+            ResourceType.ORGANIZATION,
+            auth.active_organization_id,
+            auth.active_organization_id,
+        ),
+        action=Action.CREATE,
+    )
+    created = await project_repo.create(name=body.name)
+    await project_repo.commit()
+    return ChatProjectOut(**created)
+
+
+@router.put(
+    "/chat-scopes/{scope_id}/chats/{chat_id}",
+    response_model=ChatListItem,
+    dependencies=[Depends(current_user)],
+)
+async def create_chat_session(
+    scope_id: str,
+    chat_id: str,
+    body: ChatCreateBody,
+    request: Request,
+    session: AsyncSession = Depends(tenant_db),
+    chat_repo=Depends(get_chat_repo),
+    project_repo=Depends(get_chat_project_repo),
+    wf_repo=Depends(get_workflow_repo),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+) -> ChatListItem:
+    """Idempotently persist a Chat and its working directory, without a runtime."""
+    try:
+        chat_working_directory(chat_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid_chat_id") from exc
+    await _authorize_chat_carrier(
+        request=request, auth=auth, service=service, workflow_repo=wf_repo,
+        scope_id=scope_id, action=Action.USE,
+    )
+    await authorize_resource(
+        request=request, auth=auth, service=service,
+        resource=ResourceRef(ResourceType.ORGANIZATION, auth.active_organization_id,
+                             auth.active_organization_id),
+        action=Action.CREATE,
+    )
+    surface = "browser" if scope_id == _browser_carrier_scope_id(auth.user_id) else "chat"
+    project_id = await _new_chat_project(
+        project_repo, session, auth, chat_id=chat_id, surface=surface,
+        project_id=body.project_id, name="Browser chat",
+    )
+    try:
+        await chat_repo.register_session(
+            scope_id, chat_id=chat_id, name="New chat", surface=surface,
+            project_id=project_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="chat_not_found") from exc
+    await project_repo.touch(project_id)
+    await _commit_new_chat_projection(
+        request=request, session=session, auth=auth, chat_id=chat_id,
+        operation_id=f"{chat_id}:create",
+    )
+    items = await chat_repo.list_sessions(scope_id)
+    item = next(item for item in items if item["chat_id"] == chat_id)
+    return ChatListItem(
+        chat_id=chat_id, project_id=project_id, scope_id=scope_id,
+        surface=surface, chat_context=item["chat_context"],
+        created_at=datetime.fromtimestamp(item["created_at"], timezone.utc).isoformat(),
+        runtime_type=item["runtime_type"],
+        browser_control_status=item["browser_control_status"],
+    )
+
+
+@router.patch(
+    "/projects/{project_id}",
+    response_model=ChatProjectOut,
+    dependencies=[Depends(current_user)],
+)
+async def rename_chat_project(
+    project_id: str,
+    body: ChatProjectRenameBody,
+    project_repo=Depends(get_chat_project_repo),
+) -> ChatProjectOut:
+    updated = await project_repo.rename(project_id, body.name)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="project_not_found")
+    await project_repo.commit()
+    return ChatProjectOut(**updated)
+
+
+@router.delete("/projects/{project_id}", dependencies=[Depends(current_user)])
+async def delete_chat_project(
+    project_id: str,
+    request: Request,
+    project_repo=Depends(get_chat_project_repo),
+    chat_repo: ChatRepo = Depends(get_chat_repo),
+    session: AsyncSession = Depends(tenant_db),
+    auth: AuthContext = Depends(current_user),
+) -> dict:
+    """Delete a Project, all child Chats, and its shared workspace."""
+    project = await project_repo.get(project_id, for_update=True)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project_not_found")
+    chat_ids = await project_repo.chat_ids(project_id)
+    await _require_project_workspace_idle(session, auth, chat_ids)
+
+    workspace_scope_id = _project_workspace_scope_id(project_id)
+    await get_sandbox_manager().close_session(auth.tenant_id, workspace_scope_id)
+    vfs_deleted = await VfsRepo(
+        session,
+        object_store=get_object_store(),
+    ).delete_scope_prefixes(
+        wf_id=workspace_scope_id,
+        prefixes=["/data", "/memory", "/logs", "/chats", "/__runtime"],
+    )
+    runtime_state_deleted = await asyncio.to_thread(
+        get_project_runtime_volume_provider().delete,
+        tenant_id=auth.tenant_id,
+        user_id=auth.user_id,
+        project_scope_id=workspace_scope_id,
+    )
+    coordinator = mutation_coordinator_for_request(
+        request,
+        auth.active_organization_id,
+    )
+    before = frozenset().union(*(
+        resource_root_edges(
+            organization_id=auth.active_organization_id,
+            object_type="chat",
+            object_id=chat_id,
+            owner_relation="creator",
+            owner_type="user",
+            owner_id=auth.user_id,
+        )
+        for chat_id in chat_ids
+    )) if chat_ids else frozenset()
+    for chat_id in chat_ids:
+        await chat_repo.drop_authorized_session(chat_id)
+    await project_repo.soft_delete(project_id)
+    mutation_ids = await enqueue_structural_delta(
+        session=session,
+        coordinator=coordinator,
+        actor_type="user",
+        actor_id=auth.user_id,
+        before=before,
+        after=frozenset(),
+        operation_id=f"{project_id}:delete:{uuid.uuid4().hex}",
+        source="project-delete",
+    )
+    await session.commit()
+    await apply_committed_structural_mutations(coordinator, mutation_ids)
+    return {
+        "project_id": project_id,
+        "deleted_chat_ids": chat_ids,
+        "workspace_scope_id": workspace_scope_id,
+        "vfs_deleted": vfs_deleted,
+        "runtime_state_deleted": runtime_state_deleted,
+    }
+
+
+async def _require_project_workspace_idle(session, auth, chat_ids: list[str]) -> None:
+    runs = AgentRunsRepo(session)
+    delivery = BackgroundDeliveryRepo(session)
+    for chat_id in chat_ids:
+        if await runs.get_active_for_chat_user(chat_id, creator_user_id=auth.user_id):
+            raise HTTPException(status_code=409, detail={
+                "code": "project_turn_active",
+                "message": "Stop all active chats in this project before releasing its workspace.",
+            })
+        holds = await delivery.list_sandbox_holds_for_user(
+            chat_id=chat_id, creator_user_id=auth.user_id, limit=200,
+        )
+        if holds:
+            raise HTTPException(status_code=409, detail={
+                "code": "sandbox_held_by_background_jobs",
+                "job_ids": [job.job_id for job in holds],
+                "message": "A background job in this project still needs its workspace.",
+            })
+
+
+@router.get("/projects/sandboxes", dependencies=[Depends(current_user)])
+async def get_project_sandbox_statuses(
+    project_id: list[str] = Query(default=[]),
+    project_repo=Depends(get_chat_project_repo),
+    auth: AuthContext = Depends(current_user),
+) -> dict:
+    items = []
+    for pid in dict.fromkeys(project_id[:200]):
+        project = await project_repo.get(pid)
+        if project is None:
+            continue
+        scope_id = _project_workspace_scope_id(pid)
+        items.append({
+            "project_id": pid,
+            "scope_id": scope_id,
+            "mount_scope_id": _mount_scope_id(auth.user_id),
+            "runtime_type": project.runtime_type,
+            **await get_sandbox_manager().status(auth.tenant_id, scope_id),
+        })
+    return {"items": items}
+
+
+@router.get("/projects/{project_id}/mcp", response_model=ProjectMcpSelection)
+async def get_project_mcp_selection(
+    project_id: str,
+    project_repo=Depends(get_chat_project_repo),
+) -> ProjectMcpSelection:
+    selection = await project_repo.get_mcp_selection(project_id)
+    if selection is None:
+        raise HTTPException(status_code=404, detail="project_not_found")
+    return ProjectMcpSelection(**selection)
+
+
+@router.put("/projects/{project_id}/mcp", response_model=ProjectMcpSelection)
+async def set_project_mcp_selection(
+    project_id: str,
+    body: ProjectMcpSelection,
+    project_repo=Depends(get_chat_project_repo),
+    session: AsyncSession = Depends(tenant_db),
+    auth: AuthContext = Depends(current_user),
+) -> ProjectMcpSelection:
+    from ..storage.repo_mcp_servers import McpServersRepo
+
+    project = await _require_project(project_repo, project_id)
+    available = {
+        row["id"] for row in await McpServersRepo(session).list_enabled_for_user(auth.user_id)
+        if not (project.runtime_type == "codex" and row["transport"] == "sse")
+    }
+    if set(body.mcp_server_ids) - available:
+        raise HTTPException(status_code=409, detail={
+            "code": "mcp_selection_unavailable",
+            "message": "Select enabled, connected MCP servers owned by this user and supported by this runtime.",
+        })
+    selection = await project_repo.set_mcp_selection(
+        project_id,
+        mcp_server_ids=body.mcp_server_ids,
+        expected_revision=body.mcp_config_revision,
+    )
+    if not selection["ok"]:
+        raise HTTPException(status_code=409, detail=selection)
+    await project_repo.commit()
+    # Existing Turns retain their accepted tool snapshot. The shared Hub
+    # reconciles the new Project selection when the next Turn starts.
+    return ProjectMcpSelection(**selection)
+
+
+@router.get("/projects/{project_id}/workspace", dependencies=[Depends(current_user)])
+async def get_project_workspace(
+    project_id: str,
+    project_repo=Depends(get_chat_project_repo),
+    auth: AuthContext = Depends(current_user),
+) -> dict:
+    project = await project_repo.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project_not_found")
+    return {
+        "project_id": project_id,
+        "workspace_scope_id": _project_workspace_scope_id(project_id),
+        "mount_scope_id": _mount_scope_id(auth.user_id),
+    }
+
+
+@router.post("/projects/{project_id}/sandbox", dependencies=[Depends(current_user)])
+async def start_project_sandbox(
+    project_id: str,
+    project_repo=Depends(get_chat_project_repo),
+    auth: AuthContext = Depends(current_user),
+) -> dict:
+    await _require_project(project_repo, project_id)
+    scope_id = _project_workspace_scope_id(project_id)
+    sandbox = await get_sandbox_manager().get_session(
+        auth.tenant_id, scope_id, user_id=auth.user_id, expose_run=True,
+        expose_runtime=True, lease="interactive",
+    )
+    await sandbox.prewarm_fileops()
+    return {"project_id": project_id, "scope_id": scope_id,
+            **await get_sandbox_manager().status(auth.tenant_id, scope_id)}
+
+
+@router.delete("/projects/{project_id}/sandbox", dependencies=[Depends(current_user)])
+async def close_project_sandbox(
+    project_id: str,
+    project_repo=Depends(get_chat_project_repo),
+    session: AsyncSession = Depends(tenant_db),
+    auth: AuthContext = Depends(current_user),
+) -> dict:
+    project = await project_repo.get(project_id, for_update=True)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project_not_found")
+    await _require_project_workspace_idle(session, auth, await project_repo.chat_ids(project_id))
+    scope_id = _project_workspace_scope_id(project_id)
+    return {"project_id": project_id, "scope_id": scope_id,
+            **await get_sandbox_manager().close_session(auth.tenant_id, scope_id)}
+
+
 @router.get("/chats/workspace", dependencies=[Depends(current_user)])
 async def get_chat_workspace(
     request: Request,
@@ -363,11 +735,12 @@ async def get_chat_workspace(
         action=Action.VIEW,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    scope_id = _chat_workspace_scope_id(chat_id)
+    scope_id, inventory = await _chat_workspace_scope(chat_repo, chat_id)
     return {
         "workspace_scope_id": scope_id,
         "mount_scope_id": _mount_scope_id(auth.user_id),
         "chat_id": chat_id,
+        "project_id": inventory.get("project_id"),
     }
 
 
@@ -393,8 +766,10 @@ async def upload_chat_attachment(
     request: Request,
     file: UploadFile = File(...),
     attachment_type: str = Query(default="file"),
+    project_id: str | None = Query(default=None),
     wf_repo: WorkflowRepo = Depends(get_workflow_repo),
     chat_repo: ChatRepo = Depends(get_chat_repo),
+    project_repo=Depends(get_chat_project_repo),
     session: AsyncSession = Depends(tenant_db),
     auth: AuthContext = Depends(current_user),
     service: AuthzService = Depends(get_authz_service),
@@ -445,12 +820,17 @@ async def upload_chat_attachment(
             action=Action.CREATE,
         )
         surface = "browser" if scope_id == _browser_carrier_scope_id(auth.user_id) else "chat"
+        project_id = await _new_chat_project(
+            project_repo, session, auth, chat_id=chat_id, surface=surface,
+            project_id=project_id, name="New chat",
+        )
         try:
             await chat_repo.register_session(
                 scope_id,
-                chat_id,
-                chat_context="New chat",
+                chat_id=chat_id,
+                name="New chat",
                 surface=surface,
+                project_id=project_id,
             )
         except LookupError as exc:
             raise HTTPException(
@@ -474,9 +854,9 @@ async def upload_chat_attachment(
     )
 
     path = _validate_artifact_path(
-        f"/data/attachments/{uuid.uuid4().hex[:12]}_{name}"
+        f"{chat_working_directory(chat_id)}/attachments/{uuid.uuid4().hex[:12]}_{name}"
     )
-    workspace_scope = _chat_workspace_scope_id(chat_id)
+    workspace_scope, _inventory = await _chat_workspace_scope(chat_repo, chat_id)
     repo = VfsRepo(session, object_store=get_object_store())
     await repo.upsert_artifact_bytes(
         wf_id=workspace_scope,
@@ -504,64 +884,6 @@ async def upload_chat_attachment(
         content_type=content_type,
         size_bytes=len(data),
     )
-
-
-@router.get("/chats/sandbox", dependencies=[Depends(current_user)])
-async def get_chat_sandbox_status(
-    request: Request,
-    chat_id: str | None = Query(default=None),
-    auth: AuthContext = Depends(current_user),
-    service: AuthzService = Depends(get_authz_service),
-) -> dict:
-    """Resident Agent sandbox status for the general Chat surface.
-
-    This is read-only and intentionally does not create a sandbox. The resident
-    sandbox is still created lazily by tools that require it.
-    """
-    if chat_id:
-        await _authorize_chat(
-            request=request,
-            auth=auth,
-            service=service,
-            chat_id=chat_id,
-            action=Action.INSPECT_RUNS,
-        )
-    scope_id = (
-        _chat_workspace_scope_id(chat_id)
-        if chat_id else _chat_carrier_scope_id(auth.user_id)
-    )
-    status = await get_sandbox_manager().status(auth.tenant_id, scope_id)
-    return {"scope_id": scope_id, **status}
-
-
-@router.get("/chats/sandboxes", dependencies=[Depends(current_user)])
-async def get_chat_sandbox_statuses(
-    request: Request,
-    chat_id: list[str] = Query(default=[]),
-    auth: AuthContext = Depends(current_user),
-    service: AuthzService = Depends(get_authz_service),
-) -> dict:
-    """Batch resident sandbox statuses for the Chat history sidebar.
-
-    Read-only and non-creating: a history list should show resource placement
-    without warming missing workspaces or sandboxes.
-    """
-    items = []
-    seen: set[str] = set()
-    authorized_ids = set(await service.list_authorized_ids(
-        principal_for_auth(auth),
-        Action.INSPECT_RUNS,
-        ResourceType.CHAT,
-        context_for_auth(auth, request),
-    ))
-    for cid in chat_id[:200]:
-        if not cid or cid in seen or cid not in authorized_ids:
-            continue
-        seen.add(cid)
-        scope_id = _chat_workspace_scope_id(cid)
-        status = await get_sandbox_manager().status(auth.tenant_id, scope_id)
-        items.append({"chat_id": cid, "scope_id": scope_id, **status})
-    return {"items": items}
 
 
 @router.patch(
@@ -600,20 +922,15 @@ async def delete_chat_session(
     chat_id: str,
     request: Request,
     surface: str = Query(default="chat"),
+    delete_files: bool = Query(default=False),
     chat_repo: ChatRepo = Depends(get_chat_repo),
+    project_repo=Depends(get_chat_project_repo),
     agent_runs_repo=Depends(get_agent_runs_repo),
     session: AsyncSession = Depends(tenant_db),
     auth: AuthContext = Depends(current_user),
     service: AuthzService = Depends(get_authz_service),
 ) -> dict:
-    """Delete one chat and its chat-local workspace data.
-
-    The chat row is soft-deleted, persisted message rows are removed, the live
-    sandbox is closed, and the chat workspace VFS prefixes `/data`, `/memory`,
-    and `/logs` are removed. Creators use their normal carrier; organization
-    admins may use the content-free inventory scope after an explicit DELETE
-    decision and high-risk step-up.
-    """
+    """Delete one Chat thread without deleting its parent Project workspace."""
     agent_surface = "browser" if surface == "browser" else "chat"
     await _authorize_chat(
         request=request,
@@ -633,6 +950,12 @@ async def delete_chat_session(
     creator_user_id = selected["creator_user_id"]
     if creator_user_id != auth.user_id:
         await require_recent_step_up(auth)
+        # Organization moderation may remove a Chat, but does not grant access
+        # to its owner's private Project files or shared Runtime.
+        if delete_files:
+            raise HTTPException(status_code=404, detail="project_not_found")
+    else:
+        await _require_project(project_repo, selected["project_id"])
     if selected.get("browser_control_status") in {
         "attaching", "attached", "lost",
     }:
@@ -664,53 +987,21 @@ async def delete_chat_session(
             },
         )
 
-    workspace_scope_id = _chat_workspace_scope_id(chat_id)
-    runtime_binding = (
-        {
-            "runtime_type": selected["runtime_type"],
-            "runtime_session_id": selected["runtime_session_id"],
-            "runtime_state_ref": selected["runtime_state_ref"],
-            "runtime_version": selected["runtime_version"],
-        }
-        if selected.get("runtime_type")
-        and selected.get("runtime_session_id")
-        and selected.get("runtime_state_ref")
-        else None
-    )
-    await get_sandbox_manager().close_session(auth.tenant_id, workspace_scope_id)
-    vfs_deleted = await VfsRepo(
-        session,
-        object_store=get_object_store(),
-    ).delete_scope_prefixes(
-        wf_id=workspace_scope_id,
-        prefixes=["/data", "/memory", "/logs", "/__runtime"],
-    )
+    workspace_scope_id = _project_workspace_scope_id(selected["project_id"])
+    # Thread deletion never tears down the Project's shared process or files.
+    vfs_deleted = 0
     runtime_state_deleted = False
-    if runtime_binding is not None and runtime_binding.get("runtime_type"):
-        runtime_type = RuntimeType(runtime_binding["runtime_type"])
-        runtime_state_deleted = await AgentRuntimeOrchestrator().delete_state(
-            RuntimeOpenRequest(
-                tenant_id=auth.tenant_id,
-                user_id=creator_user_id,
-                chat_id=chat_id,
-                runtime_type=runtime_type,
-                runtime_session_id=runtime_binding["runtime_session_id"],
-                runtime_root=private_runtime_root(runtime_type, chat_id),
-                state_ref=runtime_binding["runtime_state_ref"],
-                runtime_version=runtime_binding["runtime_version"],
-            )
+    if delete_files:
+        await _require_project_workspace_idle(
+            session, auth, await project_repo.chat_ids(selected["project_id"]),
         )
-    # The Runtime Volume belongs to the Chat, not to one adapter checkpoint.
-    # A Chat may have created the volume before its first Runtime state_ref, and
-    # Runtime Chats can also have an empty volume from sandbox preparation.
-    # Delete it unconditionally after the sandbox owner has been closed.
-    runtime_volume_deleted = await asyncio.to_thread(
-        get_chat_runtime_volume_provider().delete,
-        tenant_id=auth.tenant_id,
-        user_id=creator_user_id,
-        chat_scope_id=workspace_scope_id,
-    )
-    runtime_state_deleted = runtime_state_deleted or runtime_volume_deleted
+        prefix = chat_working_directory(chat_id)
+        # Stop old mounted bytes being written back after the durable deletion.
+        # This does not stop or delete the shared Project Runtime.
+        await get_sandbox_manager().mirror_vfs_delete(auth.tenant_id, workspace_scope_id, prefix)
+        vfs_deleted = await VfsRepo(session, object_store=get_object_store()).delete_scope_prefixes(
+            wf_id=workspace_scope_id, prefixes=[prefix],
+        )
     await chat_repo.drop_authorized_session(chat_id)
     coordinator = mutation_coordinator_for_request(
         request,
@@ -741,7 +1032,7 @@ async def delete_chat_session(
         scope_id=scope_id,
         workspace_scope_id=workspace_scope_id,
         vfs_deleted=vfs_deleted,
-        runtime_type=runtime_binding.get("runtime_type") if runtime_binding else None,
+        runtime_type=selected["runtime_type"],
         runtime_state_deleted=runtime_state_deleted,
     )
     return {
@@ -752,115 +1043,6 @@ async def delete_chat_session(
     }
 
 
-@router.post("/chats/sandbox", dependencies=[Depends(current_user)])
-async def start_chat_sandbox(
-    request: Request,
-    chat_id: str = Query(...),
-    chat_repo: ChatRepo = Depends(get_chat_repo),
-    session: AsyncSession = Depends(tenant_db),
-    auth: AuthContext = Depends(current_user),
-    service: AuthzService = Depends(get_authz_service),
-) -> dict:
-    """Explicitly warm the resident sandbox for one Chat workspace."""
-    carrier_scope_id = _chat_carrier_scope_id(auth.user_id)
-    sessions = await chat_repo.list_sessions(carrier_scope_id, surface="chat")
-    if not any(item["chat_id"] == chat_id for item in sessions):
-        await authorize_resource(
-            request=request,
-            auth=auth,
-            service=service,
-            resource=ResourceRef(
-                ResourceType.ORGANIZATION,
-                auth.active_organization_id,
-                auth.active_organization_id,
-            ),
-            action=Action.CREATE,
-        )
-        try:
-            await chat_repo.register_session(
-                carrier_scope_id,
-                chat_id,
-                chat_context="New chat",
-                surface="chat",
-            )
-        except LookupError as exc:
-            raise HTTPException(
-                status_code=404,
-                detail="chat_not_found",
-            ) from exc
-        await _commit_new_chat_projection(
-            request=request,
-            session=session,
-            auth=auth,
-            chat_id=chat_id,
-            operation_id=f"{chat_id}:sandbox:{uuid.uuid4().hex}",
-        )
-    await _authorize_chat(
-        request=request,
-        auth=auth,
-        service=service,
-        chat_id=chat_id,
-        action=Action.MOUNT,
-        consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
-    )
-    scope_id = _chat_workspace_scope_id(chat_id)
-    session = await get_sandbox_manager().get_session(
-        auth.tenant_id,
-        scope_id,
-        user_id=auth.user_id,
-        expose_run=True,
-    )
-    await session.prewarm_fileops()
-    status = await get_sandbox_manager().status(auth.tenant_id, scope_id)
-    return {
-        "scope_id": scope_id,
-        "mount_scope_id": _mount_scope_id(auth.user_id),
-        **status,
-    }
-
-
-@router.delete("/chats/sandbox", dependencies=[Depends(current_user)])
-async def close_chat_sandbox(
-    request: Request,
-    chat_id: str | None = Query(default=None),
-    session: AsyncSession = Depends(tenant_db),
-    auth: AuthContext = Depends(current_user),
-    service: AuthzService = Depends(get_authz_service),
-) -> dict:
-    """Release a Chat sandbox only when no background result still needs it."""
-    scope_id = (
-        _chat_workspace_scope_id(chat_id)
-        if chat_id else _chat_carrier_scope_id(auth.user_id)
-    )
-    if chat_id:
-        await _authorize_chat(
-            request=request,
-            auth=auth,
-            service=service,
-            chat_id=chat_id,
-            action=Action.CANCEL,
-            consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
-        )
-        repo = BackgroundDeliveryRepo(session)
-        holds = await repo.list_sandbox_holds_for_user(
-            chat_id=chat_id,
-            creator_user_id=auth.user_id,
-            limit=200,
-        )
-        if holds:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "sandbox_held_by_background_jobs",
-                    "job_ids": [job.job_id for job in holds],
-                },
-            )
-    status = await get_sandbox_manager().close_session(auth.tenant_id, scope_id)
-    return {
-        "scope_id": scope_id,
-        "cancelled_background_job_ids": [],
-        **status,
-    }
 
 
 def _debug_meta(m) -> dict:
@@ -980,6 +1162,7 @@ def _session_to_list_item(
     )
     return ChatListItem(
         chat_id=session["chat_id"],
+        project_id=session.get("project_id"),
         scope_id=scope_id,
         surface=session.get("surface", "chat"),
         chat_context=(
@@ -1052,6 +1235,7 @@ async def list_chat_inventory(
         items=[
             ChatInventoryItem(
                 chat_id=row["chat_id"],
+                project_id=row.get("project_id"),
                 scope_id=row["scope_id"],
                 surface=row["surface"],
                 runtime_type=row["runtime_type"],
@@ -1427,6 +1611,7 @@ async def create_interactive_resource_session(
     artifact_id: str,
     request: Request,
     hitl_repo=Depends(get_hitl_repo),
+    chat_repo: ChatRepo = Depends(get_chat_repo),
     auth: AuthContext = Depends(current_user),
     service: AuthzService = Depends(get_authz_service),
 ):
@@ -1450,7 +1635,9 @@ async def create_interactive_resource_session(
         raise HTTPException(status_code=404, detail=f"interactive artifact {artifact_id} not found")
     cfg = app_config.agent.compaction_v2
     ttl = max(30, int(cfg.interactive_artifact_resource_ttl_s))
-    workspace_scope = _chat_workspace_scope_id(row.chat_id)
+    workspace_scope, _inventory = await _chat_workspace_scope(
+        chat_repo, row.chat_id
+    )
     definition = dict(row.definition_json or {})
     props = definition.get("props")
     props = props if isinstance(props, dict) else {}
@@ -1609,6 +1796,7 @@ async def save_interactive_artifact_result_file(
     body: InteractiveArtifactResultFileBody,
     request: Request,
     hitl_repo=Depends(get_hitl_repo),
+    chat_repo: ChatRepo = Depends(get_chat_repo),
     auth: AuthContext = Depends(current_user),
     service: AuthzService = Depends(get_authz_service),
 ):
@@ -1658,7 +1846,9 @@ async def save_interactive_artifact_result_file(
         not_found_detail="interactive_artifact_not_found",
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    workspace_scope = _chat_workspace_scope_id(row.chat_id)
+    workspace_scope, _inventory = await _chat_workspace_scope(
+        chat_repo, row.chat_id
+    )
     repo = VfsRepo(hitl_repo.session, object_store=get_object_store())
     replaced = await repo.upsert_artifact_bytes(
         wf_id=workspace_scope,
@@ -1763,6 +1953,74 @@ async def decide_hitl_request(
     # HTTP/frontends independent from SDK-native control identifiers and works
     # even when the decision reaches a different API worker.
     return _hitl_out(row, decision_applied=decision_applied)
+
+
+@router.get("/chats/{chat_id}/debug/messages")
+async def get_chat_debug_messages(
+    chat_id: str,
+    request: Request,
+    after_id: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    include_artifacts: bool = Query(default=True),
+    chat_repo: ChatRepo = Depends(get_chat_repo),
+    hitl_repo=Depends(get_hitl_repo),
+    session: AsyncSession = Depends(tenant_db),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    """The complete stored conversation, not a native model-input snapshot.
+
+    Cursor pages preserve every role and full content; the UI folds long
+    messages. No sandbox access, file generation, or streaming-token writes.
+    """
+    if not app_config.agent_debug_view_enabled:
+        raise HTTPException(status_code=404, detail="chat_debug_unavailable")
+    await _authorize_chat(
+        request=request, auth=auth, service=service,
+        chat_id=chat_id, action=Action.VIEW,
+    )
+    if await chat_repo.get_authorized_inventory(chat_id) is None:
+        raise HTTPException(status_code=404, detail="chat_not_found")
+    rows, _, _ = await chat_repo.list_message_page(
+        chat_id, limit=limit + 1, after_message_id=after_id,
+    )
+    messages = []
+    for row in rows[:limit]:
+        stored = row["content"]
+        messages.append({
+            "cursor": row["id"],
+            "id": row["message_id"],
+            "role": row["role"],
+            "content": str(stored.get("text") or ""),
+            "turn_id": row["turn_id"],
+            "ts": row["ts"],
+            "tool_calls": stored.get("tool_calls") or [],
+            "tool_call_id": stored.get("tool_call_id"),
+            "attachments": stored.get("attachments") or [],
+            "artifact": stored.get("artifact"),
+            "invocation": stored.get("invocation"),
+            "activity": stored.get("activity"),
+            "control": stored.get("control"),
+            "message_type": stored.get("message_type"),
+            "visibility": stored.get("visibility"),
+            "meta": row["meta"],
+        })
+    artifacts = None
+    turns = None
+    if include_artifacts:
+        artifacts = [
+            _interactive_artifact_out(artifact, hitl_status=getattr(hitl, "status", None))
+            for artifact, hitl in await hitl_repo.list_artifact_refs_for_chat(chat_id)
+        ]
+        turns = await AgentRunsRepo(session).list_debug_turns(chat_id, creator_user_id=auth.user_id)
+    return {
+        "chat_id": chat_id,
+        "messages": messages,
+        "artifacts": artifacts,
+        "turns": turns,
+        "next_cursor": messages[-1]["cursor"] if messages else after_id,
+        "has_more": len(rows) > limit,
+    }
 
 
 @router.get("/chat-scopes/{scope_id}/chats/{chat_id}/messages",
@@ -1956,7 +2214,6 @@ async def get_chat_state(
             "text": text if isinstance(text, str) else str(text or ""),
             "status": item["status"],
         })
-    selection = await chat_repo.get_mcp_selection(chat_id)
     background_repo = BackgroundJobsRepo(session)
     await background_repo.reconcile_stale_for_chat(chat_id=chat_id)
     background_jobs = await background_repo.list_for_user(
@@ -1970,8 +2227,6 @@ async def get_chat_state(
             project_background_job(job) for job in background_jobs
         ],
         active_modes=sorted(await chat_repo.get_active_modes(chat_id)),
-        mcp_server_ids=(selection or {}).get("mcp_server_ids", []),
-        mcp_config_revision=(selection or {}).get("mcp_config_revision", 0),
     )
 
 
@@ -2250,6 +2505,7 @@ async def post_message(
     http_request: Request,
     wf_repo: WorkflowRepo = Depends(get_workflow_repo),
     chat_repo: ChatRepo = Depends(get_chat_repo),
+    project_repo=Depends(get_chat_project_repo),
     hitl_repo=Depends(get_hitl_repo),
     runtime_repo=Depends(get_agent_runtime_repo),
     agent_runs_repo=Depends(get_agent_runs_repo),
@@ -2412,6 +2668,10 @@ async def post_message(
             ),
             action=Action.CREATE,
         )
+        project_id = await _new_chat_project(
+            project_repo, session, auth, chat_id=chat_id, surface=agent_surface,
+            project_id=body.project_id, name=stripped[:80],
+        )
         # Synchronous, in-handler, BEFORE the streaming task is created:
         # the per-request DI session safely owns this write. The SSE producer
         # below does NOT touch chat_repo / its session. (Committed just before
@@ -2419,9 +2679,10 @@ async def post_message(
         try:
             await chat_repo.register_session(
                 scope_id,
-                chat_id,
-                chat_context=stripped[:80],
+                chat_id=chat_id,
+                name=stripped[:80],
                 surface=agent_surface,
+                project_id=project_id,
             )
         except LookupError as exc:
             raise HTTPException(
@@ -2437,6 +2698,7 @@ async def post_message(
                 f"{chat_id}:{body.client_request_id or uuid.uuid4().hex}"
             ),
         )
+        await project_repo.touch(project_id)
     elif body.control is None:
         await _authorize_chat(
             request=http_request,
@@ -2639,17 +2901,12 @@ async def post_message(
     # Runtime capabilities are Turn-scoped, so allocate the durable Run id
     # before constructing any custom MCP or model descriptor.
     turn_id = new_turn_id()
-    if control_projection is not None:
-        existing_selection = await chat_repo.get_mcp_selection(chat_id)
-        if existing_selection is None:
-            raise HTTPException(status_code=404, detail=f"chat {chat_id} not found")
-        selected_mcp_values = list(existing_selection["mcp_server_ids"])
-    else:
-        selected_mcp_values = list(body.mcp_server_ids)
-    try:
-        selected_mcp_ids = [uuid.UUID(value) for value in selected_mcp_values]
-    except ValueError as exc:  # schema validation normally catches this
-        raise HTTPException(status_code=422, detail="invalid MCP server id") from exc
+    # Project owns the selected MCP set. Sending a Chat message never writes
+    # project settings or resubmits a stale browser copy of the selection.
+    mcp_selection = await project_repo.get_mcp_selection(runtime_binding["project_id"])
+    if mcp_selection is None:
+        raise HTTPException(status_code=404, detail="project_not_found")
+    selected_mcp_values = mcp_selection["mcp_server_ids"]
     try:
         selected_custom_mcp_authority = await resolve_custom_mcp_authority(
             auth.tenant_id,
@@ -2667,22 +2924,6 @@ async def post_message(
             status_code=409,
             detail={"code": "mcp_selection_unavailable", "message": str(exc)},
         ) from exc
-    mcp_selection = (
-        {
-            "ok": True,
-            **existing_selection,
-        }
-        if control_projection is not None
-        else await chat_repo.set_mcp_selection(
-            chat_id,
-            mcp_server_ids=selected_mcp_ids,
-            expected_revision=body.chat_config_revision,
-        )
-    )
-    if not mcp_selection.get("ok"):
-        if mcp_selection.get("error_code") == "mcp_config_revision_conflict":
-            raise HTTPException(status_code=409, detail=mcp_selection)
-        raise HTTPException(status_code=404, detail=f"chat {chat_id} not found")
 
     # Load the chat's persisted active_modes, then apply this turn's command.
     active_modes = await chat_repo.get_active_modes(chat_id)
@@ -2703,7 +2944,9 @@ async def post_message(
             active_modes = active_modes | {cmd}
             await chat_repo.set_active_modes(chat_id, active_modes)
 
-    chat_workspace_scope_id = _chat_workspace_scope_id(chat_id)
+    chat_workspace_scope_id, _chat_inventory = await _chat_workspace_scope(
+        chat_repo, chat_id
+    )
     # AgentContext owns the Chat workspace mounts. Explicit Workflow targets
     # are command arguments and never remount the workspace.
     agent_wf_id = chat_workspace_scope_id
@@ -3020,7 +3263,7 @@ async def post_message(
             }
         )
 
-    runtime_root = private_runtime_root(runtime_type, chat_id)
+    runtime_root = private_runtime_root(runtime_type)
     effective_active_modes = (
         (active_modes | {"browser"}) if body.mode == "browser" else active_modes
     )
@@ -3141,7 +3384,7 @@ async def post_message(
         instructions=runtime_instructions,
         command_context={
             "thread_id": thread_id,
-            "is_first": is_first,
+            "is_first": history_total == 0 and body.control is None,
             "chat_context": stripped[:80],
             "workspace_scope_id": agent_wf_id,
             "agent_surface": agent_surface,
@@ -3257,7 +3500,7 @@ async def post_message(
                 ],
                 "mcp_snapshot": {
                     "server_ids": mcp_selection["mcp_server_ids"],
-                    "chat_config_revision": mcp_selection["mcp_config_revision"],
+                    "project_mcp_config_revision": mcp_selection["mcp_config_revision"],
                     "set_hash": hashlib.sha256(
                         json.dumps(
                             mcp_selection["mcp_server_ids"],
@@ -3428,7 +3671,7 @@ async def post_message(
         runtime_type=runtime_type.value,
         chat_id=chat_id,
         turn_id=turn_id,
-        first_turn=is_first,
+        first_turn=history_total == 0 and body.control is None,
         custom_mcp_count=len(selected_custom_mcp_authority),
         platform_mcp_count=len(active_platform_mcps),
         skill_count=len(runtime_skills),

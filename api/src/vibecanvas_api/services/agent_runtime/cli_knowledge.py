@@ -4,10 +4,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import traceback
 import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import text
+import structlog
 
 from vibecanvas_api.agents.tools.decorator import ToolError
 from vibecanvas_api.authorization.types import Action, ConsistencyPreference
@@ -22,6 +24,8 @@ from vibecanvas_api.services.agent_resources.authorization import _require_activ
 from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_kb import KbRepo
+
+logger = structlog.get_logger(__name__)
 
 
 def metadata(row):
@@ -138,7 +142,7 @@ async def execute(call, arguments):
             await _approve(call, summary, prompt="Approve " + operation.replace(".", " ") + "? " + json.dumps(summary) + warning)
         await call.emit({"progress": {"status": "approved" if needs_approval else "auto_approved", "message": "Operation approved. Rechecking current permissions before publication."}})
         ctx = await agent_context.resolve_context(cap)
-        async with session_scope(tenant_id=ctx.tenant_id) as session:
+        async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
             await _require_active_chat_write(session, ctx)
             if not (await session.execute(text("SELECT 1 FROM knowledge_cli_leases WHERE call_id=:id AND expires_at>now()"), {"id": call.call_id})).first():
                 raise ToolError("approval_cancelled", "The CLI command is no longer active.")
@@ -200,4 +204,10 @@ async def execute(call, arguments):
             return {"status": "failed", **error("invalid_arguments", str(exc), "Check this command's --help. No package was published.")}
         if isinstance(exc, PermissionError):
             return {"status": "failed", **error("permission_denied", "The identity or command is no longer authorized.", "Use a new authorized Agent turn.")}
+        # Keep package bytes, credentials and exception/SQL parameter values
+        # out of logs while retaining actionable internal failure locations.
+        logger.error("knowledge_cli_failed", operation=operation,
+            error_type=type(exc).__name__, publication_started=started,
+            frames=[{"file": frame.filename, "line": frame.lineno, "function": frame.name}
+                    for frame in traceback.extract_tb(exc.__traceback__)])
         return uncertain_result() if started else error("knowledge_unavailable", "The Knowledge operation is unavailable.", "Inspect permissions/status and report the failure.")

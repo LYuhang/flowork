@@ -38,6 +38,7 @@ function renderComposer(
         <ChatComposer
           wfId="wf_x"
           chatId={chatId}
+          projectId="project_test"
           embedded={embedded}
           showModelSelector={showModelSelector}
           onSendStart={onSendStart}
@@ -54,6 +55,9 @@ describe('ChatComposer Stop', () => {
   beforeEach(() => {
     cancelled = [];
     server.use(
+      http.get('*/api/v1/projects/:projectId/mcp', () => HttpResponse.json({
+        mcp_server_ids: [], mcp_config_revision: 0,
+      })),
       http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({
         carrier_scope_id: 'wf_x',
         surface: 'chat',
@@ -523,10 +527,10 @@ describe('ChatComposer Stop', () => {
     expect(screen.queryByText(new RegExp(removedRuntimeModelId))).toBeNull();
   });
 
-  it('waits for the persisted chat row before reading chat state', async () => {
+  it('waits for a selected Project before reading shared MCP settings', async () => {
     let stateReads = 0;
     server.use(
-      http.get('*/api/v1/chat-scopes/wf_x/chats/chat_pending/state', () => {
+      http.get('*/api/v1/projects/project_test/mcp', () => {
         stateReads += 1;
         return HttpResponse.json({
           todo_items: [],
@@ -543,7 +547,7 @@ describe('ChatComposer Stop', () => {
     const view = render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
-          <ChatComposer wfId="wf_x" chatId="chat_pending" chatStateReady={false} />
+          <ChatComposer wfId="wf_x" chatId="chat_pending" />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -554,14 +558,14 @@ describe('ChatComposer Stop', () => {
     view.rerender(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
-          <ChatComposer wfId="wf_x" chatId="chat_pending" chatStateReady />
+          <ChatComposer wfId="wf_x" chatId="chat_pending" projectId="project_test" />
         </MemoryRouter>
       </QueryClientProvider>,
     );
     await waitFor(() => expect(stateReads).toBe(1));
   });
 
-  it('keeps MCP selection available before a draft chat state is materialized', async () => {
+  it('loads Project MCP settings without reading Chat state', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -571,7 +575,7 @@ describe('ChatComposer Stop', () => {
           <ChatComposer
             wfId="wf_x"
             chatId="chat_draft"
-            chatStateReady={false}
+            projectId="project_test"
             showModelSelector
           />
         </MemoryRouter>
@@ -588,7 +592,7 @@ describe('ChatComposer Stop', () => {
 
   it('does not advertise or resend an uninstalled MCP selection', async () => {
     server.use(
-      http.get('*/api/v1/chat-scopes/wf_x/chats/chat_uninstalled_mcp/state', () =>
+      http.get('*/api/v1/projects/project_test/mcp', () =>
         HttpResponse.json({
           todo_items: [],
           background_jobs: [],

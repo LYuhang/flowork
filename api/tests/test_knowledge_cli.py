@@ -21,6 +21,22 @@ def encoded(path="README.md", data=b"# Package"):
     return {"path": path, "data": base64.b64encode(data).decode()}
 
 
+@pytest.mark.asyncio
+async def test_unexpected_host_failure_logs_locations_without_secret_values(monkeypatch):
+    secret = "private-package-content-must-not-be-logged"
+    monkeypatch.setattr(host.agent_context, "resolve_context", AsyncMock(side_effect=RuntimeError(secret)))
+    logged = []
+    monkeypatch.setattr(host.logger, "error", lambda event, **fields: logged.append((event, fields)))
+    call = SimpleNamespace(operation="knowledge.list", capability=SimpleNamespace())
+    result = await host.execute(call, {"limit": 20, "offset": 0})
+    assert result["error"] == "knowledge_unavailable"
+    assert logged[0][0] == "knowledge_cli_failed"
+    assert logged[0][1]["error_type"] == "RuntimeError"
+    assert logged[0][1]["publication_started"] is False
+    assert logged[0][1]["frames"]
+    assert secret not in json.dumps([result, logged])
+
+
 def test_list_and_search_named_contract(monkeypatch, capsys):
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append((args, kw)) or {"status": "succeeded"})
@@ -198,7 +214,7 @@ def test_large_package_has_no_four_mib_cli_cap(tmp_path, monkeypatch):
 ])
 async def test_host_approval_and_frozen_publication(monkeypatch, mode, action, approval):
     from vibecanvas_api.services.agent_runtime import cli_delete
-    ctx = SimpleNamespace(tenant_id=str(uuid4()))
+    ctx = SimpleNamespace(tenant_id=str(uuid4()), username=str(uuid4()))
     session = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(first=lambda: (1,))), commit=AsyncMock())
     @asynccontextmanager
     async def scope(**kw):

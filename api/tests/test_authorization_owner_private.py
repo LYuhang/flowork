@@ -90,9 +90,12 @@ async def _seed_private_run(
 ) -> None:
     key = f"run/{owner['tenant_id']}/{run_id}/result.txt"
     get_object_store().put_bytes(key, b"owner only", "text/plain")
-    async with session_scope(tenant_id=owner["tenant_id"]) as session:
+    async with session_scope(tenant_id=owner["tenant_id"], user_id=owner["user_id"]) as session:
+        from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
+        project = await ChatProjectRepo(session, owner["user_id"]).create(name="Private")
         await ChatRepo(session, owner["user_id"]).register_session(
             f"__chat_{owner['user_id'].replace('-', '')[:24]}",
+            project_id=project["project_id"],
             name="Private Chat",
             chat_id=chat_id,
         )

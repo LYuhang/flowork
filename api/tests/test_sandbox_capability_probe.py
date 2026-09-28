@@ -36,6 +36,7 @@ class _ProbeProvider:
             "/data",
             "/memory",
             "/logs",
+            "/chats",
             "/mount",
         ]
         assert bus_socket.endswith("/bus/probe.sock")

@@ -10,17 +10,17 @@ import pytest
 from vibecanvas_api.security.object_cipher import MAGIC
 from vibecanvas_api.services.object_store import FilesystemObjectStore
 from vibecanvas_api.services.vfs_volume import (
-    EncryptedObjectStoreChatRuntimeVolumeProvider,
-    LocalPosixChatRuntimeVolumeProvider,
+    EncryptedObjectStoreProjectRuntimeVolumeProvider,
+    LocalPosixProjectRuntimeVolumeProvider,
 )
 
 
-def test_chat_runtime_volume_is_direct_and_durable_across_provider_loss(tmp_path):
-    provider = LocalPosixChatRuntimeVolumeProvider(str(tmp_path))
+def test_project_runtime_volume_is_direct_and_durable_across_provider_loss(tmp_path):
+    provider = LocalPosixProjectRuntimeVolumeProvider(str(tmp_path))
     first = provider.ensure(
         tenant_id="tenant-one",
         user_id="user-one",
-        chat_scope_id="chat-one",
+        project_scope_id="project-one",
     )
     agents = Path(first.path) / ".codex" / "AGENTS.md"
     agents.parent.mkdir(parents=True)
@@ -34,10 +34,10 @@ def test_chat_runtime_volume_is_direct_and_durable_across_provider_loss(tmp_path
 
     # Recreating the provider models losing the sandbox/session process. There
     # is no hydrate step: the next process receives the exact same directory.
-    second = LocalPosixChatRuntimeVolumeProvider(str(tmp_path)).ensure(
+    second = LocalPosixProjectRuntimeVolumeProvider(str(tmp_path)).ensure(
         tenant_id="tenant-one",
         user_id="user-one",
-        chat_scope_id="chat-one",
+        project_scope_id="project-one",
     )
 
     assert second == first
@@ -49,28 +49,28 @@ def test_chat_runtime_volume_is_direct_and_durable_across_provider_loss(tmp_path
     assert os.stat(first.path).st_mode & 0o777 == 0o700
 
 
-def test_chat_runtime_volume_isolated_and_exact_delete(tmp_path):
-    provider = LocalPosixChatRuntimeVolumeProvider(str(tmp_path))
+def test_project_runtime_volume_isolated_and_exact_delete(tmp_path):
+    provider = LocalPosixProjectRuntimeVolumeProvider(str(tmp_path))
     first = provider.ensure(
-        tenant_id="tenant", user_id="user", chat_scope_id="chat-one"
+        tenant_id="tenant", user_id="user", project_scope_id="project-one"
     )
     sibling = provider.ensure(
-        tenant_id="tenant", user_id="user", chat_scope_id="chat-two"
+        tenant_id="tenant", user_id="user", project_scope_id="project-two"
     )
     Path(first.path, "marker").write_text("one", encoding="utf-8")
     Path(sibling.path, "marker").write_text("two", encoding="utf-8")
 
     assert provider.delete(
-        tenant_id="tenant", user_id="user", chat_scope_id="chat-one"
+        tenant_id="tenant", user_id="user", project_scope_id="project-one"
     ) is True
     assert not Path(first.path).exists()
     assert Path(sibling.path, "marker").read_text(encoding="utf-8") == "two"
     assert provider.delete(
-        tenant_id="tenant", user_id="user", chat_scope_id="chat-one"
+        tenant_id="tenant", user_id="user", project_scope_id="project-one"
     ) is False
 
 
-def test_chat_runtime_volume_migrates_legacy_codex_directory_once(tmp_path):
+def test_project_runtime_volume_does_not_import_legacy_chat_state(tmp_path):
     tenant = "tenant"
     user = "user"
     chat_scope = "chat-scope"
@@ -84,32 +84,51 @@ def test_chat_runtime_volume_migrates_legacy_codex_directory_once(tmp_path):
     legacy.mkdir(parents=True)
     (legacy / "thread.jsonl").write_text("first reply", encoding="utf-8")
 
-    volume = LocalPosixChatRuntimeVolumeProvider(
-        str(tmp_path), legacy_root=str(tmp_path)
-    ).ensure(tenant_id=tenant, user_id=user, chat_scope_id=chat_scope)
-
-    assert "chat-runtime-v1" in volume.path
-    assert Path(volume.path, "thread.jsonl").read_text(encoding="utf-8") == (
-        "first reply"
+    volume = LocalPosixProjectRuntimeVolumeProvider(str(tmp_path)).ensure(
+        tenant_id=tenant, user_id=user, project_scope_id="project-scope"
     )
-    assert not legacy.exists()
+
+    assert "project-runtime-v1" in volume.path
+    assert not Path(volume.path, "thread.jsonl").exists()
+    assert (legacy / "thread.jsonl").read_text(encoding="utf-8") == "first reply"
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [("tenant_id", "../tenant"), ("user_id", "user/name")],
 )
-def test_chat_runtime_volume_rejects_unsafe_identity(tmp_path, field, value):
+def test_project_runtime_volume_rejects_unsafe_identity(tmp_path, field, value):
     values = {
         "tenant_id": "tenant",
         "user_id": "user",
-        "chat_scope_id": "chat",
+        "project_scope_id": "chat",
     }
     values[field] = value
-    provider = LocalPosixChatRuntimeVolumeProvider(str(tmp_path))
+    provider = LocalPosixProjectRuntimeVolumeProvider(str(tmp_path))
 
     with pytest.raises(ValueError, match=field):
         provider.ensure(**values)
+
+
+def test_failed_project_snapshot_preserves_private_projection_for_retry(tmp_path, monkeypatch):
+    store = FilesystemObjectStore(root=str(tmp_path / "cipher"), materialized_root=str(tmp_path / "plain"))
+    provider = EncryptedObjectStoreProjectRuntimeVolumeProvider(store)
+    volume = provider.ensure(tenant_id="tenant", user_id="user", project_scope_id="project")
+    marker = Path(volume.path, "thread.jsonl")
+    marker.write_text("unsaved thread", encoding="utf-8")
+    persist = store.persist_materialized_bytes
+
+    def unavailable(*args, **kwargs):
+        raise OSError("storage unavailable")
+
+    monkeypatch.setattr(store, "persist_materialized_bytes", unavailable)
+    with pytest.raises(OSError, match="storage unavailable"):
+        provider.release(volume)
+    assert marker.read_text(encoding="utf-8") == "unsaved thread"
+    monkeypatch.setattr(store, "persist_materialized_bytes", persist)
+    assert provider.release(volume) == 1
+    restored = provider.ensure(tenant_id="tenant", user_id="user", project_scope_id="project")
+    assert Path(restored.path, "thread.jsonl").read_text(encoding="utf-8") == "unsaved thread"
 
 
 def test_encrypted_runtime_volume_rehydrates_sqlite_and_removes_plaintext(tmp_path):
@@ -120,11 +139,11 @@ def test_encrypted_runtime_volume_rehydrates_sqlite_and_removes_plaintext(tmp_pa
         materialized_root=str(materialized_root),
         master_key=b"K" * 32,
     )
-    provider = EncryptedObjectStoreChatRuntimeVolumeProvider(store)
+    provider = EncryptedObjectStoreProjectRuntimeVolumeProvider(store)
     first = provider.ensure(
         tenant_id="tenant",
         user_id="user",
-        chat_scope_id="chat",
+        project_scope_id="chat",
     )
     codex = Path(first.path, ".codex")
     codex.mkdir()
@@ -147,7 +166,7 @@ def test_encrypted_runtime_volume_rehydrates_sqlite_and_removes_plaintext(tmp_pa
     second = provider.ensure(
         tenant_id="tenant",
         user_id="user",
-        chat_scope_id="chat",
+        project_scope_id="chat",
     )
     assert Path(second.path, ".codex", "AGENTS.md").read_text(
         encoding="utf-8"
@@ -161,8 +180,8 @@ def test_encrypted_runtime_volume_rehydrates_sqlite_and_removes_plaintext(tmp_pa
 
 def test_runtime_checkpoint_preserves_open_log_inode_and_later_writes(tmp_path):
     store = FilesystemObjectStore(root=str(tmp_path / "cipher"), master_key=b"L" * 32)
-    provider = EncryptedObjectStoreChatRuntimeVolumeProvider(store)
-    volume = provider.ensure(tenant_id="tenant", user_id="user", chat_scope_id="chat")
+    provider = EncryptedObjectStoreProjectRuntimeVolumeProvider(store)
+    volume = provider.ensure(tenant_id="tenant", user_id="user", project_scope_id="chat")
     log = Path(volume.path, "thread.jsonl")
     with log.open("ab") as writer:
         writer.write(b'{"turn":1}\n')
@@ -176,7 +195,7 @@ def test_runtime_checkpoint_preserves_open_log_inode_and_later_writes(tmp_path):
         assert log.stat().st_ino == inode
         assert log.read_bytes() == b'{"turn":1}\n{"turn":2}\n'
     provider.release(volume)
-    restored = provider.ensure(tenant_id="tenant", user_id="user", chat_scope_id="chat")
+    restored = provider.ensure(tenant_id="tenant", user_id="user", project_scope_id="chat")
     assert Path(restored.path, "thread.jsonl").read_bytes() == b'{"turn":1}\n{"turn":2}\n'
     provider.release(restored)
 
@@ -185,8 +204,8 @@ def test_runtime_checkpoint_preserves_open_sqlite_wal_and_locks(tmp_path):
     import fcntl
 
     store = FilesystemObjectStore(root=str(tmp_path / "cipher"), master_key=b"Q" * 32)
-    provider = EncryptedObjectStoreChatRuntimeVolumeProvider(store)
-    volume = provider.ensure(tenant_id="tenant", user_id="user", chat_scope_id="chat")
+    provider = EncryptedObjectStoreProjectRuntimeVolumeProvider(store)
+    volume = provider.ensure(tenant_id="tenant", user_id="user", project_scope_id="chat")
     database = Path(volume.path, "state.sqlite")
     lock = Path(volume.path, "thread.lock")
     connection = sqlite3.connect(database)
@@ -212,7 +231,7 @@ def test_runtime_checkpoint_preserves_open_sqlite_wal_and_locks(tmp_path):
     finally:
         connection.close()
     provider.release(volume)
-    restored = provider.ensure(tenant_id="tenant", user_id="user", chat_scope_id="chat")
+    restored = provider.ensure(tenant_id="tenant", user_id="user", project_scope_id="chat")
     with sqlite3.connect(Path(restored.path, "state.sqlite")) as reader:
         assert reader.execute("SELECT value FROM state ORDER BY rowid").fetchall() == [("first",), ("second",)]
     provider.release(restored)
@@ -224,11 +243,11 @@ def test_encrypted_runtime_volume_ignores_symlink_without_reading_target(tmp_pat
         materialized_root=str(tmp_path / "materialized"),
         master_key=b"S" * 32,
     )
-    provider = EncryptedObjectStoreChatRuntimeVolumeProvider(store)
+    provider = EncryptedObjectStoreProjectRuntimeVolumeProvider(store)
     volume = provider.ensure(
         tenant_id="tenant",
         user_id="user",
-        chat_scope_id="chat",
+        project_scope_id="chat",
     )
     Path(volume.path, "escape").symlink_to(tmp_path / "outside")
 
@@ -243,11 +262,11 @@ def test_encrypted_runtime_volume_excludes_staged_codex_account_auth(tmp_path):
         materialized_root=str(tmp_path / "materialized"),
         master_key=b"A" * 32,
     )
-    provider = EncryptedObjectStoreChatRuntimeVolumeProvider(store)
+    provider = EncryptedObjectStoreProjectRuntimeVolumeProvider(store)
     volume = provider.ensure(
         tenant_id="tenant",
         user_id="user",
-        chat_scope_id="chat",
+        project_scope_id="chat",
     )
     auth = Path(volume.path, ".codex", "auth.json")
     auth.parent.mkdir(parents=True)
@@ -272,11 +291,11 @@ def test_encrypted_runtime_volume_tolerates_file_removed_after_manifest(
         materialized_root=str(tmp_path / "materialized"),
         master_key=b"R" * 32,
     )
-    provider = EncryptedObjectStoreChatRuntimeVolumeProvider(store)
+    provider = EncryptedObjectStoreProjectRuntimeVolumeProvider(store)
     volume = provider.ensure(
         tenant_id="tenant",
         user_id="user",
-        chat_scope_id="chat",
+        project_scope_id="chat",
     )
     durable = Path(volume.path, "thread.jsonl")
     durable.write_text("keep", encoding="utf-8")

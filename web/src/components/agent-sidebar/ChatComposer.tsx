@@ -33,6 +33,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
+import { acceptProjectChatDraft } from '@/lib/chat/project-draft';
 import { Blocks, BrainCircuit, FileText, Image, Loader2, Paperclip, RotateCcw, Send, SlidersHorizontal, Square, Video, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -79,9 +80,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useMcpServers } from '@/lib/api/queries/mcp-servers';
 import {
-  fetchChatState,
   useChatBootstrap,
-  useChatState,
+  useProjectMcpSelection,
+  useSetProjectMcpSelection,
 } from '@/lib/api/queries/chats';
 import {
   uploadChatAttachment,
@@ -128,6 +129,8 @@ interface PendingUpload {
 export interface ChatComposerProps {
   wfId: string;
   chatId: string | null;
+  /** Main-app Project that owns a newly materialized Chat. */
+  projectId?: string | null;
   /**
    * Default composer mode for embedded chat. When `'browser'`, a bare non-slash
    * message is sent as `mode=browser` — the embedded side panel is browser-
@@ -149,8 +152,6 @@ export interface ChatComposerProps {
   showModelSelector?: boolean;
   /** Existing chat transcripts must hydrate before accepting a follow-up turn. */
   historyReady?: boolean;
-  /** The persisted chat row and its state endpoint are ready for reads. */
-  chatStateReady?: boolean;
   /** External product gate, e.g. a browser chat leased by another window. */
   disabledReason?: string | null;
   /** Reports whether text, attachments, or an in-flight upload occupies the draft. */
@@ -160,6 +161,7 @@ export interface ChatComposerProps {
 export function ChatComposer({
   wfId,
   chatId,
+  projectId,
   defaultMode,
   embedded,
   agentSurface = embedded ? 'browser' : 'chat',
@@ -167,7 +169,6 @@ export function ChatComposer({
   quietFrame = false,
   showModelSelector = false,
   historyReady = true,
-  chatStateReady = true,
   disabledReason = null,
   onDraftPresenceChange,
 }: ChatComposerProps) {
@@ -190,9 +191,11 @@ export function ChatComposer({
     composerStateKey ? state.composerInputs[composerStateKey] ?? '' : '',
   );
   const setComposerInput = useChatStreamStore((s) => s.setComposerInput);
-  const chatStateQuery = useChatState(wfId, chatId, chatStateReady && !!chatId);
+  const projectMcpQuery = useProjectMcpSelection(projectId);
+  const updateProjectMcp = useSetProjectMcpSelection();
   const runtimeCapabilitiesQuery = useAgentRuntimeCapabilities(chatId, {
     enabled: !!chatId && historyReady,
+    projectId,
   });
   const chatAgentSettings = useChatAgentSettingsStore((state) =>
     chatId ? state.entries[chatId] : undefined,
@@ -225,8 +228,8 @@ export function ChatComposer({
     runtimeCapabilitiesQuery.data,
   ]);
   const mcpServersQuery = useMcpServers({ enabled: !!chatId && historyReady });
-  const [selectedMcpIds, setSelectedMcpIds] = useState<string[]>([]);
-  // A server can be uninstalled while another Chat still has its id in the
+  const selectedMcpIds = projectMcpQuery.data?.mcp_server_ids ?? [];
+  // A server can be uninstalled while another page still has its id in the
   // durable selection. Keep temporarily disabled/unhealthy installations so
   // the picker can explain them, but never count or resend an id that is no
   // longer present in the user's installed-server catalog.
@@ -238,27 +241,18 @@ export function ChatComposer({
     : selectedMcpIds;
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [compactOptions, setCompactOptions] = useState(false);
-  const [chatConfigRevision, setChatConfigRevision] = useState(0);
-  const [mcpHydratedChatId, setMcpHydratedChatId] = useState<string | null>(null);
-  if (!chatId && mcpHydratedChatId !== null) {
-    setMcpHydratedChatId(null);
-    setSelectedMcpIds([]);
-    setChatConfigRevision(0);
-  } else if (
-    chatId
-    && mcpHydratedChatId !== chatId
-    && (chatStateQuery.data || chatStateQuery.isFetched)
-  ) {
-    setMcpHydratedChatId(chatId);
-    if (chatStateQuery.data) {
-      setSelectedMcpIds(chatStateQuery.data.mcp_server_ids ?? []);
-      setChatConfigRevision(chatStateQuery.data.mcp_config_revision ?? 0);
-    } else {
-      // A draft Chat has no row until its first send.
-      setSelectedMcpIds([]);
-      setChatConfigRevision(0);
-    }
-  }
+  const setSelectedMcpIds = (ids: string[]) => {
+    if (!projectId || !projectMcpQuery.data || updateProjectMcp.isPending) return;
+    updateProjectMcp.mutate({
+      projectId,
+      selection: {
+        mcp_server_ids: ids,
+        mcp_config_revision: projectMcpQuery.data.mcp_config_revision,
+      },
+    }, {
+      onError: () => toast.error(t('composer.mcp.saveFailed', 'Could not save project MCP settings. Refresh the selection and try again.')),
+    });
+  };
   const setValue = useCallback((next: SetStateAction<string>) => {
     if (!composerStateKey) return;
     const current = useChatStreamStore.getState().composerInputs[composerStateKey] ?? '';
@@ -404,6 +398,7 @@ export function ChatComposer({
         const attachment = await uploadChatAttachment({
           scopeId: wfId,
           chatId,
+          projectId,
           file,
           type: pending.type,
         });
@@ -418,7 +413,7 @@ export function ChatComposer({
         setUploads((current) => current.filter((item) => item.id !== pending.id));
       }
     }
-  }, [activeUploads.length, chatId, composerStateKey, historyReady, isStreaming, readOnly, t, wfId]);
+  }, [activeUploads.length, chatId, composerStateKey, historyReady, isStreaming, projectId, readOnly, t, wfId]);
 
   const handleFileInput = useCallback((
     event: ChangeEvent<HTMLInputElement>,
@@ -560,6 +555,7 @@ export function ChatComposer({
     !externallyDisabled;
   const canSend =
     !!chatId &&
+    !updateProjectMcp.isPending &&
     (value.trim().length > 0 || pendingAttachments.length > 0) &&
     activeUploads.length === 0 &&
     !isStreaming &&
@@ -591,14 +587,13 @@ export function ChatComposer({
     return runAgentTurn({
       wfId,
       chatId,
+      projectId,
       content,
       control,
       attachments,
       mode,
       approvalMode,
       agentSettings: getChatAgentSettings(chatId),
-      mcpServerIds: effectiveSelectedMcpIds,
-      chatConfigRevision,
       // Where the chat lives: the embed IS the extension side panel. The backend
       // uses this to gate the side-panel-only `/browser` command (main app → a
       // NOTICE telling the user to use the side panel).
@@ -697,8 +692,12 @@ export function ChatComposer({
           }
         }
         void runtimeCapabilitiesQuery.refetch();
+        if (projectId && agentSurface !== 'browser') {
+          acceptProjectChatDraft(account, projectId, wfId, chatId as string);
+        }
         useUIStore.getState().addOptimisticChatSession({
           scopeId: wfId,
+          projectId,
           chat_id: chatId as string,
           chat_context: content.slice(0, 80),
           surface: agentSurface === 'browser' ? 'browser' : 'chat',
@@ -715,16 +714,6 @@ export function ChatComposer({
         useChatStreamStore.getState().setAttachments(composerStateKey, attachments);
       }
       textareaRef.current?.focus();
-    }
-    if (chatId) {
-      try {
-        const state = await fetchChatState(wfId, chatId);
-        setSelectedMcpIds(state.mcp_server_ids ?? []);
-        setChatConfigRevision(state.mcp_config_revision ?? 0);
-      } catch {
-        // The stream already owns user-visible transport errors. A state
-        // refresh failure must not replay the completed Turn.
-      }
     }
   };
 
@@ -1244,7 +1233,7 @@ export function ChatComposer({
               servers={mcpServersQuery.data ?? []}
               selectedIds={effectiveSelectedMcpIds}
               onChange={setSelectedMcpIds}
-              disabled={isStreaming || (chatStateReady && !!chatId && chatStateQuery.isPending)}
+              disabled={isStreaming || !projectMcpQuery.isSuccess || updateProjectMcp.isPending}
               runtimeType={runtimeCapabilitiesQuery.data?.runtime_type}
             />
             <ApprovalModePicker disabled={isStreaming} />
@@ -1280,7 +1269,7 @@ export function ChatComposer({
                 servers={mcpServersQuery.data ?? []}
                 selectedIds={effectiveSelectedMcpIds}
                 onChange={setSelectedMcpIds}
-                disabled={isStreaming || (chatStateReady && !!chatId && chatStateQuery.isPending)}
+                disabled={isStreaming || !projectMcpQuery.isSuccess || updateProjectMcp.isPending}
                 runtimeType={runtimeCapabilitiesQuery.data?.runtime_type}
               />
               <ApprovalModePicker disabled={isStreaming} />
@@ -1363,7 +1352,7 @@ function ComposerMcpPicker({
           disabled={disabled}
           className="h-7 max-w-32 gap-1.5 rounded-md px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
           aria-label={t('composer.mcp.label', 'MCP servers')}
-          title={t('composer.mcp.hint', 'Choose MCP servers for this chat')}
+          title={t('composer.mcp.hint', 'MCP settings are shared by all chats in this project')}
           data-role="chat-mcp-picker"
         >
           <Blocks className="h-3.5 w-3.5" />
@@ -1375,6 +1364,9 @@ function ComposerMcpPicker({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="max-h-72 w-64 overflow-y-auto">
+        <p className="px-2 py-1.5 text-xs text-muted-foreground">
+          {t('composer.mcp.sharedHint', 'Saved for every chat in this project. Changes apply to new turns.')}
+        </p>
         {candidates.length === 0 ? (
           <DropdownMenuItem disabled>
             {t('composer.mcp.empty', 'No compatible MCP servers installed')}
@@ -1382,6 +1374,7 @@ function ComposerMcpPicker({
         ) : candidates.map((server) => (
           <DropdownMenuCheckboxItem
             key={server.id}
+            disabled={disabled}
             checked={selected.has(server.id)}
             onCheckedChange={(checked) => toggle(server.id, checked === true)}
             onSelect={(event) => event.preventDefault()}
@@ -1400,6 +1393,7 @@ function ComposerMcpPicker({
         {unavailableIds.map((id) => (
           <DropdownMenuCheckboxItem
             key={id}
+            disabled={disabled}
             checked
             onCheckedChange={(checked) => toggle(id, checked === true)}
             onSelect={(event) => event.preventDefault()}

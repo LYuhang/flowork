@@ -12,13 +12,13 @@ from urllib.parse import unquote, urlsplit
 import markdown as markdown_lib
 
 
-_ROOTS = ("/data/", "/memory/", "/logs/", "/mount/", "/run/")
+_ROOTS = ("/data/", "/memory/", "/logs/", "/chats/", "/mount/", "/run/")
 _QUOTED_LOCAL_PATH = re.compile(
-    r"""(?P<quote>["'`])(?P<path>/(?:data|memory|logs|mount|run)/.*?)(?P=quote)""",
+    r"""(?P<quote>["'`])(?P<path>/(?:data|memory|logs|chats|mount|run)/.*?)(?P=quote)""",
     re.DOTALL,
 )
 _CSS_URL = re.compile(
-    r"""url\(\s*(?:["']?)(?P<path>/(?:data|memory|logs|mount|run)/[^)"']+)"""
+    r"""url\(\s*(?:["']?)(?P<path>/(?:data|memory|logs|chats|mount|run)/[^)"']+)"""
 )
 _DYNAMIC_MARKERS = ("${", "{{", "<%", "' +", '" +', "` +")
 
@@ -89,7 +89,7 @@ def _rule_from_candidate(candidate: str) -> str | None:
     # let an artifact turn its own string interpolation into a file oracle.
     # The Agent must place dynamic resources below a static subdirectory (for
     # example ``/data/images/${name}``).
-    if is_dynamic and normalized in {"/data", "/memory", "/logs", "/mount", "/run"}:
+    if is_dynamic and normalized in {"/data", "/memory", "/logs", "/chats", "/mount", "/run"}:
         return None
     if is_prefix:
         normalized += "/"

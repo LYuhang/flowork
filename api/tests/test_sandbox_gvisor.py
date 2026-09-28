@@ -1,7 +1,13 @@
 import statistics, time, pytest
 from vibecanvas_api.services.sandbox import get_sandbox_provider, _gvisor_runnable
+from vibecanvas_api.config import config
 
 pytestmark = pytest.mark.skipif(not _gvisor_runnable(), reason="rootless gVisor not runnable here")
+
+@pytest.fixture(autouse=True)
+def select_gvisor_backend(monkeypatch):
+    # These tests assert a gVisor kernel even when native launch uses Bubblewrap.
+    monkeypatch.setattr(config, "sandbox_runtime", "gvisor")
 
 def test_boots_gvisor_kernel(tmp_path):
     p = get_sandbox_provider()

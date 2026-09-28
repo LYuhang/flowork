@@ -1,28 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Postgres-backed chat session and message data access.
+"""Postgres-backed Project-owned conversations and independently persisted messages.
 
-Session metadata lives in ``chats``; one row per completed message in
-``chat_messages``; each message is persisted when it is itself
-complete, with its own short session under DI teardown). The legacy
-disk-jsonl/SessionIndex implementation is replaced; the public surface
-the FastAPI routes depend on is preserved byte-for-byte:
-
-* ``register_session`` — accepts the route's positional
-  ``(scope_id, chat_id, chat_context=...)`` shape as well as the spec's
-  ``(scope_id, name=, major_version=, chat_id=)`` shape.
-* ``list_sessions`` — returns dicts carrying BOTH ``name`` (spec) and
-  ``chat_context``/``created_at`` (legacy route mapper) keys so callers
-  stay frozen.
-* ``checkpointer_thread_id`` — kept as a ``@staticmethod`` with the
-  ``(username, scope_id, chat_id, major_version=0)`` namespaced signature;
-  Runtime-native thread-id semantics are owned by the Runtime adapter, not
-  T7, and ``context.py``/routes call it statically.
-
-Attachment helpers (``save_attachment``/``add_attachment``/
-``resolve_attachment``) and ``prune_empty`` have no production callers
-(grep-verified); they are retained as no-op/best-effort shims so the
-class surface does not shrink. Attachment/ref storage moves to RefRepo
-in T8.
+Every Chat requires an owned Project. Runtime process identity and credentials
+belong to the Project; Chat rows hold native thread state and conversation
+metadata. File content is stored by VfsRepo in the Project workspace.
 """
 
 from __future__ import annotations
@@ -34,8 +15,15 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from vibecanvas_api.storage.models import Chat, ChatMcpBinding, ChatMessage
+from vibecanvas_api.storage.models import (
+    Chat,
+    ChatMessage,
+    ChatProject,
+)
 from vibecanvas_api.security.content_encryption import content_encryption_service
+from vibecanvas_api.services.chat_workspace import chat_working_directory, project_workspace_scope_id
+from vibecanvas_api.storage.vfs_store import VfsRepo
+from vibecanvas_api.services.object_store import get_object_store
 
 
 def _now():
@@ -135,7 +123,8 @@ class ChatRepo:
 
     async def _create_session(self, scope_id: str, name: str,
                               major_version: int, chat_id: str,
-                              surface: str = "chat") -> str:
+                              surface: str,
+                              project_id: str) -> str:
         """Core implementation: create a chat session row, idempotent on
         chat_id. Returns chat_id.
 
@@ -158,20 +147,37 @@ class ChatRepo:
                 Chat.creator_user_id,
                 Chat.scope_id,
                 Chat.surface,
+                Chat.project_id,
+                Chat.deleted_at,
             ).where(
                 Chat.chat_id == chat_id,
-                Chat.deleted_at.is_(None),
             )
         )).one_or_none()
         if existing is not None:
             if (
-                str(existing.creator_user_id) != str(self._user_id)
+                existing.deleted_at is not None
+                or str(existing.creator_user_id) != str(self._user_id)
                 or existing.scope_id != scope_id
                 or existing.surface != surface
+                or existing.project_id != project_id
             ):
                 raise LookupError(f"chat {chat_id} not found")
             return chat_id
 
+        project = (await self._s.execute(select(ChatProject).where(
+            ChatProject.project_id == project_id,
+            ChatProject.creator_user_id == self._user_id,
+            ChatProject.surface == surface,
+            ChatProject.deleted_at.is_(None),
+        ).with_for_update())).scalar_one_or_none()
+        if project is None:
+            raise LookupError("project_not_found")
+        if surface == "browser":
+            sibling = (await self._s.execute(select(Chat.chat_id).where(
+                Chat.project_id == project_id,
+            ))).scalar_one_or_none()
+            if sibling is not None:
+                raise ValueError("browser_project_already_has_chat")
         tenant_id = await self._tenant_id()
         chat = Chat(
             chat_id=chat_id,
@@ -180,44 +186,31 @@ class ChatRepo:
             creator_user_id=self._user_id,
             tenant_id=tenant_id,
             surface=surface,
+            project_id=project_id,
+            project=project,
         )
         await self._store_chat_private(chat, name=name, meta={})
         self._s.add(chat)
         await self._s.flush()
+        await VfsRepo(self._s, object_store=get_object_store()).upsert_artifact_bytes(
+            wf_id=project_workspace_scope_id(project_id), tenant=str(tenant_id),
+            path=f"{chat_working_directory(chat_id)}/.keep", data=b"",
+            content_type="application/x-directory",
+        )
         return chat_id
 
-    async def register_session(self, scope_id: str, name: str = "",
+    async def register_session(self, scope_id: str, *, project_id: str, name: str = "",
                                major_version: int = 1,
                                chat_id: str = "",
-                               chat_context: str = "",
                                surface: str = "chat") -> str:
-        """Create a chat session row; idempotent on chat_id. Returns chat_id.
-
-        Two accepted call shapes, disambiguated by the presence of
-        ``chat_context``:
-
-        * Spec/new:  ``register_session(scope_id, name="chat A",
-          major_version=1)`` — chat_id auto-generated.
-        * Legacy route: ``register_session(scope_id, <chat_id>,
-          chat_context=<display name>)`` — the 2nd positional (declared
-          ``name``) is actually the frontend-supplied chat_id, and
-          ``chat_context`` carries the real display name.  This positional
-          inversion is isolated here and does not reach ``_create_session``.
-
-        ``major_version`` is coerced to 1 if falsy (the chats table
-        enforces ``major_version > 0``).
-        """
-        if chat_context:
-            # Legacy-route shape: 2nd positional was bound to `name` but
-            # actually holds the chat_id; chat_context is the display name.
-            chat_id = chat_id or name
-            name = chat_context
+        """Create an explicitly Project-owned thread; idempotent on chat_id."""
         return await self._create_session(
             scope_id,
             name or "",
             major_version or 1,
             chat_id or uuid.uuid4().hex[:12],
             surface if surface in {"chat", "browser"} else "chat",
+            project_id,
         )
 
     async def list_sessions(self, scope_id: str,
@@ -241,10 +234,10 @@ class ChatRepo:
         # keys (`chat_context`/`created_at`) so callers stay frozen.
         for chat in rows:
             await self._materialize_chat_private(chat)
-        return [{"chat_id": c.chat_id, "name": c.name,
+        return [{"chat_id": c.chat_id, "project_id": c.project_id, "name": c.name,
                  "chat_context": c.name,
                  "surface": c.surface,
-                 "runtime_type": c.runtime_type,
+                 "runtime_type": c.project.runtime_type,
                  "browser_control_status": c.browser_control_status,
                  "major_version": c.major_version,
                  "active_modes": list((c.meta or {}).get("active_modes", [])),
@@ -273,6 +266,10 @@ class ChatRepo:
             Chat.chat_id.in_(ids),
             Chat.deleted_at.is_(None),
         )
+        # An attachment may allocate durable storage before the first message.
+        # Such a draft is not a conversation-history entry, regardless of title.
+        if surface != "browser":
+            query = query.where(Chat.last_message_at.is_not(None))
         if major_version:
             query = query.where(Chat.major_version == major_version)
         if surface:
@@ -287,10 +284,11 @@ class ChatRepo:
         return [
             {
                 "chat_id": chat.chat_id,
+                "project_id": chat.project_id,
                 "name": chat.name,
                 "chat_context": chat.name,
                 "surface": chat.surface,
-                "runtime_type": chat.runtime_type,
+                "runtime_type": chat.project.runtime_type,
                 "browser_control_status": chat.browser_control_status,
                 "major_version": chat.major_version,
                 "active_modes": list(
@@ -336,12 +334,16 @@ class ChatRepo:
 
     @staticmethod
     def _inventory_row(chat: Chat) -> dict:
+        # An organization auditor can inspect Chat metadata without access to
+        # its owner's private Project Runtime. Never synthesize a Chat binding.
+        project = chat.project
         return {
             "chat_id": chat.chat_id,
+            "project_id": chat.project_id,
             "scope_id": chat.scope_id,
             "surface": chat.surface,
-            "runtime_type": chat.runtime_type,
-            "runtime_session_id": chat.runtime_session_id,
+            "runtime_type": project.runtime_type if project is not None else None,
+            "runtime_session_id": project.runtime_session_id if project is not None else None,
             "runtime_state_ref": chat.runtime_state_ref,
             "runtime_version": chat.runtime_version,
             "browser_control_status": chat.browser_control_status,
@@ -366,6 +368,7 @@ class ChatRepo:
             return None
         return {
             "chat_id": chat.chat_id,
+            "project_id": chat.project_id,
             "status": chat.browser_control_status,
             "browser_session_id": chat.browser_session_id,
             "browser_session_generation": chat.browser_session_generation,
@@ -827,7 +830,7 @@ class ChatRepo:
             "chat_context": name,
             "created_at": str(chat.created_at.timestamp()),
             "browser_control_status": chat.browser_control_status,
-            "runtime_type": chat.runtime_type,
+            "runtime_type": chat.project.runtime_type,
         }
 
     # ===================================================================
@@ -960,76 +963,6 @@ class ChatRepo:
         await self._s.flush()
         return modes
 
-    async def get_mcp_selection(self, chat_id: str) -> dict | None:
-        chat = (await self._s.execute(
-            select(Chat).where(
-                Chat.chat_id == chat_id,
-                Chat.creator_user_id == self._user_id,
-                Chat.deleted_at.is_(None),
-            )
-        )).scalar_one_or_none()
-        if chat is None:
-            return None
-        ids = (await self._s.execute(
-            select(ChatMcpBinding.mcp_server_id)
-            .where(ChatMcpBinding.chat_id == chat_id)
-            .order_by(ChatMcpBinding.mcp_server_id)
-        )).scalars().all()
-        return {
-            "mcp_server_ids": [str(item) for item in ids],
-            "mcp_config_revision": int(chat.mcp_config_revision or 0),
-        }
-
-    async def set_mcp_selection(
-        self,
-        chat_id: str,
-        *,
-        mcp_server_ids: list[uuid.UUID],
-        expected_revision: int,
-    ) -> dict:
-        """CAS-update one Chat's complete selected custom-MCP set."""
-        chat = (await self._s.execute(
-            select(Chat).where(
-                Chat.chat_id == chat_id,
-                Chat.creator_user_id == self._user_id,
-                Chat.deleted_at.is_(None),
-            ).with_for_update()
-        )).scalar_one_or_none()
-        if chat is None:
-            return {"ok": False, "error_code": "chat_not_found"}
-        current_ids = set((await self._s.execute(
-            select(ChatMcpBinding.mcp_server_id).where(
-                ChatMcpBinding.chat_id == chat_id
-            )
-        )).scalars().all())
-        desired_ids = set(mcp_server_ids)
-        current_revision = int(chat.mcp_config_revision or 0)
-        if current_revision != expected_revision and current_ids != desired_ids:
-            return {
-                "ok": False,
-                "error_code": "mcp_config_revision_conflict",
-                "mcp_server_ids": sorted(map(str, current_ids)),
-                "mcp_config_revision": current_revision,
-            }
-        if current_ids != desired_ids:
-            await self._s.execute(
-                delete(ChatMcpBinding).where(ChatMcpBinding.chat_id == chat_id)
-            )
-            for server_id in sorted(desired_ids, key=str):
-                self._s.add(ChatMcpBinding(
-                    chat_id=chat_id,
-                    mcp_server_id=server_id,
-                    tenant_id=chat.tenant_id,
-                ))
-            current_revision += 1
-            chat.mcp_config_revision = current_revision
-            chat.updated_at = _now()
-            await self._s.flush()
-        return {
-            "ok": True,
-            "mcp_server_ids": sorted(map(str, desired_ids)),
-            "mcp_config_revision": current_revision,
-        }
 
     async def get_platform_context_binding(self, chat_id: str, *, for_update: bool = False) -> dict | None:
         """Return the backend-owned context a Platform MCP may bind to.
@@ -1038,25 +971,25 @@ class ChatRepo:
         depending on ORM models or duplicating Chat ownership/deletion
         predicates. ``carrier_scope_id`` is intentionally not the Chat's
         sandbox/VFS workspace id; the latter is derived from the authenticated
-        user and Chat identity by the platform boundary.
+        Project identity by the platform boundary. Join the active owner-owned
+        Project explicitly: missing RLS identity must deny, not dereference an
+        invisible ORM relationship. No private message metadata is needed.
         """
-        statement = select(Chat).where(
+        statement = select(
+            Chat.chat_id, Chat.project_id,
+            Chat.scope_id.label("carrier_scope_id"),
+            ChatProject.runtime_session_id, ChatProject.runtime_type,
+        ).join(ChatProject, ChatProject.project_id == Chat.project_id).where(
             Chat.chat_id == chat_id,
             Chat.creator_user_id == self._user_id,
             Chat.deleted_at.is_(None),
+            ChatProject.creator_user_id == self._user_id,
+            ChatProject.deleted_at.is_(None),
         )
         if for_update:
-            statement = statement.with_for_update().execution_options(populate_existing=True)
-        chat = (await self._s.execute(statement)).scalar_one_or_none()
-        if chat is None:
-            return None
-        await self._materialize_chat_private(chat)
-        return {
-            "chat_id": chat_id,
-            "carrier_scope_id": chat.scope_id,
-            "runtime_session_id": chat.runtime_session_id,
-            "runtime_type": chat.runtime_type,
-        }
+            statement = statement.with_for_update(of=(Chat, ChatProject))
+        binding = (await self._s.execute(statement)).mappings().one_or_none()
+        return dict(binding) if binding is not None else None
 
     @staticmethod
     def checkpointer_thread_id(
@@ -1178,6 +1111,14 @@ class ChatRepo:
                 Chat.deleted_at.is_(None),
             )
             .values(last_message_at=_now()))
+        if chat.project_id:
+            await self._s.execute(
+                update(ChatProject).where(
+                    ChatProject.project_id == chat.project_id,
+                    ChatProject.creator_user_id == self._user_id,
+                    ChatProject.deleted_at.is_(None),
+                ).values(updated_at=_now())
+            )
         await self._s.flush()
 
     async def list_message_page(
@@ -1188,6 +1129,7 @@ class ChatRepo:
         offset: int = 0,
         tail: bool = False,
         before_turn_id: str | None = None,
+        after_message_id: int | None = None,
     ) -> tuple[list[dict], int, int]:
         """Read and decrypt only one requested transcript window."""
         owned = (await self._s.execute(
@@ -1200,6 +1142,8 @@ class ChatRepo:
         if owned is None:
             return [], 0, 0
         criteria = [ChatMessage.chat_id == chat_id]
+        if after_message_id is not None:
+            criteria.append(ChatMessage.id > after_message_id)
         if before_turn_id:
             boundary_id = (
                 await self._s.execute(
@@ -1238,7 +1182,7 @@ class ChatRepo:
             q = (
                 select(ChatMessage)
                 .where(*criteria)
-                .order_by(ChatMessage.ts, ChatMessage.id)
+                .order_by(*((ChatMessage.id,) if after_message_id is not None else (ChatMessage.ts, ChatMessage.id)))
                 .offset(effective_offset)
                 .limit(limit)
             )
@@ -1315,8 +1259,8 @@ class ChatRepo:
             **meta,
             "todo_items": list(items),
             "todo_revision": revision,
-            "todo_runtime_type": chat.runtime_type,
-            "todo_runtime_session_id": chat.runtime_session_id,
+            "todo_runtime_type": chat.project.runtime_type,
+            "todo_runtime_session_id": chat.project.runtime_session_id,
         })
         await self._s.flush()
 
@@ -1342,8 +1286,8 @@ class ChatRepo:
         return {
             "items": list(items) if isinstance(items, list) else [],
             "revision": int(raw_meta.get("todo_revision") or 0),
-            "runtime_type": chat.runtime_type,
-            "runtime_session_id": chat.runtime_session_id,
+            "runtime_type": chat.project.runtime_type,
+            "runtime_session_id": chat.project.runtime_session_id,
         }
 
     # Legacy aliases — old ChatStore-style names. Kept so any caller that

@@ -17,6 +17,7 @@ import os
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.auth.deps import AuthContext, current_user, tenant_db
@@ -45,7 +46,8 @@ from vibecanvas_api.schemas.vfs import (
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.services.file_revision import vfs_row_revision
 from vibecanvas_api.services.chat_workspace import (
-    chat_id_from_workspace_scope,
+    project_id_from_workspace_scope,
+    is_agent_workspace_scope,
 )
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.user_mount_workspace import (
@@ -59,7 +61,7 @@ from vibecanvas_api.services.vfs_signing import (
     verify_vfs_sig,
 )
 from vibecanvas_api.storage.db import session_scope
-from vibecanvas_api.storage.models import VfsArtifact, VfsRun, VfsScratch
+from vibecanvas_api.storage.models import ChatProject, VfsArtifact, VfsRun, VfsScratch
 from vibecanvas_api.storage.vfs_run_repo import VfsRunRepo, _validate as _validate_run_path
 from vibecanvas_api.storage.vfs_store import VfsRepo, _validate_artifact_path
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
@@ -185,11 +187,21 @@ async def _ensure_vfs_scope_access(
             auth.user_id,
             auth.active_organization_id,
         )
-    elif (chat_id := chat_id_from_workspace_scope(wf_id)) is not None:
+    elif (project_id := project_id_from_workspace_scope(wf_id)) is not None:
+        # A Project workspace is private to its owner. Resolve the durable row
+        # under tenant RLS before applying the live personal-storage policy;
+        # the encoded identifier is not proof of ownership.
+        owned_project_id = (await session.execute(
+            select(ChatProject.project_id).where(
+                ChatProject.project_id == project_id,
+                ChatProject.creator_user_id == auth.user_id,
+                ChatProject.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if owned_project_id is None:
+            raise HTTPException(status_code=404, detail="vfs_scope_not_found")
         resource = ResourceRef(
-            ResourceType.CHAT,
-            chat_id,
-            auth.active_organization_id,
+            ResourceType.STORAGE_ROOT, auth.user_id, auth.active_organization_id,
         )
     elif wf_id.startswith("__"):
         raise HTTPException(status_code=404, detail="vfs_scope_not_found")
@@ -248,21 +260,12 @@ async def list_vfs(
     request: Request,
     wf_id: str = Query(default=""),
     prefix: str = Query(default="/"),
-    include_hidden: bool = Query(default=False),
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     authz: AuthzService = Depends(get_authz_service),
 ) -> VfsListOut:
-    # Hidden VFS paths are backend plumbing and stay absent from the ordinary
-    # Explorer.  The model-input inspector is the one intentional exception:
-    # when the debug feature is enabled it may enumerate only its own exact
-    # internal prefix.  This avoids turning ``include_hidden`` into a general
-    # internal-file disclosure switch.
-    expose_debug_snapshots = (
-        include_hidden
-        and bool(config.agent_debug_view_enabled)
-        and prefix.startswith("/logs/.debug/")
-    )
+    # Debug now reads the owner-scoped database transcript. No special hidden
+    # directory is exposed by the ordinary file Explorer.
     if _is_user_mount_scope(wf_id, ctx.user_id):
         await host_mount_bridge.sync_user(
             tenant_id=ctx.tenant_id,
@@ -289,7 +292,7 @@ async def list_vfs(
     current = await _current(session, ctx.user_id, wf_id)
     writable_root = (
         "mount" if _is_user_mount_scope(wf_id, ctx.user_id)
-        else "data" if chat_id_from_workspace_scope(wf_id) is not None
+        else "data" if is_agent_workspace_scope(wf_id)
         else None
     )
     writable_roots = {writable_root} if writable_root else set()
@@ -306,7 +309,7 @@ async def list_vfs(
             ],
         )
         for e in entries
-        if expose_debug_snapshots or not _is_hidden_path(e.path)
+        if not _is_hidden_path(e.path)
     ]
     return VfsListOut(
         entries=out,
@@ -479,7 +482,7 @@ async def _serve_vfs_resource(
             model = (
                 VfsScratch
                 if path.startswith("/memory/")
-                and chat_id_from_workspace_scope(wf_id) is None
+                and not is_agent_workspace_scope(wf_id)
                 else VfsArtifact
             )
             row = await s.get(model, (wf_id or None, path))
@@ -676,7 +679,7 @@ async def _reconcile_loaded_chat_workspace(
     cold-starting an idle sandbox.  Turn-end writeback remains the durability
     fallback when nobody has the Explorer open.
     """
-    if chat_id_from_workspace_scope(scope_id) is None:
+    if not is_agent_workspace_scope(scope_id):
         return False
     try:
         manager = get_sandbox_manager()
@@ -722,9 +725,9 @@ async def _ensure_writable_vfs_scope(
         if target != "mount":
             raise HTTPException(status_code=400, detail="invalid_folder")
         return
-    if chat_id_from_workspace_scope(wf_id) is not None:
+    if is_agent_workspace_scope(wf_id):
         target = folder or ((path or "").strip("/").split("/", 1)[0] if path else "")
-        if target != "data":
+        if target not in {"data", "chats"}:
             raise HTTPException(status_code=400, detail="invalid_folder")
         return
     meta = await WorkflowRepo(session, user_id).get_meta(wf_id)

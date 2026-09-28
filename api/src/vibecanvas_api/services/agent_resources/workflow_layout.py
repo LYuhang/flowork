@@ -11,7 +11,7 @@ from .workflow_target import resolve_target
 
 
 async def layout_workflow(ctx, *, workflow_id: str, major: str) -> dict:
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         await _require_active_chat_write(session, ctx)
         selection = await resolve_target(session, ctx, workflow_id, major, for_update=True)
         await _decision(ctx=ctx, service=_service(ctx, session), action=Action.UPDATE,

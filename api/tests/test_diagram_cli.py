@@ -130,6 +130,24 @@ def test_render_all_and_selected_pages(tmp_path, fake_export):
     assert operations.render_diagram(str(source), output_dir=str(tmp_path / "all"))["error"] == "invalid_arguments"
 
 
+def test_diagram_review_and_render_from_chat_cwd(tmp_path, monkeypatch, fake_export):
+    from vibecanvas_api.document_runtime import rendering, review
+
+    assert "/chats" in review._WORKSPACE_ROOTS
+    chats = tmp_path / "chats"
+    cwd = chats / "example-chat"
+    cwd.mkdir(parents=True)
+    for module in (review, rendering):
+        monkeypatch.setattr(module, "_WORKSPACE_ROOTS", (str(chats),))
+    monkeypatch.chdir(cwd)
+    Path("diagram.drawio").write_bytes(document(1))
+    assert operations.review_diagram("diagram.drawio")["status"] == "passed"
+    result = operations.render_diagram("diagram.drawio", output_dir="preview")
+    assert result["status"] == "succeeded" and result["complete"]
+    assert result["output_dir"] == str(cwd / "preview")
+    assert len(fake_export) == 1
+
+
 def test_render_uses_source_snapshot_and_retains_partial(tmp_path, monkeypatch, fake_export):
     source = tmp_path / "diagram.drawio"
     data = document()

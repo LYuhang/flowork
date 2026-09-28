@@ -14,18 +14,24 @@
  * brand header has been removed from the management shell.
  */
 import { useTranslation } from 'react-i18next';
+import { openProjectChatDraft } from '@/lib/chat/project-draft';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { NavLink, useLocation, useNavigate } from 'react-router';
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Folder,
+  FolderPlus,
+  Plus,
   Pencil,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui';
+import { useChatStreamStore } from '@/stores/chat-stream';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -51,10 +57,15 @@ import {
   CHAT_HISTORY_GC_TIME_MS,
   CHAT_HISTORY_STALE_TIME_MS,
   useDeleteChatSession,
+  useDeleteChatProject,
+  useCreateChatProject,
+  useRenameChatProject,
   useRenameChatSession,
   fetchChatHistory,
-  useChatSandboxStatuses,
+  useProjectSandboxStatuses,
+  useProjectSandboxAction,
   useChatSessions,
+  useChatProjects,
   useGeneralChatBootstrap,
 } from '@/lib/api/queries/chats';
 import { queryClient } from '@/app/query-client';
@@ -72,9 +83,9 @@ import type { SandboxLifecycleStatus } from '@/lib/sandbox-status';
 
 type SidebarChatItem = {
   chat_id: string;
+  project_id?: string | null;
   chat_context: string;
   surface?: 'chat' | 'browser';
-  __draft?: boolean;
 };
 
 interface NavItem {
@@ -96,7 +107,7 @@ const NAV_GROUPS: NavGroup[] = [
     labelKey: 'nav.group.build',
     fallback: 'Build',
     items: [
-      { to: '/chat', kind: 'chat', labelKey: 'nav.chat', fallback: 'Chat' },
+      { to: '/chat', kind: 'chat', labelKey: 'nav.project', fallback: 'Projects' },
       { to: '/workspace', kind: 'workflow', labelKey: 'nav.workspace', fallback: 'Workflow' },
     ],
   },
@@ -133,20 +144,34 @@ export function AppSidebar({
   const collapsed = useUIStore((s) => s.navSidebarCollapsed);
   const toggle = useUIStore((s) => s.toggleNavSidebar);
   const activeChatId = useUIStore((s) => s.activeChatIds.chat);
+  const activeProjectId = useUIStore((s) => s.activeProjectId);
   const setActiveChatId = useUIStore((s) => s.setActiveChatId);
+  const setActiveProjectId = useUIStore((s) => s.setActiveProjectId);
   const setChatEntryIntent = useUIStore((s) => s.setChatEntryIntent);
-  const draftChatSessions = useUIStore((s) => s.draftChatSessions);
   const optimisticChatSessions = useUIStore((s) => s.optimisticChatSessions);
   const removeOptimisticChatSession = useUIStore((s) => s.removeOptimisticChatSession);
   const [deleteTarget, setDeleteTarget] = useState<{
     chat_id: string;
     label: string;
   } | null>(null);
+  const [deleteChatFiles, setDeleteChatFiles] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{
     chat_id: string;
     label: string;
   } | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectName, setCreateProjectName] = useState('');
+  const [renameProjectTarget, setRenameProjectTarget] = useState<{
+    project_id: string;
+    label: string;
+  } | null>(null);
+  const [renameProjectDraft, setRenameProjectDraft] = useState('');
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<{
+    project_id: string;
+    label: string;
+  } | null>(null);
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
   const activeOrganizationId = useAuthStore((state) => state.user?.tenant_id ?? '');
   const organizations = useQuery({
     queryKey: organizationsQueryKey,
@@ -199,13 +224,17 @@ export function AppSidebar({
       : NAV_GROUPS,
     [managementItems],
   );
-  const boot = useGeneralChatBootstrap();
-  const carrierScopeId = boot.data?.carrier_scope_id ?? null;
-  const sessions = useChatSessions(carrierScopeId);
-  const deleteChat = useDeleteChatSession(carrierScopeId, 'chat');
-  const renameChat = useRenameChatSession(carrierScopeId, 'chat');
   const effectiveCollapsed = mobile ? false : collapsed;
   const showChatContext = location.pathname === '/chat' && !effectiveCollapsed;
+  const boot = useGeneralChatBootstrap();
+  const carrierScopeId = boot.data?.carrier_scope_id ?? null;
+  const sessions = useChatSessions(showChatContext ? carrierScopeId : null);
+  const projects = useChatProjects(showChatContext);
+  const createProject = useCreateChatProject();
+  const renameProject = useRenameChatProject();
+  const deleteProject = useDeleteChatProject();
+  const deleteChat = useDeleteChatSession(carrierScopeId, 'chat', deleteChatFiles);
+  const renameChat = useRenameChatSession(carrierScopeId, 'chat');
   const chatItems = useMemo<SidebarChatItem[]>(() => {
     const persistedRaw = (sessions.data?.items ?? []) as SidebarChatItem[];
     if (!carrierScopeId) return persistedRaw;
@@ -224,73 +253,37 @@ export function AppSidebar({
       return item;
     });
     const persistedIds = new Set(persisted.map((item: SidebarChatItem) => item.chat_id));
-    const drafts: SidebarChatItem[] = draftChatSessions
-      .filter(
-        (item) =>
-          item.scopeId === carrierScopeId &&
-          item.surface === 'chat' &&
-          !persistedIds.has(item.chat_id),
-      )
-      .map((item) => ({
-        chat_id: item.chat_id,
-        chat_context: t('new_chat', 'New Chat'),
-        surface: item.surface,
-        __draft: true,
-      }));
     const optimistic: SidebarChatItem[] = optimisticForScope
       .filter((item) => !persistedIds.has(item.chat_id))
-      .filter((item) => !drafts.some((draft) => draft.chat_id === item.chat_id))
       .map((item) => ({
         chat_id: item.chat_id,
+        project_id: item.projectId,
         chat_context: item.chat_context,
         surface: item.surface,
       }));
-    const optimisticIds = new Set(optimistic.map((item) => item.chat_id));
-    const draftIds = new Set(drafts.map((item) => item.chat_id));
-    const draft =
-      activeChatId &&
-      !persistedIds.has(activeChatId) &&
-      !optimisticIds.has(activeChatId) &&
-      !draftIds.has(activeChatId)
-        ? [{
-            chat_id: activeChatId,
-            chat_context: t('new_chat', 'New Chat'),
-            surface: 'chat' as const,
-            __draft: true,
-          }]
-        : [];
-    return [...drafts, ...draft, ...optimistic, ...persisted];
-  }, [activeChatId, carrierScopeId, draftChatSessions, optimisticChatSessions, sessions.data?.items, t]);
-  const sandboxStatuses = useChatSandboxStatuses(
-    chatItems.filter((item) => !item.__draft).map((item) => item.chat_id),
-  );
-  const sandboxStatusByChat = useMemo(() => {
-    const map = new Map<
-      string,
-      SandboxLifecycleStatus
-    >();
-    for (const item of sandboxStatuses.data?.items ?? []) {
-      map.set(item.chat_id, item.status);
+    return [...optimistic, ...persisted];
+  }, [carrierScopeId, optimisticChatSessions, sessions.data?.items]);
+  const sandboxStatuses = useProjectSandboxStatuses((projects.data ?? []).map((item) => item.project_id));
+  const sandboxStatusByProject = new Map((sandboxStatuses.data?.items ?? []).map((item) => [item.project_id, item]));
+  const sandboxAction = useProjectSandboxAction();
+  const [releaseProject, setReleaseProject] = useState<{ project_id: string; name: string } | null>(null);
+  const chatRuntimes = useChatStreamStore((state) => state.runtimes);
+  const changeSandbox = async (projectId: string, action: 'start' | 'release') => {
+    try {
+      await sandboxAction.mutateAsync({ projectId, action });
+      setReleaseProject(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('error', 'Error'));
     }
-    return map;
-  }, [sandboxStatuses.data?.items]);
-
-  const selectChat = (chatId: string) => {
+  };
+  const selectChat = (chatId: string, projectId?: string | null) => {
     setChatEntryIntent('select');
+    if (projectId) setActiveProjectId(projectId);
     if (!carrierScopeId || chatId === activeChatId) {
       if (location.pathname !== '/chat') navigate('/chat');
       onNavigate?.();
       return;
     }
-    const isDraft = draftChatSessions.some(
-      (item) => item.scopeId === carrierScopeId && item.chat_id === chatId,
-    );
-    if (isDraft) {
-      setActiveChatId('chat', chatId);
-      onNavigate?.();
-      return;
-    }
-
     // Switch the shell immediately. Transcript hydration belongs to the new
     // Chat page's loading region and must never block navigation.
     setActiveChatId('chat', chatId);
@@ -299,12 +292,88 @@ export function AppSidebar({
     preloadChat(chatId);
   };
 
+  const newChat = (projectId: string) => {
+    if (!carrierScopeId) return;
+    openProjectChatDraft({
+      account: useAuthStore.getState().user,
+      projectId, scopeId: carrierScopeId,
+      startedChatIds: chatItems.map((chat) => chat.chat_id),
+    });
+    setCollapsedProjects((current) => {
+      if (!current.has(projectId)) return current;
+      const next = new Set(current);
+      next.delete(projectId);
+      return next;
+    });
+    if (location.pathname !== '/chat') navigate('/chat');
+    onNavigate?.();
+  };
+
+  const selectProject = (projectId: string) => {
+    setCollapsedProjects((current) => {
+      const next = new Set(current);
+      if (activeProjectId !== projectId) next.delete(projectId);
+      else if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+    setActiveProjectId(projectId);
+    if (activeProjectId !== projectId) {
+      const latestChat = chatItems.find((item) => item.project_id === projectId);
+      if (latestChat) selectChat(latestChat.chat_id, projectId);
+      else {
+        newChat(projectId);
+      }
+    }
+  };
+
+  const submitCreateProject = async () => {
+    const name = createProjectName.trim().replace(/\s+/g, ' ');
+    if (!name || !carrierScopeId) return;
+    try {
+      const project = await createProject.mutateAsync(name);
+      setCreateProjectOpen(false);
+      setCreateProjectName('');
+      newChat(project.project_id);
+      toast.success(t('nav.projects.created', 'Project created'));
+    } catch {
+      toast.error(t('nav.projects.createFailed', 'Could not create project'));
+    }
+  };
+
+  const submitRenameProject = async () => {
+    if (!renameProjectTarget) return;
+    const name = renameProjectDraft.trim().replace(/\s+/g, ' ');
+    if (!name || name === renameProjectTarget.label) return;
+    try {
+      await renameProject.mutateAsync({ projectId: renameProjectTarget.project_id, name });
+      setRenameProjectTarget(null);
+      toast.success(t('nav.projects.renamed', 'Project renamed'));
+    } catch {
+      toast.error(t('nav.projects.renameFailed', 'Could not rename project'));
+    }
+  };
+
+  const submitDeleteProject = async () => {
+    if (!deleteProjectTarget) return;
+    try {
+      const result = await deleteProject.mutateAsync(deleteProjectTarget.project_id);
+      for (const chatId of result.deleted_chat_ids) {
+        if (carrierScopeId) removeOptimisticChatSession(carrierScopeId, chatId);
+      }
+      if (activeProjectId === deleteProjectTarget.project_id) {
+        setActiveProjectId(null);
+        setActiveChatId('chat', null);
+      }
+      setDeleteProjectTarget(null);
+      toast.success(t('nav.projects.deleted', 'Project deleted'));
+    } catch {
+      toast.error(t('nav.projects.deleteFailed', 'Could not delete project'));
+    }
+  };
+
   const preloadChat = (chatId: string) => {
     if (!carrierScopeId) return;
-    const isDraft = draftChatSessions.some(
-      (item) => item.scopeId === carrierScopeId && item.chat_id === chatId,
-    );
-    if (isDraft) return;
     void queryClient.prefetchQuery({
       queryKey: ['chat-history', carrierScopeId, chatId, null],
       queryFn: () => fetchChatHistory(carrierScopeId, chatId),
@@ -423,7 +492,7 @@ export function AppSidebar({
                       onPointerEnter={() => preloadRoute(item.to)}
                       onFocus={() => preloadRoute(item.to)}
                       onClick={() => {
-                        if (item.to === '/chat') setChatEntryIntent('default');
+                        if (item.to === '/chat') setChatEntryIntent(null);
                         onNavigate?.();
                       }}
                       className={cn(
@@ -446,97 +515,199 @@ export function AppSidebar({
       </div>
       {showChatContext ? (
         <div className="flex min-h-0 flex-1 flex-col border-t border-edge-subtle pt-3">
-          <div className="px-3 text-xs font-semibold text-muted-foreground">
-            {t('nav.chatHistory', 'Chat history')}
+          <div className="flex items-center justify-between px-3">
+            <span className="text-xs font-semibold text-muted-foreground">
+              {t('nav.projects', 'Projects')}
+            </span>
+            <button
+              type="button"
+              className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setCreateProjectOpen(true)}
+              aria-label={t('nav.projects.new', 'New project')}
+              title={t('nav.projects.new', 'New project')}
+            >
+              <FolderPlus className="size-4" />
+            </button>
           </div>
-          <div className="app-scrollbar mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
-            {boot.isLoading || sessions.isLoading ? (
+          <div className="app-scrollbar mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
+            {boot.isLoading || sessions.isLoading || projects.isLoading ? (
               <div className="space-y-1 px-3">
                 <Skeleton className="h-7 w-full" />
                 <Skeleton className="h-7 w-5/6" />
               </div>
-            ) : chatItems.length ? (
-              chatItems.map((item) => {
-                const label = item.chat_context || item.chat_id.slice(0, 8);
-                const status = sandboxStatusByChat.get(item.chat_id) ?? 'idle';
-                const running = status === 'running';
-                const button = (
-                  <button
-                    type="button"
-                    title={label}
-                    data-chat-id={item.chat_id}
-                    onPointerEnter={() => preloadChat(item.chat_id)}
-                    onFocus={() => preloadChat(item.chat_id)}
-                    onClick={() => selectChat(item.chat_id)}
-                    className={cn(
-                      'flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-ui font-medium transition-colors duration-150',
-                      !item.__draft && 'pr-9',
-                      item.chat_id === activeChatId
-                        ? 'bg-primary/[0.07] font-semibold text-foreground'
-                        : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
-                    )}
-                  >
-                    <span className="relative shrink-0">
-                      <ResourceIcon kind="chat" size="sm" className="size-6 rounded-md" />
-                      {running ? (
-                        <StatusDot
-                          status="success"
-                          className="absolute -bottom-0.5 -right-0.5 ring-2 ring-surface-nav"
-                          title={t('chat.sandbox.running', 'Sandbox running')}
-                          aria-label={t('chat.sandbox.running', 'Sandbox running')}
-                        />
-                      ) : (
-                        <span className="sr-only">{t('chat.sandbox.idle', 'Sandbox idle')}</span>
-                      )}
-                    </span>
-                    <span className="block min-w-0 flex-1 truncate text-left">
-                      {label}
-                    </span>
-                  </button>
+            ) : projects.data?.length ? (
+              projects.data.map((project) => {
+                const projectChats = chatItems.filter(
+                  (item) => item.project_id === project.project_id,
                 );
-                const row = (
-                  <div className="group/chat-history relative flex items-center">
-                    <div className="min-w-0 flex-1">{button}</div>
-                    {!item.__draft && (
-                      <button
-                        type="button"
-                        className="absolute right-1 grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-surface-raised hover:text-destructive focus-visible:opacity-100 group-hover/chat-history:opacity-100"
-                        aria-label={t('nav.chatHistory.delete', 'Delete')}
-                        title={t('nav.chatHistory.delete', 'Delete')}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setDeleteTarget({ chat_id: item.chat_id, label });
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
+                const expanded = !collapsedProjects.has(project.project_id);
+                const sandboxState: SandboxLifecycleStatus = sandboxStatusByProject.get(project.project_id)?.status ?? 'idle';
+                const sandboxBusy = sandboxAction.isPending && sandboxAction.variables?.projectId === project.project_id;
+                const sandboxLabel = sandboxBusy
+                  ? t('loading', 'Loading...')
+                  : t(`chat.sandbox.${sandboxState}`);
+                const sandboxTone = sandboxState === 'running' ? 'success'
+                  : ['restoring', 'hibernating', 'releasing'].includes(sandboxState) ? 'running'
+                  : sandboxState === 'snapshot_failed' ? 'danger' : 'neutral';
+                const projectRow = (
+                  <div className="group/project relative flex items-center">
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 pr-8 text-left text-ui font-semibold transition-colors',
+                        activeProjectId === project.project_id
+                          ? 'bg-primary/[0.06] text-foreground'
+                          : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
+                      )}
+                      aria-expanded={expanded}
+                      onClick={() => selectProject(project.project_id)}
+                    >
+                      {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                      <span className="relative shrink-0">
+                        <Folder className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{project.name}</span>
+                        <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground" title={sandboxLabel}>
+                          <StatusDot status={sandboxTone} pulse={sandboxBusy || sandboxTone === 'running'} />
+                          <span className="truncate">{project.runtime_type === 'codex' ? 'Codex' : project.runtime_type} · {sandboxLabel}</span>
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="absolute right-1 grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-surface-raised hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        newChat(project.project_id);
+                      }}
+                      aria-label={t('nav.projects.newChat', 'New chat in {{name}}', { name: project.name })}
+                      disabled={!carrierScopeId}
+                      title={t('nav.projects.newChat', 'New chat in {{name}}', { name: project.name })}
+                    >
+                      <Plus className="size-3.5" />
+                    </button>
                   </div>
                 );
-                if (item.__draft) return <div key={item.chat_id}>{row}</div>;
                 return (
-                  <ContextMenu key={item.chat_id}>
-                    <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-                    <ContextMenuContent className="w-44">
-                      <ContextMenuItem onSelect={() => openRenameChat(item.chat_id, label)}>
-                        <Pencil className="mr-2 h-4 w-4" />
-                        {t('nav.chatHistory.rename', 'Rename')}
-                      </ContextMenuItem>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onSelect={() => setDeleteTarget({ chat_id: item.chat_id, label })}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        {t('nav.chatHistory.delete', 'Delete')}
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
+                  <div key={project.project_id}>
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>{projectRow}</ContextMenuTrigger>
+                      <ContextMenuContent className="w-48">
+                        <ContextMenuItem disabled={!carrierScopeId} onSelect={() => newChat(project.project_id)}>
+                          <Plus className="mr-2 size-4" />
+                          {t('new_chat', 'New Chat')}
+                        </ContextMenuItem>
+                        <ContextMenuItem disabled={sandboxBusy} onSelect={() => {
+                          if (sandboxState === 'idle' || sandboxState === 'closed') void changeSandbox(project.project_id, 'start');
+                          else setReleaseProject(project);
+                        }}>
+                          {sandboxState === 'idle' || sandboxState === 'closed'
+                            ? t('chat.sandbox.start_hint', 'Start sandbox')
+                            : t('chat.sandbox.close_hint', 'Release sandbox')}
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => {
+                          setRenameProjectTarget({ project_id: project.project_id, label: project.name });
+                          setRenameProjectDraft(project.name);
+                        }}>
+                          <Pencil className="mr-2 size-4" />
+                          {t('nav.projects.rename', 'Rename project')}
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => setDeleteProjectTarget({
+                            project_id: project.project_id,
+                            label: project.name,
+                          })}
+                        >
+                          <Trash2 className="mr-2 size-4" />
+                          {t('nav.projects.delete', 'Delete project')}
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                    {expanded && projectChats.length > 0 ? (
+                      <div className="ml-[15px] border-l border-edge-subtle pl-2">
+                        {projectChats.map((item) => {
+                          const label = item.chat_context || item.chat_id.slice(0, 8);
+                          const chatRow = (
+                            <div className="group/chat-history relative flex items-center">
+                              <button
+                                type="button"
+                                title={label}
+                                data-chat-id={item.chat_id}
+                                onPointerEnter={() => preloadChat(item.chat_id)}
+                                onFocus={() => preloadChat(item.chat_id)}
+                                onClick={() => selectChat(item.chat_id, project.project_id)}
+                                className={cn(
+                                  'flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
+                                  item.chat_id === activeChatId
+                                    ? 'bg-primary/[0.07] font-semibold text-foreground'
+                                    : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
+                                )}
+                              >
+                                <ResourceIcon kind="chat" size="sm" className="size-5 rounded" />
+                                <span className="min-w-0 flex-1 truncate">{label}</span>
+                                {chatRuntimes[item.chat_id]?.state === 'streaming' && (
+                                  <StatusDot status="running" pulse title={t('chat.status.running', 'Running')} />
+                                )}
+                              </button>
+                                <button
+                                  type="button"
+                                  className="absolute right-1 grid size-6 place-items-center rounded text-muted-foreground opacity-0 hover:bg-surface-raised hover:text-destructive focus-visible:opacity-100 group-hover/chat-history:opacity-100"
+                                  aria-label={t('nav.chatHistory.delete', 'Delete')}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setDeleteChatFiles(false);
+                                    setDeleteTarget({ chat_id: item.chat_id, label });
+                                  }}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                            </div>
+                          );
+                          return (
+                            <ContextMenu key={item.chat_id}>
+                              <ContextMenuTrigger asChild>{chatRow}</ContextMenuTrigger>
+                              <ContextMenuContent className="w-44">
+                                <ContextMenuItem onSelect={() => openRenameChat(item.chat_id, label)}>
+                                  <Pencil className="mr-2 size-4" />
+                                  {t('nav.chatHistory.rename', 'Rename')}
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() => { setDeleteChatFiles(false); setDeleteTarget({ chat_id: item.chat_id, label }); }}
+                                >
+                                  <Trash2 className="mr-2 size-4" />
+                                  {t('nav.chatHistory.delete', 'Delete')}
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })
             ) : (
-              <div className="px-3 py-1.5 text-[13px] text-muted-foreground">
-                {t('nav.chatHistory.empty', 'No chats yet.')}
+              <div className="mx-1 rounded-lg border border-dashed border-edge-subtle px-3 py-4 text-center">
+                <Folder className="mx-auto size-5 text-muted-foreground" />
+                <p className="mt-2 text-[13px] font-medium text-foreground">
+                  {t('nav.projects.emptyTitle', 'Create your first project')}
+                </p>
+                <p className="mt-1 text-xs leading-4 text-muted-foreground">
+                  {t('nav.projects.emptyDescription', 'Chats in a project share files and a running workspace.')}
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-3 h-8"
+                  onClick={() => setCreateProjectOpen(true)}
+                >
+                  <FolderPlus className="mr-1.5 size-3.5" />
+                  {t('nav.projects.new', 'New project')}
+                </Button>
               </div>
             )}
           </div>
@@ -584,6 +755,136 @@ export function AppSidebar({
         )}
       </button> : null}
       </nav>
+      <Dialog open={releaseProject !== null} onOpenChange={(open) => { if (!open) setReleaseProject(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('nav.projects.releaseTitle', 'Release project sandbox?')}</DialogTitle>
+            <DialogDescription>{t('nav.projects.releaseDescription', 'This releases the shared runtime for all chats in this project. Saved files and conversation history remain available; the next message restores the workspace.')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReleaseProject(null)}>{t('cancel', 'Cancel')}</Button>
+            <Button disabled={sandboxAction.isPending} onClick={() => releaseProject && void changeSandbox(releaseProject.project_id, 'release')}>
+              {t('chat.sandbox.close_hint', 'Release sandbox')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={createProjectOpen}
+        onOpenChange={(open) => {
+          setCreateProjectOpen(open);
+          if (!open) setCreateProjectName('');
+        }}
+      >
+        <DialogContent>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            void submitCreateProject();
+          }}>
+            <DialogHeader>
+              <DialogTitle>{t('nav.projects.createTitle', 'Create a project')}</DialogTitle>
+              <DialogDescription>
+                {t(
+                  'nav.projects.createDescription',
+                  'Chats in the same project share files and a running workspace. You can add more chats at any time.',
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              className="mt-4"
+              value={createProjectName}
+              maxLength={120}
+              autoFocus
+              placeholder={t('nav.projects.namePlaceholder', 'e.g. Research assistant')}
+              aria-label={t('nav.projects.name', 'Project name')}
+              onChange={(event) => setCreateProjectName(event.target.value)}
+            />
+            <DialogFooter className="mt-5">
+              <Button type="button" variant="outline" onClick={() => setCreateProjectOpen(false)}>
+                {t('cancel', 'Cancel')}
+              </Button>
+              <Button type="submit" disabled={!createProjectName.trim() || createProject.isPending}>
+                {createProject.isPending
+                  ? t('common.creating', 'Creating…')
+                  : t('nav.projects.createAction', 'Create project')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!renameProjectTarget}
+        onOpenChange={(open) => !open && setRenameProjectTarget(null)}
+      >
+        <DialogContent>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            void submitRenameProject();
+          }}>
+            <DialogHeader>
+              <DialogTitle>{t('nav.projects.renameTitle', 'Rename project')}</DialogTitle>
+              <DialogDescription>
+                {t('nav.projects.renameDescription', 'Use a name that describes the work shared by these chats.')}
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              className="mt-4"
+              value={renameProjectDraft}
+              maxLength={120}
+              autoFocus
+              aria-label={t('nav.projects.name', 'Project name')}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setRenameProjectDraft(event.target.value)}
+            />
+            <DialogFooter className="mt-5">
+              <Button type="button" variant="outline" onClick={() => setRenameProjectTarget(null)}>
+                {t('cancel', 'Cancel')}
+              </Button>
+              <Button type="submit" disabled={!renameProjectDraft.trim() || renameProject.isPending}>
+                {renameProject.isPending
+                  ? t('common.saving', 'Saving…')
+                  : t('nav.projects.rename', 'Rename project')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!deleteProjectTarget}
+        onOpenChange={(open) => !open && setDeleteProjectTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('nav.projects.deleteTitle', 'Delete this project?')}</DialogTitle>
+            <DialogDescription>
+              {t(
+                'nav.projects.deleteDescription',
+                'This permanently deletes every chat in the project, its files, and its saved runtime state.',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {deleteProjectTarget ? (
+            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm font-medium">
+              {deleteProjectTarget.label}
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteProjectTarget(null)}>
+              {t('cancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteProject.isPending}
+              onClick={() => void submitDeleteProject()}
+            >
+              {deleteProject.isPending
+                ? t('deleting', 'Deleting...')
+                : t('nav.projects.delete', 'Delete project')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!renameTarget}
         onOpenChange={(open) => {
@@ -632,7 +933,9 @@ export function AppSidebar({
           </form>
         </DialogContent>
       </Dialog>
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => {
+        if (!open) { setDeleteTarget(null); setDeleteChatFiles(false); }
+      }}>
         <DialogContent className="min-w-0 overflow-x-hidden">
           <DialogHeader className="min-w-0">
             <DialogTitle>
@@ -641,7 +944,7 @@ export function AppSidebar({
             <DialogDescription>
               {t(
                 'nav.chatHistory.deleteConfirm',
-                'This will delete the conversation history and its workspace files under data, memory, and logs. This cannot be undone.',
+                'This removes only this conversation. Other chats and shared project files are kept.',
               )}
             </DialogDescription>
           </DialogHeader>
@@ -656,6 +959,15 @@ export function AppSidebar({
               </span>
             </div>
           )}
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={deleteChatFiles}
+              onChange={(event) => setDeleteChatFiles(event.target.checked)}
+              className="mt-1 accent-primary"
+            />
+            {t('nav.chatHistory.deleteFiles', 'Also permanently delete this chat’s working files. Shared project files are kept.')}
+          </label>
           <DialogFooter className="min-w-0 shrink-0">
             <Button
               type="button"

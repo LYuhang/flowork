@@ -4,7 +4,7 @@ import { previewItemToRestore, type ChatPreviewItem } from '../preview-state';
 const file: ChatPreviewItem = {
   id: 'file:report', title: 'Report',
   resource: { schemaVersion: 1, kind: 'file', fileRef: {
-    schemaVersion: 1, scope: 'chat', chatId: 'chat', path: '/data/report.pdf',
+    schemaVersion: 1, scope: 'project', projectId: 'chat', path: '/data/report.pdf',
   } },
 };
 const url: ChatPreviewItem = {

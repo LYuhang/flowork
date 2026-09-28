@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
+import { openProjectChatDraft } from '@/lib/chat/project-draft';
 import {
   Group as ResizableGroup,
   Panel as ResizablePanel,
@@ -11,14 +12,13 @@ import {
   Bug,
   CheckCircle2,
   Copy,
-  Cpu,
   Eye,
+  FolderPlus,
   ListChecks,
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
   Plus,
-  Power,
   RefreshCw,
   Sparkles,
   X,
@@ -26,6 +26,7 @@ import {
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ChatShareDialog } from '@/components/agent-sidebar/ChatShareDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -38,14 +39,6 @@ import { AsyncState } from '@/components/ui/async-state';
 import { PaneResizeHandle } from '@/components/ui/pane-resize-handle';
 import { usePersistedPaneWidth } from '@/components/ui/use-persisted-pane-width';
 import { StatusDot, type SemanticStatus } from '@/components/ui/status';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { ChatMessageList } from '@/components/agent-sidebar/ChatMessageList';
 import type { SubmitInteractiveAsNewTurn } from '@/components/agent-sidebar/tool-render/InteractiveArtifactBlock';
 import {
@@ -71,20 +64,20 @@ import {
   loadChatPaneLayout,
   saveChatPaneLayout,
 } from './chatPaneLayout';
-import type { components } from '@/lib/api/schema';
 import { useAuthStore } from '@/stores/auth';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { useUIStore } from '@/stores/ui';
-import { getApiBase } from '@/lib/base-path';
 import {
   CHAT_INITIAL_HISTORY_LIMIT,
   fetchChatHistoryPage,
   useChatHistory,
+  useChatProjects,
+  useCreateChatProject,
   useChatSessions,
   useChatState,
-  useChatWorkspace,
+  useProjectWorkspace,
   useGeneralChatBootstrap,
-  useChatSandboxStatuses,
+  type ChatListItem,
 } from '@/lib/api/queries/chats';
 import { resumeActiveTurn } from '@/lib/api/sse/resume-turn';
 import { readServerActiveTurns } from '@/lib/api/sse/server-active-turn';
@@ -93,8 +86,7 @@ import {
   reconcileChatWithServer,
 } from '@/lib/api/sse/chat-reconcile';
 import { runAgentTurn } from '@/lib/api/sse/run-agent-turn';
-import { listVfs, readVfs } from '@/lib/api/vfs';
-import { DebugMessageContent } from './DebugMessageContent';
+import { ChatDebugPanel } from './ChatDebugPanel';
 import { cn } from '@/lib/utils';
 import {
   EMPTY_CHAT_VIEW_STATE,
@@ -111,36 +103,12 @@ import {
   readRecentChatLocation,
   writeRecentChatSelection,
 } from '@/lib/chat/state-key';
-import {
-  formatSandboxTtl,
-  sandboxTtlRemaining,
-  type SandboxLifecycleStatus,
-  type SandboxResourceStatus,
-} from '@/lib/sandbox-status';
 import { mergeHistoryWindow, type ChatHistoryWindow } from './history-window';
 
 const ChatPreviewPane = lazy(() =>
   import('./ChatPreviewPane').then((module) => ({ default: module.ChatPreviewPane })),
 );
 
-interface ChatSandboxStatus {
-  scope_id: string;
-  mount_scope_id?: string | null;
-  status: SandboxLifecycleStatus;
-  activity_state?: 'busy' | 'idle' | 'unknown';
-  idle_elapsed_s?: number | null;
-  idle_for_s?: number | null;
-  ttl_s?: number | null;
-  ttl_paused?: boolean;
-  ttl_remaining_s?: number | null;
-  closed_for_s?: number | null;
-  resources?: SandboxResourceStatus;
-}
-
-type DebugMessageType = 'error' | 'synthetic' | 'compressed' | 'ref' | 'abstract' | 'preview' | 'raw';
-type DebugRoleType = 'user' | 'assistant' | 'tool';
-type DebugFacet = DebugMessageType | DebugRoleType;
-type ChatListItem = components['schemas']['ChatListItem'];
 const EMPTY_RAW_CHUNKS: RawChunk[] = [];
 const MAX_HISTORY_WINDOWS = 20;
 const MAX_STARTED_CHAT_IDS = 50;
@@ -194,12 +162,12 @@ function fileNameFromPath(path: string): string {
 
 function previewItemFromToolCall(
   call: MergedToolCall,
-  chatId: string | null,
+  projectId: string | null,
 ): ChatPreviewItem | null {
   if (call.status === 'done') {
     const result = parseStandardToolResult(call.result);
     const path = diagramPreviewPathFromStandardResult(result);
-    const fileRef = path ? fileRefFromAgentPath(path, { chatId }) : null;
+    const fileRef = path ? fileRefFromAgentPath(path, { projectId }) : null;
     if (path && fileRef) return filePreviewItem(fileRef, fileNameFromPath(path));
   }
   const parsed = readInteractiveArtifact(call);
@@ -210,7 +178,7 @@ function previewItemFromToolCall(
   const title = artifact.title || 'Interactive artifact';
   if (artifact.component_type === 'file_preview') {
     const path = stringValue(artifact.props?.path || artifact.props?.file_path || artifact.props?.ref);
-    const fileRef = path ? fileRefFromAgentPath(path, { chatId }) : null;
+    const fileRef = path ? fileRefFromAgentPath(path, { projectId }) : null;
     if (fileRef) return filePreviewItem(fileRef, fileNameFromPath(path));
   }
   return {
@@ -221,880 +189,18 @@ function previewItemFromToolCall(
   };
 }
 
-interface DebugSnapshotMessage {
-  debug_id: string;
-  source_message_id?: string | null;
-  anchor_source_message_id?: string | null;
-  role: string;
-  tool_name?: string;
-  tool_call_id?: string;
-  synthetic?: boolean;
-  synthetic_kind?: string;
-  form?: string;
-  preview_strategy?: string;
-  token_field?: string;
-  tokens?: number | null;
-  token_slots?: Record<string, number | null>;
-  path?: string;
-  content_type?: string;
-  content: string;
-  tool_calls?: Array<Record<string, unknown>>;
-  error?: boolean;
-  runtime_item_type?: string;
-  runtime_metadata?: Record<string, unknown>;
-  content_truncated?: boolean;
-  content_ref?: string;
-  content_part_count?: number;
-  content_chars?: number;
-  projection?: 'model_input' | 'turn_output';
-}
 
-interface DebugSnapshot {
-  schema_version: number;
-  kind: string;
-  snapshot_id: string;
-  chat_id: string;
-  thread_id?: string;
-  turn_id?: string;
-  runtime_type?: string;
-  snapshot_semantics?: 'model_input' | 'runtime_thread_input';
-  model_call_index: number;
-  created_at: string;
-  token_total?: number | null;
-  target?: {
-    provider?: string;
-    model_id?: string;
-    context_window_tokens?: number | null;
-  };
-  runtime_metadata?: Record<string, unknown>;
-  memory_config_snapshot?: Record<string, unknown>;
-  context_manifest?: Record<string, unknown>;
-  context_decisions?: Array<Record<string, unknown>>;
-  context_compaction_plan?: Record<string, unknown>;
-  tool_registry?: Array<Record<string, unknown>>;
-  mcp_catalog?: Array<Record<string, unknown>>;
-  runtime_policy?: Record<string, unknown>;
-  messages: DebugSnapshotMessage[];
-}
-
-type DebugView = 'activity' | 'context' | 'state' | 'raw';
-
-const DEBUG_TYPE_ORDER: DebugMessageType[] = [
-  'error',
-  'synthetic',
-  'compressed',
-  'ref',
-  'abstract',
-  'preview',
-  'raw',
-];
-
-const DEBUG_TYPE_CLASS: Record<DebugMessageType, string> = {
-  error: 'bg-red-500',
-  synthetic: 'bg-zinc-400',
-  compressed: 'bg-teal-500',
-  ref: 'bg-violet-400',
-  abstract: 'bg-amber-500',
-  preview: 'bg-blue-500',
-  raw: 'bg-slate-400',
-};
-
-const DEBUG_ROLE_ORDER: DebugRoleType[] = ['user', 'assistant', 'tool'];
-
-const DEBUG_ROLE_CLASS: Record<DebugRoleType, string> = {
-  user: 'bg-sky-500',
-  assistant: 'bg-emerald-500',
-  tool: 'bg-fuchsia-500',
-};
-
-const DEBUG_FACET_ORDER: DebugFacet[] = [
-  ...DEBUG_TYPE_ORDER,
-  ...DEBUG_ROLE_ORDER,
-];
-
-const DEBUG_FACET_CLASS: Record<DebugFacet, string> = {
-  ...DEBUG_TYPE_CLASS,
-  ...DEBUG_ROLE_CLASS,
-};
-
-function debugType(message: DebugSnapshotMessage): DebugMessageType {
-  if (message.error) return 'error';
-  if (message.synthetic) return 'synthetic';
-  const form = message.form || 'raw';
-  if (form === 'compressed') return 'compressed';
-  if (form === 'ref') return 'ref';
-  if (form === 'abstract') return 'abstract';
-  if (form === 'preview') return 'preview';
-  return 'raw';
-}
-
-function debugFacetMatches(message: DebugSnapshotMessage, facet: DebugFacet): boolean {
-  if ((DEBUG_ROLE_ORDER as readonly string[]).includes(facet)) {
-    return message.role === facet;
-  }
-  return debugType(message) === facet;
-}
-
-function formatTokens(n: number | null | undefined): string {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '-';
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
-}
-
-function debugToolCallName(call: Record<string, unknown>): string {
-  const fn = call.function;
-  if (typeof call.name === 'string' && call.name) return call.name;
-  if (fn && typeof fn === 'object' && typeof (fn as Record<string, unknown>).name === 'string') {
-    return (fn as Record<string, unknown>).name as string;
-  }
-  return '(unknown tool)';
-}
-
-function debugToolCallId(call: Record<string, unknown>): string {
-  return typeof call.id === 'string' && call.id ? call.id : '';
-}
-
-function debugToolCallArgs(call: Record<string, unknown>): string {
-  const fn = call.function;
-  const raw =
-    fn && typeof fn === 'object' && 'arguments' in fn
-      ? (fn as Record<string, unknown>).arguments
-      : call.args ?? call.arguments;
-  if (typeof raw === 'string') {
-    try {
-      return JSON.stringify(JSON.parse(raw), null, 2);
-    } catch {
-      return raw;
-    }
-  }
-  try {
-    return JSON.stringify(raw ?? {}, null, 2);
-  } catch {
-    return String(raw ?? '');
-  }
-}
-
-function DebugMessageCard({
-  workspaceId,
-  message,
-  active,
-  onSelect,
-}: {
-  workspaceId: string;
-  message: DebugSnapshotMessage;
-  active: boolean;
-  onSelect: () => void;
-}) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const [showMeta, setShowMeta] = useState(false);
-  const type = debugType(message);
-  const slots = message.token_slots || {};
-  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-  const long =
-    toolCalls.some((call) => debugToolCallArgs(call).length > 1200);
-  const copy = () => {
-    const payload = [
-      message.content || '',
-      ...toolCalls.map((call) => {
-        const id = debugToolCallId(call);
-        return [
-          `tool_call: ${debugToolCallName(call)}${id ? ` (${id})` : ''}`,
-          debugToolCallArgs(call),
-        ].join('\n');
-      }),
-    ].filter(Boolean).join('\n\n');
-    void navigator.clipboard?.writeText(payload);
-  };
-  return (
-    <article
-      id={`debug-${message.debug_id}`}
-      onDoubleClick={(event) => {
-        if ((event.target as HTMLElement).closest('button')) return;
-        onSelect();
-      }}
-      className={cn(
-        'rounded-md border bg-background text-xs transition-[border-color,background-color] duration-feedback',
-        active && 'border-foreground ring-2 ring-ring/40',
-      )}
-      data-debug-message-id={message.debug_id}
-      data-selected={active ? 'true' : undefined}
-    >
-      <div className="flex min-w-0 items-start gap-2 border-b px-3 py-2">
-        <span className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', DEBUG_TYPE_CLASS[type])} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-medium">{message.role}</span>
-            {message.tool_name && (
-              <span className="text-muted-foreground">· {message.tool_name}</span>
-            )}
-            {message.runtime_item_type && (
-              <span className="rounded border px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                {message.runtime_item_type}
-              </span>
-            )}
-            <span className="text-muted-foreground">
-              {message.form || 'raw'} · {formatTokens(message.tokens)} tok
-            </span>
-            {message.synthetic && (
-              <span className="rounded border px-1.5 py-0.5 text-xs uppercase text-muted-foreground">
-                injected
-              </span>
-            )}
-            {message.projection === 'turn_output' && (
-              <span className="rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-xs text-sky-700 dark:text-sky-300">
-                {t('chat.debug.turnOutputBadge', 'turn output')}
-              </span>
-            )}
-          </div>
-          {(message.path || message.content_type || message.tool_call_id) && (
-            <div className="mt-1 truncate text-xs text-muted-foreground">
-              {message.path || message.content_type || message.tool_call_id}
-            </div>
-          )}
-          {toolCalls.length > 0 && (
-            <div className="mt-1 truncate text-xs text-muted-foreground">
-              {t('chat.debug.toolCallCount', '{{count}} tool call', { count: toolCalls.length })}: {' '}
-              {toolCalls.map(debugToolCallName).join(', ')}
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={copy}
-          title="Copy"
-        >
-          <Copy className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {(message.content || toolCalls.length === 0) && (
-        <DebugMessageContent key={message.content_ref || message.debug_id} workspaceId={workspaceId}
-          content={message.content} contentRef={message.content_ref}
-          partCount={message.content_part_count} totalChars={message.content_chars}
-          truncated={message.content_truncated} />
-      )}
-      {toolCalls.length > 0 && (
-        <div className="space-y-2 border-t bg-muted/20 px-3 py-2">
-          {toolCalls.map((call, index) => {
-            const id = debugToolCallId(call);
-            return (
-              <div key={id || index} className="rounded border bg-background">
-                <div className="flex items-center gap-2 border-b px-2 py-1.5">
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs uppercase text-muted-foreground">
-                    {t('chat.debug.toolCall', 'Tool call')}
-                  </span>
-                  <span className="font-mono text-xs font-medium">
-                    {debugToolCallName(call)}
-                  </span>
-                  {id && (
-                    <span className="truncate font-mono text-xs text-muted-foreground">
-                      {id}
-                    </span>
-                  )}
-                </div>
-                <pre
-                  className={cn(
-                    'm-0 overflow-auto whitespace-pre-wrap break-words px-2 py-2 font-mono text-xs leading-5',
-                    expanded ? 'max-h-[60vh]' : 'max-h-[180px]',
-                  )}
-                >
-                  {debugToolCallArgs(call)}
-                </pre>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <div className="flex items-center justify-between border-t px-3 py-1.5">
-        <div className="truncate text-xs text-muted-foreground">
-          {t('chat.debug.raw', 'Raw')} {formatTokens(slots.raw)} · {t('chat.debug.preview', 'Preview')}{' '}
-          {formatTokens(slots.preview)} · {t('chat.debug.abstract', 'Abstract')} {formatTokens(slots.abstract)} ·{' '}
-          {t('chat.debug.compressed', 'Compressed')} {formatTokens(slots.compressed)}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {long && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={() => setExpanded((v) => !v)}
-            >
-              {expanded ? 'Collapse' : 'Show more'}
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={() => setShowMeta((v) => !v)}
-          >
-            Meta
-          </Button>
-        </div>
-      </div>
-      {showMeta && (
-        <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-1 border-t px-3 py-2 text-xs">
-          {Object.entries(message).map(([key, value]) => {
-            if (key === 'content') return null;
-            return (
-              <div className="contents" key={key}>
-                <div className="text-muted-foreground">{key}</div>
-                <div className="min-w-0 break-words font-mono">
-                  {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </article>
-  );
-}
-
-function DebugField({ label, value }: { label: string; value: unknown }) {
-  if (value === undefined || value === null || value === '') return null;
-  const display = typeof value === 'object' ? JSON.stringify(value) : String(value);
-  return (
-    <div className="grid grid-cols-[minmax(88px,0.35fr)_minmax(0,1fr)] gap-3 py-1 text-xs">
-      <dt className="text-content-tertiary">{label}</dt>
-      <dd className="min-w-0 break-words font-mono text-content-secondary">{display}</dd>
-    </div>
-  );
-}
-
-function DebugRecordCard({ title, record }: { title: string; record: Record<string, unknown> }) {
-  return (
-    <section className="rounded-lg border border-edge-subtle bg-surface-raised px-3 py-2">
-      <h3 className="mb-1 truncate text-xs font-semibold text-content-primary">{title}</h3>
-      <dl>
-        {Object.entries(record).map(([key, value]) => (
-          <DebugField key={key} label={key.replaceAll('_', ' ')} value={value} />
-        ))}
-      </dl>
-    </section>
-  );
-}
-
-function DebugEmpty({ children }: { children: string }) {
-  return <div className="rounded-lg border border-dashed border-edge-subtle px-4 py-8 text-center text-sm text-content-tertiary">{children}</div>;
-}
-
-function ChatDebugPanel({
-  workspaceScopeId,
-  scopeId,
-  chatId,
-}: {
-  workspaceScopeId: string;
-  scopeId: string;
-  chatId: string;
-}) {
-  const { t } = useTranslation();
-  const [debugView, setDebugView] = useState<DebugView>('context');
-  const [focusFacet, setFocusFacet] = useState<DebugFacet | null>(null);
-  const [focusIndex, setFocusIndex] = useState(0);
-  const list = useQuery({
-    queryKey: ['chat-debug-snapshots', workspaceScopeId],
-    queryFn: () => listVfs({
-      wf_id: workspaceScopeId,
-      prefix: '/logs/.debug/',
-      include_hidden: 'true',
-    }),
-    enabled: !!workspaceScopeId,
-    refetchInterval: 3000,
-  });
-  const latestPath = useMemo(() => {
-    const entries = list.data?.entries ?? [];
-    return entries
-      .filter((e) => e.path.endsWith('.json'))
-      .map((e) => e.path)
-      .sort()
-      .at(-1) ?? null;
-  }, [list.data?.entries]);
-  const snapshotQuery = useQuery({
-    queryKey: ['chat-debug-snapshot', workspaceScopeId, latestPath],
-    queryFn: async () => {
-      const out = await readVfs({ wf_id: workspaceScopeId, path: latestPath as string });
-      if (typeof out.content !== 'string') return null;
-      return JSON.parse(out.content) as DebugSnapshot;
-    },
-    enabled: !!workspaceScopeId && !!latestPath,
-    staleTime: Infinity,
-  });
-  const snapshot = snapshotQuery.data;
-  const turnOutputQuery = useQuery({
-    queryKey: ['chat-debug-turn-output', scopeId, chatId],
-    queryFn: () => fetchChatHistoryPage(scopeId, chatId, {
-      limit: 200,
-      tail: true,
-      debug: true,
-    }),
-    enabled: !!scopeId && !!chatId,
-    refetchInterval: 3000,
-  });
-  const snapshotMessages = useMemo(
-    () => snapshot?.messages ?? [],
-    [snapshot?.messages],
-  );
-  const turnOutputMessages = useMemo<DebugSnapshotMessage[]>(() => {
-    if (!snapshot?.turn_id) return [];
-    const snapshotSeconds = Date.parse(snapshot.created_at) / 1000;
-    return (turnOutputQuery.data?.items ?? [])
-      .filter((raw): raw is RawChunk => !!raw && typeof raw === 'object')
-      .filter((raw) => {
-        const meta = raw.meta && typeof raw.meta === 'object' ? raw.meta : {};
-        if (meta.turn_id !== snapshot.turn_id || raw.role === 'user') return false;
-        // Earlier AI/tool steps already present in the latest model-input
-        // snapshot must not be duplicated. Only project durable messages that
-        // were committed at or after this model call began.
-        return typeof raw.ts !== 'number'
-          || !Number.isFinite(snapshotSeconds)
-          || raw.ts >= snapshotSeconds;
-      })
-      .map((raw, index) => {
-        const meta = raw.meta && typeof raw.meta === 'object' ? raw.meta : {};
-        const toolCalls = Array.isArray(raw.tool_calls)
-          ? raw.tool_calls.filter(
-              (call): call is Record<string, unknown> => !!call && typeof call === 'object',
-            )
-          : [];
-        const artifact = raw.artifact && typeof raw.artifact === 'object'
-          ? raw.artifact
-          : {};
-        const artifactMeta = artifact.meta && typeof artifact.meta === 'object'
-          ? artifact.meta as Record<string, unknown>
-          : {};
-        const payload = artifact.payload && typeof artifact.payload === 'object'
-          ? artifact.payload as Record<string, unknown>
-          : {};
-        const safeId = String(raw.id || `${snapshot.turn_id}-${index}`)
-          .replace(/[^A-Za-z0-9_.:-]/g, '_');
-        const status = String(meta.status || artifact.status || '');
-        return {
-          debug_id: `turn_output_${safeId}`,
-          source_message_id: raw.id ? String(raw.id) : null,
-          role: raw.role,
-          synthetic: false,
-          form: 'raw',
-          token_field: 'raw',
-          tokens: null,
-          token_slots: {
-            raw: null,
-            preview: null,
-            abstract: null,
-            ref: null,
-            compressed: null,
-          },
-          content: raw.content || '',
-          tool_calls: toolCalls,
-          tool_call_id: raw.tool_call_id,
-          tool_name: typeof meta.tool_name === 'string' ? meta.tool_name : undefined,
-          content_type: typeof artifactMeta.content_type === 'string'
-            ? artifactMeta.content_type
-            : undefined,
-          path: typeof payload.ref === 'string' ? payload.ref : undefined,
-          error: ['failed', 'error', 'errored', 'cancelled'].includes(status),
-          projection: 'turn_output',
-          runtime_item_type: 'persistedTurnOutput',
-          runtime_metadata: {
-            projection: 'turn_output_after_model_input',
-            turn_id: snapshot.turn_id,
-            persisted_at: raw.ts,
-            status: status || undefined,
-          },
-        };
-      });
-  }, [snapshot, turnOutputQuery.data?.items]);
-  const messages = useMemo(
-    () => [...snapshotMessages, ...turnOutputMessages],
-    [snapshotMessages, turnOutputMessages],
-  );
-  const runtimeType = snapshot?.runtime_type ?? 'codex';
-  const runtimeMetadata = snapshot?.runtime_metadata ?? {};
-  const codexHistoryIncomplete =
-    runtimeType === 'codex' && runtimeMetadata.history_complete === false;
-  const snapshotTruncated = runtimeMetadata.snapshot_truncated === true;
-  const counts = useMemo(() => {
-    const c = Object.fromEntries(DEBUG_FACET_ORDER.map((k) => [k, 0])) as Record<DebugFacet, number>;
-    for (const m of messages) {
-      c[debugType(m)] += 1;
-      if ((DEBUG_ROLE_ORDER as readonly string[]).includes(m.role)) {
-        c[m.role as DebugRoleType] += 1;
-      }
-    }
-    return c;
-  }, [messages]);
-  const focusedMessages = useMemo(
-    () => (focusFacet ? messages.filter((m) => debugFacetMatches(m, focusFacet)) : []),
-    [focusFacet, messages],
-  );
-  const activeDebugId = focusedMessages[focusIndex]?.debug_id ?? null;
-  const scrollLinkedSource = (message: DebugSnapshotMessage) => {
-    const ids = [message.source_message_id, message.anchor_source_message_id]
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    for (const id of ids) {
-      const selector = `[data-source-message-id="${CSS.escape(id)}"]`;
-      const target = document.querySelector(selector);
-      if (!target) continue;
-      target.scrollIntoView({
-        block: 'center',
-        behavior: 'smooth',
-      });
-      return;
-    }
-  };
-
-  const selectDebugMessage = (message: DebugSnapshotMessage) => {
-    const facet: DebugFacet = focusFacet && debugFacetMatches(message, focusFacet)
-      ? focusFacet
-      : debugType(message);
-    const idx = messages
-      .filter((candidate) => debugFacetMatches(candidate, facet))
-      .findIndex((candidate) => candidate.debug_id === message.debug_id);
-    setFocusFacet(facet);
-    setFocusIndex(Math.max(0, idx));
-    requestAnimationFrame(() => {
-      document.getElementById(`debug-${message.debug_id}`)?.scrollIntoView({
-        block: 'center',
-        behavior: 'smooth',
-      });
-      scrollLinkedSource(message);
-    });
-  };
-
-  const jump = (facet: DebugFacet, nextIndex: number) => {
-    const targets = messages.filter((m) => debugFacetMatches(m, facet));
-    if (!targets.length) return;
-    const idx = ((nextIndex % targets.length) + targets.length) % targets.length;
-    selectDebugMessage(targets[idx]);
-  };
-
-  return (
-    <aside className="flex h-full min-h-0 w-full min-w-0 flex-col bg-surface-work">
-      <div className="chat-pane-header flex h-11 shrink-0 items-center justify-between px-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="truncate text-sm font-semibold">
-              {t('chat.debug.title', 'Agent Debug')}
-            </div>
-            {snapshot && (
-              <span className="shrink-0 rounded-full border border-edge-subtle bg-surface-sunken px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {runtimeType}
-              </span>
-            )}
-          </div>
-          <div className="truncate text-xs text-muted-foreground">
-            {snapshot
-              ? runtimeType === 'codex'
-                ? t(
-                    'chat.debug.codex_summary',
-                    '{{count}} input items + {{outputCount}} turn outputs',
-                    {
-                      count: snapshotMessages.length,
-                      outputCount: turnOutputMessages.length,
-                    },
-                  )
-                : t(
-                    'chat.debug.runtime_summary',
-                    '{{count}} input messages + {{outputCount}} turn outputs · {{tokens}} input tokens',
-                    {
-                      count: snapshotMessages.length,
-                      outputCount: turnOutputMessages.length,
-                      tokens: formatTokens(snapshot.token_total),
-                    },
-                  )
-              : t('chat.debug.no_snapshot', 'No debug snapshot yet')}
-          </div>
-        </div>
-        {latestPath && (
-          <div className="max-w-[220px] truncate text-xs text-muted-foreground">
-            {latestPath.split('/').pop()}
-          </div>
-        )}
-      </div>
-      {(codexHistoryIncomplete || snapshotTruncated) && (
-        <div className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-800 dark:text-amber-200">
-          {snapshotTruncated
-            ? t(
-                'chat.debug.snapshot_truncated',
-                'This older snapshot omitted some content. New snapshots retain each message with expandable content.',
-              )
-            : t(
-                'chat.debug.codex_history_incomplete',
-                'Codex returned a summarized native thread for part of this history.',
-              )}
-        </div>
-      )}
-      <div className="chat-pane-subheader flex shrink-0 items-end gap-5 px-3" role="tablist" aria-label={t('chat.debug.views', 'Debug views')}>
-        {(['activity', 'context', 'state', 'raw'] as const).map((view) => (
-          <button
-            key={view}
-            type="button"
-            role="tab"
-            aria-selected={debugView === view}
-            onClick={() => setDebugView(view)}
-            className={cn(
-              'relative h-10 border-b-2 border-transparent text-xs font-medium capitalize text-content-tertiary transition-colors',
-              debugView === view && 'border-focus text-content-primary',
-            )}
-          >
-            {t(`chat.debug.${view}`, view[0].toUpperCase() + view.slice(1))}
-          </button>
-        ))}
-      </div>
-      {debugView === 'context' && <div className="chat-pane-subheader flex shrink-0 flex-wrap items-center gap-1 px-3 py-1.5">
-        {DEBUG_FACET_ORDER.map((facet) => {
-          const active = focusFacet === facet;
-          const isRoleFacet = (DEBUG_ROLE_ORDER as readonly string[]).includes(facet);
-          return (
-            <button
-              key={facet}
-              type="button"
-              disabled={!counts[facet]}
-              onClick={() => {
-                if (active) {
-                  setFocusFacet(null);
-                  setFocusIndex(0);
-                } else {
-                  jump(facet, 0);
-                }
-              }}
-              className={cn(
-                'flex h-7 items-center gap-1 rounded-md border px-2 text-xs text-muted-foreground disabled:opacity-40',
-                isRoleFacet && 'ml-1',
-                active && 'border-foreground text-foreground',
-              )}
-            >
-              <span className={cn('h-2 w-2 rounded-full', DEBUG_FACET_CLASS[facet])} />
-              <span>{facet}</span>
-              <span>{active ? `${Math.min(focusIndex + 1, counts[facet])} / ${counts[facet]}` : counts[facet]}</span>
-            </button>
-          );
-        })}
-        {focusFacet && (
-          <div className="ml-auto flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => jump(focusFacet, focusIndex - 1)}
-            >
-              ↑
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => jump(focusFacet, focusIndex + 1)}
-            >
-              ↓
-            </Button>
-          </div>
-        )}
-      </div>}
-      {debugView === 'context' ? <div className="flex min-h-0 flex-1" role="tabpanel">
-        <div className="relative w-3 shrink-0 border-r border-edge-subtle bg-surface-sunken/40">
-          {messages.map((m, i) => {
-            const type = debugType(m);
-            const top = messages.length > 1 ? (i / (messages.length - 1)) * 96 : 2;
-            const dim = focusFacet && !debugFacetMatches(m, focusFacet);
-            return (
-              <button
-                key={m.debug_id}
-                type="button"
-                title={`${m.role} ${m.tool_name || ''} ${m.form || 'raw'}`}
-                onClick={() => selectDebugMessage(m)}
-                className={cn(
-                  'absolute left-1 h-1.5 w-1.5 rounded-full',
-                  DEBUG_TYPE_CLASS[type],
-                  dim && 'opacity-25',
-                  activeDebugId === m.debug_id && 'ring-2 ring-foreground',
-                )}
-                style={{ top: `${top}%` }}
-              />
-            );
-          })}
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {list.isLoading || snapshotQuery.isLoading ? (
-            <div className="text-sm text-muted-foreground">
-              {t('chat.debug.loading', 'Loading debug snapshot...')}
-            </div>
-          ) : list.isError || snapshotQuery.isError ? (
-            <div className="text-sm text-destructive">
-              {t('chat.debug.error', 'Failed to load debug snapshot.')}
-            </div>
-          ) : !snapshot ? (
-            <div className="text-sm text-muted-foreground">
-              {t('chat.debug.empty', 'No model input snapshot has been written for this chat yet.')}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {snapshotMessages.map((message) => (
-                <DebugMessageCard
-                  key={`${snapshot?.snapshot_id}:${message.debug_id}`}
-                  workspaceId={workspaceScopeId}
-                  message={message}
-                  active={activeDebugId === message.debug_id}
-                  onSelect={() => selectDebugMessage(message)}
-                />
-              ))}
-              {turnOutputMessages.length > 0 && (
-                <div className="flex items-center gap-2 py-1" data-role="debug-turn-output-divider">
-                  <span className="h-px flex-1 bg-edge-subtle" />
-                  <span className="rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-700 dark:text-sky-300">
-                    {t('chat.debug.turnOutputDivider', 'Current Turn output · not yet part of this model input')}
-                  </span>
-                  <span className="h-px flex-1 bg-edge-subtle" />
-                </div>
-              )}
-              {turnOutputMessages.map((message) => (
-                <DebugMessageCard
-                  key={`${snapshot?.snapshot_id}:${message.debug_id}`}
-                  workspaceId={workspaceScopeId}
-                  message={message}
-                  active={activeDebugId === message.debug_id}
-                  onSelect={() => selectDebugMessage(message)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div> : (
-        <div className="min-h-0 flex-1 overflow-y-auto p-3" role="tabpanel">
-          {!snapshot ? (
-            <DebugEmpty>{t('chat.debug.empty', 'No debug snapshot has been written for this chat yet.')}</DebugEmpty>
-          ) : debugView === 'activity' ? (
-            <div className="space-y-4">
-              <section>
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">{t('chat.debug.toolActivity', 'Tool activity')}</h2>
-                <div className="space-y-2">
-                  {messages.some((message) => message.role === 'tool') ? messages.filter((message) => message.role === 'tool').map((message) => (
-                    <DebugRecordCard key={message.debug_id} title={message.tool_name || 'Tool result'} record={{
-                      status: message.error ? 'failed' : 'completed',
-                      tool_call_id: message.tool_call_id,
-                      content_type: message.content_type,
-                      path: message.path,
-                      tokens: message.tokens,
-                    }} />
-                  )) : <DebugEmpty>{t('chat.debug.noToolActivity', 'No tool calls recorded in this snapshot.')}</DebugEmpty>}
-                </div>
-              </section>
-              <section>
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">{t('chat.debug.contextDecisions', 'Context decisions')}</h2>
-                <div className="space-y-2">
-                  {(snapshot.context_decisions ?? []).length ? snapshot.context_decisions?.map((record, index) => (
-                    <DebugRecordCard key={index} title={String(record.section_id || record.action || `Decision ${index + 1}`)} record={record} />
-                  )) : <DebugEmpty>{t('chat.debug.noDecisions', 'No context decisions recorded.')}</DebugEmpty>}
-                </div>
-              </section>
-              <section>
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">{t('chat.debug.toolsAndMcp', 'Tools and MCP')}</h2>
-                <div className="space-y-2">
-                  {[...(snapshot.mcp_catalog ?? []), ...(snapshot.tool_registry ?? [])].length ? [...(snapshot.mcp_catalog ?? []), ...(snapshot.tool_registry ?? [])].map((record, index) => (
-                    <DebugRecordCard key={index} title={String(record.name || record.capability || `Tool ${index + 1}`)} record={record} />
-                  )) : <DebugEmpty>{t('chat.debug.noTools', 'No tool registry activity recorded.')}</DebugEmpty>}
-                </div>
-              </section>
-            </div>
-          ) : debugView === 'state' ? (
-            <div className="space-y-4">
-              <section>
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">{t('chat.debug.runtimePolicy', 'Runtime policy')}</h2>
-                <DebugRecordCard title={runtimeType} record={snapshot.runtime_policy ?? {}} />
-              </section>
-              <section>
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">{t('chat.debug.contextManifest', 'Context manifest')}</h2>
-                <DebugRecordCard title={String(snapshot.context_manifest?.mode || 'manifest')} record={snapshot.context_manifest ?? {}} />
-              </section>
-              <section>
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">{t('chat.debug.memory', 'Session memory')}</h2>
-                <DebugRecordCard title={t('chat.debug.memoryConfig', 'Memory configuration')} record={snapshot.memory_config_snapshot ?? {}} />
-              </section>
-            </div>
-          ) : (
-            <pre className="max-h-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-edge-subtle bg-surface-sunken p-3 font-mono text-xs leading-5 text-content-secondary">
-              {JSON.stringify({
-                snapshot,
-                current_turn_output: turnOutputMessages,
-              }, null, 2)}
-            </pre>
-          )}
-        </div>
-      )}
-    </aside>
-  );
-}
-
-function authHeaders(): HeadersInit | undefined {
-  const token = useAuthStore.getState().token;
-  return token ? { Authorization: `Bearer ${token}` } : undefined;
-}
-
-async function fetchChatSandboxStatus(chatId: string): Promise<ChatSandboxStatus> {
-  const base = getApiBase();
-  const params = new URLSearchParams({ chat_id: chatId });
-  const res = await fetch(`${base}/api/v1/chats/sandbox?${params.toString()}`, {
-    headers: authHeaders(),
-  });
-  if (res.status === 401) {
-    useAuthStore.getState().handle401();
-    throw new Error('auth');
-  }
-  if (!res.ok) {
-    throw new Error(`chat sandbox status failed: ${res.status}`);
-  }
-  return (await res.json()) as ChatSandboxStatus;
-}
-
-async function closeChatSandbox(chatId: string): Promise<ChatSandboxStatus> {
-  const base = getApiBase();
-  const params = new URLSearchParams({ chat_id: chatId });
-  const res = await fetch(`${base}/api/v1/chats/sandbox?${params.toString()}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  if (res.status === 401) {
-    useAuthStore.getState().handle401();
-    throw new Error('auth');
-  }
-  if (!res.ok) {
-    throw new Error(`chat sandbox close failed: ${res.status}`);
-  }
-  return (await res.json()) as ChatSandboxStatus;
-}
-
-async function startChatSandbox(chatId: string): Promise<ChatSandboxStatus> {
-  const base = getApiBase();
-  const params = new URLSearchParams({ chat_id: chatId });
-  const res = await fetch(`${base}/api/v1/chats/sandbox?${params.toString()}`, {
-    method: 'POST',
-    headers: authHeaders(),
-  });
-  if (res.status === 401) {
-    useAuthStore.getState().handle401();
-    throw new Error('auth');
-  }
-  if (!res.ok) {
-    throw new Error(`chat sandbox start failed: ${res.status}`);
-  }
-  return (await res.json()) as ChatSandboxStatus;
-}
 
 export function ChatPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const account = useAuthStore((state) => state.user);
   const activeChatId = useUIStore((s) => s.activeChatIds.chat);
+  const activeProjectId = useUIStore((s) => s.activeProjectId);
   const setActiveChatId = useUIStore((s) => s.setActiveChatId);
-  const ensureDraftChatSession = useUIStore((s) => s.ensureDraftChatSession);
+  const setActiveProjectId = useUIStore((s) => s.setActiveProjectId);
   const chatEntryIntent = useUIStore((s) => s.chatEntryIntent);
   const setChatEntryIntent = useUIStore((s) => s.setChatEntryIntent);
-  const draftChatSessions = useUIStore((s) => s.draftChatSessions);
   const optimisticChatSessions = useUIStore((s) => s.optimisticChatSessions);
   const chatViewKey = chatClientStateKey({
     account,
@@ -1194,13 +300,14 @@ export function ChatPage() {
     [chatViewKey, setChatViewState],
   );
   const [startedChatIds, setStartedChatIds] = useState<Set<string>>(() => new Set());
-  const [sandboxConfirmOpen, setSandboxConfirmOpen] = useState(false);
-  const [sandboxMaterializedChatId, setSandboxMaterializedChatId] = useState<string | null>(null);
   const [sandboxSelectionKey, setSandboxSelectionKey] = useState<string | null>(null);
   const [historyWindows, setHistoryWindows] = useState<Record<string, ChatHistoryWindow>>({});
   const [chatIdCopied, setChatIdCopied] = useState(false);
+  const [firstProjectName, setFirstProjectName] = useState('');
   const chatIdCopyResetTimer = useRef<number | null>(null);
   const boot = useGeneralChatBootstrap();
+  const projects = useChatProjects();
+  const createProject = useCreateChatProject();
   const accountNamespace = chatAccountNamespace(account);
   const restoredChatLocation = useMemo(
     () => readRecentChatLocation(account, 'chat'),
@@ -1209,9 +316,12 @@ export function ChatPage() {
   const restoredChatId = restoredChatLocation?.chatId ?? null;
   useEffect(() => {
     if (!activeChatId && chatEntryIntent === null && restoredChatId) {
+      if (restoredChatLocation?.draft && restoredChatLocation.projectId) {
+        setActiveProjectId(restoredChatLocation.projectId);
+      }
       setActiveChatId('chat', restoredChatId);
     }
-  }, [activeChatId, chatEntryIntent, restoredChatId, setActiveChatId]);
+  }, [activeChatId, chatEntryIntent, restoredChatId, restoredChatLocation, setActiveChatId, setActiveProjectId]);
   const sandboxPane = usePersistedPaneWidth({
     storageKey: `vibecanvas:chat-sandbox-pane-width:v1:${accountNamespace}`,
     defaultWidth: 320,
@@ -1223,6 +333,17 @@ export function ChatPage() {
   // the full session inventory. Bootstrap remains authoritative and replaces
   // the hint if the server's carrier scope ever changes.
   const carrierScopeId = boot.data?.carrier_scope_id ?? restoredChatLocation?.scopeId ?? '';
+  const createFirstProject = useCallback(async () => {
+    const name = firstProjectName.trim().replace(/\s+/g, ' ');
+    if (!name || !carrierScopeId) return;
+    try {
+      const project = await createProject.mutateAsync(name);
+      openProjectChatDraft({ account, projectId: project.project_id, scopeId: carrierScopeId });
+      setFirstProjectName('');
+    } catch {
+      toast.error(t('nav.projects.createFailed', 'Could not create project'));
+    }
+  }, [account, carrierScopeId, createProject, firstProjectName, t]);
   const [composerHasDraft, setComposerHasDraft] = useState(false);
   const composerStateKey = activeChatId
     ? chatClientStateKey({
@@ -1285,55 +406,30 @@ export function ChatPage() {
       return item;
     });
     const persistedIds = new Set(persisted.map((item) => item.chat_id));
-    const drafts: ChatListItem[] = draftChatSessions
-      .filter(
-        (item) =>
-          item.scopeId === carrierScopeId &&
-          item.surface === 'chat' &&
-          !persistedIds.has(item.chat_id),
-      )
-      .map((item) => ({
-        chat_id: item.chat_id,
-        scope_id: carrierScopeId,
-        chat_context: t('new_chat', 'New Chat'),
-        created_at: item.created_at,
-      } as ChatListItem));
     const optimistic: ChatListItem[] = optimisticForScope
       .filter((item) => !persistedIds.has(item.chat_id))
-      .filter((item) => !drafts.some((draft) => draft.chat_id === item.chat_id))
       .map((item) => ({
         chat_id: item.chat_id,
+        project_id: item.projectId,
         scope_id: carrierScopeId,
         chat_context: item.chat_context,
         created_at: item.created_at,
       } as ChatListItem));
-    const ids = new Set([
-      ...persisted.map((item) => item.chat_id),
-      ...drafts.map((item) => item.chat_id),
-      ...optimistic.map((item) => item.chat_id),
-    ]);
-    const activeDraft: ChatListItem[] =
-      activeChatId && !ids.has(activeChatId)
-        ? [{
-            chat_id: activeChatId,
-            scope_id: carrierScopeId,
-            chat_context: t('new_chat', 'New Chat'),
-            created_at: new Date().toISOString(),
-          } as ChatListItem]
-        : [];
-    return [...drafts, ...activeDraft, ...optimistic, ...persisted];
-  }, [
-    activeChatId,
-    carrierScopeId,
-    chatSessions.data?.items,
-    draftChatSessions,
-    optimisticChatSessions,
-    t,
-  ]);
+    return [...optimistic, ...persisted];
+  }, [carrierScopeId, chatSessions.data?.items, optimisticChatSessions]);
   const activeChatSession = useMemo(
     () => chatSessionItems.find((s) => s.chat_id === activeChatId) ?? null,
     [activeChatId, chatSessionItems],
   );
+  const selectedProjectId = activeChatSession?.project_id ?? activeProjectId;
+  const activeProject = projects.data?.find(
+    (project) => project.project_id === selectedProjectId,
+  ) ?? null;
+  useEffect(() => {
+    if (activeChatSession?.project_id && activeChatSession.project_id !== activeProjectId) {
+      setActiveProjectId(activeChatSession.project_id);
+    }
+  }, [activeChatSession?.project_id, activeProjectId, setActiveProjectId]);
   const reconcileRef = useRef(0);
   useEffect(() => {
     if (!carrierScopeId) return;
@@ -1362,23 +458,6 @@ export function ChatPage() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [activeChatId, carrierScopeId]);
-  const chatSandboxStatuses = useChatSandboxStatuses(chatSessionItems.map((s) => s.chat_id));
-  useEffect(() => {
-    for (const item of chatSandboxStatuses.data?.items ?? []) {
-      qc.setQueryData<ChatSandboxStatus>(['general-chat-sandbox', item.chat_id], (old) => ({
-        ...(old ?? {}),
-        scope_id: item.scope_id,
-        status: item.status,
-        activity_state: item.activity_state,
-        idle_elapsed_s: item.idle_elapsed_s ?? null,
-        idle_for_s: item.idle_for_s ?? null,
-        ttl_s: item.ttl_s ?? null,
-        ttl_paused: item.ttl_paused,
-        ttl_remaining_s: item.ttl_remaining_s ?? null,
-        closed_for_s: item.closed_for_s ?? null,
-      }));
-    }
-  }, [chatSandboxStatuses.data?.items, qc]);
   const activeChatIsPersisted = useMemo(
     () =>
       ((chatSessions.data?.items ?? []) as ChatListItem[]).some(
@@ -1391,16 +470,10 @@ export function ChatPage() {
       writeRecentChatSelection(account, 'chat', activeChatId, carrierScopeId);
     }
   }, [account, activeChatId, activeChatIsPersisted, carrierScopeId]);
-  // The durable Chat row can become visible just before its authorization
-  // projection is queryable. The batch status endpoint is a safe readiness
-  // probe: it returns 200 and omits unauthorized/not-yet-projected chats.
-  // Gate resource-specific endpoints on the same projection instead of
-  // producing transient 404s for an accepted first Turn.
-  const activeChatResourcesReady = Boolean(
-    activeChatIsPersisted
-    && activeChatId
-    && chatSandboxStatuses.data?.items.some((item) => item.chat_id === activeChatId),
-  );
+  // The list is authorized, and explicit Chat creation commits its auth
+  // projection before returning. Resource readiness does not depend on a
+  // sandbox: a cold Project still exposes persisted history and files.
+  const activeChatResourcesReady = activeChatIsPersisted && Boolean(activeChatId);
   const markChatStarted = useCallback((chatId: string | null | undefined) => {
     if (!chatId) return;
     setStartedChatIds((current) => {
@@ -1415,10 +488,10 @@ export function ChatPage() {
       throw new Error('Continue is unavailable because no active conversation exists');
     }
     markChatStarted(activeChatId);
-    setSandboxMaterializedChatId(activeChatId);
     if (!control) {
       useUIStore.getState().addOptimisticChatSession({
         scopeId: carrierScopeId,
+        projectId: selectedProjectId,
         chat_id: activeChatId,
         chat_context: content.slice(0, 80),
         surface: 'chat',
@@ -1429,6 +502,7 @@ export function ChatPage() {
       void runAgentTurn({
         wfId: carrierScopeId,
         chatId: activeChatId,
+        projectId: selectedProjectId,
         content,
         control,
         surface: 'main',
@@ -1441,17 +515,12 @@ export function ChatPage() {
         if (!accepted) reject(new Error('Continue Turn was not accepted by the backend'));
       });
     });
-  }, [activeChatId, carrierScopeId, markChatStarted]);
+  }, [activeChatId, carrierScopeId, markChatStarted, selectedProjectId]);
   const activeChatStartedThisView = !!activeChatId && startedChatIds.has(activeChatId);
   const activeChatLooksEmpty = !activeChatSession ||
     !activeChatSession.chat_context ||
     activeChatSession.chat_context.trim().toLowerCase() === 'new chat' ||
     activeChatSession.chat_context.trim() === t('new_chat', 'New Chat');
-  const activeChatIsMaterialized = Boolean(activeChatId) && (
-    activeChatIsPersisted ||
-    activeChatStartedThisView ||
-    sandboxMaterializedChatId === activeChatId
-  );
   // History is the only blocking resource when a user opens an existing Chat.
   // Fetch secondary chrome (workspace, sandbox, plans, runtime choices) only
   // after the recent transcript is visible so an occasional backend spike
@@ -1464,7 +533,7 @@ export function ChatPage() {
   });
   const activeChatCanLoadHistory = Boolean(
     activeChatIsPersisted
-    || (activeChatId && activeChatId === restoredChatId && !chatSessions.isError),
+    || (activeChatId && activeChatId === restoredChatId && !restoredChatLocation?.draft && !chatSessions.isError),
   );
   const activeHistory = useChatHistory(
     carrierScopeId || null,
@@ -1480,61 +549,7 @@ export function ChatPage() {
       || activeHistory.isError
     )
   );
-  const workspace = useChatWorkspace(secondaryChatResourcesReady ? activeChatId : null);
-  const sandbox = useQuery({
-    queryKey: ['general-chat-sandbox', activeChatId],
-    queryFn: () => fetchChatSandboxStatus(activeChatId as string),
-    enabled: secondaryChatResourcesReady,
-    placeholderData: () =>
-      activeChatId
-        ? qc.getQueryData<ChatSandboxStatus>(['general-chat-sandbox', activeChatId])
-        : undefined,
-    refetchInterval: 5000,
-  });
-  const closeSandbox = useMutation({
-    mutationFn: (chatId: string) => closeChatSandbox(chatId),
-    onSuccess: (data, chatId) => {
-      qc.setQueryData(['general-chat-sandbox', chatId], data);
-      void qc.invalidateQueries({ queryKey: ['chat-sandbox-statuses'] });
-      if (activeChatId === chatId) setSandboxConfirmOpen(false);
-    },
-  });
-  const startSandbox = useMutation({
-    mutationFn: (chatId: string) => startChatSandbox(chatId),
-    onSuccess: (data, chatId) => {
-      qc.setQueryData(['general-chat-sandbox', chatId], data);
-      setSandboxMaterializedChatId(chatId);
-      if (carrierScopeId) {
-        useUIStore.getState().addOptimisticChatSession({
-          scopeId: carrierScopeId,
-          chat_id: chatId,
-          chat_context: t('new_chat', 'New Chat'),
-          surface: 'chat',
-        });
-        qc.setQueryData(['chats', carrierScopeId, 'chat'], (old: { items?: ChatListItem[] } | undefined) => {
-          const items = old?.items ?? [];
-          if (items.some((item) => item.chat_id === chatId)) return old ?? { items };
-          const item: ChatListItem = {
-            chat_id: chatId,
-            scope_id: carrierScopeId,
-            surface: 'chat',
-            chat_context: t('new_chat', 'New Chat'),
-            created_at: new Date().toISOString(),
-            browser_control_status: 'inactive',
-          };
-          return { ...(old ?? {}), items: [item, ...items] };
-        });
-        qc.setQueryData(['chat-workspace', chatId], {
-          workspace_scope_id: data.scope_id,
-          mount_scope_id: data.mount_scope_id ?? null,
-          chat_id: chatId,
-        });
-        void qc.invalidateQueries({ queryKey: ['chats', carrierScopeId, 'chat'] });
-      }
-      void qc.invalidateQueries({ queryKey: ['chat-sandbox-statuses'] });
-      void qc.invalidateQueries({ queryKey: ['vfs', 'list', data.scope_id] });
-    },
-  });
+  const workspace = useProjectWorkspace(selectedProjectId);
   const initialChatSelectionRef = useRef(false);
   const activeRunDiscoveryGenerationRef = useRef(0);
   const [activeRunDiscoveryStatus, setActiveRunDiscoveryStatus] = useState<
@@ -1547,6 +562,7 @@ export function ChatPage() {
       || activeChatId !== restoredChatId
       || chatSessions.isPending
       || activeChatIsPersisted
+      || (restoredChatLocation?.draft && (projects.isPending || projects.data?.some((project) => project.project_id === restoredChatLocation.projectId)))
     ) return;
     // The hint may outlive a remotely deleted Chat. Drop it after the
     // authoritative inventory arrives, then let normal startup selection pick
@@ -1560,6 +576,9 @@ export function ChatPage() {
     activeChatIsPersisted,
     chatSessions.isPending,
     restoredChatId,
+    restoredChatLocation,
+    projects.data,
+    projects.isPending,
     setActiveChatId,
   ]);
 
@@ -1569,20 +588,27 @@ export function ChatPage() {
     // Explicit navigation intent is already authoritative client state. It
     // must not wait for the durable list or active-run discovery before the
     // requested shell becomes usable.
-    if (chatEntryIntent === 'select' && activeChatId) {
+    if (chatEntryIntent === 'select') {
       initialChatSelectionRef.current = true;
       setChatEntryIntent(null);
       queueMicrotask(() => setActiveRunDiscoveryStatus('ready'));
       return;
     }
     if (chatEntryIntent === 'default') {
+      if (projects.isPending || chatSessions.isPending) return;
       initialChatSelectionRef.current = true;
-      const draftChatId = ensureDraftChatSession(carrierScopeId, 'chat');
-      setActiveChatId('chat', draftChatId);
-      // This reset is part of atomically selecting a new draft rather than a
-      // derived render-only state update.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSandboxMaterializedChatId(null);
+      const projectId = projects.data?.some(
+        (project) => project.project_id === activeProjectId,
+      ) ? activeProjectId : projects.data?.[0]?.project_id ?? null;
+      if (!projectId) {
+        setActiveProjectId(null);
+        setActiveChatId('chat', null);
+        setChatEntryIntent(null);
+        queueMicrotask(() => setActiveRunDiscoveryStatus('ready'));
+        return;
+      }
+      setActiveProjectId(projectId);
+      setActiveChatId('chat', chatSessions.data?.items.find((chat) => chat.project_id === projectId)?.chat_id ?? null);
       setChatEntryIntent(null);
       queueMicrotask(() => setActiveRunDiscoveryStatus('ready'));
       return;
@@ -1614,7 +640,7 @@ export function ChatPage() {
     // list before choosing a destination; otherwise the bootstrap races the
     // sessions query, creates a fresh draft, and hides the conversation the
     // user was just viewing (including any pending Continue card).
-    if (chatSessions.isPending) return;
+    if (chatSessions.isPending || projects.isPending) return;
     if (initialChatSelectionRef.current) return;
     initialChatSelectionRef.current = true;
     let disposed = false;
@@ -1638,6 +664,10 @@ export function ChatPage() {
       const turns = discovered;
       const at = turns[turns.length - 1];
       if (at) {
+        const runningChat = (chatSessions.data?.items ?? []).find(
+          (item) => item.chat_id === at.chatId,
+        ) as ChatListItem | undefined;
+        if (runningChat?.project_id) setActiveProjectId(runningChat.project_id);
         setActiveChatId('chat', at.chatId);
         for (const turn of turns) markChatStarted(turn.chatId);
         for (const turn of turns) void resumeActiveTurn(turn);
@@ -1649,16 +679,28 @@ export function ChatPage() {
         (chatSessions.data?.items ?? []) as ChatListItem[]
       )[0];
       if (latestPersistedChat) {
+        if (latestPersistedChat.project_id) {
+          setActiveProjectId(latestPersistedChat.project_id);
+        }
         setActiveChatId('chat', latestPersistedChat.chat_id);
-        markChatStarted(latestPersistedChat.chat_id);
-        setSandboxMaterializedChatId(latestPersistedChat.chat_id);
         setChatEntryIntent(null);
         setActiveRunDiscoveryStatus('ready');
         return;
       }
-      const draftChatId = ensureDraftChatSession(carrierScopeId, 'chat');
-      setActiveChatId('chat', draftChatId);
-      setSandboxMaterializedChatId(null);
+      const projectId = projects.data?.some(
+        (project) => project.project_id === activeProjectId,
+      ) ? activeProjectId : projects.data?.[0]?.project_id ?? null;
+      if (!projectId) {
+        setActiveProjectId(null);
+        setActiveChatId('chat', null);
+        setChatEntryIntent(null);
+        setActiveRunDiscoveryStatus('ready');
+        return;
+      }
+      setActiveProjectId(projectId);
+      // Viewing an empty Project is read-only. Only an explicit New Chat
+      // action creates storage; refresh must not silently add conversations.
+      setActiveChatId('chat', null);
       setChatEntryIntent(null);
       setActiveRunDiscoveryStatus('ready');
     })();
@@ -1667,14 +709,17 @@ export function ChatPage() {
     };
   }, [
     activeChatId,
+    activeProjectId,
     carrierScopeId,
     chatEntryIntent,
     chatSessions.data?.items,
     chatSessions.isPending,
-    ensureDraftChatSession,
     markChatStarted,
+    projects.data,
+    projects.isPending,
     restoredChatId,
     setActiveChatId,
+    setActiveProjectId,
     setChatEntryIntent,
   ]);
 
@@ -1682,7 +727,6 @@ export function ChatPage() {
     let active = true;
     queueMicrotask(() => {
       if (active) {
-        setSandboxConfirmOpen(false);
         setSandboxSelectionKey(null);
       }
     });
@@ -1691,8 +735,8 @@ export function ChatPage() {
     };
   }, [activeChatId]);
 
-  const workspaceScopeId = activeChatIsMaterialized ? (workspace.data?.workspace_scope_id ?? '') : '';
-  const mountScopeId = activeChatIsMaterialized ? (workspace.data?.mount_scope_id ?? '') : '';
+  const workspaceScopeId = workspace.data?.workspace_scope_id ?? '';
+  const mountScopeId = workspace.data?.mount_scope_id ?? '';
   // Durable history owns completed turns while the live projection owns the
   // active turn. Excluding that turn from the query prevents the same user/AI
   // messages from being rendered once from each source.
@@ -1824,15 +868,8 @@ export function ChatPage() {
   const showConversation = activeChatStartedThisView
     || Boolean(activeHistoryWindow?.items.length)
     || (activeChatIsPersisted && !activeChatLooksEmpty);
-  const activeChatIsDraft = Boolean(
-    activeChatId && draftChatSessions.some(
-      (item) => item.scopeId === carrierScopeId
-        && item.surface === 'chat'
-        && item.chat_id === activeChatId,
-    ),
-  );
   const historyReady =
-    activeChatIsDraft || (
+    (
       activeRunDiscoveryStatus === 'ready' &&
       (
         !activeChatId ||
@@ -1842,7 +879,7 @@ export function ChatPage() {
       )
     );
   const activeRunDiscoveryDisabledReason =
-    !activeChatIsDraft && activeRunDiscoveryStatus === 'error'
+    activeRunDiscoveryStatus === 'error'
         ? t('composer.active_run_discovery_failed', 'Could not check active agent state. Refresh or retry in a moment.')
         : null;
   useEffect(() => {
@@ -1852,61 +889,12 @@ export function ChatPage() {
       queueMicrotask(() => {
         if (!active) return;
         if (!activeChatLooksEmpty) markChatStarted(activeChatId);
-        setSandboxMaterializedChatId((current) => current === activeChatId ? current : activeChatId);
       });
       return () => {
         active = false;
       };
     }
   }, [activeChatId, activeChatLooksEmpty, activeChatSession, markChatStarted]);
-  const sandboxStatus = sandbox.data?.status ?? 'idle';
-  const sandboxAllocated = [
-    'running',
-    'hibernating',
-    'hibernated',
-    'restoring',
-    'releasing',
-    'snapshot_failed',
-  ].includes(sandboxStatus);
-  const sandboxStarting = startSandbox.isPending && startSandbox.variables === activeChatId;
-  const sandboxClosing = closeSandbox.isPending && closeSandbox.variables === activeChatId;
-  const sandboxTone: SemanticStatus =
-    sandboxStatus === 'running'
-      ? 'success'
-      : sandboxStatus === 'hibernating' || sandboxStatus === 'restoring'
-        ? 'running'
-      : sandboxStatus === 'closed'
-        ? 'danger'
-        : 'neutral';
-  const sandboxLabel =
-    sandboxStatus === 'running'
-      ? t('chat.sandbox.running', 'Sandbox running')
-      : sandboxStatus === 'hibernating'
-        ? t('chat.sandbox.hibernating', 'Creating snapshot')
-      : sandboxStatus === 'restoring'
-        ? t('chat.sandbox.restoring', 'Restoring sandbox')
-      : sandboxStatus === 'releasing'
-        ? t('chat.sandbox.releasing', 'Releasing sandbox')
-      : sandboxStatus === 'hibernated'
-        ? t('chat.sandbox.hibernated', 'Sandbox hibernated')
-      : sandboxStatus === 'snapshot_failed'
-        ? t('chat.sandbox.snapshot_failed', 'Snapshot failed')
-      : sandboxStatus === 'closed'
-        ? t('chat.sandbox.closed', 'Sandbox closed')
-        : t('chat.sandbox.idle', 'Sandbox idle');
-  const sandboxTtlLabel = sandboxAllocated
-    ? formatSandboxTtl(sandboxTtlRemaining(sandbox.data))
-    : null;
-  const sandboxStatusLabel = sandbox.data?.ttl_paused && sandbox.data?.activity_state === 'busy'
-    ? `${sandboxLabel} · ${t('chat.sandbox.ttl_paused', 'TTL paused')}`
-    : sandboxTtlLabel
-    ? `${sandboxLabel} · ${sandboxTtlLabel}`
-    : sandboxLabel;
-  const runtimeLabel = activeChatSession?.runtime_type === 'codex'
-    ? 'Codex'
-    : activeChatSession?.runtime_type
-      ? activeChatSession.runtime_type
-      : t('chat.runtime.pending', 'Runtime pending');
   const previewResources = useMemo(() => {
     const byId = new Map<string, ChatPreviewItem>();
     const add = (item: ChatPreviewItem | null) => {
@@ -1935,11 +923,11 @@ export function ChatPage() {
             resource: { schemaVersion: 1, kind: 'workflow', workflowId },
           });
         }
-        add(previewItemFromToolCall(call, activeChatId));
+        add(previewItemFromToolCall(call, selectedProjectId));
       }
     }
     return [...byId.values()];
-  }, [activeChatId, activeChatIsPersisted, activeHistoryWindow?.items, backgroundViewAvailable, livePreviewChunks, previewItems, t]);
+  }, [activeChatId, selectedProjectId, activeChatIsPersisted, activeHistoryWindow?.items, backgroundViewAvailable, livePreviewChunks, previewItems, t]);
   const previewDiscoveryReady = !activeHistory.isLoading && !workspace.isLoading;
   useEffect(() => {
     if (!previewOpen || !previewDiscoveryReady) return;
@@ -2027,10 +1015,10 @@ export function ChatPage() {
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div key={activeChatId || 'new-chat'} className="chat-context-transition min-w-0">
             <h1 className="truncate text-[15px] font-semibold leading-5 text-content-primary sm:text-base">
-              {activeChatTitle}
+              {activeProject?.name ?? t('nav.projects', 'Projects')}
             </h1>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-content-tertiary">
-              <span>{t('chat.title', 'Chat')}</span>
+              <span className="truncate">{activeChatTitle}</span>
               {activeChatId ? (
                 <>
                   <span aria-hidden="true">·</span>
@@ -2059,21 +1047,6 @@ export function ChatPage() {
                   </span>
                 </>
               ) : null}
-              <span className="hidden sm:contents">
-                <span aria-hidden="true">·</span>
-                <span className="inline-flex shrink-0 items-center gap-1.5">
-                  <StatusDot status={sandboxTone} />
-                  {sandboxStatusLabel}
-                </span>
-              </span>
-              <span aria-hidden="true">·</span>
-              <span
-                className="inline-flex min-w-0 items-center gap-1"
-                title={t('chat.runtime.current', 'Current runtime: {{runtime}}', { runtime: runtimeLabel })}
-              >
-                <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
-                <span className="truncate">{runtimeLabel}</span>
-              </span>
             </div>
           </div>
         </div>
@@ -2081,24 +1054,12 @@ export function ChatPage() {
           variant="outline"
           size="icon"
           onClick={() => {
-            if (!carrierScopeId) return;
-            const draftChatId = ensureDraftChatSession(carrierScopeId, 'chat');
+            if (!carrierScopeId || !selectedProjectId) return;
             activeRunDiscoveryGenerationRef.current += 1;
-            // Mark this as an explicit user selection before changing the id.
-            // In-flight startup discovery checks this store value and must not
-            // overwrite the newly requested empty Chat.
-            setChatEntryIntent('select');
-            // A user can click New Chat while the initial active-run discovery
-            // request is still pending. Changing activeChatId disposes that
-            // request; without completing the gate the composer remains in an
-            // invisible history-loading state forever. An explicit new draft
-            // does not depend on discovery, so it is ready immediately.
+            openProjectChatDraft({ account, projectId: selectedProjectId, scopeId: carrierScopeId, startedChatIds: chatSessionItems.map((chat) => chat.chat_id) });
             setActiveRunDiscoveryStatus('ready');
-            setActiveChatId('chat', draftChatId);
-            setSandboxMaterializedChatId(null);
-            setChatEntryIntent(null);
           }}
-          disabled={!carrierScopeId}
+          disabled={!carrierScopeId || !selectedProjectId}
           data-action="chat-new"
           aria-label={t('new_chat', 'New Chat')}
           title={t('new_chat', 'New Chat')}
@@ -2249,7 +1210,51 @@ export function ChatPage() {
                   )}
                 >
                   <div className="flex min-h-0 flex-1 flex-col">
-                {showConversation ? (
+                {projects.isFetched && (projects.data?.length ?? 0) === 0 ? (
+                  <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10">
+                    <form
+                      className="w-full max-w-md rounded-xl border border-edge-subtle bg-surface-raised p-6 shadow-sm"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void createFirstProject();
+                      }}
+                    >
+                      <span className="grid size-10 place-items-center rounded-lg bg-primary/10 text-primary">
+                        <FolderPlus className="size-5" />
+                      </span>
+                      <h2 className="mt-4 text-lg font-semibold text-foreground">
+                        {t('nav.projects.emptyTitle', 'Create your first project')}
+                      </h2>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {t(
+                          'nav.projects.createDescription',
+                          'Chats in the same project share files and a running workspace. You can add more chats at any time.',
+                        )}
+                      </p>
+                      <label className="mt-5 block text-sm font-medium text-foreground" htmlFor="first-project-name">
+                        {t('nav.projects.name', 'Project name')}
+                      </label>
+                      <Input
+                        id="first-project-name"
+                        className="mt-2"
+                        value={firstProjectName}
+                        maxLength={120}
+                        autoFocus
+                        placeholder={t('nav.projects.namePlaceholder', 'e.g. Research assistant')}
+                        onChange={(event) => setFirstProjectName(event.target.value)}
+                      />
+                      <Button
+                        type="submit"
+                        className="mt-4 w-full"
+                        disabled={!firstProjectName.trim() || createProject.isPending}
+                      >
+                        {createProject.isPending
+                          ? t('common.creating', 'Creating…')
+                          : t('nav.projects.createAction', 'Create project')}
+                      </Button>
+                    </form>
+                  </div>
+                ) : showConversation ? (
                   <ChatMessageList
                     wfId={carrierScopeId}
                     vfsScopeId={workspaceScopeId || carrierScopeId}
@@ -2268,7 +1273,7 @@ export function ChatPage() {
                     onLoadOlderHistory={loadOlderHistory}
                     persistedChatIds={chatSessionItems.map((s) => s.chat_id)}
                     onOpenFilePreview={(path) => {
-                      const fileRef = fileRefFromAgentPath(path, { chatId: activeChatId });
+                      const fileRef = fileRefFromAgentPath(path, { projectId: selectedProjectId });
                       if (fileRef) openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
                     }}
                     onOpenInteractivePreview={(artifact) => {
@@ -2320,15 +1325,14 @@ export function ChatPage() {
                         <ChatComposer
                           wfId={carrierScopeId}
                           chatId={activeChatId}
+                          projectId={selectedProjectId}
                           agentSurface="chat"
                           quietFrame
                           showModelSelector
                           historyReady={historyReady}
-                          chatStateReady={secondaryChatResourcesReady}
                           disabledReason={activeRunDiscoveryDisabledReason}
                           onSendStart={() => {
                             markChatStarted(activeChatId);
-                            if (activeChatId) setSandboxMaterializedChatId(activeChatId);
                           }}
                           onDraftPresenceChange={setComposerHasDraft}
                         />
@@ -2353,15 +1357,14 @@ export function ChatPage() {
                           <ChatComposer
                             wfId={carrierScopeId}
                             chatId={activeChatId}
+                            projectId={selectedProjectId}
                             agentSurface="chat"
                             quietFrame
                             showModelSelector
                             historyReady={historyReady}
-                            chatStateReady={secondaryChatResourcesReady}
                             disabledReason={activeRunDiscoveryDisabledReason}
                             onSendStart={() => {
                               markChatStarted(activeChatId);
-                              if (activeChatId) setSandboxMaterializedChatId(activeChatId);
                             }}
                           />
                         </div>
@@ -2403,7 +1406,7 @@ export function ChatPage() {
                         onSelect={selectPreviewItem}
                         onOpenResource={openPreviewItem}
                         onOpenInteractiveFile={(path) => {
-                          const fileRef = fileRefFromAgentPath(path, { chatId: activeChatId });
+                          const fileRef = fileRefFromAgentPath(path, { projectId: selectedProjectId });
                           if (fileRef) openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
                         }}
                         onCloseItem={closePreviewItem}
@@ -2428,8 +1431,7 @@ export function ChatPage() {
                     groupResizeBehavior="preserve-pixel-size"
                   >
                     <ChatDebugPanel
-                      workspaceScopeId={workspaceScopeId}
-                      scopeId={carrierScopeId ?? ''}
+                      key={`${workspaceScopeId}:${activeChatId}`}
                       chatId={activeChatId ?? ''}
                     />
                   </ResizablePanel>
@@ -2457,39 +1459,6 @@ export function ChatPage() {
                     </span>
                   </div>
                   <div className="flex items-center">
-                    <div className="relative">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          if (sandboxAllocated) {
-                            setSandboxConfirmOpen((v) => !v);
-                          } else if (activeChatId && !sandboxStarting) {
-                            startSandbox.mutate(activeChatId);
-                          }
-                        }}
-                        disabled={!carrierScopeId || !activeChatId || sandboxClosing || sandboxStarting}
-                        aria-label={
-                          sandboxAllocated
-                            ? t('chat.sandbox.close_hint', 'Release sandbox')
-                            : t('chat.sandbox.start_hint', 'Start sandbox')
-                        }
-                        title={
-                          sandboxAllocated
-                            ? t('chat.sandbox.close_hint', 'Release sandbox')
-                            : t('chat.sandbox.start_hint', 'Start sandbox')
-                        }
-                        className="toolbar-icon-button"
-                        data-action="chat-sandbox-status"
-                        aria-expanded={sandboxConfirmOpen}
-                      >
-                        {sandboxClosing || sandboxStarting ? (
-                          <RefreshCw className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Power className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -2511,11 +1480,11 @@ export function ChatPage() {
                   </div>
                 </div>
                 <div className="app-scrollbar min-h-0 flex-1 overflow-auto">
-                  {!activeChatIsMaterialized ? (
+                  {!selectedProjectId ? (
                     <div className="px-4 py-3 text-meta">
                       {t(
-                        'chat.explorer.emptyDraft',
-                        'Send a message or start the sandbox to create this chat workspace.',
+                        'chat.explorer.selectProject',
+                        'Select or create a project to browse its persistent files.',
                       )}
                     </div>
                   ) : workspace.isLoading || !workspaceScopeId ? (
@@ -2527,11 +1496,11 @@ export function ChatPage() {
                       <VfsFilesSection
                         wfId={workspaceScopeId}
                         open={explorerOpen}
-                        roots={['data', 'memory', 'logs']}
+                        roots={['data', 'memory', 'logs', 'chats']}
                         selectionKey={sandboxSelectionKey}
                         onSelectionKeyChange={setSandboxSelectionKey}
                         onOpenFile={(path) => {
-                          const fileRef = fileRefFromAgentPath(path, { chatId: activeChatId });
+                          const fileRef = fileRefFromAgentPath(path, { projectId: selectedProjectId });
                           if (fileRef) openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
                         }}
                       />
@@ -2544,7 +1513,7 @@ export function ChatPage() {
                           onSelectionKeyChange={setSandboxSelectionKey}
                           defaultSelectFirst={false}
                           onOpenFile={(path) => {
-                            const fileRef = fileRefFromAgentPath(path, { chatId: activeChatId });
+                            const fileRef = fileRefFromAgentPath(path, { projectId: selectedProjectId });
                             if (fileRef) openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
                           }}
                         />
@@ -2555,37 +1524,6 @@ export function ChatPage() {
               </aside>
             )}
           </div>
-          <Dialog
-            open={sandboxConfirmOpen && sandboxAllocated}
-            onOpenChange={setSandboxConfirmOpen}
-          >
-            <DialogContent data-role="sandbox-close-confirm">
-              <DialogHeader>
-                <DialogTitle>{t('chat.sandbox.confirm_close', 'Close sandbox?')}</DialogTitle>
-                <DialogDescription>
-                  {t(
-                    'chat.sandbox.confirm_close_description',
-                    'This releases the current chat sandbox. Files already saved in the workspace remain available.',
-                  )}
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setSandboxConfirmOpen(false)}>
-                  {t('cancel', 'Cancel')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={sandboxClosing}
-                  onClick={() => activeChatId && closeSandbox.mutate(activeChatId)}
-                >
-                  {sandboxClosing
-                    ? t('chat.sandbox.closing', 'Closing...')
-                    : t('chat.sandbox.close', 'Close')}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </>
       )}
     </div>

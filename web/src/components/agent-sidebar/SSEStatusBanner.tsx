@@ -83,6 +83,7 @@ export function SSEStatusBanner({
     void runTurn({
       wfId,
       chatId,
+      projectId: lastInput.projectId,
       content: lastInput.content,
       control: lastInput.control,
       attachments: lastInput.attachments,

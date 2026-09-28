@@ -332,8 +332,8 @@ export function RuntimeModelPicker({
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {connectionLocked
                     ? t(
-                      'agent_settings.connection_locked_hint',
-                      'This Chat stays on its current connection. Start a new Chat to use another source.',
+                      'agent_settings.project_connection_locked_hint',
+                      'All chats in this project share this connection. Create another project to use a different source.',
                     )
                     : t(
                       'agent_settings.choose_source_hint',

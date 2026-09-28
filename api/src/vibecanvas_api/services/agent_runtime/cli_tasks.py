@@ -419,7 +419,7 @@ async def execute(call, arguments):
             decision = "auto_approved"
         await call.emit({"progress": {"status": decision, "message": "Operation approved. Rechecking permissions before submission."}})
         ctx = await agent_context.resolve_context(cap)
-        async with session_scope(tenant_id=ctx.tenant_id) as session:
+        async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
             await _require_active_chat_write(session, ctx)
             live = (await session.execute(text("SELECT 1 FROM task_cli_leases WHERE call_id=:id AND expires_at>now()"), {"id": call.call_id})).first()
             if not live:

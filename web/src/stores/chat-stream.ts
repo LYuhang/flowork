@@ -157,6 +157,7 @@ export type ChatStreamEvent =
  */
 export interface LastInput {
   content: string;
+  projectId?: string | null;
   control?: import('@/lib/api/sse/agent-stream').HitlContinueControl;
   attachments?: Attachment[];
   /** Preserved so a retried `/browser` send keeps the same routing mode. */

@@ -112,8 +112,8 @@ describe('chat client state identity', () => {
           kind: 'file',
           fileRef: {
             schemaVersion: 1,
-            scope: 'chat',
-            chatId: 'chat-1',
+            scope: 'project',
+            projectId: 'chat-1',
             path: '/data/diagrams/example.drawio',
           },
         },
@@ -127,15 +127,15 @@ describe('chat client state identity', () => {
     window.localStorage.setItem(storageKey, JSON.stringify(raw));
 
     expect(readChatViewPreferences(storageKey)?.previewItems).toEqual([{
-      id: 'file:chat:chat-1:/data/diagrams/example.drawio',
+      id: 'file:project:chat-1:/data/diagrams/example.drawio',
       title: 'example.drawio',
       resource: {
         schemaVersion: 1,
         kind: 'file',
         fileRef: {
           schemaVersion: 1,
-          scope: 'chat',
-          chatId: 'chat-1',
+          scope: 'project',
+          projectId: 'chat-1',
           path: '/data/diagrams/example.drawio',
         },
       },

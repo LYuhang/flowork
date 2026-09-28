@@ -1,9 +1,8 @@
-"""Durable user defaults and immutable per-Chat Agent Runtime binding."""
+"""Project-owned Runtime connections and independent Chat thread state."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
@@ -12,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from vibecanvas_api.config import config
 from vibecanvas_api.services.agent_runtime.registry import AVAILABLE_RUNTIME_TYPES
 
-from .models import Chat, UserAgentPreference
+from .models import Chat, ChatProject, UserAgentPreference
 
 
 def validate_user_timezone(value: str) -> str:
@@ -30,6 +29,40 @@ class AgentRuntimeRepo:
     def __init__(self, session: AsyncSession, user_id: str) -> None:
         self._session = session
         self._user_id = user_id
+
+    async def get_project_binding(self, project_id: str, *, for_update: bool = False) -> ChatProject | None:
+        query = select(ChatProject).where(
+            ChatProject.project_id == project_id,
+            ChatProject.creator_user_id == self._user_id,
+            ChatProject.deleted_at.is_(None),
+        )
+        if for_update:
+            query = query.with_for_update()
+        return (await self._session.execute(query)).scalar_one_or_none()
+
+    async def _project_for_chat(self, chat_id: str, *, for_update: bool = False) -> ChatProject | None:
+        project_id = (await self._session.execute(select(Chat.project_id).where(
+            Chat.chat_id == chat_id,
+            Chat.creator_user_id == self._user_id,
+            Chat.deleted_at.is_(None),
+        ))).scalar_one_or_none()
+        if project_id is None:
+            return None
+        project = await self.get_project_binding(project_id, for_update=for_update)
+        if project is None:
+            raise LookupError("project_not_found")
+        return project
+
+    @staticmethod
+    def project_binding(project: ChatProject) -> dict:
+        return {
+            "project_id": project.project_id,
+            "runtime_type": project.runtime_type,
+            "runtime_session_id": project.runtime_session_id,
+            "runtime_connection_id": project.runtime_connection_id,
+            "runtime_model_id": project.runtime_model_id,
+            "runtime_agent_settings": {"model_id": project.runtime_model_id} if project.runtime_model_id else None,
+        }
 
     async def get_preferences(self) -> dict:
         row = await self._session.get(UserAgentPreference, self._user_id)
@@ -109,11 +142,13 @@ class AgentRuntimeRepo:
         runtime_type: str | None = None,
         user_timezone: str | None = None,
     ) -> dict | None:
-        """Atomically bind a Chat once and return the stable binding.
-
-        The row lock is the cross-worker invariant. Competing first-turn
-        requests can never initialize two SDK sessions or observe two defaults.
-        """
+        """Initialize a thread clock, inheriting its Project's stable Runtime."""
+        # Lock the shared owner before the child, also matching Project deletion.
+        project = await self._project_for_chat(chat_id, for_update=True)
+        if project is None:
+            return None
+        if runtime_type is not None and runtime_type != project.runtime_type:
+            raise ValueError("runtime binding belongs to the Project")
         chat = (
             await self._session.execute(
                 select(Chat)
@@ -130,21 +165,7 @@ class AgentRuntimeRepo:
         preference = await self._session.get(
             UserAgentPreference, self._user_id
         )
-        if chat.runtime_type is None:
-            selected = runtime_type
-            if selected is None:
-                selected = (await self.get_preferences())["default_runtime_type"]
-            if (
-                selected not in AVAILABLE_RUNTIME_TYPES
-                or selected not in config.agent_runtime_types
-            ):
-                raise ValueError(f"unsupported runtime type: {selected}")
-            chat.runtime_type = selected
-            chat.runtime_session_id = f"rt_{selected}_{uuid.uuid4().hex}"
-            # Codex assigns its native thread ref when the adapter opens the
-            # first turn.
-            chat.runtime_state_ref = None
-            chat.runtime_version = 1
+        if chat.runtime_started_at is None:
             configured_timezone = (
                 preference.preferred_timezone
                 if preference is not None and preference.preferred_timezone
@@ -158,25 +179,12 @@ class AgentRuntimeRepo:
                 if preference is None:
                     preference = UserAgentPreference(
                         user_id=self._user_id,
-                        default_runtime_type=selected,
+                        default_runtime_type=project.runtime_type,
                     )
                     self._session.add(preference)
                 preference.preferred_timezone = validate_user_timezone(user_timezone)
             await self._session.flush()
-        elif chat.runtime_type == "codex" and (
-            not chat.runtime_timezone or chat.runtime_started_at is None
-        ):
-            configured_timezone = (
-                preference.preferred_timezone
-                if preference is not None and preference.preferred_timezone
-                else user_timezone or "UTC"
-            )
-            chat.runtime_timezone = validate_user_timezone(
-                configured_timezone
-            )
-            chat.runtime_started_at = datetime.now(timezone.utc)
-            await self._session.flush()
-        return self._binding(chat)
+        return self._binding(chat, project)
 
     async def get_chat_binding(self, chat_id: str) -> dict | None:
         chat = (
@@ -188,7 +196,7 @@ class AgentRuntimeRepo:
                 )
             )
         ).scalar_one_or_none()
-        return self._binding(chat) if chat is not None else None
+        return self._binding(chat, chat.project) if chat is not None else None
 
     async def set_runtime_state_ref(
         self,
@@ -209,6 +217,9 @@ class AgentRuntimeRepo:
         if not state_ref.strip():
             raise ValueError("runtime state ref is required")
         expected_previous = str(previous_state_ref or "").strip()
+        project = await self._project_for_chat(chat_id, for_update=True)
+        if project is None:
+            return None
         chat = (
             await self._session.execute(
                 select(Chat)
@@ -223,8 +234,8 @@ class AgentRuntimeRepo:
         if chat is None:
             return None
         if (
-            chat.runtime_type != runtime_type
-            or chat.runtime_session_id != runtime_session_id
+            project.runtime_type != runtime_type
+            or project.runtime_session_id != runtime_session_id
         ):
             raise ValueError("runtime binding changed during turn")
         if chat.runtime_state_ref is None:
@@ -236,7 +247,7 @@ class AgentRuntimeRepo:
                 await self._session.flush()
             else:
                 raise ValueError("runtime state ref conflict")
-        return self._binding(chat)
+        return self._binding(chat, project)
 
     async def set_runtime_model_selection(
         self,
@@ -257,6 +268,9 @@ class AgentRuntimeRepo:
         """
         if not model_id.strip() or not connection_id.strip():
             raise ValueError("runtime model id is required")
+        project = await self._project_for_chat(chat_id, for_update=True)
+        if project is None:
+            return None
         chat = (
             await self._session.execute(
                 select(Chat)
@@ -270,30 +284,33 @@ class AgentRuntimeRepo:
         ).scalar_one_or_none()
         if chat is None:
             return None
-        if chat.runtime_type != runtime_type:
+        if project.runtime_type != runtime_type:
             raise ValueError("runtime binding changed during model selection")
-        if (
-            chat.runtime_connection_id is not None
-            and chat.runtime_connection_id != connection_id
-        ):
-            raise ValueError("runtime connection is fixed for the Chat")
+        if project.runtime_connection_id not in (None, connection_id):
+            raise ValueError("runtime_connection_locked")
+        project.runtime_connection_id = connection_id
+        # New threads inherit the last accepted model; existing threads keep theirs.
+        project.runtime_model_id = model_id
         normalized_settings = {**agent_settings, "model_id": model_id}
-        chat.runtime_connection_id = connection_id
         chat.runtime_model_id = model_id
         chat.runtime_agent_settings = normalized_settings
         await self._session.flush()
-        return self._binding(chat)
+        return self._binding(chat, project)
 
     @staticmethod
-    def _binding(chat: Chat) -> dict:
+    def _binding(chat: Chat, project: ChatProject) -> dict:
         return {
-            "runtime_type": chat.runtime_type,
-            "runtime_session_id": chat.runtime_session_id,
+            "project_id": chat.project_id,
+            "runtime_type": project.runtime_type,
+            "runtime_session_id": project.runtime_session_id,
             "runtime_state_ref": chat.runtime_state_ref,
             "runtime_version": chat.runtime_version,
-            "runtime_model_id": chat.runtime_model_id,
-            "runtime_agent_settings": chat.runtime_agent_settings,
-            "runtime_connection_id": chat.runtime_connection_id,
+            "runtime_model_id": chat.runtime_model_id or project.runtime_model_id,
+            "runtime_agent_settings": chat.runtime_agent_settings or (
+                {"model_id": project.runtime_model_id}
+                if project.runtime_model_id else None
+            ),
+            "runtime_connection_id": project.runtime_connection_id,
             "runtime_timezone": chat.runtime_timezone,
             "runtime_started_at": chat.runtime_started_at,
         }

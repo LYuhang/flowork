@@ -16,7 +16,7 @@ vi.mock('@/stores/auth', () => ({
 afterEach(() => vi.restoreAllMocks());
 
 describe('resolvePreview citation compatibility', () => {
-  const ref: FileRefV1 = { schemaVersion: 1, scope: 'chat', chatId: 'chat-1', path: '/data/README.md:24:2' };
+  const ref: FileRefV1 = { schemaVersion: 1, scope: 'project', projectId: 'chat-1', path: '/data/README.md:24:2' };
   const missing = () => Response.json({ detail: 'preview_file_not_found' }, { status: 404 });
 
   it('retries a missing legacy citation once with the same scope and actual text path', async () => {

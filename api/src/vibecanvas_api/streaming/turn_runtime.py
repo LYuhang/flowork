@@ -110,8 +110,16 @@ async def run_turn(
     """
     turn_started = time.perf_counter()
     helper_tasks: list[asyncio.Task] = []
+    transcript_closed = False
 
     async def _emit(event_name: str, payload: Any) -> None:
+        nonlocal transcript_closed
+        if durable_writer is not None and event_name in {"done", "error"} and not transcript_closed:
+            # Terminal consumers reload the database immediately. Flush the
+            # already-buffered interrupted message before advertising that
+            # boundary, not after it. No snapshot generation runs here.
+            await durable_writer.close()
+            transcript_closed = True
         prepare = None
         if durable_writer is not None:
             async def prepare(seq: int) -> None:
@@ -169,7 +177,7 @@ async def run_turn(
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
-        if durable_writer is not None:
+        if durable_writer is not None and not transcript_closed:
             await durable_writer.close()
         logger.info(
             "agent_turn_timing",

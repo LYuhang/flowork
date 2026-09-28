@@ -72,8 +72,9 @@ async def session_scope(
     success, rolls back on exception, always closes.
 
     When ``tenant_id`` or ``user_id`` is given, sets the transaction-local
-    RLS context GUCs. ``app.user_id`` admits only caller-owned recipient
-    projection rows; it is not an authorization decision. This is REQUIRED for
+    RLS context GUCs. ``app.user_id`` admits caller-owned rows such as Projects
+    and recipient projections; it is not an authorization decision. Project-
+    bound Agent operations must supply both identities. This is REQUIRED for
     the SSE per-message / per-node short-session writes: they run in
     their own transactions, and `set_config(..., is_local=true)` is
     transaction-scoped, so without this they would hit FORCE RLS with no

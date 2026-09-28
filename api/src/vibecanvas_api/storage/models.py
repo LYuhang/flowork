@@ -16,7 +16,7 @@ from sqlalchemy import (
     UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PgUUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -212,10 +212,60 @@ class WorkflowRunEvent(Base):
         self._materialized_payload = dict(value or {})
 
 
+class ChatProject(Base):
+    """User-owned Agent workspace shared by one or more Chat threads."""
+
+    __tablename__ = "chat_projects"
+    __allow_unmapped__ = True
+    project_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False,
+        server_default=text("current_setting('app.tenant_id', true)::uuid"),
+    )
+    creator_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False,
+    )
+    metadata_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_nonce: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_key_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("content_encryption_keys.key_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    name: str = ""
+    surface: Mapped[str] = mapped_column(Text, nullable=False, server_default="chat")
+    runtime_type: Mapped[str] = mapped_column(Text, nullable=False)
+    runtime_session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    runtime_connection_id: Mapped[str | None] = mapped_column(Text)
+    runtime_model_id: Mapped[str | None] = mapped_column(Text)
+    # Shared custom MCP selection; each accepted Turn snapshots its revision.
+    mcp_config_revision: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0",
+    )
+    created_at: Mapped[datetime] = _ts()
+    updated_at: Mapped[datetime] = _ts()
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    __table_args__ = (
+        Index("uq_project_runtime_session", "runtime_session_id", unique=True),
+        Index(
+            "ix_chat_projects_owner_updated",
+            "tenant_id", "creator_user_id", "updated_at",
+            postgresql_where=(deleted_at.is_(None)),
+        ),
+    )
+
+
 class Chat(Base):
     __tablename__ = "chats"
     __allow_unmapped__ = True
     chat_id:         Mapped[str] = mapped_column(Text, primary_key=True)
+    # Every conversation is a Project child, including extension conversations.
+    project_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("chat_projects.project_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    project: Mapped[ChatProject] = relationship(lazy="selectin")
     scope_id:        Mapped[str] = mapped_column(Text, nullable=False)
     major_version:   Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     creator_user_id: Mapped[uuid.UUID] = mapped_column(
@@ -233,10 +283,7 @@ class Chat(Base):
     )
     name: str = ""
     surface:         Mapped[str] = mapped_column(Text, nullable=False, server_default="chat")
-    # The Agent SDK/runtime is selected once, when the Chat first starts. A
-    # later change to the user's global default affects new chats only.
-    runtime_type: Mapped[str | None] = mapped_column(Text)
-    runtime_session_id: Mapped[str | None] = mapped_column(Text)
+    # Only native thread state is Chat-owned; runtime identity is on Project.
     runtime_state_ref: Mapped[str | None] = mapped_column(Text)
     runtime_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     # Last explicitly resolved model option for this Chat.  An omitted model
@@ -249,22 +296,12 @@ class Chat(Base):
     # mutable only between Turns and seed Resume; each AgentRun retains the
     # immutable model/source/effort snapshot used by that historical Turn.
     runtime_agent_settings: Mapped[dict | None] = mapped_column(JSONB)
-    # Exact non-secret Runtime connection identity. It is fixed by the first
-    # accepted Turn so provider-native history, credentials, and billing never
-    # cross accounts; models and reasoning remain mutable within the connection.
-    runtime_connection_id: Mapped[str | None] = mapped_column(Text)
     # Fixed when a Chat binds to its Runtime on the first Turn. These values are
     # deliberately immutable afterwards: regenerating a wall clock value for
     # every resume would invalidate the model provider's prompt-prefix cache.
     runtime_timezone: Mapped[str | None] = mapped_column(Text)
     runtime_started_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True)
-    )
-    # Optimistic-concurrency revision for the Chat's selected custom MCP set.
-    # Every user turn carries the revision it rendered; stale tabs cannot
-    # silently overwrite a newer selection.
-    mcp_config_revision: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, server_default="0",
     )
     # Per-chat metadata blob (mirrors ``ChatMessage.meta``). Holds the `/command`
     # mode system's ``{"active_modes": [...]}`` (sticky across turns/reopen) and
@@ -286,13 +323,14 @@ class Chat(Base):
     updated_at:      Mapped[datetime] = _ts()
     deleted_at:      Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     __table_args__ = (
+        Index(
+            "ix_chats_project_activity",
+            "project_id", "last_message_at",
+            postgresql_where=(deleted_at.is_(None)),
+        ),
         CheckConstraint("major_version > 0", name="ck_chats_major_pos"),
         CheckConstraint("surface IN ('chat','browser')",
                         name="ck_chats_surface"),
-        CheckConstraint(
-            "runtime_type IS NULL OR runtime_type ~ '^[a-z][a-z0-9_-]{0,63}$'",
-            name="ck_chats_runtime_type",
-        ),
         CheckConstraint("runtime_version > 0", name="ck_chats_runtime_version_pos"),
         CheckConstraint(
             "browser_control_status IN ('inactive','attaching','attached','lost')",
@@ -315,12 +353,12 @@ class Chat(Base):
     )
 
 
-class ChatMcpBinding(Base):
-    """Durable current custom-MCP selection for one Chat."""
+class ProjectMcpBinding(Base):
+    """One idempotent custom-MCP binding shared by all Project threads."""
 
-    __tablename__ = "chat_mcp_bindings"
-    chat_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("chats.chat_id", ondelete="CASCADE"), primary_key=True,
+    __tablename__ = "project_mcp_bindings"
+    project_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("chat_projects.project_id", ondelete="CASCADE"), primary_key=True,
     )
     mcp_server_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("mcp_servers.id", ondelete="CASCADE"),
@@ -333,7 +371,7 @@ class ChatMcpBinding(Base):
     created_at: Mapped[datetime] = _ts()
     updated_at: Mapped[datetime] = _ts()
     __table_args__ = (
-        Index("ix_chat_mcp_bindings_server", "mcp_server_id"),
+        Index("ix_project_mcp_bindings_server", "mcp_server_id"),
     )
 
 
@@ -854,7 +892,7 @@ class AuditLog(Base):
 
 class VfsArtifact(Base):
     """VFS 2b-1 — scope-scoped artifact (/files /data /exec). Source of record
-    in Postgres. The scope id may be a real workflow id or an internal chat
+    in Postgres. The scope id may be a real workflow id or an internal Project
     workspace id. tenant_id FetchedValue() + GUC default (migration 012) + FORCE
     RLS policy."""
     __tablename__ = "vfs_artifacts"

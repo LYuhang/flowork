@@ -66,7 +66,7 @@ class McpStdioLaunch(McpRuntimeModel):
     @field_validator("cwd")
     @classmethod
     def cwd_stays_in_sandbox_workspace(cls, value: str) -> str:
-        allowed = ("/data", "/memory", "/runtime", "/skills", "/tmp")
+        allowed = ("/data", "/memory", "/chats", "/runtime", "/skills", "/tmp")
         if not any(value == root or value.startswith(f"{root}/") for root in allowed):
             raise ValueError("stdio MCP cwd must stay inside a sandbox workspace root")
         if any(part in {"", ".", ".."} for part in value.split("/")[1:]):
@@ -124,7 +124,7 @@ class McpDesiredState(McpRuntimeModel):
     runtime_session_id: str = Field(min_length=1)
     sandbox_id: str = Field(min_length=1)
     sandbox_generation: int = Field(ge=1)
-    chat_mcp_config_revision: int = Field(ge=0)
+    project_mcp_config_revision: int = Field(ge=0)
     platform_contract_revision: str = Field(min_length=1, max_length=256)
     skill_catalog_revision: str = Field(min_length=1, max_length=256)
     servers: list[McpDesiredServer] = Field(default_factory=list, max_length=128)
@@ -147,7 +147,7 @@ class McpDesiredState(McpRuntimeModel):
     def revision_key(self) -> tuple[object, ...]:
         return (
             self.sandbox_generation,
-            self.chat_mcp_config_revision,
+            self.project_mcp_config_revision,
             self.platform_contract_revision,
             self.skill_catalog_revision,
             tuple(sorted(self.private_platform_capabilities)),

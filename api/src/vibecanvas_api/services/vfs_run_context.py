@@ -207,7 +207,7 @@ async def clear_run_contents(run_id: str, tenant_id: str) -> str | None:
                 path = os.path.join(run_dir, name)
                 # These top-level dirs may be live bind sources in a resident
                 # session. Keep the directory itself stable; clear its children.
-                if name in {"data", "memory", "logs"} and os.path.isdir(path):
+                if name in {"data", "memory", "logs", "chats"} and os.path.isdir(path):
                     for child in os.listdir(path):
                         _clear_path(os.path.join(path, child))
                 else:

@@ -1,7 +1,7 @@
 """Logical Storage namespace API.
 
 This route is the product-facing file browser layer. It accepts stable logical
-paths (`/mount`, `/workflow/{id}/data`, `/chat/{id}/data`, ...), authorizes the
+paths (`/mount`, `/workflow/{id}/data`, `/project/{id}/data`, ...), authorizes the
 business-object root through OpenFGA, then maps to VFS scopes/paths.
 """
 from __future__ import annotations
@@ -58,15 +58,15 @@ from vibecanvas_api.schemas.storage import (
 )
 from vibecanvas_api.security.upload_scanner import require_clean_upload
 from vibecanvas_api.services.chat_workspace import (
-    chat_workspace_scope_id as _chat_workspace_scope_id,
+    project_workspace_scope_id as _project_workspace_scope_id,
 )
 from vibecanvas_api.services.object_store import get_object_store, uri_to_key
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.user_mount_workspace import (
     mount_scope_id as _mount_scope_id,
 )
-from vibecanvas_api.storage.chat_repo import ChatRepo
-from vibecanvas_api.storage.models import Chat
+from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
+from vibecanvas_api.storage.models import ChatProject
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 from vibecanvas_api.storage.vfs_store import (
     VfsEntryMeta,
@@ -77,7 +77,7 @@ from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 router = APIRouter(prefix="/api/v1/storage", tags=["storage"])
 
-_ROOTS = ("mount", "workflow", "chat", "task")
+_ROOTS = ("mount", "workflow", "project", "task")
 _DIR_MARKER = ".keep"
 _HIDDEN_DIR_MARKERS = {".keep", ".vibekeep"}
 _MAX_INLINE_BYTES = 5 * 1024 * 1024
@@ -135,11 +135,11 @@ def _is_text_ct(ct: str) -> bool:
 @dataclass(slots=True)
 class ResolvedPath:
     logical_path: str
-    root: Literal["mount", "workflow", "chat", "task"]
+    root: Literal["mount", "workflow", "project", "task"]
     scope_id: str | None = None
     vfs_path: str | None = None
     workflow_id: str | None = None
-    chat_id: str | None = None
+    project_id: str | None = None
     task_id: str | None = None
     task_artifact_uri: str | None = None
     task_artifact_name: str | None = None
@@ -153,16 +153,16 @@ def _join_vfs(prefix: str, rest: list[str]) -> str:
     return f"{prefix}/{suffix}" if suffix else prefix
 
 
-async def _chat_exists(session: AsyncSession, chat_id: str) -> bool:
-    found = (
-        await session.execute(
-            select(Chat.chat_id).where(
-                Chat.chat_id == chat_id,
-                Chat.deleted_at.is_(None),
-            )
+async def _project_storage_scope(session: AsyncSession, project_id: str) -> str | None:
+    row = (await session.execute(
+        select(ChatProject.project_id).where(
+            ChatProject.project_id == project_id,
+            ChatProject.deleted_at.is_(None),
         )
-    ).scalar_one_or_none()
-    return found is not None
+    )).one_or_none()
+    if row is None:
+        return None
+    return _project_workspace_scope_id(row.project_id)
 
 
 async def _resolve_path(
@@ -235,34 +235,34 @@ async def _resolve_path(
             )
         raise HTTPException(status_code=404, detail="storage_path_not_found")
 
-    if root == "chat":
+    if root == "project":
         if len(parts) == 1:
-            return ResolvedPath(path, "chat")
-        chat_id = parts[1]
-        if not await _chat_exists(session, chat_id):
-            raise HTTPException(status_code=404, detail="chat_not_found")
-        scope_id = _chat_workspace_scope_id(chat_id)
+            return ResolvedPath(path, "project")
+        project_id = parts[1]
+        scope_id = await _project_storage_scope(session, project_id)
+        if scope_id is None:
+            raise HTTPException(status_code=404, detail="project_not_found")
         if len(parts) == 2:
-            return ResolvedPath(path, "chat", scope_id=scope_id, chat_id=chat_id)
+            return ResolvedPath(path, "project", scope_id=scope_id, project_id=project_id)
         bucket = parts[2]
-        if bucket == "data":
+        if bucket in {"data", "chats"}:
             return ResolvedPath(
-                path, "chat", scope_id=scope_id,
-                vfs_path=_join_vfs("/data", parts[3:]),
-                chat_id=chat_id, storage_kind="artifact", writable=True,
+                path, "project", scope_id=scope_id,
+                vfs_path=_join_vfs(f"/{bucket}", parts[3:]),
+                project_id=project_id, storage_kind="artifact", writable=True,
             )
         if bucket == "memory":
             return ResolvedPath(
-                path, "chat", scope_id=scope_id,
+                path, "project", scope_id=scope_id,
                 vfs_path=_join_vfs("/memory", parts[3:]),
-                chat_id=chat_id, storage_kind="scratch", writable=False,
+                project_id=project_id, storage_kind="scratch", writable=False,
                 generated=True,
             )
         if bucket == "logs":
             return ResolvedPath(
-                path, "chat", scope_id=scope_id,
+                path, "project", scope_id=scope_id,
                 vfs_path=_join_vfs("/logs", parts[3:]),
-                chat_id=chat_id, storage_kind="artifact", writable=False,
+                project_id=project_id, storage_kind="artifact", writable=False,
                 generated=True,
             )
         raise HTTPException(status_code=404, detail="storage_path_not_found")
@@ -328,10 +328,10 @@ def _logical_resource(
             parts[1],
             auth.active_organization_id,
         )
-    if parts[0] == "chat" and len(parts) >= 2:
+    if parts[0] == "project":
         return ResourceRef(
-            ResourceType.CHAT,
-            parts[1],
+            ResourceType.STORAGE_ROOT,
+            auth.user_id,
             auth.active_organization_id,
         )
     if parts[0] == "task" and len(parts) >= 2:
@@ -388,8 +388,8 @@ async def _authorize_logical_path(
 def _caps(path: str, *, kind: str, writable: bool) -> dict:
     return {
         "can_create_child": kind == "folder" and writable,
-        "can_rename": writable and path not in {"/mount", "/workflow", "/chat", "/task"},
-        "can_delete": writable and path not in {"/mount", "/workflow", "/chat", "/task"},
+        "can_rename": writable and path not in {"/mount", "/workflow", "/project", "/task"},
+        "can_delete": writable and path not in {"/mount", "/workflow", "/project", "/task"},
         "can_write": writable and kind == "file",
     }
 
@@ -404,7 +404,7 @@ def _folder_item(
 ) -> StorageItem:
     return StorageItem(
         name=name, path=path, kind="folder", modified_at=modified_at,
-        source="system" if path in {"/mount", "/workflow", "/chat", "/task"} else None,
+        source="system" if path in {"/mount", "/workflow", "/project", "/task"} else None,
         access=access_from_decision(decision) if decision else None,
         **_caps(path, kind="folder", writable=writable),
     )
@@ -547,7 +547,7 @@ async def list_storage(
                 decision=mount_decision,
             ),
             _folder_item("workflow", "/workflow", writable=False),
-            _folder_item("chat", "/chat", writable=False),
+            _folder_item("project", "/project", writable=False),
             _folder_item("task", "/task", writable=False),
         ]
     elif logical == "/workflow":
@@ -620,76 +620,42 @@ async def list_storage(
                 decision=decision,
             ),
         ]
-    elif logical == "/chat":
-        principal = principal_for_auth(auth)
-        context = context_for_auth(auth, request)
-        authorized_ids = await service.list_authorized_ids(
-            principal,
-            Action.VIEW_METADATA,
-            ResourceType.CHAT,
-            context,
-        )
-        chats = (
-            await session.execute(
-                select(Chat)
-                .where(
-                    Chat.chat_id.in_(authorized_ids),
-                    Chat.surface == "chat",
-                    Chat.deleted_at.is_(None),
-                )
-                .order_by(
-                    Chat.last_message_at.desc().nullslast(),
-                    Chat.created_at.desc(),
-                )
-                .limit(500)
-            )
-        ).scalars().all() if authorized_ids else []
-        chat_repo = ChatRepo(session, auth.user_id)
-        for chat in chats:
-            await chat_repo.materialize_session_metadata(chat)
-        resources = [
-            ResourceRef(
-                ResourceType.CHAT,
-                chat.chat_id,
-                auth.active_organization_id,
-            )
-            for chat in chats
-        ]
-        decisions = await batch_resource_decisions(
-            service,
-            principal=principal,
-            resources=resources,
-            context=context,
-        )
+    elif logical == "/project":
+        repo = ChatProjectRepo(session, auth.user_id)
+        projects = [*await repo.list(), *await repo.list(surface="browser")]
         items = [
             _folder_item(
-                chat.chat_id,
-                f"/chat/{chat.chat_id}",
+                project["name"],
+                f"/project/{project['project_id']}",
                 writable=False,
-                modified_at=_iso(chat.created_at),
-                decision=decisions[resource],
+                modified_at=project["updated_at"],
+                decision=decision,
             )
-            for chat, resource in zip(chats, resources, strict=True)
-            if not search or search.lower() in chat.chat_id.lower()
-            or search.lower() in (chat.name or "").lower()
+            for project in projects
+            if not search or search.lower() in project["project_id"].lower()
+            or search.lower() in project["name"].lower()
         ]
-    elif resolved.root == "chat" and resolved.chat_id and resolved.vfs_path is None:
+    elif resolved.root == "project" and resolved.project_id and resolved.vfs_path is None:
         items = [
+            _folder_item(
+                "chats", f"/project/{resolved.project_id}/chats",
+                writable=False, decision=decision,
+            ),
             _folder_item(
                 "data",
-                f"/chat/{resolved.chat_id}/data",
+                f"/project/{resolved.project_id}/data",
                 writable=effective_writable,
                 decision=decision,
             ),
             _folder_item(
                 "memory",
-                f"/chat/{resolved.chat_id}/memory",
+                f"/project/{resolved.project_id}/memory",
                 writable=False,
                 decision=decision,
             ),
             _folder_item(
                 "logs",
-                f"/chat/{resolved.chat_id}/logs",
+                f"/project/{resolved.project_id}/logs",
                 writable=False,
                 decision=decision,
             ),

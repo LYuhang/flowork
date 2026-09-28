@@ -180,11 +180,11 @@ class SandboxCoordinator:
         lease: str = "interactive",
         expose_mount: bool = True,
     ):
-        """Compatibility surface used while Runtime execution is phased over."""
+        """Acquire the shared Project workspace used by Agent Runtime turns."""
         spec = SandboxSpec(
             scope=SandboxScope(
                 tenant_id=tenant_id,
-                kind=SandboxScopeKind.CHAT,
+                kind=SandboxScopeKind.PROJECT,
                 scope_id=scope_id,
             ),
             principal_id=user_id,
@@ -207,7 +207,7 @@ class SandboxCoordinator:
             return None
         return await resolver(SandboxScope(
             tenant_id=tenant_id,
-            kind=SandboxScopeKind.CHAT,
+            kind=SandboxScopeKind.PROJECT,
             scope_id=scope_id,
         ))
 
@@ -219,28 +219,6 @@ class SandboxCoordinator:
                 "selected client does not expose session release"
             )
         return await manager.close_session(tenant_id, scope_id)
-
-    async def set_session_lease(
-        self,
-        tenant_id: str,
-        scope_id: str,
-        lease: str,
-    ) -> bool:
-        """Update the lifecycle lease without bypassing the coordinator.
-
-        Agent Runtime Turns acquire a resident lease while work is in flight,
-        then return the session to the interactive idle-TTL policy.  Keeping
-        this operation on the product-facing coordinator prevents callers
-        from depending on whether the backing manager is local or remote.
-        """
-        manager = getattr(self.client, "manager", None)
-        setter = getattr(manager, "set_session_lease", None)
-        if setter is None:
-            raise SandboxCapabilityError(
-                "selected client does not expose lifecycle lease updates"
-            )
-        return bool(await setter(tenant_id, scope_id, lease))
-
 
 _coordinator: SandboxCoordinator | None = None
 

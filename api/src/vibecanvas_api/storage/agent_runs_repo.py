@@ -313,6 +313,49 @@ class AgentRunsRepo:
             await self._materialize_run(row)
         return rows
 
+    async def list_debug_turns(self, chat_id: str, *, creator_user_id: str) -> list[dict]:
+        """Owner-scoped diagnostic metadata; never expose a raw private envelope."""
+        rows = (await self.session.execute(select(AgentRun).where(
+            AgentRun.chat_id == chat_id,
+            AgentRun.creator_user_id == _uuid(creator_user_id),
+        ).order_by(AgentRun.created_at, AgentRun.run_id))).scalars().all()
+        usage_by_run: dict[str, list[dict]] = {}
+        if rows:
+            usage_events = (await self.session.execute(select(AgentRunEvent).where(
+                AgentRunEvent.run_id.in_([run.run_id for run in rows]),
+                AgentRunEvent.event_type == "USAGE",
+            ).order_by(AgentRunEvent.run_id, AgentRunEvent.seq))).scalars().all()
+            for event in usage_events:
+                await self._materialize_event(event)
+                usage_by_run.setdefault(event.run_id, []).append(event.payload)
+        result = []
+        public_input_fields = {
+            "mode", "surface", "agent_surface", "approval_mode", "runtime_type",
+            "runtime_session_id", "runtime_version", "runtime_connection_id",
+            "model_id", "provider_model_id", "model_provider", "api_source",
+            "api_protocol", "reasoning_effort", "command", "runtime_instructions",
+            "skill_snapshot", "mcp_snapshot",
+        }
+        for run in rows:
+            await self._materialize_run(run)
+            result.append({
+                "run_id": run.run_id,
+                "input_message_id": run.input_message_id,
+                "client_request_id": run.client_request_id,
+                "status": run.status,
+                "created_at": run.created_at,
+                "ended_at": run.ended_at,
+                "heartbeat_at": run.heartbeat_at,
+                "duration_ms": int((run.ended_at - run.created_at).total_seconds() * 1000) if run.ended_at else None,
+                "cancel_requested_at": run.cancel_requested_at,
+                "last_event_id": run.last_event_id,
+                "error_code": run.error_code,
+                "error_message": run.error_message,
+                "usage": usage_by_run.get(run.run_id, []),
+                "configuration": {key: value for key, value in run.input_snapshot.items() if key in public_input_fields},
+            })
+        return result
+
     async def append_event(
         self,
         *,

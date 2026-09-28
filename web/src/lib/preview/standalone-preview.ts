@@ -37,7 +37,7 @@ export function standalonePreviewHref(
     path: fileRef.path,
     fileType,
   });
-  if (fileRef.scope === 'chat') query.set('chatId', fileRef.chatId);
+  if (fileRef.scope === 'project') query.set('projectId', fileRef.projectId);
   if (fileRef.scope === 'run') query.set('runId', fileRef.runId);
   return `${getBasePath()}/preview?${query.toString()}`;
 }
@@ -50,18 +50,18 @@ export function standalonePreviewTarget(
   const scope = search.get('scope');
   const path = search.get('path') ?? '';
   const fileType = search.get('fileType')?.trim() || 'auto';
-  if (scope === 'chat') {
-    const chatId = search.get('chatId')?.trim() ?? '';
+  if (scope === 'project') {
+    const projectId = search.get('projectId')?.trim() ?? '';
     if (
-      !chatId
-      || !['/data/', '/memory/', '/logs/'].some((prefix) => safePath(path, prefix))
+      !projectId
+      || !['/data/', '/memory/', '/logs/', '/chats/'].some((prefix) => safePath(path, prefix))
     ) return null;
     return {
       fileRef: {
         schemaVersion: 1,
-        scope: 'chat',
-        chatId,
-        path: path as Extract<FileRefV1, { scope: 'chat' }>['path'],
+        scope: 'project',
+        projectId,
+        path: path as Extract<FileRefV1, { scope: 'project' }>['path'],
       },
       fileType,
     };

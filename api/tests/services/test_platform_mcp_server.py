@@ -247,7 +247,7 @@ async def test_platform_context_rejects_workspace_scope_mismatch(monkeypatch) ->
             return {
                 "carrier_scope_id": "carrier-from-database",
                 "runtime_session_id": "runtime-a",
-                "current_workflow_id": None,
+                "project_id": "project-a",
             }
 
     monkeypatch.setattr(agent_context, "session_scope", fake_session_scope)
@@ -256,8 +256,8 @@ async def test_platform_context_rejects_workspace_scope_mismatch(monkeypatch) ->
     _allow_context_checks(monkeypatch)
     monkeypatch.setattr(
         agent_context,
-        "chat_workspace_scope_id",
-        lambda _chat_id: "workspace-from-database",
+        "project_workspace_scope_id",
+        lambda _project_id: "workspace-from-database",
     )
 
     with pytest.raises(PermissionError, match="workspace"):
@@ -289,7 +289,7 @@ async def test_platform_context_rebuilds_active_membership_without_preloading_wo
             return {
                 "carrier_scope_id": "carrier-a",
                 "runtime_session_id": "runtime-a",
-                "current_workflow_id": "workflow-a",
+                "project_id": "project-a",
             }
 
     class FakeWorkflowRepo:
@@ -306,8 +306,8 @@ async def test_platform_context_rebuilds_active_membership_without_preloading_wo
     monkeypatch.setattr(agent_context, "SyncWorkflowRepo", FakeWorkflowRepo)
     monkeypatch.setattr(
         agent_context,
-        "chat_workspace_scope_id",
-        lambda _chat_id: "workspace-a",
+        "project_workspace_scope_id",
+        lambda _project_id: "workspace-a",
     )
 
     context = await agent_context.resolve_context(capability)

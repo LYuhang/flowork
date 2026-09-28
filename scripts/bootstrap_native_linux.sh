@@ -145,10 +145,12 @@ command -v npm >/dev/null || {
 echo "[3/7] Installing the project-pinned pnpm, Codex CLI, Browser CLI runtime, and draw.io CLI runtime"
 install_public_npm_package() {
   # Executable packages are public assets, unlike the private .env below.
-  sudo bash -c 'umask 022; exec npm install --global --ignore-scripts --no-audit --no-fund "$@"' bash "$@"
+  # Keep the selected Node/npm pair when sudo applies its own secure_path.
+  # Otherwise multi-install hosts install into one prefix and verify another.
+  sudo env "PATH=$PATH" bash -c 'umask 022; exec npm install --global --ignore-scripts --no-audit --no-fund "$@"' bash "$@"
 }
 if command -v corepack >/dev/null; then
-  sudo corepack enable
+  sudo env "PATH=$PATH" corepack enable
   corepack prepare pnpm@10.34.4 --activate
 else
   install_public_npm_package pnpm@10.34.4

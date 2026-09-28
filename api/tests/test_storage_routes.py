@@ -176,8 +176,8 @@ async def test_storage_workflow_root_is_present_when_user_has_no_workflows(clien
     )
     assert roots.status_code == 200, roots.text
     assert [item["name"] for item in roots.json()["items"]] == [
-        "chat",
         "mount",
+        "project",
         "task",
         "workflow",
     ]

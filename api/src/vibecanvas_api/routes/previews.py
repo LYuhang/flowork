@@ -40,7 +40,7 @@ from vibecanvas_api.drawio import (
     inspect_drawio,
 )
 from vibecanvas_api.schemas.preview import (
-    ChatFileRefV1,
+    ProjectFileRefV1,
     FileRefV1,
     MountFileRefV1,
     PreviewCapabilities,
@@ -56,7 +56,9 @@ from vibecanvas_api.schemas.preview import (
     PreviewTextMetadata,
     RunFileRefV1,
 )
-from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
+from vibecanvas_api.services.chat_workspace import (
+    project_workspace_scope_id,
+)
 from vibecanvas_api.services.file_revision import (
     vfs_content_revision,
     vfs_row_revision,
@@ -78,6 +80,7 @@ from vibecanvas_api.services.vfs_signing import (
     sign_vfs_url,
 )
 from vibecanvas_api.storage.db import session_scope
+from vibecanvas_api.storage.models import ChatProject
 from vibecanvas_api.storage.models import (
     VfsArtifact,
     VfsArtifactEvent,
@@ -133,12 +136,6 @@ class _ResolvedFile:
 
 
 def _file_resource(file_ref: FileRefV1, auth: AuthContext) -> ResourceRef:
-    if isinstance(file_ref, ChatFileRefV1):
-        return ResourceRef(
-            ResourceType.CHAT,
-            file_ref.chat_id,
-            auth.active_organization_id,
-        )
     if isinstance(file_ref, RunFileRefV1):
         return ResourceRef(
             ResourceType.VFS_RUN,
@@ -178,8 +175,17 @@ async def _resolve_file(
     session: AsyncSession,
     lock: bool = False,
 ) -> _ResolvedFile:
-    if isinstance(file_ref, ChatFileRefV1):
-        scope_id = chat_workspace_scope_id(file_ref.chat_id)
+    if isinstance(file_ref, ProjectFileRefV1):
+        project_id = (await session.execute(
+            select(ChatProject.project_id).where(
+                ChatProject.project_id == file_ref.project_id,
+                ChatProject.creator_user_id == auth.user_id,
+                ChatProject.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if project_id is None:
+            raise HTTPException(status_code=404, detail="preview_file_not_found")
+        scope_id = project_workspace_scope_id(project_id)
         query = select(VfsArtifact).where(
             VfsArtifact.scope_id == scope_id,
             VfsArtifact.path == file_ref.path,
@@ -233,8 +239,8 @@ def _office_rendition_url(
         "path": file_ref.path,
         "revision": revision,
     }
-    if isinstance(file_ref, ChatFileRefV1):
-        params["chat_id"] = file_ref.chat_id
+    if isinstance(file_ref, ProjectFileRefV1):
+        params["project_id"] = file_ref.project_id
     elif isinstance(file_ref, RunFileRefV1):
         params["run_id"] = file_ref.run_id
     return "/api/v1/previews/office-rendition?" + urlencode(params)
@@ -401,8 +407,8 @@ def _descriptor(
                 detected in {"text", "markdown", "html"}
                 and not isinstance(resolved.file_ref, RunFileRefV1)
                 and (
-                    not isinstance(resolved.file_ref, ChatFileRefV1)
-                    or resolved.file_ref.path.startswith("/data/")
+                    not isinstance(resolved.file_ref, ProjectFileRefV1)
+                    or resolved.file_ref.path.startswith(("/data/", "/chats/"))
                 )
                 and size <= EDITABLE_TEXT_BYTES
             )
@@ -519,18 +525,18 @@ def _object_prefix(object_key: str, size_bytes: int, limit: int) -> bytes:
 
 def _event_file_ref(
     *,
-    scope: Literal["chat", "mount", "run"],
+    scope: Literal["project", "mount", "run"],
     path: str,
-    chat_id: str | None,
+    project_id: str | None,
     run_id: str | None,
 ) -> FileRefV1:
     """Build the validated FileRef represented by an SSE query string."""
     try:
-        if scope == "chat":
-            return ChatFileRefV1(
+        if scope == "project":
+            return ProjectFileRefV1(
                 schema_version=1,
-                scope="chat",
-                chat_id=chat_id or "",
+                scope="project",
+                project_id=project_id or "",
                 path=path,
             )
         if scope == "mount":
@@ -552,11 +558,20 @@ def _event_file_ref(
         ) from exc
 
 
-def _event_scope(
-    *, file_ref: FileRefV1, user_id: str
+async def _event_scope(
+    *, file_ref: FileRefV1, user_id: str, session: AsyncSession
 ) -> tuple[str, str]:
-    if isinstance(file_ref, ChatFileRefV1):
-        return "artifact", chat_workspace_scope_id(file_ref.chat_id)
+    if isinstance(file_ref, ProjectFileRefV1):
+        project_id = (await session.execute(
+            select(ChatProject.project_id).where(
+                ChatProject.project_id == file_ref.project_id,
+                ChatProject.creator_user_id == user_id,
+                ChatProject.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if project_id is None:
+            raise HTTPException(status_code=404, detail="preview_file_not_found")
+        return "artifact", project_workspace_scope_id(project_id)
     if isinstance(file_ref, MountFileRefV1):
         return "artifact", mount_scope_id(user_id)
     return "run", file_ref.run_id
@@ -569,9 +584,9 @@ def _event_paths(path: str) -> tuple[str, ...]:
 @router.get("/events")
 async def stream_preview_file_events(
     request: Request,
-    scope: Literal["chat", "mount", "run"] = Query(),
+    scope: Literal["project", "mount", "run"] = Query(),
     path: str = Query(min_length=1),
-    chat_id: str | None = Query(default=None),
+    project_id: str | None = Query(default=None),
     run_id: str | None = Query(default=None),
     auth: AuthContext = Depends(current_user),
 ) -> StreamingResponse:
@@ -587,12 +602,8 @@ async def stream_preview_file_events(
     file_ref = _event_file_ref(
         scope=scope,
         path=path,
-        chat_id=chat_id,
+        project_id=project_id,
         run_id=run_id,
-    )
-    scope_kind, storage_scope_id = _event_scope(
-        file_ref=file_ref,
-        user_id=auth.user_id,
     )
     watched_paths = _event_paths(path)
     raw_cursor = request.headers.get("last-event-id", "")
@@ -601,7 +612,12 @@ async def stream_preview_file_events(
     except ValueError:
         cursor = 0
 
-    async with session_scope(tenant_id=auth.tenant_id) as initial_session:
+    async with session_scope(tenant_id=auth.tenant_id, user_id=auth.user_id) as initial_session:
+        scope_kind, storage_scope_id = await _event_scope(
+            file_ref=file_ref,
+            user_id=auth.user_id,
+            session=initial_session,
+        )
         # A StreamingResponse delays FastAPI dependency teardown until the
         # client disconnects. Building AuthzService through the ordinary
         # request-scoped tenant_db dependency would therefore retain an idle
@@ -661,24 +677,7 @@ async def stream_preview_file_events(
 
     async def event_stream():
         nonlocal cursor
-        if isinstance(file_ref, ChatFileRefV1):
-            stream_resource = ResourceRef(
-                ResourceType.CHAT,
-                file_ref.chat_id,
-                auth.active_organization_id,
-            )
-        elif isinstance(file_ref, RunFileRefV1):
-            stream_resource = ResourceRef(
-                ResourceType.VFS_RUN,
-                file_ref.run_id,
-                auth.active_organization_id,
-            )
-        else:
-            stream_resource = ResourceRef(
-                ResourceType.STORAGE_ROOT,
-                auth.user_id,
-                auth.active_organization_id,
-            )
+        stream_resource = _file_resource(file_ref, auth)
         next_authorization_check = 0.0
 
         async def authorized() -> bool:
@@ -722,7 +721,7 @@ async def stream_preview_file_events(
         while not await request.is_disconnected():
             if not await authorized():
                 return
-            async with session_scope(tenant_id=auth.tenant_id) as event_session:
+            async with session_scope(tenant_id=auth.tenant_id, user_id=auth.user_id) as event_session:
                 events = (
                     await event_session.execute(
                         select(VfsArtifactEvent)
@@ -835,10 +834,10 @@ async def resolve_preview(
 @router.get("/office-rendition")
 async def office_preview_rendition(
     request: Request,
-    scope: Literal["chat", "mount", "run"] = Query(),
+    scope: Literal["project", "mount", "run"] = Query(),
     path: str = Query(min_length=1),
     revision: str = Query(min_length=1),
-    chat_id: str | None = Query(default=None),
+    project_id: str | None = Query(default=None),
     run_id: str | None = Query(default=None),
     auth: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
@@ -854,7 +853,7 @@ async def office_preview_rendition(
     file_ref = _event_file_ref(
         scope=scope,
         path=path,
-        chat_id=chat_id,
+        project_id=project_id,
         run_id=run_id,
     )
     await _authorize_file_ref(
@@ -955,10 +954,10 @@ async def create_preview_resource_session(
         else:
             rules.update(markdown_vfs_read_rules(source, source_path))
     sorted_rules = tuple(sorted(rules))
-    if isinstance(body.file_ref, ChatFileRefV1):
+    if isinstance(body.file_ref, ProjectFileRefV1):
         workspace_rules = tuple(
             rule
-            for root in ("data", "memory", "logs")
+            for root in ("data", "memory", "logs", "chats")
             for rule in rules_for_root(sorted_rules, root)
         )
         workspace_capability = issue_vfs_resource_capability(
@@ -1042,8 +1041,8 @@ async def write_preview_file(
     if (
         isinstance(body.file_ref, RunFileRefV1)
         or (
-            isinstance(body.file_ref, ChatFileRefV1)
-            and not body.file_ref.path.startswith("/data/")
+            isinstance(body.file_ref, ProjectFileRefV1)
+            and not body.file_ref.path.startswith(("/data/", "/chats/"))
         )
     ):
         raise HTTPException(status_code=403, detail="preview_file_read_only")

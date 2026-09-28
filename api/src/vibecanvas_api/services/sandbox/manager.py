@@ -1,25 +1,20 @@
-"""Host-side resident Chat Agent sandbox.
+"""Host-side resident Project Agent sandbox and Workflow execution sessions.
 
-A process singleton (:class:`SandboxManager`) maps ``(tenant_id, wf_id)`` → a
-resident :class:`SandboxSession`. The session wraps the shipped rootless-gVisor
-provider plus the per-chat and user mounts, runs agent Skill scripts through
-``RootlessGvisorProvider.run_code``, and writes the run dir's VFS folders back to
-the durable VFS after each run.
+A process singleton (:class:`SandboxManager`) maps ``(tenant_id, wf_id)`` to a
+:class:`SandboxSession`. For Agent conversations, ``wf_id`` is the canonical
+Project workspace scope, never a Chat ID. Sibling Chats share the workspace,
+resident runtime process and capacity slot while retaining distinct native
+threads and working directories under ``/chats``.
 
-Resident model (``config.sandbox_resident_mode == "coldboot"``, the dev/default):
-legacy ``run_code`` cold-boots a one-shot bundle against persisted workspace
-mounts. Main Agent turns and agent-visible shell/file tools use separate warm
-gVisor workers over those same mounts, so subsequent turns avoid container and
-Python import cold-start while all tools share one filesystem view.
+The configured provider (Bubblewrap in native deployments) mounts the Project's durable
+VFS projection and optional user storage. Runtime and command workers reuse
+those mounts; writeback persists workspace changes. Provider selection also
+supports the explicitly configured gVisor isolation mode.
 
-Concurrency: a per-session ``asyncio.Lock`` serializes legacy ``run_code`` skill
-scripts. Agent-visible shell/file tools use one warm gVisor sandbox with an
-in-sandbox parallel job server, so multiple commands can run over the same
-mounted workspace with normal filesystem semantics. The manager bounds the
-resident fleet at ``max_resident`` and evicts the least-recently-used session on
-overflow; idle sessions past ``idle_ttl_s`` are reaped by
-:meth:`SandboxManager.sweep_idle`. The provider methods are SYNC, so they run
-via ``asyncio.to_thread``.
+Concurrency and lifecycle locks protect shared runtime turns, commands,
+writeback and release. The manager bounds resident sessions at ``max_resident``
+and reaps eligible idle sessions through :meth:`SandboxManager.sweep_idle`.
+Synchronous provider operations run through ``asyncio.to_thread``.
 """
 from __future__ import annotations
 
@@ -36,6 +31,7 @@ import sys
 import tempfile
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 import structlog
 from vibecanvas_engine.sandbox_bus import (
@@ -86,8 +82,8 @@ from vibecanvas_api.services.vfs_run_context import (
     sync_run_back,
 )
 from vibecanvas_api.services.vfs_volume import (
-    ChatRuntimeVolume,
-    get_chat_runtime_volume_provider,
+    ProjectRuntimeVolume,
+    get_project_runtime_volume_provider,
 )
 from vibecanvas_api.storage.db import session_scope, short_session_scope
 from vibecanvas_api.storage.vfs_store import VfsRepo
@@ -98,7 +94,7 @@ _SNAPSHOT_STORE_LOCK = asyncio.Lock()
 # The Chat workspace folders written back to durable VFS — agent working area
 # (/data), scratch memory (/memory), and run logs (/logs). Each is a host
 # subdir of the chat/workspace ``run_dir`` mirrored to the matching VFS prefix.
-_RUN_WRITEBACK_FOLDERS = ("data", "memory", "logs")
+_RUN_WRITEBACK_FOLDERS = ("data", "memory", "logs", "chats")
 _SANDBOX_BASELINE_TOOLS = (
     "git",
     "jq",
@@ -397,7 +393,7 @@ def _edit_unified_diff(before: str, after: str, path: str) -> str:
 
 
 class SandboxSession:
-    """One resident Chat sandbox: provider + persisted mounts + lock.
+    """One resident Project or Workflow sandbox: provider + persisted mounts + lock.
 
     Materialized once by :meth:`SandboxManager._build_session`; ``run_code`` is
     serialized by ``self._lock`` and cold-boots a fresh gVisor bundle against the
@@ -415,7 +411,7 @@ class SandboxSession:
         base_binds: list[str],
         mount_dir: str | None = None,
         runtime_dir: str | None = None,
-        runtime_volume: ChatRuntimeVolume | None = None,
+        runtime_volume: ProjectRuntimeVolume | None = None,
         account_auth_file: str | None = None,
         skills_dir: str | None = None,
         mount_scope_id: str | None = None,
@@ -438,12 +434,12 @@ class SandboxSession:
         self.overlay_dir = overlay_dir
         self.provider = provider
         # User-level shared storage bound at in-sandbox ``/mount``. This is
-        # independent from the chat workspace and the selected workflow.
+        # independent from the Project workspace and the selected workflow.
         self.mount_dir = mount_dir
         self.expose_mount = expose_mount
-        # Chat-scoped private Runtime volume. It is mounted directly for the
-        # in-sandbox runtime, but excluded from file-tool roots and Object Store
-        # writeback. Closing a sandbox never deletes or copies this directory.
+        # Project-scoped private Runtime volume, excluded from public file-tool
+        # roots. Its provider persists encrypted snapshots independently of
+        # the shared workspace and releases the private plaintext projection.
         self.runtime_dir = runtime_dir
         self.runtime_volume = runtime_volume
         self.account_auth_file = account_auth_file
@@ -476,7 +472,7 @@ class SandboxSession:
         # Chat to restore without holding its process-global registry lock or
         # blocking lifecycle transitions for unrelated Chats.
         self._transition_lock = asyncio.Lock()
-        self._sandbox_runtime_id = f"chat-sandbox:{uuid.uuid4()}"
+        self._sandbox_runtime_id = f"agent-sandbox:{uuid.uuid4()}"
         # This epoch advances whenever the main Agent Runtime process is
         # replaced, even if sandboxd and the logical Chat session stay alive.
         # Host Gateway calls will fence identities against this value.
@@ -488,6 +484,7 @@ class SandboxSession:
         # the original SSE response object.
         self._runtime_brokers: dict[str, BusBroker] = {}
         self._runtime_broker_lock = asyncio.Lock()
+        self._runtime_turn_lock = asyncio.Lock()
         # Main-Agent Runtime process, kept warm across turns for this Chat.
         # A session is already serialized by ``_lock``, so one duplex channel
         # can safely carry consecutive requests while HITL control messages are
@@ -746,7 +743,7 @@ class SandboxSession:
                 await self._stop_agent_runtime_locked()
                 if self.runtime_volume is not None:
                     await asyncio.to_thread(
-                        get_chat_runtime_volume_provider().sync,
+                        get_project_runtime_volume_provider().sync,
                         self.runtime_volume,
                     )
 
@@ -1041,7 +1038,7 @@ class SandboxSession:
             self._end_activity()
 
     async def mcp_manifest(self, server: dict, *, timeout_s: float = 30.0) -> dict:
-        """Return a serializable MCP tool manifest from inside this chat sandbox."""
+        """Return a serializable MCP tool manifest from inside this Project sandbox."""
         allow_hosts = await self._mcp_server_egress_hosts(server)
         return await self.submit_sandbox_job(
             {
@@ -1064,7 +1061,7 @@ class SandboxSession:
         arguments: dict,
         timeout_s: float = 120.0,
     ) -> dict:
-        """Call one MCP tool from inside this chat sandbox."""
+        """Call one MCP tool from inside this Project sandbox."""
         allow_hosts = await self._mcp_server_egress_hosts(server)
         return await self.submit_sandbox_job(
             {
@@ -1093,14 +1090,32 @@ class SandboxSession:
         return set(await validate_mcp_connection_destination(connection))
 
     async def run_agent_runtime_stream(self, request: dict):
-        """Run one Agent Runtime turn on this Chat's warm gVisor process.
+        """Serialize a Project's turns, including cancellation cleanup.
+
+        Sibling Chats share a bus/app-server. A waiting Chat must not acquire
+        that bus between a cancelled turn releasing `_lock` and its teardown.
+        Queued requests count as activity so the shared sandbox stays alive.
+        """
+        self._begin_activity()
+        try:
+            async with self._runtime_turn_lock:
+                stream = self._run_agent_runtime_stream_locked(request)
+                try:
+                    async for event in stream:
+                        yield event
+                finally:
+                    await stream.aclose()
+        finally:
+            self._end_activity()
+
+    async def _run_agent_runtime_stream_locked(self, request: dict):
+        """Run one Agent Runtime turn on this workspace's warm process.
 
         The private UDS carries the request and stream, so credentials are never
         written into the workspace channel. Consecutive turns reuse the process
         and imported Runtime modules; session close/TTL owns final teardown.
         """
         total_started = time.perf_counter()
-        self._begin_activity()
         runtime_turn_id = str(request.get("turn_id") or "runtime")
         runtime_type = str(request.get("runtime_type") or "unknown")
         runtime_model = request.get("model")
@@ -1140,10 +1155,10 @@ class SandboxSession:
                     uses_codex_account=uses_codex_account,
                 )
                 runtime_request = self._mcp_runtime_request(request)
-                # Interactive Runtimes are Chat-scoped and remain resident across
+                # Interactive Runtimes are Project-scoped and remain resident across
                 # Turns.  Codex account sessions follow the same lifecycle as
                 # API-backed Codex: explicit account disconnect,
-                # Chat/session close, idle hibernation/TTL, or a transport error
+                # Project release, idle hibernation/TTL, or a transport error
                 # owns teardown.  ``invalidate_codex_account_sessions`` closes
                 # every locally-owned session for the disconnected principal so
                 # an idle Runtime cannot retain a revoked account credential.
@@ -1251,7 +1266,7 @@ class SandboxSession:
                         self._persist_codex_account_auth()
                     phase_started = time.perf_counter()
                     await asyncio.to_thread(
-                        get_chat_runtime_volume_provider().sync,
+                        get_project_runtime_volume_provider().sync,
                         runtime_volume,
                     )
                     logger.info(
@@ -1296,7 +1311,7 @@ class SandboxSession:
                 if runtime_volume is not None:
                     try:
                         await asyncio.to_thread(
-                            get_chat_runtime_volume_provider().sync,
+                            get_project_runtime_volume_provider().sync,
                             runtime_volume,
                         )
                         logger.info(
@@ -1317,7 +1332,6 @@ class SandboxSession:
                             turn_id=runtime_turn_id,
                             exc_info=True,
                         )
-            self._end_activity()
             logger.info(
                 "agent_runtime_transport_timing",
                 phase="transport_total",
@@ -1643,7 +1657,7 @@ class SandboxSession:
             if value:
                 env_overrides[key] = value
 
-        # ``/runtime`` is already a private Chat-owned writable mount. Stage
+        # ``/runtime`` is already a private Project-owned writable mount. Stage
         # account auth into that directory instead of mounting auth.json over
         # it: Codex refreshes credentials with an atomic rename, and replacing
         # a bind-mount point fails with EBUSY. The staged file is excluded from
@@ -2577,7 +2591,7 @@ class SandboxSession:
             elif os.path.isdir(target):
                 shutil.rmtree(target)
 
-        async with self._external_vfs_lock:
+        async with self._lock, self._external_vfs_lock:
             await asyncio.to_thread(_delete)
         now = time.monotonic()
         self.last_used = now
@@ -2872,8 +2886,8 @@ class SandboxSession:
         except Exception:  # pragma: no cover - fail-soft
             logger.warning("agent_close_writeback_failed", wf_id=wf_id,
                            exc_info=True)
-        # Runtime-owned files already live on the durable Chat Runtime Volume.
-        # Retiring the process must not serialize, copy, or delete that volume.
+        # Stop the shared Runtime before taking its final encrypted snapshot.
+        # Releasing the sandbox removes the projection, not the durable volume.
         try:
             async with self._lock:
                 await self._stop_agent_runtime_locked()
@@ -2884,7 +2898,7 @@ class SandboxSession:
         if runtime_volume is not None:
             try:
                 await asyncio.to_thread(
-                    get_chat_runtime_volume_provider().release,
+                    get_project_runtime_volume_provider().release,
                     runtime_volume,
                 )
             except Exception:  # pragma: no cover - durability failure is logged
@@ -2970,6 +2984,7 @@ class SandboxManager:
         self._retiring_task_sessions: dict[tuple[str, str], SandboxSession] = {}
         self._lock = asyncio.Lock()
         self._close_tasks: set[asyncio.Task] = set()
+        self._closing_scopes: dict[tuple[str, str], asyncio.Task] = {}
         self._shutdown = False
 
     async def operational_snapshot(self) -> dict[str, int]:
@@ -3044,7 +3059,8 @@ class SandboxManager:
                     "command": (
                         "set -eu; for tool in "
                         + " ".join(_SANDBOX_BASELINE_TOOLS)
-                        + "; do command -v \"$tool\" >/dev/null; done; "
+                        + "; do command -v \"$tool\" >/dev/null || "
+                        "{ echo \"Missing sandbox tool: $tool\" >&2; exit 1; }; done; "
                         "python -c 'import importlib,json,sys; "
                         "[importlib.import_module(module) for module in "
                         + json.dumps(_SANDBOX_BASELINE_PYTHON_MODULES)
@@ -3161,7 +3177,7 @@ class SandboxManager:
             # Runtime Volumes live under AGENT_RUNTIME_ROOT, so bootstrap
             # substitutes must use that same filesystem rather than /tmp.
             skills_dir = os.path.join(persistent_root, "skills")
-            # Chat Runtime Volumes are materialized under the projection root
+            # Project Runtime Volumes are materialized under the projection root
             # (normally /tmp), unlike Skills/auth. Preserve that mixed parent /
             # child mount profile because runsc validates both independently.
             runtime_dir = os.path.join(probe_root, "runtime")
@@ -3398,10 +3414,34 @@ class SandboxManager:
                 exc_info=True,
             )
 
-    def _schedule_close(self, session: SandboxSession, *, reason: str) -> None:
+    def _schedule_close(self, session: SandboxSession, *, reason: str) -> asyncio.Task:
+        key = (session.tenant_id, session.wf_id)
         task = asyncio.create_task(self._close_session_best_effort(session, reason=reason))
         self._close_tasks.add(task)
-        task.add_done_callback(self._close_tasks.discard)
+        self._closing_scopes[key] = task
+
+        def finished(done: asyncio.Task) -> None:
+            self._close_tasks.discard(done)
+            if self._closing_scopes.get(key) is done:
+                self._closing_scopes.pop(key, None)
+
+        task.add_done_callback(finished)
+        return task
+
+    @asynccontextmanager
+    async def _acquisition_lock(self, key: tuple[str, str]):
+        """Wait for this scope's old writeback/teardown, without blocking peers."""
+        while True:
+            await self._lock.acquire()
+            closing = self._closing_scopes.get(key)
+            if closing is None or closing.done():
+                break
+            self._lock.release()
+            await asyncio.shield(closing)
+        try:
+            yield
+        finally:
+            self._lock.release()
 
     async def drain_background_closes(self) -> None:
         """Test/shutdown hook: wait for currently scheduled close tasks."""
@@ -3427,9 +3467,9 @@ class SandboxManager:
         acquire_started = time.perf_counter()
         key = (tenant_id, wf_id)
         # Restore outside the manager-wide registry lock. The Session's own
-        # transition lock deduplicates concurrent restores for this Chat, while
-        # unrelated Chats remain acquirable during checkpoint I/O.
-        async with self._lock:
+        # transition lock deduplicates concurrent restores for this Project,
+        # while unrelated Projects remain acquirable during checkpoint I/O.
+        async with self._acquisition_lock(key):
             restore_candidate = self._sessions.get(key)
             if key in self._revoked_task_scopes:
                 raise RuntimeError("Task execution scope was revoked.")
@@ -3443,7 +3483,7 @@ class SandboxManager:
                 restore_candidate = None
         if restore_candidate is not None:
             await restore_candidate.resume()
-        async with self._lock:
+        async with self._acquisition_lock(key):
             if self._shutdown:
                 raise RuntimeError("sandbox manager is shutting down")
             if key in self._revoked_task_scopes:
@@ -3452,7 +3492,7 @@ class SandboxManager:
             if existing is not None and not existing.closed:
                 if getattr(existing, "_requires_rehydrate", False):
                     self._sessions.pop(key, None)
-                    self._schedule_close(existing, reason="external_vfs_rehydrate")
+                    await asyncio.shield(self._schedule_close(existing, reason="external_vfs_rehydrate"))
                     existing = None
             if existing is not None and not existing.closed:
                 if _session_lifecycle_state(existing) != "warm":
@@ -3478,7 +3518,7 @@ class SandboxManager:
                     )
                     return existing
                 self._sessions.pop(key, None)
-                self._schedule_close(existing, reason="rebuild")
+                await asyncio.shield(self._schedule_close(existing, reason="rebuild"))
             # Make room (LRU evict) BEFORE building the new one.
             while sum(
                 1
@@ -3539,23 +3579,6 @@ class SandboxManager:
                 await session.resume()
             session.last_used = time.monotonic()
             return session
-
-    async def set_session_lease(
-        self,
-        tenant_id: str,
-        wf_id: str,
-        lease: str,
-    ) -> bool:
-        """Pin or return a loaded session to its ordinary idle-TTL policy."""
-
-        normalized = lease if lease in {"interactive", "resident"} else "interactive"
-        async with self._lock:
-            session = self._sessions.get((tenant_id, wf_id))
-            if session is None or session.closed:
-                return False
-            session.lease = normalized
-            session.last_used = time.monotonic()
-            return True
 
     async def status(self, tenant_id: str, wf_id: str) -> dict:
         """Return resident-session status without creating a sandbox.
@@ -3706,12 +3729,13 @@ class SandboxManager:
 
         The session is removed from the live registry synchronously, then fully
         closed before the release response is returned.  A caller may start the
-        same Chat again immediately after this boundary; returning while the old
+        same Project again immediately after this boundary; returning while the old
         close task can still release its Runtime-volume materialization races the
         replacement sandbox and can remove its ``/runtime`` mount mid-startup.
         """
         key = (tenant_id, wf_id)
         victim = None
+        closing = None
         async with self._lock:
             victim = self._sessions.pop(key, None)
             self._closed_markers[key] = time.monotonic()
@@ -3721,8 +3745,13 @@ class SandboxManager:
                 victim._task_stop_pool = pool
                 if getattr(victim, "_task_stop_handles", None) is None:
                     victim._task_stop_handles = list(pool._handles) if pool else []
+            if victim is not None:
+                closing = self._schedule_close(victim, reason="manual_close")
+            else:
+                closing = self._closing_scopes.get(key)
+        if closing is not None:
+            await asyncio.shield(closing)
         if victim is not None:
-            await self._close_session_best_effort(victim, reason="manual_close")
             if key in self._retiring_task_sessions and all(
                 handle is None or handle.proc.poll() is not None
                 for handle in getattr(victim, "_task_stop_handles", [])
@@ -4095,21 +4124,20 @@ class SandboxManager:
         runtime_volume = None
         account_auth_path = None
         if user_id and expose_runtime:
-            # Runtime state is isolated per Chat and backed by one directly
-            # mounted POSIX volume. The provider may use a local encrypted disk,
-            # CSI RWO volume, or a sandbox platform volume; no adapter-specific
-            # checkpoint format participates in session startup or teardown.
+            # All Chat threads in a Project reuse one Runtime volume. Its
+            # encrypted durable snapshot is materialized as a POSIX directory
+            # while the Project sandbox is resident.
             stage_started = time.perf_counter()
             runtime_volume = await asyncio.to_thread(
-                get_chat_runtime_volume_provider().ensure,
+                get_project_runtime_volume_provider().ensure,
                 tenant_id=tenant_id,
                 user_id=user_id,
-                chat_scope_id=wf_id,
+                project_scope_id=wf_id,
             )
             runtime_dir = runtime_volume.path
             logger.warning(
                 "agent_sandbox_session_build_stage_done",
-                stage="mount_chat_runtime_volume",
+                stage="mount_project_runtime_volume",
                 wf_id=wf_id,
                 volume_id=runtime_volume.volume_id,
                 elapsed_ms=int((time.perf_counter() - stage_started) * 1000),

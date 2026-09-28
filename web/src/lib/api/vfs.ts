@@ -88,7 +88,6 @@ function qs(params: Record<string, string | undefined>): string {
 export async function listVfs(args: {
   wf_id?: string;
   prefix?: string;
-  include_hidden?: string;
 }): Promise<VfsListOut> {
   const resp = await authedFetch(`/api/v1/vfs${qs(args)}`);
   return jsonOrThrow<VfsListOut>(resp, 'listVfs');

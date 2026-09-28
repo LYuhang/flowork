@@ -42,7 +42,7 @@ function eventUrl(fileRef: FileRefV1): string {
     scope: fileRef.scope,
     path: fileRef.path,
   });
-  if (fileRef.scope === 'chat') params.set('chat_id', fileRef.chatId);
+  if (fileRef.scope === 'project') params.set('project_id', fileRef.projectId);
   if (fileRef.scope === 'run') params.set('run_id', fileRef.runId);
   return `${getApiBase()}/api/v1/previews/events?${params.toString()}`;
 }

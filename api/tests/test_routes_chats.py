@@ -23,10 +23,11 @@ from sqlalchemy import text, update
 from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
 from vibecanvas_api.storage.background_jobs_repo import BackgroundJobsRepo
 from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.hitl_repo import HitlRepo
-from vibecanvas_api.storage.models import Chat
-from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
+from vibecanvas_api.storage.models import Chat, ChatProject
+from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
 
 
 async def _register(client) -> str:
@@ -45,6 +46,16 @@ def _hdr(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+async def _create_project(client, headers: dict, name: str = "Test project") -> str:
+    response = await client.post(
+        "/api/v1/projects",
+        json={"name": name},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["project_id"]
+
+
 async def _seed_encrypted_chat(
     me: dict,
     *,
@@ -53,18 +64,107 @@ async def _seed_encrypted_chat(
     name: str,
     surface: str,
     state: dict | None = None,
-) -> None:
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
+) -> str:
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        project = await ChatProjectRepo(session, me["user_id"]).create(name=name, surface=surface)
         await ChatRepo(session, me["user_id"]).register_session(
             scope_id,
+            project_id=project["project_id"],
             name=name,
             chat_id=chat_id,
             surface=surface,
         )
         if state:
+            shared = {key: value for key, value in state.items() if key in {
+                "runtime_type", "runtime_session_id", "runtime_connection_id",
+            }}
+            if shared:
+                await session.execute(update(ChatProject).where(
+                    ChatProject.project_id == project["project_id"],
+                ).values(**shared))
             await session.execute(
-                update(Chat).where(Chat.chat_id == chat_id).values(**state)
+                update(Chat).where(Chat.chat_id == chat_id).values(**{
+                    key: value for key, value in state.items() if key not in shared
+                })
             )
+        return project["project_id"]
+
+
+@pytest.mark.asyncio
+async def test_database_debug_keeps_all_turns_artifacts_cursor_and_owner_boundary(client, app_engine, monkeypatch):
+    from vibecanvas_api.routes.chats import app_config
+    monkeypatch.setattr(app_config, "agent_debug_view_enabled", True)
+    headers = _hdr(await _register(client))
+    me = (await client.get("/api/v1/auth/me", headers=headers)).json()
+    scope_id = (await client.get("/api/v1/chats/bootstrap", headers=headers)).json()["carrier_scope_id"]
+    chat_id = "debug-" + uuid.uuid4().hex
+    project_id = await _seed_encrypted_chat(me, scope_id=scope_id, chat_id=chat_id, name="Debug", surface="chat")
+    artifact_id = "artifact-" + uuid.uuid4().hex
+    artifact = {"kind": "interactive_artifact", "artifact_id": artifact_id, "component_type": "workflow_preview", "props": {"workflow_id": "wf-debug", "version": "v1.sv3"}}
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        repo = ChatRepo(session, me["user_id"])
+        sibling = await repo.register_session(scope_id, project_id=project_id, name="Sibling")
+        await repo.persist_message(sibling, {"message_id": "foreign-message", "role": "user", "content": {"text": "SIBLING-PRIVATE"}})
+        for turn in range(10):
+            for role in ("user", "assistant", "tool", "assistant"):
+                message_id = f"{chat_id}-{turn}-{role}" + ("-answer" if role == "assistant" and turn % 2 else "")
+                # Distinct row IDs even for the two assistant messages.
+                message_id += "-" + uuid.uuid4().hex
+                content = {"text": f"{turn}: {role}" + ("X" * 10000 if turn == 0 else ""), "attachments": [], "visibility": "visible"}
+                if role == "assistant": content["tool_calls"] = [{"id": f"tool-{turn}", "type": "function", "function": {"name": "render_preview", "arguments": '{"type":"workflow"}'}}]
+                if role == "tool": content.update(tool_call_id=f"tool-{turn}", artifact=artifact)
+                await repo.persist_message(chat_id, {"message_id": message_id, "turn_id": f"turn-{turn}", "role": role, "content": content, "meta": {"status": "completed"}})
+        await AgentRunsRepo(session).create(run_id="run-" + chat_id, tenant_id=me["tenant_id"], chat_id=chat_id, creator_user_id=me["user_id"], client_request_id="request-debug", input_snapshot={"model_id": "terra", "approval_mode": "agent", "api_key": "DO-NOT-EXPORT", "model": {"api_key": "ALSO-PRIVATE"}})
+        await AgentRunsRepo(session).append_event(run_id="run-" + chat_id, seq=1, event_type="USAGE", payload={"input_tokens": 42}, tenant_id=me["tenant_id"])
+        await HitlRepo(session).create_interactive_artifact(artifact_id=artifact_id, tenant_id=me["tenant_id"], chat_id=chat_id, run_id="run-" + chat_id, component_type="workflow_preview", completion_mode="render_only", title="Pinned preview", definition_json=artifact, artifact_ref=None, content_hash="test-hash")
+    cursor = 0
+    messages = []
+    while True:
+        response = await client.get(f"/api/v1/chats/{chat_id}/debug/messages?limit=7&after_id={cursor}", headers=headers)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["chat_id"] == chat_id
+        assert data["artifacts"][0]["artifact"]["props"]["version"] == "v1.sv3"
+        assert data["turns"][0]["configuration"] == {"model_id": "terra", "approval_mode": "agent"}
+        assert data["turns"][0]["usage"] == [{"input_tokens": 42}]
+        assert "DO-NOT-EXPORT" not in response.text and "ALSO-PRIVATE" not in response.text
+        assert "SIBLING-PRIVATE" not in response.text
+        messages.extend(data["messages"])
+        cursor = data["next_cursor"]
+        if not data["has_more"]: break
+    assert len(messages) == 40
+    assert len({item["id"] for item in messages}) == 40
+    assert [item["role"] for item in messages] == ["user", "assistant", "tool", "assistant"] * 10
+    assert len(messages[0]["content"]) > 10000
+    assert messages[2]["artifact"] == artifact
+    empty = await client.get(f"/api/v1/chats/{chat_id}/debug/messages?after_id={cursor}&include_artifacts=false", headers=headers)
+    assert empty.json()["messages"] == [] and empty.json()["artifacts"] is None
+    # Artifact state can change independently of immutable message rows. A
+    # cursor refresh must include the latest registry state even with no tail.
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        hitl = HitlRepo(session)
+        updated, changed = await hitl.update_artifact_state_for_user(
+            artifact_id=artifact_id, user_id=me["user_id"], state={"selected": ["node-2"]},
+        )
+        assert changed
+        await hitl.record_artifact_result_file(
+            artifact=updated,
+            result_file={"path": "/data/review.json", "hash": "sha256:review"},
+        )
+    refreshed = await client.get(f"/api/v1/chats/{chat_id}/debug/messages?after_id={cursor}", headers=headers)
+    assert refreshed.status_code == 200
+    assert refreshed.json()["messages"] == []
+    refreshed_artifact = refreshed.json()["artifacts"][0]
+    assert refreshed_artifact["artifact"]["props"]["version"] == "v1.sv3"
+    assert refreshed_artifact["artifact"]["widget_state"] == {"selected": ["node-2"]}
+    assert refreshed_artifact["interaction_result_json"]["path"] == "/data/review.json"
+    assert refreshed_artifact["artifact"]["interaction_state"]["result"]["hash"] == "sha256:review"
+    other_headers = _hdr(await _register(client))
+    denied = await client.get(f"/api/v1/chats/{chat_id}/debug/messages", headers=other_headers)
+    assert denied.status_code in (403, 404)
+    monkeypatch.setattr(app_config, "agent_debug_view_enabled", False)
+    unavailable = await client.get(f"/api/v1/chats/{chat_id}/debug/messages", headers=headers)
+    assert unavailable.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -144,17 +244,103 @@ async def test_browser_bootstrap_returns_browser_surface(client, pg_engine):
 
 
 @pytest.mark.asyncio
+async def test_project_groups_chats_into_one_workspace(client, pg_engine):
+    token = await _register(client)
+    headers = _hdr(token)
+    scope_id = (
+        await client.get("/api/v1/chats/bootstrap", headers=headers)
+    ).json()["carrier_scope_id"]
+
+    assert (await client.get("/api/v1/projects", headers=headers)).json() == []
+    project_id = await _create_project(client, headers, "  Research   workspace  ")
+
+    for chat_id in ("project_chat_a", "project_chat_b"):
+        created = await client.post(
+            f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/attachments",
+            params={"project_id": project_id},
+            files={"file": (f"{chat_id}.txt", chat_id.encode(), "text/plain")},
+            headers=headers,
+        )
+        assert created.status_code == 200, created.text
+
+    workspaces = []
+    for chat_id in ("project_chat_a", "project_chat_b"):
+        response = await client.get(
+            "/api/v1/chats/workspace",
+            params={"chat_id": chat_id},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["project_id"] == project_id
+        workspaces.append(response.json()["workspace_scope_id"])
+    assert workspaces[0] == workspaces[1]
+
+    # Both threads use one authorized file tree, not just equal routing keys.
+    listing = await client.get(
+        "/api/v1/vfs", params={"wf_id": workspaces[0], "prefix": "/chats"},
+        headers=headers,
+    )
+    assert listing.status_code == 200, listing.text
+    paths = [entry["path"] for entry in listing.json()["entries"]]
+    assert any(path.endswith("project_chat_a.txt") for path in paths)
+    assert any(path.endswith("project_chat_b.txt") for path in paths)
+
+    other_headers = _hdr(await _register(client))
+    denied = await client.get(
+        "/api/v1/vfs", params={"wf_id": workspaces[0]}, headers=other_headers,
+    )
+    assert denied.status_code == 404
+
+    projects = (await client.get("/api/v1/projects", headers=headers)).json()
+    assert projects[0]["name"] == "Research workspace"
+    # Uploading a file allocates durable cwd storage, not conversation history.
+    assert projects[0]["chat_count"] == 0
+    history = await client.get(
+        f"/api/v1/chat-scopes/{scope_id}/chats?surface=chat", headers=headers,
+    )
+    assert history.status_code == 200
+    assert history.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_general_chat_requires_project_on_first_materialization(client, pg_engine):
+    token = await _register(client)
+    headers = _hdr(token)
+    scope_id = (
+        await client.get("/api/v1/chats/bootstrap", headers=headers)
+    ).json()["carrier_scope_id"]
+    response = await client.post(
+        f"/api/v1/chat-scopes/{scope_id}/chats/unowned_draft/attachments",
+        files={"file": ("draft.txt", b"draft", "text/plain")},
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "project_id_required"
+
+
+@pytest.mark.asyncio
 async def test_chat_workspace_scopes_do_not_create_workflow_rows(client, pg_engine):
     tok = await _register(client)
     headers = _hdr(tok)
 
     r = await client.get("/api/v1/chats/bootstrap", headers=headers)
     assert r.status_code == 200, r.text
-    assert r.json()["carrier_scope_id"].startswith("__chat_")
+    scope_id = r.json()["carrier_scope_id"]
+    assert scope_id.startswith("__chat_")
+
+    project_id = await _create_project(client, headers)
+    created = await client.post(
+        f"/api/v1/chat-scopes/{scope_id}/chats/c1/attachments",
+        params={"project_id": project_id},
+        files={"file": ("seed.txt", b"seed", "text/plain")},
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
 
     r = await client.get("/api/v1/chats/workspace?chat_id=c1", headers=headers)
     assert r.status_code == 200, r.text
-    assert r.json()["workspace_scope_id"].startswith("__chatws_")
+    assert r.json()["project_id"] == project_id
+    assert r.json()["workspace_scope_id"].startswith("__projectws_")
 
     r = await client.get("/api/v1/workflows", headers=headers)
     assert r.status_code == 200, r.text
@@ -167,10 +353,11 @@ async def test_chat_attachment_upload_is_durable_vfs_metadata(client, pg_engine)
     headers = _hdr(tok)
     boot = await client.get("/api/v1/chats/bootstrap", headers=headers)
     scope_id = boot.json()["carrier_scope_id"]
+    project_id = await _create_project(client, headers)
 
     uploaded = await client.post(
         f"/api/v1/chat-scopes/{scope_id}/chats/c_attachment/attachments",
-        params={"attachment_type": "image"},
+        params={"attachment_type": "image", "project_id": project_id},
         files={"file": ("photo.png", b"png-bytes", "image/png")},
         headers=headers,
     )
@@ -180,7 +367,7 @@ async def test_chat_attachment_upload_is_durable_vfs_metadata(client, pg_engine)
     assert body["name"] == "photo.png"
     assert body["content_type"] == "image/png"
     assert body["size_bytes"] == len(b"png-bytes")
-    assert body["path"].startswith("/data/attachments/")
+    assert body["path"].startswith("/chats/c_attachment/attachments/")
 
     workspace = await client.get(
         "/api/v1/chats/workspace?chat_id=c_attachment", headers=headers,
@@ -201,9 +388,11 @@ async def test_chat_can_be_renamed_without_changing_its_identity(client, pg_engi
     headers = _hdr(tok)
     boot = await client.get("/api/v1/chats/bootstrap", headers=headers)
     scope_id = boot.json()["carrier_scope_id"]
+    project_id = await _create_project(client, headers)
     chat_id = f"c_rename_{uuid.uuid4().hex[:8]}"
     created = await client.post(
         f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/attachments",
+        params={"project_id": project_id},
         files={"file": ("seed.txt", b"seed", "text/plain")},
         headers=headers,
     )
@@ -217,6 +406,12 @@ async def test_chat_can_be_renamed_without_changing_its_identity(client, pg_engi
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["chat_id"] == chat_id
     assert renamed.json()["chat_context"] == "Architecture review"
+
+    me = (await client.get("/api/v1/auth/me", headers=headers)).json()
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        await ChatRepo(session, me["user_id"]).persist_message(chat_id, {
+            "message_id": f"message_{chat_id}", "role": "user", "content": {"text": "Review this architecture"},
+        })
 
     listed = await client.get(
         f"/api/v1/chat-scopes/{scope_id}/chats?surface=chat",
@@ -235,9 +430,10 @@ async def test_chat_attachment_type_rejects_mismatched_media(client, pg_engine):
     scope_id = (await client.get("/api/v1/chats/bootstrap", headers=headers)).json()[
         "carrier_scope_id"
     ]
+    project_id = await _create_project(client, headers)
     response = await client.post(
         f"/api/v1/chat-scopes/{scope_id}/chats/c_bad_attachment/attachments",
-        params={"attachment_type": "video"},
+        params={"attachment_type": "video", "project_id": project_id},
         files={"file": ("notes.txt", b"hello", "text/plain")},
         headers=headers,
     )
@@ -246,35 +442,87 @@ async def test_chat_attachment_type_rejects_mismatched_media(client, pg_engine):
 
 
 @pytest.mark.asyncio
-async def test_chat_sandboxes_batch_status_is_read_only(client, pg_engine):
+async def test_project_sandboxes_batch_status_is_read_only(client, pg_engine, monkeypatch):
     tok = await _register(client)
     headers = _hdr(tok)
     scope_id = (
         await client.get("/api/v1/chats/bootstrap", headers=headers)
     ).json()["carrier_scope_id"]
+    project_id = await _create_project(client, headers)
     for chat_id in ("c1", "c2"):
         created = await client.post(
             f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/attachments",
+            params={"project_id": project_id},
             files={"file": ("seed.txt", b"x", "text/plain")},
             headers=headers,
         )
         assert created.status_code == 200, created.text
+    from unittest.mock import AsyncMock
+    from vibecanvas_api.routes import chats as routes
+
+    manager = AsyncMock()
+    manager.status.return_value = {"status": "idle"}
+    monkeypatch.setattr(routes, "get_sandbox_manager", lambda: manager)
     r = await client.get(
-        "/api/v1/chats/sandboxes?chat_id=c1&chat_id=unknown&chat_id=c2&chat_id=c1",
+        "/api/v1/projects/sandboxes",
+        params=[("project_id", project_id), ("project_id", "unknown"), ("project_id", project_id)],
         headers=headers,
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert [item["chat_id"] for item in body["items"]] == ["c1", "c2"]
+    assert [item["project_id"] for item in body["items"]] == [project_id]
+    assert all("chat_id" not in item for item in body["items"])
     assert {item["status"] for item in body["items"]} == {"idle"}
+    manager.status.assert_awaited_once()
+    manager.ensure_session.assert_not_called()
+    for retired_path in ("/api/v1/chats/sandbox", "/api/v1/chats/sandboxes"):
+        retired = await client.get(retired_path, headers=headers)
+        assert retired.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_delete_chat_session_deletes_runtime_volume(
+async def test_manual_project_start_uses_ordinary_idle_release_policy(client, monkeypatch):
+    import time
+    from unittest.mock import AsyncMock, MagicMock
+    from vibecanvas_api.routes import chats as routes
+    from vibecanvas_api.services.sandbox.manager import SandboxManager, SandboxSession
+
+    headers = _hdr(await _register(client))
+    project_id = await _create_project(client, headers)
+    manager = SandboxManager(max_resident=2, idle_ttl_s=1)
+    manager.snapshot_sessions = False
+
+    def build(tenant_id, wf_id, **kwargs):
+        session = SandboxSession(
+            tenant_id=tenant_id, wf_id=wf_id, run_dir=None, overlay_dir=None,
+            provider=MagicMock(), base_binds=[], user_id=kwargs["user_id"],
+        )
+        session.prewarm_fileops = AsyncMock()
+        session.close = AsyncMock()
+        return session
+
+    manager._build_session = AsyncMock(side_effect=build)
+    monkeypatch.setattr(routes, "get_sandbox_manager", lambda: manager)
+    response = await client.post(f"/api/v1/projects/{project_id}/sandbox", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["lease"] == "interactive"
+    assert response.json()["ttl_paused"] is False
+    assert response.json()["next_transition"] == "release"
+    session = next(iter(manager._sessions.values()))
+    assert session.wf_id == project_workspace_scope_id(project_id)
+    session.prewarm_fileops.assert_awaited_once()
+    session.last_used = time.monotonic() - 2
+    assert await manager.sweep_idle() == 1
+    await manager.drain_background_closes()
+    session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_chat_session_preserves_project_runtime_volume(
     client, app_engine, monkeypatch, tmp_path,
 ):
     from vibecanvas_api.config import config
-    from vibecanvas_api.services.vfs_volume import get_chat_runtime_volume_provider
+    from vibecanvas_api.services.vfs_volume import get_project_runtime_volume_provider
     tok = await _register(client)
     headers = _hdr(tok)
     me = (await client.get("/api/v1/auth/me", headers=headers)).json()
@@ -283,7 +531,7 @@ async def test_delete_chat_session_deletes_runtime_volume(
     scope_id = boot.json()["carrier_scope_id"]
     chat_id = "c_delete_cp"
 
-    await _seed_encrypted_chat(
+    project_id = await _seed_encrypted_chat(
         me,
         scope_id=scope_id,
         chat_id=chat_id,
@@ -310,16 +558,16 @@ async def test_delete_chat_session_deletes_runtime_volume(
         "fs_materialized_root",
         str(tmp_path / "materialized-object-store"),
     )
-    runtime_volume = get_chat_runtime_volume_provider().ensure(
+    runtime_volume = get_project_runtime_volume_provider().ensure(
         tenant_id=me["tenant_id"],
         user_id=me["user_id"],
-        chat_scope_id=chat_workspace_scope_id(chat_id),
+        project_scope_id=project_workspace_scope_id(project_id),
     )
     runtime_marker = Path(runtime_volume.path) / "prepared-before-first-runtime"
     runtime_marker.write_text("delete with Chat", encoding="utf-8")
     # Match the real Runtime lifecycle: the turn boundary persists the
     # encrypted volume, then releases its plaintext materialization.
-    get_chat_runtime_volume_provider().release(runtime_volume)
+    get_project_runtime_volume_provider().release(runtime_volume)
 
     r = await client.delete(
         f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}",
@@ -327,8 +575,12 @@ async def test_delete_chat_session_deletes_runtime_volume(
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["runtime_state_deleted"] is True
-    assert not Path(runtime_volume.path).exists()
+    assert body["runtime_state_deleted"] is False
+    restored = get_project_runtime_volume_provider().ensure(
+        tenant_id=me["tenant_id"], user_id=me["user_id"],
+        project_scope_id=project_workspace_scope_id(project_id),
+    )
+    assert (Path(restored.path) / "prepared-before-first-runtime").is_file()
 
 
 @pytest.mark.asyncio
@@ -391,7 +643,7 @@ async def test_delete_chat_rejects_while_agent_turn_is_active(
         name="Running chat",
         surface="chat",
     )
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         await AgentRunsRepo(session).create(
             run_id="t_active_delete_guard",
             tenant_id=me["tenant_id"],
@@ -573,7 +825,7 @@ async def test_new_browser_reservation_expires_stale_lost_lease_without_frontend
         surface="browser",
     )
 
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         repo = ChatRepo(session, me["user_id"])
         reserved = await repo.reserve_browser_session(
             chat_id=new_chat_id,
@@ -689,7 +941,9 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
 
     r = await client.post(
         f"/api/v1/chat-scopes/{wf_id}/chats/c_build/messages",
-        json={"role": "user", "content": "hello"},
+        json={"role": "user", "content": "hello", "project_id": (
+            await client.post("/api/v1/projects", json={"name": "Build"}, headers=headers)
+        ).json()["project_id"]},
         headers=headers,
     )
     assert r.status_code == 200, r.text
@@ -812,7 +1066,7 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
     # Capability headers are private turn-transport data. Durable product Run
     # snapshots keep runtime/model choices, but never bearer tokens or MCP
     # connection descriptors.
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         run_ids = list(
             (
                 await session.execute(
@@ -830,8 +1084,10 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
         chat_binding = (
             await session.execute(
                 text(
-                    "SELECT runtime_model_id, runtime_connection_id, "
-                    "runtime_agent_settings FROM chats WHERE chat_id='c_build'"
+                    "SELECT c.runtime_model_id, p.runtime_connection_id, "
+                    "c.runtime_agent_settings FROM chats c "
+                    "JOIN chat_projects p ON p.project_id=c.project_id "
+                    "WHERE c.chat_id='c_build'"
                 )
             )
         ).one()
@@ -951,8 +1207,8 @@ async def test_existing_chat_workflow_command_commits_metadata_before_stream(
         )
         await connection.execute(
             text(
-                "UPDATE chats SET runtime_session_id='runtime-rebound' "
-                "WHERE chat_id=:chat_id"
+                "UPDATE chat_projects SET runtime_session_id='runtime-rebound' "
+                "WHERE project_id=(SELECT project_id FROM chats WHERE chat_id=:chat_id)"
             ),
             {"chat_id": rotated_capability.chat_id},
         )
@@ -988,17 +1244,18 @@ async def test_hitl_continue_is_hidden_in_product_history_and_sent_as_new_human_
     )
     scope_id = bootstrap.json()["carrier_scope_id"]
     chat_id = "c_hidden_hitl_continue"
+    project_id = await _create_project(client, headers)
 
     first = await client.post(
         f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/messages",
-        json={"role": "user", "content": "render a review"},
+        json={"role": "user", "content": "render a review", "project_id": project_id},
         headers=headers,
     )
     assert first.status_code == 200, first.text
     assert len(dispatched_turns) == 1
     first_run_id = dispatched_turns[0].turn_id
 
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         hitl = HitlRepo(session)
         await hitl.create_interactive_artifact(
             artifact_id="ia_hidden_continue",
@@ -1066,7 +1323,7 @@ async def test_hitl_continue_is_hidden_in_product_history_and_sent_as_new_human_
     assert "/data/annotations/result.json" in runtime_message["content"]
     assert runtime_message["additional_kwargs"]["control"]["status"] == "submitted"
 
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         user_rows = [
             item["content"]
             for item in await ChatRepo(session, me["user_id"]).list_messages(
@@ -1168,14 +1425,15 @@ async def test_background_results_are_claimed_as_one_hidden_turn_with_visible_no
         )
     ).json()["carrier_scope_id"]
     chat_id = f"c_background_delivery_{uuid.uuid4().hex[:8]}"
+    project_id = await _create_project(client, headers)
     first = await client.post(
         f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/messages",
-        json={"role": "user", "content": "delegate research"},
+        json={"role": "user", "content": "delegate research", "project_id": project_id},
         headers=headers,
     )
     assert first.status_code == 200, first.text
     job_ids = ["job_result_alpha", "job_result_beta"]
-    async with session_scope(tenant_id=me["tenant_id"]) as session:
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         jobs_repo = BackgroundJobsRepo(session)
         for index, job_id in enumerate(job_ids):
             await jobs_repo.create_idempotent(
@@ -1204,14 +1462,14 @@ async def test_background_results_are_claimed_as_one_hidden_turn_with_visible_no
         lost.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
 
     held_close = await client.delete(
-        "/api/v1/chats/sandbox",
-        params={"chat_id": chat_id},
+        f"/api/v1/projects/{project_id}/sandbox",
         headers=headers,
     )
     assert held_close.status_code == 409, held_close.text
     assert held_close.json()["detail"] == {
         "code": "sandbox_held_by_background_jobs",
         "job_ids": job_ids,
+        "message": "A background job in this project still needs its workspace.",
     }
 
     batch_id = background_result_batch_id(job_ids)

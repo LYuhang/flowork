@@ -18,7 +18,7 @@ from vibecanvas_api.services.parsers.archive import validate_office_archive
 
 _MAX_SOURCE_BYTES = 64 * 1024 * 1024
 _MAX_MATERIALIZED_SPREADSHEET_CELLS = 1_000_000
-_WORKSPACE_ROOTS = ("/data", "/mount", "/memory", "/tmp")
+_WORKSPACE_ROOTS = ("/data", "/mount", "/memory", "/chats", "/tmp")
 
 
 class DocumentReviewError(ValueError):

@@ -7,6 +7,7 @@ from sqlalchemy import text
 from vibecanvas_api.config import PublicUrlsConfig, config
 from vibecanvas_api.routes.chat_engagement import public_messages
 from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
 from vibecanvas_api.storage.db import session_scope
 
 
@@ -21,7 +22,8 @@ async def seed(client):
     chat_id = str(uuid.uuid4())
     async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
         repo = ChatRepo(session, me['user_id'])
-        await repo.register_session(f'__chatws_{me["user_id"]}', name='Private title', chat_id=chat_id, surface='chat')
+        project = await ChatProjectRepo(session, me['user_id']).create(name='Engagement')
+        await repo.register_session(f'__chat_{me["user_id"]}', project_id=project['project_id'], name='Private title', chat_id=chat_id, surface='chat')
         for message_id, role, content in [
             ('question', 'user', {'text': 'Visible question', 'attachments': [{'path': '/private/file'}]}),
             ('answer', 'assistant', {'text': 'Visible answer', 'tool_calls': [{'secret': 'tool secret'}]}),

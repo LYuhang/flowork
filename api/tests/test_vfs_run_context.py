@@ -102,6 +102,26 @@ async def test_sync_run_back_noops_without_directory(monkeypatch, pg_session, tm
     assert await rc_mod.sync_run_back("run-0", "tenant-A", str(tmp_path / "missing")) == 0
 
 
+@pytest.mark.asyncio
+async def test_clear_run_keeps_all_live_bind_source_directories(monkeypatch, pg_session, tmp_path):
+    tenant, _wf_id, _ = await _seed_pg(pg_session)
+    store = FilesystemObjectStore(root=str(tmp_path / "objects"))
+    _patch_scope_and_store(monkeypatch, pg_session, store)
+    run_dir = store.materialize_prefix(f"run/{tenant}/canvas-run/")
+    mounted = {}
+    for folder in ("data", "memory", "logs", "chats"):
+        path = os.path.join(run_dir, folder)
+        os.makedirs(path)
+        mounted[path] = os.stat(path).st_ino
+        with open(os.path.join(path, "old-output.txt"), "wb") as output:
+            output.write(b"previous execution")
+    await rc_mod.clear_run_contents("canvas-run", tenant)
+    for path, inode in mounted.items():
+        assert os.path.isdir(path)
+        assert os.stat(path).st_ino == inode
+        assert os.listdir(path) == []
+
+
 def test_sync_run_back_sync_uses_sync_facade(monkeypatch, tmp_path):
     run_dir = tmp_path / "run"
     (run_dir / "sub").mkdir(parents=True)

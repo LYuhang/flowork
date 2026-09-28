@@ -32,8 +32,8 @@ const descriptor: PreviewDescriptorV1 = {
   schemaVersion: 1,
   fileRef: {
     schemaVersion: 1,
-    scope: 'chat',
-    chatId: 'chat-1',
+    scope: 'project',
+    projectId: 'chat-1',
     path: '/data/pending.csv',
   },
   name: 'pending.csv',
@@ -65,8 +65,8 @@ describe('SpreadsheetPreviewRenderer lifecycle', () => {
           name: 'board.xlsx',
           fileRef: {
             schemaVersion: 1,
-            scope: 'chat',
-            chatId: 'chat-1',
+            scope: 'project',
+            projectId: 'chat-1',
             path: '/data/board.xlsx',
           },
           detectedType: 'spreadsheet',
@@ -102,8 +102,8 @@ describe('SpreadsheetPreviewRenderer lifecycle', () => {
           name: 'board.xlsx',
           fileRef: {
             schemaVersion: 1,
-            scope: 'chat',
-            chatId: 'chat-1',
+            scope: 'project',
+            projectId: 'chat-1',
             path: '/data/board.xlsx',
           },
           detectedType: 'spreadsheet',

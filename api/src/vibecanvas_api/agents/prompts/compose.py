@@ -78,7 +78,7 @@ def _mcp_block(mcp_catalog: list[dict]) -> str:
     """
     lines = ["## Available MCP servers"]
     lines.append(
-        "These MCP servers were selected for this Chat and are already "
+        "These MCP servers were selected for this Project and are already "
         "connected. Use their namespaced tools directly; do not try to load "
         "additional MCP servers from inside the runtime."
     )

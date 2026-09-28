@@ -7,7 +7,7 @@ import {
 
 describe('Agent file preview protocol', () => {
   it('parses citation coordinates separately while preserving scope and colon filenames', () => {
-    const ref = { schemaVersion: 1, scope: 'chat', chatId: 'c1', path: '/data/notes:review.md:24:3' } as const;
+    const ref = { schemaVersion: 1, scope: 'project', projectId: 'c1', path: '/data/notes:review.md:24:3' } as const;
     expect(fileCitationTarget(ref)).toEqual({
       fileRef: { ...ref, path: '/data/notes:review.md' }, line: 24, column: 3,
     });
@@ -34,22 +34,22 @@ describe('Agent file preview protocol', () => {
   });
 
   it('turns a recognized chat path into a scoped FileRef', () => {
-    expect(fileRefFromAgentPath('/data/workflow.json', { chatId: 'chat-1' })).toEqual({
+    expect(fileRefFromAgentPath('/data/workflow.json', { projectId: 'chat-1' })).toEqual({
       schemaVersion: 1,
-      scope: 'chat',
-      chatId: 'chat-1',
+      scope: 'project',
+      projectId: 'chat-1',
       path: '/data/workflow.json',
     });
-    expect(fileRefFromAgentPath('/memory/state.md', { chatId: 'chat-1' })).toEqual({
+    expect(fileRefFromAgentPath('/memory/state.md', { projectId: 'chat-1' })).toEqual({
       schemaVersion: 1,
-      scope: 'chat',
-      chatId: 'chat-1',
+      scope: 'project',
+      projectId: 'chat-1',
       path: '/memory/state.md',
     });
-    expect(fileRefFromAgentPath('/logs/runtime.log', { chatId: 'chat-1' })).toEqual({
+    expect(fileRefFromAgentPath('/logs/runtime.log', { projectId: 'chat-1' })).toEqual({
       schemaVersion: 1,
-      scope: 'chat',
-      chatId: 'chat-1',
+      scope: 'project',
+      projectId: 'chat-1',
       path: '/logs/runtime.log',
     });
   });

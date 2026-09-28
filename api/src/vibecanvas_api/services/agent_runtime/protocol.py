@@ -464,7 +464,7 @@ class RuntimeTurnRequest(BaseModel):
                 )
             if (
                 execution.selected_mcp_revision
-                != desired.chat_mcp_config_revision
+                != desired.project_mcp_config_revision
             ):
                 raise ValueError(
                     "MCP execution context must target the desired-state revision"
@@ -572,7 +572,7 @@ class RuntimeCapabilities(BaseModel):
     error_code: str | None = None
     # Chat projection for the composer. Bound settings are the last accepted
     # selection used to seed Resume; model and effort remain mutable within the
-    # Chat's fixed connection between idle Turns.
+    # Project's fixed connection between idle Turns.
     bound_agent_settings: dict[str, Any] | None = None
 
 

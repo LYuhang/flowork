@@ -42,10 +42,35 @@ export interface ChatWorkspace {
   workspace_scope_id: string;
   mount_scope_id?: string | null;
   chat_id: string;
+  project_id?: string | null;
 }
 
-export interface ChatSandboxStatusItem {
-  chat_id: string;
+export interface ProjectWorkspace {
+  workspace_scope_id: string;
+  mount_scope_id: string;
+  project_id: string;
+}
+
+export function useProjectWorkspace(projectId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['project-workspace', projectId],
+    enabled: !!projectId,
+    staleTime: Infinity,
+    queryFn: async (): Promise<ProjectWorkspace> => {
+      const response = await fetch(`${getApiBase()}/api/v1/projects/${encodeURIComponent(projectId!)}/workspace`, {
+        headers: authHeaders(),
+      });
+      if (response.status === 401) useAuthStore.getState().handle401();
+      if (!response.ok) throw new Error(`project workspace failed: ${response.status}`);
+      return response.json() as Promise<ProjectWorkspace>;
+    },
+  });
+}
+
+export interface ProjectSandboxStatus {
+  project_id: string;
+  mount_scope_id?: string | null;
+  runtime_type?: string | null;
   scope_id: string;
   status: SandboxLifecycleStatus;
   lifecycle_state?: 'warm' | 'hibernating' | 'hibernated' | 'restoring' | 'releasing' | 'snapshot_failed' | 'released' | 'closed';
@@ -70,7 +95,29 @@ export interface DeleteChatResult {
   runtime_state_deleted?: boolean;
 }
 
-export type ChatListItem = components['schemas']['ChatListItem'];
+export type ChatListItem = components['schemas']['ChatListItem'] & {
+  project_id?: string | null;
+};
+
+export interface ChatProject {
+  project_id: string;
+  name: string;
+  runtime_type?: string | null;
+  runtime_connection_id?: string | null;
+  runtime_model_id?: string | null;
+  chat_count: number;
+  created_at: string;
+  updated_at: string;
+  last_activity_at?: string | null;
+}
+
+export interface DeleteChatProjectResult {
+  project_id: string;
+  deleted_chat_ids: string[];
+  workspace_scope_id: string;
+  vfs_deleted: number;
+  runtime_state_deleted?: boolean;
+}
 
 export interface ChatSessionsPage {
   items: ChatListItem[];
@@ -98,8 +145,6 @@ export interface ChatState {
   todo_items: TodoItem[];
   background_jobs: BackgroundJob[];
   active_modes: string[];
-  mcp_server_ids: string[];
-  mcp_config_revision: number;
 }
 
 export interface BackgroundJob {
@@ -176,6 +221,7 @@ function authHeaders(): HeadersInit | undefined {
 export async function uploadChatAttachment(args: {
   scopeId: string;
   chatId: string;
+  projectId?: string | null;
   file: File;
   type: ChatFileAttachmentType;
 }): Promise<ChatAttachment> {
@@ -183,6 +229,7 @@ export async function uploadChatAttachment(args: {
   body.append('file', args.file, args.file.name);
   const base = getApiBase();
   const params = new URLSearchParams({ attachment_type: args.type });
+  if (args.projectId) params.set('project_id', args.projectId);
   const res = await fetch(
     `${base}/api/v1/chat-scopes/${encodeURIComponent(args.scopeId)}` +
       `/chats/${encodeURIComponent(args.chatId)}/attachments?${params.toString()}`,
@@ -245,6 +292,182 @@ export const useChatBootstrap = (surface: 'chat' | 'browser') =>
   });
 
 export const useGeneralChatBootstrap = () => useChatBootstrap('chat');
+
+export interface CreateChatSessionInput {
+  scopeId: string;
+  chatId: string;
+  projectId?: string | null;
+}
+
+export const useCreateChatSession = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ scopeId, chatId, projectId }: CreateChatSessionInput): Promise<ChatListItem> => {
+      const response = await fetch(
+        `${getApiBase()}/api/v1/chat-scopes/${encodeURIComponent(scopeId)}/chats/${encodeURIComponent(chatId)}`,
+        {
+          method: 'PUT',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project_id: projectId ?? null }),
+        },
+      );
+      if (response.status === 401) useAuthStore.getState().handle401();
+      if (!response.ok) throw new Error(`Could not create chat (${response.status})`);
+      return response.json() as Promise<ChatListItem>;
+    },
+    onSuccess: (chat, input) => {
+      qc.setQueryData<ChatSessionsPage>(['chats', input.scopeId, chat.surface], (old) => {
+        const others = old?.items.filter((item) => item.chat_id !== chat.chat_id) ?? [];
+        return {
+          items: [chat, ...others],
+          total: old ? old.total + Number(!old.items.some((item) => item.chat_id === chat.chat_id)) : 1,
+          limit: old?.limit ?? CHAT_SESSION_PAGE_SIZE,
+          offset: old?.offset ?? 0,
+        };
+      });
+      void qc.invalidateQueries({ queryKey: ['chats', input.scopeId] });
+      void qc.invalidateQueries({ queryKey: ['chat-projects'] });
+    },
+  });
+};
+
+async function projectRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(authHeaders());
+  if (init?.body) headers.set('Content-Type', 'application/json');
+  const response = await fetch(`${getApiBase()}/api/v1/projects${path}`, {
+    ...init,
+    headers,
+  });
+  if (response.status === 401) {
+    useAuthStore.getState().handle401();
+    throw new Error('auth');
+  }
+  if (!response.ok) {
+    let message = `project request failed: ${response.status}`;
+    try {
+      const payload = await response.json() as { detail?: string | { message?: string } };
+      message = typeof payload.detail === 'string'
+        ? payload.detail
+        : payload.detail?.message ?? message;
+    } catch {
+      // Keep the stable status fallback when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+  return await response.json() as T;
+}
+
+export const useChatProjects = (enabled = true) => useQuery({
+  queryKey: ['chat-projects'],
+  queryFn: () => projectRequest<ChatProject[]>(''),
+  enabled,
+});
+
+export interface ProjectMcpSelection {
+  mcp_server_ids: string[];
+  mcp_config_revision: number;
+}
+
+export const useProjectMcpSelection = (projectId: string | null | undefined, enabled = true) => useQuery({
+  queryKey: ['project-mcp', projectId],
+  enabled: !!projectId && enabled,
+  queryFn: () => projectRequest<ProjectMcpSelection>(`/${encodeURIComponent(projectId!)}/mcp`),
+});
+
+export const useSetProjectMcpSelection = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, selection }: { projectId: string; selection: ProjectMcpSelection }) => {
+      return projectRequest<ProjectMcpSelection>(`/${encodeURIComponent(projectId)}/mcp`, {
+        method: 'PUT', body: JSON.stringify(selection),
+      });
+    },
+    onSuccess: (selection, { projectId }) => qc.setQueryData(['project-mcp', projectId], selection),
+    onSettled: (_data, _error, { projectId }) => qc.invalidateQueries({ queryKey: ['project-mcp', projectId] }),
+  });
+};
+
+export const useProjectSandboxStatuses = (projectIds: string[]) => useQuery({
+  queryKey: ['project-sandboxes', projectIds],
+  enabled: projectIds.length > 0,
+  refetchInterval: 5000,
+  queryFn: () => {
+    const params = new URLSearchParams();
+    for (const id of projectIds) params.append('project_id', id);
+    return projectRequest<{ items: ProjectSandboxStatus[] }>(`/sandboxes?${params}`);
+  },
+});
+
+export const useProjectSandboxAction = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, action }: { projectId: string; action: 'start' | 'release' }) =>
+      projectRequest<ProjectSandboxStatus>(`/${encodeURIComponent(projectId)}/sandbox`, {
+        method: action === 'start' ? 'POST' : 'DELETE',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['project-sandboxes'] });
+    },
+  });
+};
+
+export const useCreateChatProject = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => projectRequest<ChatProject>('', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+    onSuccess: (project) => {
+      qc.setQueryData<ChatProject[]>(['chat-projects'], (current = []) => [
+        project,
+        ...current.filter((item) => item.project_id !== project.project_id),
+      ]);
+    },
+  });
+};
+
+export const useRenameChatProject = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, name }: { projectId: string; name: string }) =>
+      projectRequest<ChatProject>(`/${encodeURIComponent(projectId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: (project) => {
+      qc.setQueryData<ChatProject[]>(['chat-projects'], (current = []) => current.map(
+        (item) => item.project_id === project.project_id
+          ? { ...item, ...project, chat_count: item.chat_count }
+          : item,
+      ));
+    },
+  });
+};
+
+export const useDeleteChatProject = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => projectRequest<DeleteChatProjectResult>(
+      `/${encodeURIComponent(projectId)}`,
+      { method: 'DELETE' },
+    ),
+    onSuccess: (result) => {
+      qc.setQueryData<ChatProject[]>(['chat-projects'], (current = []) => current.filter(
+        (item) => item.project_id !== result.project_id,
+      ));
+      void qc.invalidateQueries({ queryKey: ['chats'] });
+      void qc.invalidateQueries({ queryKey: ['project-sandboxes'] });
+      void qc.removeQueries({ queryKey: ['chat-history'], exact: false });
+      qc.removeQueries({ queryKey: ['project-mcp', result.project_id] });
+      qc.removeQueries({ queryKey: ['project-workspace', result.project_id] });
+      for (const chatId of result.deleted_chat_ids) {
+        void qc.removeQueries({ queryKey: ['chat-workspace', chatId] });
+      }
+      void qc.invalidateQueries({ queryKey: ['vfs'] });
+    },
+  });
+};
 
 export const useBrowserChatBootstrap = (enabled = true) =>
   useQuery({
@@ -313,9 +536,10 @@ export async function deleteChatSession(
   scopeId: string,
   chatId: string,
   surface: 'chat' | 'browser' = 'chat',
+  deleteFiles = false,
 ): Promise<DeleteChatResult> {
   const base = getApiBase();
-  const params = new URLSearchParams({ surface });
+  const params = new URLSearchParams({ surface, delete_files: String(deleteFiles) });
   const res = await fetch(
     `${base}/api/v1/chat-scopes/${encodeURIComponent(scopeId)}/chats/${encodeURIComponent(chatId)}?${params.toString()}`,
     { method: 'DELETE', headers: authHeaders() },
@@ -392,42 +616,19 @@ export const useRenameChatSession = (
   });
 };
 
-export const useDeleteChatSession = (scopeId: string | null, surface: 'chat' | 'browser' = 'chat') => {
+export const useDeleteChatSession = (scopeId: string | null, surface: 'chat' | 'browser' = 'chat', deleteFiles = false) => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (chatId: string) => deleteChatSession(scopeId as string, chatId, surface),
+    mutationFn: (chatId: string) => deleteChatSession(scopeId as string, chatId, surface, deleteFiles),
     onSuccess: (_result, chatId) => {
       void qc.invalidateQueries({ queryKey: ['chats', scopeId, surface] });
-      void qc.invalidateQueries({ queryKey: ['chat-sandbox-statuses'] });
+      void qc.invalidateQueries({ queryKey: ['chat-projects'] });
       void qc.removeQueries({ queryKey: ['chat-history', scopeId, chatId] });
       void qc.removeQueries({ queryKey: ['chat-workspace', chatId] });
       void qc.invalidateQueries({ queryKey: ['vfs'] });
     },
   });
 };
-
-export const useChatSandboxStatuses = (chatIds: string[]) =>
-  useQuery({
-    queryKey: ['chat-sandbox-statuses', chatIds],
-    enabled: chatIds.length > 0,
-    refetchInterval: 5000,
-    queryFn: async () => {
-      const base = getApiBase();
-      const params = new URLSearchParams();
-      for (const id of chatIds) params.append('chat_id', id);
-      const res = await fetch(`${base}/api/v1/chats/sandboxes?${params.toString()}`, {
-        headers: authHeaders(),
-      });
-      if (res.status === 401) {
-        useAuthStore.getState().handle401();
-        throw new Error('auth');
-      }
-      if (!res.ok) {
-        throw new Error(`chat sandbox statuses failed: ${res.status}`);
-      }
-      return (await res.json()) as { items: ChatSandboxStatusItem[] };
-    },
-  });
 
 export async function fetchChatHistoryPage(
   scopeId: string,

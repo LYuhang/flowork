@@ -29,9 +29,7 @@ from vibecanvas_api.services.agent_runtime.protocol import (
     RuntimeType,
 )
 from vibecanvas_api.services.agent_runtime.registry import create_runtime_adapter
-from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
 from vibecanvas_api.services.sandbox.coordinator import get_sandbox_coordinator
-from vibecanvas_api.services.vfs_volume import get_chat_runtime_volume_provider
 from vibecanvas_api.storage.agent_runtime_repo import AgentRuntimeRepo
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.hitl_repo import HitlRepo
@@ -58,13 +56,12 @@ def _runtime_status_payload(
     return payload
 
 
-def private_runtime_root(runtime_type: RuntimeType, chat_id: str) -> str:
-    """Return the platform-owned internal state namespace for one Chat.
+def private_runtime_root(runtime_type: RuntimeType) -> str:
+    """Return the platform-owned state namespace within the selected sandbox.
 
-    Codex owns a Chat-scoped CODEX_HOME and stores only that Chat's thread state
-    below it. Provider/account credentials are host-brokered and never mounted.
+    Project chats share CODEX_HOME while retaining separate native thread IDs.
+    Browser-extension Projects use the same storage ownership model.
     """
-    del chat_id
     if runtime_type != RuntimeType.CODEX:
         raise RuntimeError(f"runtime adapter unavailable: {runtime_type.value}")
     return "/runtime/.codex"
@@ -165,18 +162,6 @@ class AgentRuntimeOrchestrator:
             await runtime.respond(response)
         finally:
             await runtime.close()
-
-    async def delete_state(self, open_request: RuntimeOpenRequest) -> bool:
-        """Delete adapter-owned Chat state without exposing its storage model."""
-        if open_request.runtime_type == RuntimeType.CODEX:
-            provider = get_chat_runtime_volume_provider()
-            return await asyncio.to_thread(
-                provider.delete,
-                tenant_id=open_request.tenant_id,
-                user_id=open_request.user_id,
-                chat_scope_id=chat_workspace_scope_id(open_request.chat_id),
-            )
-        raise RuntimeError(f"unsupported runtime: {open_request.runtime_type.value}")
 
     @staticmethod
     def _prepare_approval(event: RuntimeEvent) -> RuntimeEvent:
@@ -284,7 +269,7 @@ class AgentRuntimeOrchestrator:
         prepared = AgentRuntimeOrchestrator._prepare_approval(event)
         payload = dict(prepared.payload)
         private = payload.pop("_persist")
-        async with session_scope(tenant_id=turn_request.tenant_id) as session:
+        async with session_scope(tenant_id=turn_request.tenant_id, user_id=turn_request.user_id) as session:
             repo = HitlRepo(session)
             await repo.create_interactive_artifact(
                 artifact_id=private["artifact_id"],
@@ -389,7 +374,7 @@ class AgentRuntimeOrchestrator:
                 "artifact": artifact_envelope,
                 "status": "running",
             }
-            async with session_scope(tenant_id=turn_request.tenant_id) as session:
+            async with session_scope(tenant_id=turn_request.tenant_id, user_id=turn_request.user_id) as session:
                 repo = HitlRepo(session)
                 await repo.create_interactive_artifact(
                     artifact_id=artifact_id,
@@ -448,7 +433,7 @@ class AgentRuntimeOrchestrator:
         artifact_envelope = (
             artifact_envelope if isinstance(artifact_envelope, dict) else {}
         )
-        async with session_scope(tenant_id=turn_request.tenant_id) as session:
+        async with session_scope(tenant_id=turn_request.tenant_id, user_id=turn_request.user_id) as session:
             repo = HitlRepo(session)
             artifact = await repo.get_artifact(artifact_id)
             if artifact is None or artifact.chat_id != turn_request.chat_id:
@@ -587,7 +572,11 @@ class AgentRuntimeOrchestrator:
             turn_request.user_id,
             expose_run=True,
             expose_runtime=turn_request.runtime_type == RuntimeType.CODEX,
-            lease="resident",
+            # sandboxd counts running AND queued Turns on the shared Project
+            # session. Do not pin/unpin a single boolean from individual Chats:
+            # one Chat finishing must not alter a sibling's lifecycle policy,
+            # and an API worker crash must not leave a permanent resident pin.
+            lease="interactive",
         )
         logger.info(
             "agent_runtime_timing",
@@ -629,7 +618,7 @@ class AgentRuntimeOrchestrator:
             it only makes the user-visible cards terminal and durable.
             """
             async with session_scope(
-                tenant_id=turn_request.tenant_id
+                tenant_id=turn_request.tenant_id, user_id=turn_request.user_id
             ) as session:
                 repo = HitlRepo(session)
                 pending = await repo.list_pending_for_run(turn_request.turn_id)
@@ -658,7 +647,7 @@ class AgentRuntimeOrchestrator:
             while True:
                 await asyncio.sleep(0.4)
                 async with session_scope(
-                    tenant_id=turn_request.tenant_id
+                    tenant_id=turn_request.tenant_id, user_id=turn_request.user_id
                 ) as session:
                     row = await HitlRepo(session).get_request(hitl_request_id)
                     if row is None:
@@ -698,7 +687,7 @@ class AgentRuntimeOrchestrator:
             while True:
                 await asyncio.sleep(0.4)
                 async with session_scope(
-                    tenant_id=turn_request.tenant_id
+                    tenant_id=turn_request.tenant_id, user_id=turn_request.user_id
                 ) as session:
                     row = await HitlRepo(session).get_request(hitl_request_id)
                     if row is None:
@@ -828,7 +817,7 @@ class AgentRuntimeOrchestrator:
                         event.payload.get("previous_state_ref") or ""
                     )
                     async with session_scope(
-                        tenant_id=turn_request.tenant_id
+                        tenant_id=turn_request.tenant_id, user_id=turn_request.user_id
                     ) as session:
                         binding = await AgentRuntimeRepo(
                             session, turn_request.user_id
@@ -1001,17 +990,6 @@ class AgentRuntimeOrchestrator:
                 task.cancel()
             await asyncio.gather(*approval_tasks, return_exceptions=True)
             await runtime.close()
-            set_session_lease = getattr(
-                self._sandbox_manager,
-                "set_session_lease",
-                None,
-            )
-            if set_session_lease is not None:
-                await set_session_lease(
-                    turn_request.tenant_id,
-                    workspace_scope_id,
-                    "interactive",
-                )
             logger.info(
                 "agent_runtime_timing",
                 phase="turn_total",

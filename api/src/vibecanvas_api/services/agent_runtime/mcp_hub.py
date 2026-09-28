@@ -77,7 +77,7 @@ def _status(runtime: _ActiveServer) -> McpServerStatus:
 
 
 class SandboxMcpHub:
-    """Own one Chat Runtime's warm MCP registry inside the sandbox process."""
+    """Own a Project Runtime's registry with an explicitly activated Chat/Turn."""
 
     def __init__(self, adapter: McpHubAdapter) -> None:
         self._adapter = adapter
@@ -101,7 +101,6 @@ class SandboxMcpHub:
                 identity_fields = (
                     "organization_id",
                     "user_id",
-                    "chat_id",
                     "runtime_session_id",
                     "sandbox_id",
                     "sandbox_generation",
@@ -111,9 +110,12 @@ class SandboxMcpHub:
                         raise McpHubError(
                             f"MCP desired state changed immutable {field}"
                         )
-                if self._desired.revision_key == desired.revision_key:
+                switching_chat = self._desired.chat_id != desired.chat_id
+                if switching_chat and (self._execution_state != "inactive" or self._active_calls):
+                    raise McpHubError("MCP Chat switch requires a fully deactivated prior Turn")
+                if not switching_chat and self._desired.revision_key == desired.revision_key:
                     return self._result(
-                        desired_revision=desired.chat_mcp_config_revision,
+                        desired_revision=desired.project_mcp_config_revision,
                         changed=(),
                         removed=(),
                     )
@@ -166,9 +168,9 @@ class SandboxMcpHub:
                             for prepared_server in prepared.values()
                         ]
                         result = McpReconcileResult(
-                            desired_revision=desired.chat_mcp_config_revision,
+                            desired_revision=desired.project_mcp_config_revision,
                             applied_revision=(
-                                self._desired.chat_mcp_config_revision
+                                self._desired.project_mcp_config_revision
                                 if self._desired is not None
                                 else 0
                             ),
@@ -205,7 +207,7 @@ class SandboxMcpHub:
                     pass
 
             return self._result(
-                desired_revision=desired.chat_mcp_config_revision,
+                desired_revision=desired.project_mcp_config_revision,
                 changed=(server.id for server in changed),
                 removed=(runtime.desired.id for runtime in removed),
             )
@@ -221,7 +223,7 @@ class SandboxMcpHub:
                 "chat_id": desired.chat_id,
                 "runtime_session_id": desired.runtime_session_id,
                 "sandbox_generation": desired.sandbox_generation,
-                "selected_mcp_revision": desired.chat_mcp_config_revision,
+                "selected_mcp_revision": desired.project_mcp_config_revision,
             }
             for field, value in expected.items():
                 if getattr(context, field) != value:
@@ -324,7 +326,7 @@ class SandboxMcpHub:
                 raise McpHubError("MCP Hub has not been bootstrapped")
             return McpHubStatus(
                 sandbox_generation=desired.sandbox_generation,
-                config_revision=desired.chat_mcp_config_revision,
+                config_revision=desired.project_mcp_config_revision,
                 execution_state=self._execution_state,
                 active_call_count=self._active_calls,
                 servers=[
@@ -353,7 +355,7 @@ class SandboxMcpHub:
         removed: Any,
     ) -> McpReconcileResult:
         applied = (
-            self._desired.chat_mcp_config_revision
+            self._desired.project_mcp_config_revision
             if self._desired is not None
             else 0
         )

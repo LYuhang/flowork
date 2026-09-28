@@ -18,7 +18,7 @@ from vibecanvas_api.authorization.stream_guard import (
     authorization_lease_is_valid,
 )
 from vibecanvas_api.authorization.types import Action, ResourceRef, ResourceType
-from vibecanvas_api.services.chat_workspace import chat_workspace_scope_id
+from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
 from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
 from vibecanvas_api.storage.background_jobs_repo import BackgroundJobsRepo
 from vibecanvas_api.storage.db import session_scope
@@ -299,8 +299,12 @@ async def test_chat_and_children_are_creator_private(
             )
         ).json()["carrier_scope_id"]
         chat_id = "chat-authz"
+        project = await client.post("/api/v1/projects", headers=_headers(owner_token), json={"name": "Private project"})
+        assert project.status_code == 201, project.text
+        project_id = project.json()["project_id"]
         created = await client.post(
             f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/attachments",
+            params={"project_id": project_id},
             files={"file": ("seed.txt", b"seed", "text/plain")},
             headers=_headers(owner_token),
         )
@@ -345,7 +349,7 @@ async def test_chat_and_children_are_creator_private(
         )
         assert owner_workspace.status_code == 200, owner_workspace.text
         assert owner_workspace.json()["workspace_scope_id"] == (
-            chat_workspace_scope_id(chat_id)
+            project_workspace_scope_id(project_id)
         )
         assert owner_workspace.json()["chat_id"] == chat_id
 
@@ -374,6 +378,11 @@ async def test_chat_and_children_are_creator_private(
         )
         assert missing_chat.status_code == 404
 
+        from vibecanvas_api.storage.chat_repo import ChatRepo
+        async with session_scope(tenant_id=owner["tenant_id"], user_id=owner["user_id"]) as session:
+            await ChatRepo(session, owner["user_id"]).persist_message(chat_id, {
+                "message_id": "owner_first_message", "role": "user", "content": {"text": "Private conversation"},
+            })
         listed = await client.get(
             f"/api/v1/chat-scopes/{scope_id}/chats",
             headers=_headers(owner_token),
@@ -436,7 +445,7 @@ async def test_chat_and_children_are_creator_private(
                 f"/api/v1/chat-scopes/{outsider_scope}/chats/"
                 f"{chat_id}/messages"
             ),
-            json={"role": "user", "content": "must not attach"},
+            json={"role": "user", "content": "must not attach", "project_id": project_id},
             headers=_headers(outsider_token),
         )
         assert cross_user_send.status_code == 404

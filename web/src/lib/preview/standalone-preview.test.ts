@@ -29,8 +29,8 @@ describe('standalone Preview links', () => {
   it('round-trips a Chat file without exposing credentials', () => {
     const href = standalonePreviewHref({
       schemaVersion: 1,
-      scope: 'chat',
-      chatId: 'chat-1',
+      scope: 'project',
+      projectId: 'chat-1',
       path: '/data/季度报告 2026.docx',
     });
     const url = new URL(href, 'https://flowork.test');
@@ -40,8 +40,8 @@ describe('standalone Preview links', () => {
     expect(standalonePreviewTarget(url.searchParams)).toEqual({
       fileRef: {
         schemaVersion: 1,
-        scope: 'chat',
-        chatId: 'chat-1',
+        scope: 'project',
+        projectId: 'chat-1',
         path: '/data/季度报告 2026.docx',
       },
       fileType: 'auto',
@@ -66,8 +66,8 @@ describe('standalone Preview links', () => {
       path: '/run/output.csv',
     }))).toBeNull();
     expect(standalonePreviewTarget(new URLSearchParams({
-      scope: 'chat',
-      chatId: 'chat-1',
+      scope: 'project',
+      projectId: 'chat-1',
       path: '/data/../memory/private.txt',
     }))).toBeNull();
   });

@@ -11,6 +11,7 @@ from vibecanvas_api.storage.vfs_store import VfsRepo, VfsEntryMeta
 from vibecanvas_api.services.file_revision import vfs_row_revision
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 
@@ -22,13 +23,15 @@ async def _seed(app_engine, tenant, wf_id, chat_id, user):
                         {"u": user, "t": tenant, "e": f"{user.hex[:6]}@example.com"})
     # workflows / workflow_versions / chats are RLS-scoped — run under the
     # tenant GUC so their tenant_id DEFAULT resolves to `tenant`.
-    async with session_scope(tenant_id=str(tenant)) as session:
+    async with session_scope(tenant_id=str(tenant), user_id=str(user)) as session:
+        project = await ChatProjectRepo(session, str(user)).create(name="VFS")
         await WorkflowRepo(session, str(user)).create_workflow(
             wf_id=wf_id,
             name="W",
         )
         await ChatRepo(session, str(user)).register_session(
             wf_id,
+            project_id=project["project_id"],
             name="Chat",
             chat_id=chat_id,
         )
@@ -49,8 +52,9 @@ async def test_vfs_artifact_rls_isolation(app_engine):
         assert str(row[0]) == str(ta)  # GUC default filled tenant_id
     async with app_engine.connect() as c:
         await c.execute(text("SELECT set_config('app.tenant_id',:t,false)"), {"t": str(tb)})
-        rows = (await c.execute(text("SELECT path FROM vfs_artifacts"))).all()
-        assert rows == []
+        rows = (await c.execute(text("SELECT tenant_id, path FROM vfs_artifacts"))).all()
+        assert {str(row.tenant_id) for row in rows} == {str(tb)}
+        assert {row.path for row in rows} == {"/data/.keep", "/logs/.keep", "/chats/.keep", "/chats/chat_b/.keep"}
 
 
 @pytest.mark.asyncio
@@ -66,7 +70,8 @@ async def test_vfs_scratch_rls_isolation(app_engine):
         await c.commit()
     async with app_engine.connect() as c:
         await c.execute(text("SELECT set_config('app.tenant_id',:t,false)"), {"t": str(tb)})
-        assert (await c.execute(text("SELECT path FROM vfs_scratch"))).all() == []
+        rows = (await c.execute(text("SELECT tenant_id, path FROM vfs_scratch"))).all()
+        assert [(str(row.tenant_id), row.path) for row in rows] == [(str(tb), "/memory/.keep")]
 
 
 from vibecanvas_api.storage.vfs_store import PostgresVfsStore
@@ -264,8 +269,11 @@ async def _seed_pg(pg_session):
     wf = await WorkflowRepo(pg_session, str(u)).create_workflow(name="W")
     wf_id = wf["wf_id"]
     chat_id = uuid.uuid4().hex[:12]
+    await pg_session.execute(text("SELECT set_config('app.user_id',:u,false)"), {"u": str(u)})
+    project = await ChatProjectRepo(pg_session, str(u)).create(name="VFS")
     await ChatRepo(pg_session, str(u)).register_session(
         wf_id,
+        project_id=project["project_id"],
         name="Chat",
         chat_id=chat_id,
     )

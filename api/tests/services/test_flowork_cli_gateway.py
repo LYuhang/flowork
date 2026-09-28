@@ -195,6 +195,14 @@ def test_platform_guidance_explains_path_visibility_and_lifetime():
     assert "platform-private runtime state" in text
 
 
+def test_platform_guidance_does_not_expose_chat_storage_layout():
+    text = platform_guidance()
+    assert "Current working directory" in text
+    assert "/chats" not in text
+    assert "<chat-id>" not in text
+    assert "{chat_id}" not in text
+
+
 def test_unmanaged_guidance_is_never_overwritten(tmp_path):
     path = tmp_path / "AGENTS.md"
     path.write_text("User instructions", encoding="utf-8")

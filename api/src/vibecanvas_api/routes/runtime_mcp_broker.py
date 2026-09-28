@@ -273,7 +273,7 @@ async def _authorize_and_resolve_target(
                 detail={"code": code},
             ) from exc
 
-    async with session_scope(tenant_id=capability.organization_id) as session:
+    async with session_scope(tenant_id=capability.organization_id, user_id=capability.user_id) as session:
         run = await AgentRunsRepo(session).get_for_chat(
             capability.chat_id,
             capability.turn_id,
@@ -284,7 +284,7 @@ async def _authorize_and_resolve_target(
             run is None
             or run.status != "running"
             or chat is None
-            or chat.runtime_session_id != capability.runtime_session_id
+            or chat.project.runtime_session_id != capability.runtime_session_id
         ):
             raise HTTPException(
                 status_code=403,

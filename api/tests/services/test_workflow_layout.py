@@ -18,7 +18,7 @@ def setup(monkeypatch):
 
     @asynccontextmanager
     async def scope(**kwargs):
-        assert kwargs == {"tenant_id": "tenant"}
+        assert kwargs == {"tenant_id": "tenant", "user_id": "user"}
         yield session
 
     graph = {"__meta__": {"custom": True},

@@ -1,8 +1,8 @@
-export type ChatFileRefV1 = {
+export type ProjectFileRefV1 = {
   schemaVersion: 1;
-  scope: 'chat';
-  chatId: string;
-  path: `/${'data' | 'memory' | 'logs'}/${string}`;
+  scope: 'project';
+  projectId: string;
+  path: `/${'data' | 'memory' | 'logs' | 'chats'}/${string}`;
 };
 
 export type MountFileRefV1 = {
@@ -18,7 +18,7 @@ export type RunFileRefV1 = {
   path: `/run/${string}`;
 };
 
-export type FileRefV1 = ChatFileRefV1 | MountFileRefV1 | RunFileRefV1;
+export type FileRefV1 = ProjectFileRefV1 | MountFileRefV1 | RunFileRefV1;
 
 export type PreviewResourceRefV1 =
   | { schemaVersion: 1; kind: 'file'; fileRef: FileRefV1 }
@@ -126,8 +126,8 @@ export interface PreviewResourceSessionV1 {
 
 export function fileRefKey(fileRef: FileRefV1): string {
   switch (fileRef.scope) {
-    case 'chat':
-      return `chat:${fileRef.chatId}:${fileRef.path}`;
+    case 'project':
+      return `project:${fileRef.projectId}:${fileRef.path}`;
     case 'mount':
       return `mount:${fileRef.path}`;
     case 'run':
@@ -159,17 +159,17 @@ export function fileCitationTarget(fileRef: FileRefV1): {
 
 export function fileRefFromAgentPath(
   path: string,
-  options: { chatId?: string | null; runId?: string | null },
+  options: { projectId?: string | null; runId?: string | null },
 ): FileRefV1 | null {
   if (
-    (path.startsWith('/data/') || path.startsWith('/memory/') || path.startsWith('/logs/'))
-    && options.chatId
+    (path.startsWith('/data/') || path.startsWith('/memory/') || path.startsWith('/logs/') || path.startsWith('/chats/'))
+    && options.projectId
   ) {
     return {
       schemaVersion: 1,
-      scope: 'chat',
-      chatId: options.chatId,
-      path: path as ChatFileRefV1['path'],
+      scope: 'project',
+      projectId: options.projectId,
+      path: path as ProjectFileRefV1['path'],
     };
   }
   if (path.startsWith('/mount/')) {
@@ -214,6 +214,7 @@ export function agentFilePathFromHref(href: string | undefined): string | null {
     !decoded.startsWith('/data/')
     && !decoded.startsWith('/memory/')
     && !decoded.startsWith('/logs/')
+    && !decoded.startsWith('/chats/')
     && !decoded.startsWith('/mount/')
     && !decoded.startsWith('/run/')
   ) {

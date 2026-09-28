@@ -221,7 +221,7 @@ def _gvisor_runnable() -> bool:
                 run_dir = os.path.join(probe_root, "channel")
                 bus_socket = os.path.join(probe_root, "bus", "probe.sock")
                 workspace_binds = []
-                for destination in ("/data", "/memory", "/logs", "/mount"):
+                for destination in ("/data", "/memory", "/logs", "/chats", "/mount"):
                     source = os.path.join(probe_root, destination.lstrip("/"))
                     os.makedirs(source, exist_ok=True)
                     workspace_binds.append((destination, source))

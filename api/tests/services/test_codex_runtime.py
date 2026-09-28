@@ -359,7 +359,11 @@ def test_command_completion_reminder_identifies_reviewed_publication_path():
 
 
 @pytest.fixture(autouse=True)
-def _isolate_broker_capability_file(monkeypatch):
+def _isolate_broker_capability_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "vibecanvas_api.services.agent_runtime.codex.chat_working_directory",
+        lambda chat_id: str(tmp_path / "chats" / chat_id),
+    )
     # Direct adapter tests inject a fake app-server client and must not depend
     # on a host Codex installation. Individual executable-discovery tests can
     # still override this fixture explicitly in their own body.
@@ -413,6 +417,7 @@ def _isolate_broker_capability_file(monkeypatch):
 
 async def run_codex_turn(channel, request, **kwargs):
     """Run direct adapter tests through the mandatory aggregate Hub."""
+    keep_test_hub = kwargs.pop("keep_test_hub", False)
     if request.mcp_desired_state is not None:
         return await _run_codex_turn(channel, request, **kwargs)
     now = datetime.now(timezone.utc)
@@ -423,7 +428,7 @@ async def run_codex_turn(channel, request, **kwargs):
         runtime_session_id=request.runtime_session_id,
         sandbox_id="test-sandbox",
         sandbox_generation=1,
-        chat_mcp_config_revision=request.mcp_config_revision,
+        project_mcp_config_revision=request.mcp_config_revision,
         platform_contract_revision="test-platform",
         skill_catalog_revision="test-skills",
         servers=[],
@@ -475,15 +480,14 @@ async def run_codex_turn(channel, request, **kwargs):
             **kwargs,
         )
     finally:
-        keep_resident = cache_key is not None and request.runtime_state_ref is None
-        if keep_resident:
-            return
-        if cache_key is not None:
-            _RESIDENT_TEST_HUBS.pop(cache_key, None)
-        gateway = registry.get("aggregate")
-        if gateway is not None:
-            await gateway.close()
-        await hub.close()
+        keep_resident = cache_key is not None and (request.runtime_state_ref is None or keep_test_hub)
+        if not keep_resident:
+            if cache_key is not None:
+                _RESIDENT_TEST_HUBS.pop(cache_key, None)
+            gateway = registry.get("aggregate")
+            if gateway is not None:
+                await gateway.close()
+            await hub.close()
 
 
 def test_codex_approval_modes_map_to_native_policy() -> None:
@@ -1239,11 +1243,12 @@ class _Channel:
 
 
 @pytest.mark.asyncio
-async def test_codex_resident_thread_suppresses_repeated_mcp_startup(monkeypatch):
+async def test_codex_resident_thread_suppresses_repeated_mcp_startup(monkeypatch, tmp_path):
     class FakeAppServer:
         def __init__(self):
             self.requests: list[tuple[str, dict]] = []
             self.turn_number = 0
+            self.thread_number = 0
 
         async def start(self):
             return None
@@ -1251,7 +1256,9 @@ async def test_codex_resident_thread_suppresses_repeated_mcp_startup(monkeypatch
         async def request(self, method, params, **_kwargs):
             self.requests.append((method, params))
             if method == "thread/start":
-                return {"thread": {"id": "codex-thread", "turns": []}}
+                self.thread_number += 1
+                thread_id = "codex-thread" if self.thread_number == 1 else f"codex-thread-{self.thread_number}"
+                return {"thread": {"id": thread_id, "turns": []}}
             if method == "turn/start":
                 self.turn_number += 1
                 return {"turn": {"id": f"codex-turn-{self.turn_number}"}}
@@ -1331,6 +1338,7 @@ async def test_codex_resident_thread_suppresses_repeated_mcp_startup(monkeypatch
         client=client,
         close_client=False,
         resident_threads=resident_threads,
+        keep_test_hub=True,
     )
 
     assert [method for method, _params in client.requests] == [
@@ -1338,6 +1346,7 @@ async def test_codex_resident_thread_suppresses_repeated_mcp_startup(monkeypatch
         "turn/start",
         "turn/start",
     ]
+    assert client.requests[0][1]["cwd"] == str(tmp_path / "chats" / "chat")
     assert any(
         message.get("event", {}).get("type") == "tool.start"
         for message in first_channel.sent
@@ -1346,6 +1355,20 @@ async def test_codex_resident_thread_suppresses_repeated_mcp_startup(monkeypatch
         message.get("event", {}).get("type") in {"tool.start", "tool.end"}
         for message in second_channel.sent
     )
+
+    # Another Chat opens its own native thread/cwd on the exact same client.
+    # Returning to Chat A reuses A's thread rather than B's cwd or history.
+    sibling = RuntimeTurnRequest(turn_id="platform-turn-3", **{**base_request, "chat_id": "chat-b"})
+    await run_codex_turn(_Channel(), sibling, client=client, close_client=False, resident_threads=resident_threads)
+    await run_codex_turn(
+        _Channel(), RuntimeTurnRequest(turn_id="platform-turn-4", runtime_state_ref="codex-thread", **base_request),
+        client=client, close_client=False, resident_threads=resident_threads,
+    )
+    starts = [params for method, params in client.requests if method == "thread/start"]
+    assert [params["cwd"] for params in starts] == [str(tmp_path / "chats" / "chat"), str(tmp_path / "chats" / "chat-b")]
+    turns = [params for method, params in client.requests if method == "turn/start"]
+    assert [params["threadId"] for params in turns] == ["codex-thread", "codex-thread", "codex-thread-2", "codex-thread"]
+    assert codex_app_server_startup_key(sibling) == codex_app_server_startup_key(RuntimeTurnRequest(turn_id="other", **base_request))
 
 
 @pytest.mark.asyncio
@@ -1801,7 +1824,7 @@ async def test_codex_reuses_one_aggregate_hub_endpoint_across_turns(monkeypatch)
         runtime_session_id="runtime-session",
         sandbox_id="sandbox",
         sandbox_generation=1,
-        chat_mcp_config_revision=0,
+        project_mcp_config_revision=0,
         platform_contract_revision="platform-1",
         skill_catalog_revision="skills-1",
         servers=[],
@@ -2721,7 +2744,6 @@ async def test_codex_aggregate_hub_has_no_retired_business_approval_bridge(monke
 @pytest.mark.asyncio
 async def test_codex_runtime_translates_app_server_stream_to_stable_events(monkeypatch):
     instances = []
-    captured_snapshots = []
 
     class FakeAppServer:
         def __init__(self, **kwargs):
@@ -2834,10 +2856,6 @@ async def test_codex_runtime_translates_app_server_stream_to_stable_events(monke
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setenv("AGENT_DEBUG_VIEW_ENABLED", "1")
-    monkeypatch.setattr(
-        "vibecanvas_api.services.agent_runtime.codex.capture_codex_debug_snapshot",
-        lambda **kwargs: captured_snapshots.append(kwargs) or "/logs/.debug/snapshot.json",
-    )
     channel = _Channel()
     request = RuntimeTurnRequest(
         tenant_id="tenant",
@@ -2922,13 +2940,6 @@ async def test_codex_runtime_translates_app_server_stream_to_stable_events(monke
     assert turn_start["effort"] == "high"
     assert "BACKEND-RESOLVED BROWSER CONTEXT" in turn_start["input"][0]["text"]
     assert "<user-message>\nsay hello\n</user-message>" in turn_start["input"][0]["text"]
-    assert len(captured_snapshots) == 1
-    assert captured_snapshots[0]["thread"] == {
-        "id": "codex-thread",
-        "turns": [],
-    }
-    assert captured_snapshots[0]["thread_id"] == "codex-thread"
-    assert captured_snapshots[0]["current_input"] == turn_start["input"]
     assert channel.sent[-1] == {"type": MSG_RUNTIME_RESULT}
 
 

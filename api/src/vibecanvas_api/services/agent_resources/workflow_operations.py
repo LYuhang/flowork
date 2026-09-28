@@ -155,9 +155,9 @@ def apply_operation(graph: dict, operation: dict) -> dict:
 async def operate_workflow(ctx, arguments: dict) -> dict:
     arguments = validate_arguments("workflow.operation", arguments)
     operations = arguments["operations"]
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         # Lock before reading: serializes edits with upload/version changes and
-        # avoids stale read-modify-write snapshots. Lock order: Run -> Chat -> WF.
+        # avoids stale read-modify-write snapshots. Lock order: Run -> Chat/Project -> WF.
         await _require_active_chat_write(session, ctx)
         selection = await resolve_target(session, ctx, arguments["workflow_id"], arguments["major"], for_update=True)
         workflow_id, major, sub = selection["id"], selection["major"], selection["sub"]

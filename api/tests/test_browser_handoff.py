@@ -141,10 +141,12 @@ async def test_browser_command_in_side_panel_runs_turn(client, pg_engine):
 async def test_normal_message_unaffected_runs_agent_turn(client, pg_engine):
     tok = await _register(client)
     wf_id = await _make_wf(client, tok)
+    project = await client.post("/api/v1/projects", headers=_hdr(tok), json={"name": "Streaming"})
+    assert project.status_code == 201, project.text
 
     async with client.stream(
         "POST", f"/api/v1/chat-scopes/{wf_id}/chats/c2/messages",
-        json={"role": "user", "content": "hello"}, headers=_hdr(tok),
+        json={"role": "user", "content": "hello", "project_id": project.json()["project_id"]}, headers=_hdr(tok),
     ) as resp:
         assert resp.status_code == 200, await resp.aread()
         events = await _parse_sse_stream(resp.aiter_bytes())

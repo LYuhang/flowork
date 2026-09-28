@@ -163,7 +163,7 @@ class BackgroundResultDeliveryCoordinator:
         chat_id: str,
         user_id: str,
     ) -> bool:
-        async with session_scope(tenant_id=tenant_id) as session:
+        async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
             chat_user_membership = (
                 await session.execute(
                     select(Chat, User, OrgMembership)
@@ -249,6 +249,7 @@ class BackgroundResultDeliveryCoordinator:
             # selection, runtime history, durable events and product transcript
             # retain exactly the same invariants as a user-originated Turn.
             from vibecanvas_api.routes.chats import post_message
+            from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
 
             request = Request({
                 "type": "http",
@@ -281,6 +282,7 @@ class BackgroundResultDeliveryCoordinator:
                     request,
                     wf_repo=WorkflowRepo(session, user_id),
                     chat_repo=ChatRepo(session, user_id),
+                    project_repo=ChatProjectRepo(session, user_id),
                     hitl_repo=HitlRepo(session),
                     runtime_repo=AgentRuntimeRepo(session, user_id),
                     agent_runs_repo=AgentRunsRepo(session),

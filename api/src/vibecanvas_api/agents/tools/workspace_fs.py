@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-_WORKSPACE_ROOTS = ("/data", "/memory", "/logs", "/mount", "/run", "/runs", "/work")
+_WORKSPACE_ROOTS = ("/data", "/memory", "/logs", "/chats", "/mount", "/run", "/runs", "/work")
 _READ_ONLY_ROOTS = ("/skills",)
 
 

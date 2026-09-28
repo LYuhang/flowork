@@ -202,6 +202,31 @@ async def test_base_prewarm_runs_inside_the_sandbox_service(sandbox_service) -> 
 
 
 @pytest.mark.asyncio
+async def test_closing_runtime_stream_releases_project_activity_over_grpc(sandbox_service):
+    client = RemoteSandboxManager(sandbox_service.socket_path)
+    released = asyncio.Event()
+    session = await client.get_session("tenant", "project")
+    owned = sandbox_service.manager.sessions[("tenant", "project")]
+
+    async def held_turn(request):
+        try:
+            yield {"type": "token", "text": "running"}
+            await asyncio.Event().wait()
+        finally:
+            released.set()
+
+    owned.run_agent_runtime_stream = held_turn
+    try:
+        stream = session.run_agent_runtime_stream({"turn_id": "chat-a-turn"})
+        assert (await anext(stream))["text"] == "running"
+        assert not released.is_set()
+        await stream.aclose()
+        await asyncio.wait_for(released.wait(), timeout=2)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_unavailable_service_fails_closed(tmp_path) -> None:
     client = RemoteSandboxManager(str(tmp_path / "missing.sock"), connect_timeout_s=0.05)
     with pytest.raises(SandboxServiceError) as exc_info:

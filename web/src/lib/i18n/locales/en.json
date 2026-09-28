@@ -813,6 +813,32 @@
   "auth_signup_title": "Create an account",
   "auth_updating": "Updating…",
   "nav.chat": "Chat",
+  "nav.project": "Projects",
+  "nav.projects": "Projects",
+  "nav.projects.new": "New project",
+  "nav.projects.newChat": "New chat in {{name}}",
+  "nav.projects.emptyTitle": "Create your first project",
+  "nav.projects.emptyDescription": "Chats in a project share files and a running workspace.",
+  "nav.projects.createTitle": "Create a project",
+  "nav.projects.createDescription": "Chats in the same project share files and a running workspace. You can add more chats at any time.",
+  "nav.projects.name": "Project name",
+  "nav.projects.namePlaceholder": "e.g. Research assistant",
+  "nav.projects.createAction": "Create project",
+  "nav.projects.created": "Project created",
+  "nav.projects.createFailed": "Could not create project",
+  "chat.createFailed": "Could not create chat. Please try again.",
+  "nav.projects.rename": "Rename project",
+  "nav.projects.renameTitle": "Rename project",
+  "nav.projects.renameDescription": "Use a name that describes the work shared by these chats.",
+  "nav.projects.renamed": "Project renamed",
+  "nav.projects.renameFailed": "Could not rename project",
+  "nav.projects.delete": "Delete project",
+  "nav.projects.deleteTitle": "Delete this project?",
+  "nav.projects.releaseTitle": "Release project sandbox?",
+  "nav.projects.releaseDescription": "This releases the shared runtime for all chats in this project. Saved files and conversation history remain available; the next message restores the workspace.",
+  "nav.projects.deleteDescription": "This permanently deletes every chat in the project, its files, and its saved runtime state.",
+  "nav.projects.deleted": "Project deleted",
+  "nav.projects.deleteFailed": "Could not delete project",
   "nav.workspace": "Workflow",
   "nav.tasks": "Task",
   "nav.primary": "Primary",
@@ -828,7 +854,7 @@
   "nav.chatHistory.renameFailed": "Rename failed",
   "nav.chatHistory.delete": "Delete",
   "nav.chatHistory.deleteTitle": "Delete this chat?",
-  "nav.chatHistory.deleteConfirm": "This removes the conversation and its chat workspace. This action cannot be undone.",
+  "nav.chatHistory.deleteConfirm": "This removes only this conversation. Other chats and shared project files are kept.",
   "nav.chatHistory.deleted": "Chat deleted",
   "nav.chatHistory.deleteFailed": "Delete failed",
   "nav.chatHistory.browserSessionActive": "End browser control before deleting this chat.",
@@ -1712,7 +1738,8 @@
   "settings_tab_runtime": "Agent runtime",
   "settings_runtime_subtitle": "Choose the sandboxed Agent SDK used by new conversations.",
   "settings_runtime_default": "Default Agent runtime",
-  "settings_runtime_desc": "Used when a new chat starts. Existing chats keep the runtime they were created with.",
+  "settings_runtime_desc": "New projects inherit this default runtime. Chats use their project's runtime, including browser extension conversations.",
+  "agent_settings.project_connection_locked_hint": "All chats in this project share this connection. Create another project to use a different source.",
   "settings_runtime_loading": "Loading runtime…",
   "settings_runtime_saving": "Saving…",
   "settings_runtime_saved": "Default runtime updated",
@@ -2184,7 +2211,8 @@
   "storage.roots": "Roots",
   "storage.root.mount": "Shared mount",
   "storage.root.workflow": "Workflows",
-  "storage.root.chat": "Chats",
+  "storage.root.project": "Projects",
+  "nav.chatHistory.deleteFiles": "Also permanently delete this chat’s working files. Shared project files are kept.",
   "storage.root.task": "Tasks",
   "storage.system.taskArtifacts": "Task artifacts",
   "storage.loadError": "Could not load this folder",
@@ -2418,7 +2446,9 @@
   "wf_count": "{{n}} workflows",
   "wf_count_filtered": "{{shown}} of {{total}} workflows",
   "composer.mcp.label": "MCP servers",
-  "composer.mcp.hint": "Choose MCP servers for this chat",
+  "composer.mcp.hint": "MCP settings are shared by all chats in this project",
+  "composer.mcp.sharedHint": "Saved for every chat in this project. Changes apply to new turns.",
+  "composer.mcp.saveFailed": "Could not save project MCP settings. Refresh the selection and try again.",
   "composer.mcp.selected": "{{count}} MCP",
   "composer.mcp.none": "MCP",
   "composer.mcp.empty": "No compatible MCP servers installed",
@@ -2788,7 +2818,7 @@
   ,"embed.binding_timeout_hint": "Make sure the browser side panel is open, then try connecting again."
   ,"embed.open_main_app": "Open main app"
   ,"storage.system.workflowWorkspace": "Workflow workspace"
-  ,"storage.system.chatWorkspace": "Chat workspace"
+  ,"storage.system.projectWorkspace": "Project workspace"
   ,"deployments.detail.latestVersion": "Latest version"
   ,"deployments.detail.healthAttention": "Health needs attention"
   ,"deployments.detail.healthy": "Healthy"
@@ -2916,7 +2946,6 @@
   ,"agent_settings.choose_source": "Choose a model source"
   ,"agent_settings.choose_source_hint": "Sources are filtered by the Runtime selected in Settings."
   ,"agent_settings.connection_locked_title": "Model connection"
-  ,"agent_settings.connection_locked_hint": "This Chat stays on its current connection. Start a new Chat to use another source."
   ,"agent_settings.source_model_count": "{{count}} models"
   ,"agent_settings.refine_model_search": "Search to find {{count}} more models"
   ,"agent_settings.source_free_count": "{{count}} free"
@@ -3119,7 +3148,7 @@
   ,"chat.debug.toolsAndMcp": "Tools and MCP"
   ,"chat.debug.views": "Debug views"
   ,"chat.error": "Chat is unavailable."
-  ,"chat.explorer.emptyDraft": "Send a message or start the sandbox to create this chat workspace."
+  ,"chat.explorer.selectProject": "Select or create a project to browse its persistent files."
   ,"chat.explorer.loadingWorkspace": "Loading workspace..."
   ,"chat.loading": "Preparing chat workspace..."
   ,"chat.notifications.jobCancelled": "Background task cancelled"
@@ -3447,4 +3476,17 @@
   ,"canvas.outputPreview.title": "Output preview"
   ,"canvas.outputPreview.showMore": "Show more"
   ,"canvas.template.previewError": "Preview could not be loaded. Collapse and reopen it to retry."
+  ,"chat.debug.exportChatml": "Download ChatML"
+  ,"chat.debug.refreshTranscript": "Refresh conversation"
+  ,"chat.debug.databaseDescription": "Complete stored conversation. Updates after sending and when the Agent finishes; not the model’s private context."
+  ,"chat.debug.messages": "Messages"
+  ,"chat.debug.artifacts": "Artifacts"
+  ,"chat.debug.turns": "Turns"
+  ,"chat.debug.databaseError": "Could not refresh the conversation. Previously loaded messages are retained; try Refresh."
+  ,"chat.debug.databaseLoading": "Loading stored messages…"
+  ,"chat.debug.databaseEmpty": "No messages have been saved for this Chat yet."
+  ,"chat.debug.controlMessage": "Platform control"
+  ,"chat.debug.toolCalls": "Tool calls"
+  ,"chat.debug.relatedResources": "Artifacts and attachments"
+  ,"chat.debug.messageMetadata": "Message metadata"
 }

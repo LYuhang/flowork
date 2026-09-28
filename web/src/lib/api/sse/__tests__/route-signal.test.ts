@@ -407,10 +407,7 @@ describe('routeAgentSignalWith', () => {
       queryKey: ['chat-workspace', 'chat_y'],
     });
     expect(client.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ['general-chat-sandbox', 'chat_y'],
-    });
-    expect(client.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ['chat-sandbox-statuses'],
+      queryKey: ['project-sandboxes'],
     });
     expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['vfs'] });
     expect(client.invalidateQueries).toHaveBeenCalledWith({

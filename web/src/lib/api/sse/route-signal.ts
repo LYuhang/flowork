@@ -518,8 +518,7 @@ export function routeAgentSignalWith(
           if (tool === 'create_workflow' || tool === 'set_workflow') {
             const workflowId = workflowIdFromToolArtifact(event.artifact);
             client.invalidateQueries({ queryKey: ['chat-workspace', ctx.chatId] });
-            client.invalidateQueries({ queryKey: ['general-chat-sandbox', ctx.chatId] });
-            client.invalidateQueries({ queryKey: ['chat-sandbox-statuses'] });
+            client.invalidateQueries({ queryKey: ['project-sandboxes'] });
             client.invalidateQueries({ queryKey: ['vfs'] });
             client.invalidateQueries({ queryKey: ['storage'] });
             if (workflowId) {

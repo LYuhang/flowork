@@ -16,20 +16,20 @@ def _path_with_prefix(value: str, prefix: str) -> str:
     return value
 
 
-class ChatFileRefV1(_PreviewModel):
+class ProjectFileRefV1(_PreviewModel):
     schema_version: Literal[1] = Field(alias="schemaVersion")
-    scope: Literal["chat"]
-    chat_id: str = Field(alias="chatId", min_length=1)
+    scope: Literal["project"]
+    project_id: str = Field(alias="projectId", min_length=1)
     path: str
 
     @field_validator("path")
     @classmethod
     def validate_path(cls, value: str) -> str:
-        for prefix in ("/data/", "/memory/", "/logs/"):
+        for prefix in ("/data/", "/memory/", "/logs/", "/chats/"):
             if value.startswith(prefix):
                 return _path_with_prefix(value, prefix)
         raise ValueError(
-            "chat path must start with '/data/', '/memory/', or '/logs/'"
+            "workspace path must start with '/data/', '/memory/', '/logs/', or '/chats/'"
         )
 
 
@@ -57,7 +57,7 @@ class RunFileRefV1(_PreviewModel):
 
 
 FileRefV1 = Annotated[
-    ChatFileRefV1 | MountFileRefV1 | RunFileRefV1,
+    ProjectFileRefV1 | MountFileRefV1 | RunFileRefV1,
     Field(discriminator="scope"),
 ]
 

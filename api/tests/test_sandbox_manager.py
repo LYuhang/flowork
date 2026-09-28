@@ -203,6 +203,51 @@ async def test_manual_close_finishes_before_same_scope_can_be_reacquired():
     session.close.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["idle", "manual"])
+async def test_project_reacquire_waits_for_old_cleanup_without_blocking_other_project(reason):
+    manager = SandboxManager(max_resident=3, idle_ttl_s=1)
+    manager.snapshot_sessions = False
+    release_started = asyncio.Event()
+    allow_release = asyncio.Event()
+
+    async def close():
+        release_started.set()
+        await allow_release.wait()
+
+    def session(scope):
+        return SandboxSession(
+            tenant_id="tenant", wf_id=scope, run_dir=None, overlay_dir=None,
+            provider=MagicMock(), base_binds=[], expose_run=False,
+        )
+
+    old = session("project-a")
+    old.close = AsyncMock(side_effect=close)
+    old.last_used = time.monotonic() - 10
+    manager._sessions[("tenant", "project-a")] = old
+    manager._build_session = AsyncMock(side_effect=lambda tenant, scope, **kw: session(scope))
+    closing = None
+    if reason == "idle":
+        assert await manager.sweep_idle() == 1
+    else:
+        closing = asyncio.create_task(manager.close_session("tenant", "project-a"))
+    await asyncio.wait_for(release_started.wait(), 2)
+    reacquire = asyncio.create_task(manager.get_session("tenant", "project-a", expose_run=False))
+    await asyncio.sleep(0)
+    other = await asyncio.wait_for(manager.get_session("tenant", "project-b", expose_run=False), 2)
+    assert other.wf_id == "project-b"
+    assert not reacquire.done()
+    assert manager._build_session.await_count == 1
+    allow_release.set()
+    fresh = await asyncio.wait_for(reacquire, 2)
+    assert fresh is not old
+    assert fresh.wf_id == "project-a"
+    if closing is not None:
+        await closing
+    await manager.drain_background_closes()
+    assert manager._closing_scopes == {}
+
+
 def test_session_mounts_only_current_workspace_user_mount_and_runtime(tmp_path):
     run_dir = tmp_path / "workspace"
     mount_dir = tmp_path / "mount"
@@ -465,6 +510,92 @@ async def test_interactive_session_ttl_starts_only_after_all_activity_ends():
     session.hibernate = AsyncMock(side_effect=hibernate)
     assert await manager.sweep_idle() == 0
     session.hibernate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("snapshot", [False, True])
+async def test_project_idle_policy_waits_for_running_and_queued_sibling_chats(snapshot):
+    manager = SandboxManager(max_resident=2, idle_ttl_s=10)
+    manager.snapshot_sessions = snapshot
+    manager.warm_idle_ttl_s = 10
+    session = SandboxSession(
+        tenant_id="tenant", wf_id="project", run_dir=None, overlay_dir=None,
+        provider=MagicMock(), base_binds=[], expose_run=False,
+    )
+    manager._sessions[("tenant", "project")] = session
+    session.close = AsyncMock()
+
+    async def hibernate():
+        session._lifecycle_state = "hibernated"
+        session._hibernated_at = time.monotonic()
+        return True
+
+    session.hibernate = AsyncMock(side_effect=hibernate)
+
+    async def turn(request):
+        yield {"chat_id": request["chat_id"]}
+
+    session._run_agent_runtime_stream_locked = turn
+    first = session.run_agent_runtime_stream({"chat_id": "chat-a"})
+    second = session.run_agent_runtime_stream({"chat_id": "chat-b"})
+    assert (await anext(first))["chat_id"] == "chat-a"
+    waiting = asyncio.create_task(anext(second))
+    await asyncio.sleep(0)
+    assert not waiting.done()
+    assert session._inflight_operations == 2
+    session.last_used = time.monotonic() - 100
+    assert await manager.sweep_idle() == 0
+    assert (await manager.status("tenant", "project"))["ttl_paused"] is True
+
+    await first.aclose()
+    assert (await asyncio.wait_for(waiting, 2))["chat_id"] == "chat-b"
+    assert session._inflight_operations == 1
+    session.last_used = time.monotonic() - 100
+    assert await manager.sweep_idle() == 0
+    session.close.assert_not_awaited()
+    session.hibernate.assert_not_awaited()
+
+    await second.aclose()
+    assert session._inflight_operations == 0
+    idle = await manager.status("tenant", "project")
+    assert idle["ttl_paused"] is False
+    assert idle["idle_elapsed_s"] < 1
+    assert await manager.sweep_idle() == 0
+    # Reading status must not reset the countdown.
+    session.last_used = time.monotonic() - 11
+    assert (await manager.status("tenant", "project"))["idle_elapsed_s"] >= 11
+    assert await manager.sweep_idle() == (0 if snapshot else 1)
+    await manager.drain_background_closes()
+    if snapshot:
+        session.hibernate.assert_awaited_once()
+    else:
+        session.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_queued_chat_does_not_unpin_running_project_sibling():
+    session = SandboxSession(
+        tenant_id="tenant", wf_id="project", run_dir=None, overlay_dir=None,
+        provider=MagicMock(), base_binds=[], expose_run=False,
+    )
+
+    async def turn(request):
+        yield {"chat_id": request["chat_id"]}
+
+    session._run_agent_runtime_stream_locked = turn
+    first = session.run_agent_runtime_stream({"chat_id": "chat-a"})
+    second = session.run_agent_runtime_stream({"chat_id": "chat-b"})
+    await anext(first)
+    waiting = asyncio.create_task(anext(second))
+    await asyncio.sleep(0)
+    waiting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiting
+    assert session._inflight_operations == 1
+    assert session.observe_activity()["busy"] is True
+    await first.aclose()
+    assert session._inflight_operations == 0
+    assert session.observe_activity()["busy"] is False
 
 
 @pytest.mark.asyncio

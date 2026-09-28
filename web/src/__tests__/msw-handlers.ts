@@ -111,7 +111,8 @@ export const handlers = [
     const chatId = new URL(request.url).searchParams.get('chat_id') || 'chat-test';
     return HttpResponse.json({
       chat_id: chatId,
-      workspace_scope_id: `__chatws_test_${chatId}`,
+      project_id: 'project_test',
+      workspace_scope_id: '__projectws_v1_cHJvamVjdF90ZXN0',
     });
   }),
   http.get('*/api/v1/interactive-artifacts/:artifactId', () =>

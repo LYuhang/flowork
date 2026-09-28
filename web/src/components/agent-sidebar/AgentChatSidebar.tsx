@@ -1,17 +1,14 @@
 /**
- * Global right-side agent chat sidebar.
- *
- * Mounted once by `AppLayout` so it persists across route changes (and
- * therefore across draft refreshes / canvas remounts). It renders nothing
- * when `useUIStore.lastActiveWorkflowId` is null — i.e. when no workflow
- * has been opened yet — which keeps `/workspace` and `/settings` clean.
+ * Browser-extension conversation surface, mounted by EmbedShell.
+ * The carrier scope selects history; each Chat owns an automatically created
+ * Project with persistent files and a Project-scoped Runtime.
  *
  * Internally:
  *   - `collapsed` toggles between a fixed-position icon button (a la
  *     Cursor / Linear) and the full 400-px aside.
  *   - `activeChatId` is the currently selected session. The header
  *     "New Chat" updates the selection for this Chat surface only;
- *     the backend creates the row lazily on first send.
+ *     the backend saves the Chat and working directory before it is selected.
  *   - The history affordance lives in the header (`ChatHistoryMenu`); the
  *     body is the full-width conversation (`ChatMessageList`) over a
  *     bottom-pinned `ChatComposer`.
@@ -19,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, FileText, MessageSquare, Plus, Settings2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { PaneResizeHandle } from '@/components/ui/pane-resize-handle';
 import { usePersistedPaneWidth } from '@/components/ui/use-persisted-pane-width';
@@ -50,6 +48,7 @@ import {
   useChatHistory,
   useChatWorkspace,
   useChatSessions,
+  useCreateChatSession,
 } from '@/lib/api/queries/chats';
 import { queryClient } from '@/app/query-client';
 import { cn } from '@/lib/utils';
@@ -76,6 +75,7 @@ function retainSidebarHistoryWindow(
 
 type BrowserChatSession = {
   chat_id: string;
+  project_id: string;
   browser_control_status?: 'inactive' | 'attaching' | 'attached' | 'lost';
 };
 
@@ -116,6 +116,23 @@ export function AgentChatSidebar({
   const lastWfId = useUIStore((s) => s.lastActiveWorkflowId);
   const activeChatId = useUIStore((s) => s.activeChatIds[chatSurface]);
   const setActiveChatId = useUIStore((s) => s.setActiveChatId);
+  const { mutateAsync: createChatSession, isPending: creatingChat } = useCreateChatSession();
+  const pendingChatCreation = useRef<Promise<void> | null>(null);
+  const createAndSelectChat = useCallback(() => {
+    if (!lastWfId) return Promise.resolve();
+    if (pendingChatCreation.current) return pendingChatCreation.current;
+    const previousChatId = useUIStore.getState().activeChatIds[chatSurface];
+    const promise = createChatSession({ scopeId: lastWfId, chatId: crypto.randomUUID() }).then((chat) => {
+      if (useUIStore.getState().activeChatIds[chatSurface] === previousChatId) {
+        setActiveChatId(chatSurface, chat.chat_id);
+      }
+    });
+    pendingChatCreation.current = promise;
+    void promise.finally(() => {
+      if (pendingChatCreation.current === promise) pendingChatCreation.current = null;
+    }).catch(() => undefined);
+    return promise;
+  }, [chatSurface, createChatSession, lastWfId, setActiveChatId]);
   // When the right Inspector (w-[380px]) is open, the collapsed launcher must
   // sit to its LEFT (like the minimap) instead of hugging the viewport edge —
   // otherwise it overlaps the inspector. 380 + a small gap.
@@ -183,14 +200,14 @@ export function AgentChatSidebar({
       )
     : null;
   const openFilePreview = useCallback((path: string) => {
-    const fileRef = fileRefFromAgentPath(path, { chatId: activeChatId });
+    const fileRef = fileRefFromAgentPath(path, { projectId: workspace.data?.project_id });
     if (!fileRef) return;
     window.open(
       standalonePreviewHref(fileRef),
       '_blank',
       'noopener,noreferrer',
     );
-  }, [activeChatId]);
+  }, [workspace.data?.project_id]);
   const selectedHistory = useChatHistory(
     lastWfId,
     selectedChatIsPersisted ? activeChatId : null,
@@ -335,25 +352,28 @@ export function AgentChatSidebar({
 
   // Restore the latest persisted Sidepanel Chat even when it has no active Run:
   // post-tool Continue gates outlive their originating Turn, so active-run
-  // discovery alone cannot find them. Main-app behavior remains a fresh draft
-  // by default. (Skip while a running turn is waiting to resume — that effect
-  // sets the chat id.)
+  // discovery alone cannot find them. Persist the first empty Chat before
+  // enabling the composer, without starting its Project sandbox.
+  const initialCreationScope = useRef<string | null>(null);
   useEffect(() => {
     if (lastWfId && !activeChatId && activeRunDiscoveryStatus === 'ready') {
       const sessionsReady =
         sessions.data !== undefined || sessions.isFetched || sessions.isError;
       if (embedded && !sessionsReady) return;
-      setActiveChatId(
-        chatSurface,
-        embedded && sessionItems[0]?.chat_id
-          ? sessionItems[0].chat_id
-          : crypto.randomUUID(),
-      );
+      if (sessionItems[0]?.chat_id) {
+        setActiveChatId(chatSurface, sessionItems[0].chat_id);
+      } else if (initialCreationScope.current !== lastWfId) {
+        initialCreationScope.current = lastWfId;
+        void createAndSelectChat().catch(() => {
+          toast.error(t('chat.createFailed', 'Could not create chat. Please try again.'));
+        });
+      }
     }
   }, [
     activeChatId,
     activeRunDiscoveryStatus,
     chatSurface,
+    createAndSelectChat,
     embedded,
     lastWfId,
     sessionItems,
@@ -361,6 +381,7 @@ export function AgentChatSidebar({
     sessions.isError,
     sessions.isFetched,
     setActiveChatId,
+    t,
   ]);
 
   // No workflow opened yet → render nothing. The store is set by
@@ -426,7 +447,11 @@ export function AgentChatSidebar({
     );
   }
 
-  const handleNewChat = () => setActiveChatId(chatSurface, crypto.randomUUID());
+  const handleNewChat = () => {
+    void createAndSelectChat().catch(() => {
+      toast.error(t('chat.createFailed', 'Could not create chat. Please try again.'));
+    });
+  };
   const handleHistorySelect = (chatId: string) => {
     if (!lastWfId || chatId === activeChatId) return;
     // Selection is synchronous; the transcript owns its own compact loading
@@ -523,6 +548,7 @@ export function AgentChatSidebar({
           aria-label={t('new_chat', 'New Chat')}
           data-action="agent-sidebar-new-chat"
           onClick={handleNewChat}
+          disabled={!lastWfId || creatingChat}
         >
           <Plus className="h-4 w-4" />
         </Button>
@@ -587,6 +613,7 @@ export function AgentChatSidebar({
           <ChatComposer
             wfId={lastWfId}
             chatId={activeChatId}
+            projectId={selectedSession?.project_id}
             defaultMode={defaultMode}
             embedded={embedded}
             agentSurface={embedded ? 'browser' : 'chat'}

@@ -79,6 +79,8 @@ interface RecoverRunResponse {
 export interface StreamAgentTurnArgs {
   wfId: string;
   chatId: string;
+  /** Required only while the main-app Chat is being created. */
+  projectId?: string | null;
   content: string;
   control?: HitlContinueControl;
   attachments?: Attachment[];
@@ -94,8 +96,6 @@ export interface StreamAgentTurnArgs {
   approvalMode?: ApprovalMode;
   /** Chat-scoped Runtime configuration. Settings only seed an unstarted Chat. */
   agentSettings?: AgentSettings;
-  mcpServerIds?: string[];
-  chatConfigRevision?: number;
   /** Called once the backend has atomically accepted the Turn and returned
    * its durable X-Turn-Id. This is intentionally earlier than stream end. */
   onAccepted?: () => void;
@@ -299,13 +299,12 @@ async function streamOwnedAgentTurn(
     body: JSON.stringify({
       role: 'user',
       content: args.content,
+      ...(args.projectId ? { project_id: args.projectId } : {}),
       ...(args.control ? { control: args.control } : {}),
       client_request_id: clientRequestId,
       attachments: args.attachments ?? [],
       mode: args.mode ?? 'chat',
       approval_mode: args.approvalMode ?? getApprovalMode(),
-      mcp_server_ids: args.mcpServerIds ?? [],
-      chat_config_revision: args.chatConfigRevision ?? 0,
       timezone: getTimezone(),
       ...(args.surface ? { surface: args.surface } : {}),
       ...(args.agentSurface ? { agent_surface: args.agentSurface } : {}),

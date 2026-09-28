@@ -5,6 +5,10 @@ import { EmbedChatPage } from '../EmbedChatPage';
 import { useAuthStore } from '@/stores/auth';
 import { useUIStore } from '@/stores/ui';
 import { mintBrowserToken } from '@/lib/api/browser';
+import { reconcileChatWithServer } from '@/lib/api/sse/chat-reconcile';
+import { cancelActiveTurn } from '@/lib/api/cancel-turn';
+
+const browserHistory = vi.hoisted(() => ({ empty: false }));
 
 vi.mock('next-themes', () => ({ useTheme: () => ({ resolvedTheme: 'light' }) }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: string) => fallback }) }));
@@ -17,7 +21,7 @@ vi.mock('@/lib/api/queries/chats', () => ({
   useBrowserChatBootstrap: () => ({ data: {
     carrier_scope_id: `scope-${useAuthStore.getState().user?.user_id}`,
   }, isLoading: false }),
-  useChatSessions: () => ({ data: { items: [{
+  useChatSessions: () => ({ data: { items: browserHistory.empty ? [] : [{
     chat_id: `chat-${useAuthStore.getState().user?.user_id}`,
   }] }, isFetched: true }),
 }));
@@ -48,11 +52,32 @@ async function bind() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  browserHistory.empty = false;
   useAuthStore.setState({ ...identity('first'), bootstrap: vi.fn().mockResolvedValue(undefined) });
   useUIStore.setState({ activeChatIds: { chat: null, browser: null } });
 });
 
 describe('embedded Chat identity boundary', () => {
+  it('delegates empty-history creation to the sidebar without a frontend-only Chat ID', async () => {
+    browserHistory.empty = true;
+    render(<MemoryRouter><EmbedChatPage /></MemoryRouter>);
+    await bind();
+    expect(screen.getByTestId('shell')).toHaveTextContent('scope-first:');
+    expect(useUIStore.getState().activeChatIds.browser).toBeNull();
+  });
+
+  it('reconciles the selected Chat after New Chat, not the initial handoff Chat', async () => {
+    render(<MemoryRouter initialEntries={['/embed/chat?chat=initial-chat']}><EmbedChatPage /></MemoryRouter>);
+    await bind();
+    act(() => useUIStore.getState().setActiveChatId('browser', 'new-chat'));
+    await shellMessage({ type: 'BROWSER_SESSION_CHANGED', status: 'released' });
+    expect(reconcileChatWithServer).toHaveBeenLastCalledWith({
+      wfId: 'scope-first', chatId: 'new-chat', surface: 'browser',
+    });
+    await shellMessage({ type: 'BROWSER_STOP_REQUESTED' });
+    expect(cancelActiveTurn).toHaveBeenLastCalledWith('new-chat');
+  });
+
   it('drops local Chat and URL handoff hints on account switch without a page reload', async () => {
     render(<MemoryRouter initialEntries={['/embed/chat?wf=handoff-scope&chat=handoff-chat']}><EmbedChatPage /></MemoryRouter>);
     await bind();

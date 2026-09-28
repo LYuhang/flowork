@@ -32,7 +32,7 @@ from vibecanvas_api.storage.sync_session import current_sync_tenant_id, run_in_s
 # to the durable `VfsArtifact` table. `/mount` is the user-level shared area;
 # `/data` is one Chat's working area. Anything outside the allowlist is
 # rejected by `_validate_artifact_path` (the traversal/prefix security boundary).
-_USER_WRITABLE_PREFIXES = ("/data/", "/mount/")
+_USER_WRITABLE_PREFIXES = ("/data/", "/chats/", "/mount/")
 
 _EXT = {
     "table/jsonl": "jsonl", "table/csv": "csv", "table/tsv": "tsv", "table/xlsx": "xlsx",
@@ -394,7 +394,7 @@ class VfsRepo:
         """Internal exact-path artifact upsert.
 
         This bypasses the user-write allowlist used by ``upsert_artifact_bytes``.
-        It is for backend-owned artifacts such as ``/logs/.debug/*.json`` that
+        It is for backend-owned workspace artifacts that
         must be readable through the normal VFS surface but are not user ingress.
         Callers must pass absolute, traversal-free paths.
         """

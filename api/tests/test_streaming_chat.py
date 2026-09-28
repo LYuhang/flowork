@@ -86,9 +86,11 @@ async def test_chat_message_stream_has_started_and_terminator(client, pg_engine)
     )
     assert r.status_code == 200, r.text
 
+    project = await client.post("/api/v1/projects", headers=_hdr(tok), json={"name": "Streaming"})
+    assert project.status_code == 201, project.text
     async with client.stream(
         "POST", f"/api/v1/chat-scopes/{wf_id}/chats/c1/messages",
-        json={"role": "user", "content": "hello"}, headers=_hdr(tok),
+        json={"role": "user", "content": "hello", "project_id": project.json()["project_id"]}, headers=_hdr(tok),
     ) as resp:
         assert resp.status_code == 200, await resp.aread()
         events = await _parse_sse_stream(resp.aiter_bytes())

@@ -125,7 +125,7 @@ def build_mcp_lifecycle_contracts(
         runtime_session_id=request.runtime_session_id,
         sandbox_id=sandbox_id,
         sandbox_generation=sandbox_generation,
-        chat_mcp_config_revision=request.mcp_config_revision,
+        project_mcp_config_revision=request.mcp_config_revision,
         platform_contract_revision=BUILTIN_MCP_CONTRACT_REVISION,
         skill_catalog_revision=_skill_catalog_revision(request),
         servers=[*builtins, *selected],

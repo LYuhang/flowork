@@ -23,7 +23,7 @@ class SessionLifecycleState(StrEnum):
 
 
 class SnapshotKind(StrEnum):
-    """Separate reusable clean baselines from Chat-owned hibernation state."""
+    """Separate reusable clean baselines from workspace-owned hibernation state."""
 
     BASELINE = "baseline"
     SESSION_HIBERNATION = "session_hibernation"

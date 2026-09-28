@@ -813,6 +813,32 @@
   "auth_signup_title": "创建账户",
   "auth_updating": "更新中...",
   "nav.chat": "对话",
+  "nav.project": "项目",
+  "nav.projects": "项目",
+  "nav.projects.new": "新建项目",
+  "nav.projects.newChat": "在「{{name}}」中新建对话",
+  "nav.projects.emptyTitle": "创建第一个项目",
+  "nav.projects.emptyDescription": "同一项目中的对话共享文件和运行环境。",
+  "nav.projects.createTitle": "创建项目",
+  "nav.projects.createDescription": "同一项目中的对话共享文件和运行环境；之后可随时添加更多对话。",
+  "nav.projects.name": "项目名称",
+  "nav.projects.namePlaceholder": "例如：研究助手",
+  "nav.projects.createAction": "创建项目",
+  "nav.projects.created": "项目已创建",
+  "nav.projects.createFailed": "项目创建失败",
+  "chat.createFailed": "对话创建失败，请重试。",
+  "nav.projects.rename": "重命名项目",
+  "nav.projects.renameTitle": "重命名项目",
+  "nav.projects.renameDescription": "使用一个能概括这些对话共同工作的名称。",
+  "nav.projects.renamed": "项目已重命名",
+  "nav.projects.renameFailed": "项目重命名失败",
+  "nav.projects.delete": "删除项目",
+  "nav.projects.deleteTitle": "删除这个项目？",
+  "nav.projects.releaseTitle": "释放项目沙盒？",
+  "nav.projects.releaseDescription": "这会释放项目内所有对话共享的运行时。已保存的文件和对话历史仍会保留，下一次发送消息时会恢复工作空间。",
+  "nav.projects.deleteDescription": "这会永久删除项目中的所有对话、文件和已保存的运行状态。",
+  "nav.projects.deleted": "项目已删除",
+  "nav.projects.deleteFailed": "项目删除失败",
   "nav.workspace": "工作流",
   "nav.tasks": "任务",
   "nav.primary": "主导航",
@@ -828,7 +854,7 @@
   "nav.chatHistory.renameFailed": "重命名失败",
   "nav.chatHistory.delete": "删除",
   "nav.chatHistory.deleteTitle": "删除这个对话？",
-  "nav.chatHistory.deleteConfirm": "这会删除对话及其 Chat 工作区，且无法撤销。",
+  "nav.chatHistory.deleteConfirm": "这只会删除当前对话；其它对话和项目共享文件都会保留。",
   "nav.chatHistory.deleted": "对话已删除",
   "nav.chatHistory.deleteFailed": "删除失败",
   "nav.chatHistory.browserSessionActive": "请先结束浏览器控制，再删除这个对话。",
@@ -1712,7 +1738,8 @@
   "settings_tab_runtime": "智能体运行时",
   "settings_runtime_subtitle": "选择新对话在沙盒中使用的智能体运行环境。",
   "settings_runtime_default": "默认智能体运行时",
-  "settings_runtime_desc": "仅用于新建对话；已有对话会继续使用创建时绑定的智能体运行时。",
+  "settings_runtime_desc": "新建项目继承此默认运行时。所有对话都使用所属项目的运行时，包括浏览器扩展对话。",
+  "agent_settings.project_connection_locked_hint": "项目内所有对话共享此连接。如需使用其它来源，请新建项目。",
   "settings_runtime_loading": "正在加载智能体运行时…",
   "settings_runtime_saving": "正在保存…",
   "settings_runtime_saved": "默认智能体运行时已更新",
@@ -2184,7 +2211,8 @@
   "storage.roots": "根目录",
   "storage.root.mount": "共享挂载",
   "storage.root.workflow": "工作流",
-  "storage.root.chat": "对话",
+  "storage.root.project": "项目",
+  "nav.chatHistory.deleteFiles": "同时永久删除此对话的工作文件。项目共享文件仍会保留。",
   "storage.root.task": "任务",
   "storage.system.taskArtifacts": "任务产物",
   "storage.loadError": "无法加载此文件夹",
@@ -2418,7 +2446,9 @@
   "wf_count": "共 {{n}} 个工作流",
   "wf_count_filtered": "显示 {{shown}} / {{total}} 个工作流",
   "composer.mcp.label": "MCP 服务",
-  "composer.mcp.hint": "为当前对话选择 MCP 服务",
+  "composer.mcp.hint": "项目内所有对话共享这些 MCP 设置",
+  "composer.mcp.sharedHint": "保存后对项目内所有对话生效，从新一轮开始使用。",
+  "composer.mcp.saveFailed": "项目 MCP 设置保存失败，请刷新选择后重试。",
   "composer.mcp.selected": "已选 {{count}} 个 MCP",
   "composer.mcp.none": "MCP",
   "composer.mcp.empty": "尚未安装兼容的 MCP 服务",
@@ -2788,7 +2818,7 @@
   ,"embed.binding_timeout_hint": "请确认浏览器侧边栏已打开，然后重新连接。"
   ,"embed.open_main_app": "打开主应用"
   ,"storage.system.workflowWorkspace": "工作流工作区"
-  ,"storage.system.chatWorkspace": "对话工作区"
+  ,"storage.system.projectWorkspace": "项目工作区"
   ,"deployments.detail.latestVersion": "最新版本"
   ,"deployments.detail.healthAttention": "健康状态需关注"
   ,"deployments.detail.healthy": "运行健康"
@@ -2916,7 +2946,6 @@
   ,"agent_settings.choose_source": "选择模型来源"
   ,"agent_settings.choose_source_hint": "模型来源已按 Settings 中选择的 Runtime 进行过滤。"
   ,"agent_settings.connection_locked_title": "模型连接"
-  ,"agent_settings.connection_locked_hint": "当前对话将继续使用此连接。如需使用其它来源，请新建对话。"
   ,"agent_settings.source_model_count": "{{count}} 个模型"
   ,"agent_settings.refine_model_search": "通过搜索查找另外 {{count}} 个模型"
   ,"agent_settings.source_free_count": "{{count}} 个免费模型"
@@ -3119,7 +3148,7 @@
   ,"chat.debug.toolsAndMcp": "工具与 MCP"
   ,"chat.debug.views": "调试视图"
   ,"chat.error": "对话当前不可用。"
-  ,"chat.explorer.emptyDraft": "发送消息或启动沙盒后，即可创建此对话的工作空间。"
+  ,"chat.explorer.selectProject": "选择或创建项目，即可浏览其持久化文件。"
   ,"chat.explorer.loadingWorkspace": "正在载入工作空间..."
   ,"chat.loading": "正在准备对话工作空间..."
   ,"chat.notifications.jobCancelled": "后台任务已取消"
@@ -3447,4 +3476,17 @@
   ,"canvas.outputPreview.title": "输出预览"
   ,"canvas.outputPreview.showMore": "显示更多"
   ,"canvas.template.previewError": "预览加载失败，请收起后重新展开以重试。"
+  ,"chat.debug.exportChatml": "下载 ChatML"
+  ,"chat.debug.refreshTranscript": "刷新对话"
+  ,"chat.debug.databaseDescription": "完整的已保存对话。发送消息和 Agent 结束后更新，不代表模型内部上下文。"
+  ,"chat.debug.messages": "消息"
+  ,"chat.debug.artifacts": "产物"
+  ,"chat.debug.turns": "轮次"
+  ,"chat.debug.databaseError": "对话刷新失败，已加载的消息仍然保留，请点击刷新重试。"
+  ,"chat.debug.databaseLoading": "正在加载已保存的消息…"
+  ,"chat.debug.databaseEmpty": "此 Chat 尚无已保存的消息。"
+  ,"chat.debug.controlMessage": "平台控制消息"
+  ,"chat.debug.toolCalls": "工具调用"
+  ,"chat.debug.relatedResources": "产物与附件"
+  ,"chat.debug.messageMetadata": "消息元信息"
 }

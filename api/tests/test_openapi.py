@@ -24,6 +24,11 @@ def test_openapi_has_at_least_28_paths(spec):
     assert len(paths) >= 28, f"only {len(paths)} paths: {list(paths)}"
 
 
+def test_runtime_capabilities_have_no_retired_chat_binding_scope(spec):
+    properties = spec["components"]["schemas"]["RuntimeCapabilities"]["properties"]
+    assert "binding_scope" not in properties
+
+
 def test_openapi_has_expected_tags(spec):
     seen_tags: set[str] = set()
     for path_item in spec["paths"].values():

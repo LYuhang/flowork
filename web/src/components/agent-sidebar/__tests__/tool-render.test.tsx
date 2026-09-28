@@ -1508,8 +1508,8 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
         schemaVersion: 1,
         fileRef: {
           schemaVersion: 1,
-          scope: 'chat',
-          chatId: 'chat-diagram',
+          scope: 'project',
+          projectId: 'chat-diagram',
           path: '/data/diagrams/system.drawio',
         },
         name: 'system.drawio',

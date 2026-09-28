@@ -31,6 +31,7 @@ class _Manager:
 
     async def get_session(self, tenant_id, scope_id, **kwargs):
         self.loaded = True
+        self.lease = kwargs["lease"]
         return self.session
 
     async def get_loaded_session(self, tenant_id, scope_id):
@@ -42,10 +43,6 @@ class _Manager:
     async def close_session(self, tenant_id, scope_id):
         self.closed = True
         return {"status": "closed"}
-
-    async def set_session_lease(self, tenant_id, scope_id, lease):
-        self.lease = lease
-        return self.loaded and not self.closed
 
 
 class _RemoteManager(_Manager):
@@ -64,11 +61,10 @@ async def test_embedded_client_contract_is_serializable_and_reuses_session():
     spec = SandboxSpec(
         scope=SandboxScope(
             tenant_id="tenant-1",
-            kind=SandboxScopeKind.CHAT,
-            scope_id="chat-scope-1",
+            kind=SandboxScopeKind.PROJECT,
+            scope_id="project-scope-1",
         ),
         principal_id="user-1",
-        lifecycle_policy="resident",
     )
 
     ref = await coordinator.acquire(spec)
@@ -80,9 +76,7 @@ async def test_embedded_client_contract_is_serializable_and_reuses_session():
     }
     assert await coordinator.client.session(ref) is manager.session
     assert (await coordinator.client.inspect(ref)).status == "running"
-    assert await coordinator.set_session_lease(
-        "tenant-1", "chat-scope-1", "interactive"
-    ) is True
+    assert spec.scope.model_dump(mode="json")["kind"] == "project"
     assert manager.lease == "interactive"
 
 
@@ -94,8 +88,8 @@ async def test_required_snapshot_never_silently_falls_back():
         await coordinator.acquire(SandboxSpec(
             scope=SandboxScope(
                 tenant_id="tenant-1",
-                kind=SandboxScopeKind.CHAT,
-                scope_id="chat-scope-1",
+                kind=SandboxScopeKind.PROJECT,
+                scope_id="project-scope-1",
             ),
             snapshot_policy="required",
         ))

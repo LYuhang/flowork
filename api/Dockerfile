@@ -87,8 +87,8 @@ RUN python /tmp/patch_python_tarfile.py && \
     python /usr/local/lib/flowork/verify_python_tarfile_fix.py && \
     rm /tmp/patch_python_tarfile.py
 
-# gVisor (runsc) — workflow execution is sandbox-ONLY since P2 (no in-process
-# fallback), so the runtime image MUST carry the runsc binary. Fetch the SAME
+# Install bubblewrap for lightweight self-hosting and retain gVisor for the
+# explicitly selected snapshot/production profile. Fetch the SAME
 # pinned, sha512-verified release as scripts/get_runsc.sh (keep the pin in sync)
 # to /usr/local/bin/runsc (on PATH → resolved by which(runsc); RUNSC_PATH in
 # compose makes it explicit). The image is shared by the unprivileged API/worker
@@ -108,6 +108,7 @@ RUN set -eux; \
         -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
         /etc/apt/sources.list.d/debian.sources; \
     apt-get update && apt-get install -y --no-install-recommends \
+        bubblewrap=0.12.0-1~deb13u1 \
         ca-certificates=20250419 \
         curl=8.14.1-2+deb13u5 \
         file=1:5.46-5 \

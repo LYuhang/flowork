@@ -4,6 +4,7 @@
 # scripts/security/verify_release_attestations.sh.
 x-openfga-production: &openfga-production
   VIBECANVAS_ENV: production
+  SANDBOX_RUNTIME: gvisor
   SANDBOX_TYPE: rootful-snapshot
   SANDBOX_NETWORK: none
   SANDBOX_EGRESS_MODE: proxy
@@ -24,6 +25,10 @@ services:
     pull_policy: always
     environment:
       <<: *openfga-production
+
+  openfga_erasure_bootstrap:
+    image: "${VIBECANVAS_POSTGRES_IMAGE:?Set VIBECANVAS_POSTGRES_IMAGE to an attested postgres image@sha256 digest}"
+    pull_policy: always
 
   migrate:
     image: "${VIBECANVAS_API_IMAGE:?Set VIBECANVAS_API_IMAGE to an attested image@sha256 digest}"

@@ -37,7 +37,8 @@ def test_local_server_init_is_secure_and_idempotent(tmp_path: Path) -> None:
     assert values["VIBECANVAS_PUBLIC_URL"] == "http://localhost:9001"
     assert values["ENABLE_TEST_USER"] == "false"
     assert values["ENTERPRISE_SSO_ENABLED"] == "false"
-    assert values["SANDBOX_TYPE"] == "rootful-snapshot"
+    assert values["SANDBOX_RUNTIME"] == "bubblewrap"
+    assert values["SANDBOX_TYPE"] == "rootless-warm"
 
     independent_secrets = {
         values[key]
@@ -97,6 +98,17 @@ def test_compose_published_ports_default_to_loopback() -> None:
         assert "${VIBECANVAS_BIND_ADDRESS:-127.0.0.1}:" in port
 
 
+def test_compose_can_deploy_from_images_without_source_mounts() -> None:
+    services = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())["services"]
+    for name, service in services.items():
+        assert service.get("image"), f"{name} requires a reusable image name"
+        for volume in service.get("volumes", []):
+            assert isinstance(volume, str) and not volume.startswith((".", "/", "~")), name
+    postgres = (REPO_ROOT / "postgres/Dockerfile").read_text()
+    assert "COPY scripts/postgres-init/ /docker-entrypoint-initdb.d/" in postgres
+    assert "scripts/security/openfga_erasure.sql /opt/flowork/" in postgres
+
+
 def test_only_sandboxd_is_privileged_and_owns_snapshot_storage() -> None:
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
     services = compose["services"]
@@ -112,7 +124,7 @@ def test_only_sandboxd_is_privileged_and_owns_snapshot_storage() -> None:
     assert sandboxd["environment"]["SANDBOX_SERVICE_SOCKET_GID"] == "10001"
     assert sandboxd["environment"]["SANDBOX_NETWORK"].endswith(":-none}")
     assert sandboxd["environment"]["SANDBOX_TYPE"].endswith(
-        ":-rootful-snapshot}"
+        ":-rootless-warm}"
     )
     snapshot_mount = "sandbox_snapshot_data:/var/lib/vibecanvas/snapshots"
     assert snapshot_mount in sandboxd["volumes"]

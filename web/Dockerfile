@@ -35,6 +35,13 @@ ENV VITE_API_BASE=$VITE_API_BASE
 ARG VIBECANVAS_BROWSER_EXTENSION_ID=mkfldhmlgdbpmhplaphhcfcdcoaakcik
 ENV VITE_EXTENSION_ID=$VIBECANVAS_BROWSER_EXTENSION_ID
 
+# Keep builds viable on small VPS hosts. These limit build parallelism only;
+# serving the resulting static bundle does not need Node.js.
+ENV ROLLDOWN_WORKER_THREADS=1 \
+    ROLLDOWN_MAX_BLOCKING_THREADS=2 \
+    RAYON_NUM_THREADS=1 \
+    NODE_OPTIONS=--max-old-space-size=1024
+
 # Regenerate the API client from the committed openapi.json (offline-safe)
 # and produce the production bundle.
 RUN pnpm codegen:api:offline && pnpm build

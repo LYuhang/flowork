@@ -47,7 +47,7 @@
 > experimental.
 
 > [!NOTE]
-> **Live Demo:** [Try Flowork](https://20-55-50-206.sslip.io/). This public
+> **Live Demo:** [Try Flowork](https://flowork.top/). This public
 > instance is provided for testing only; service availability and stability
 > are not guaranteed.
 
@@ -209,7 +209,7 @@ Task responsibility.
 
 | Surface | What you can do | Demo |
 | --- | --- | --- |
-| **Projects** | Create a named Project, then start Chats inside it. Chats share project files and a sandboxed Codex runtime while keeping independent conversation histories. The Agent can build Workflows, create documents and diagrams, and organize files, with previews beside the conversation. Project sandboxes start, hibernate, and restore as needed. | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
+| **Projects** | Create a named Project, then start Chats inside it. Chats share project files and a sandbox, with independent Codex sessions that can run concurrently and be cancelled separately. The Agent can build Workflows, create documents and diagrams, and organize files, with previews beside the conversation. Project sandboxes start, hibernate, and restore as needed. | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
 | **Workflow** | Add, connect, and configure nodes on a visual canvas, validate the graph, and execute either the full Workflow or an individual node. Review run output, generated files, and earlier versions, or use batch execution and JSON import and export. | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
 | **Task** | Run a Workflow across a tabular input file or schedule it for a particular time or interval. Task Center shows queue and execution progress, events, output, and failures, and lets users pause, cancel, or resume work where supported. | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
 | **Deployment** | Publish a verified Workflow as an API or webhook for external systems. Each Deployment provides its invocation details, code examples, test requests, traffic controls, credentials, run history, and health metrics. Use a scheduled Task when the Workflow needs to run on a recurring or calendar-based schedule. | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
@@ -314,9 +314,10 @@ authorization boundaries, object storage holds durable file content, and
 DBOS persists queues in PostgreSQL, while Valkey provides transient coordination. The sandbox service keeps
 agent and workflow execution outside the API process.
 
-`sandboxd` selects the configured sandbox backend: gVisor is the default;
-bubblewrap is an alternative for local, trusted development with a weaker
-shared-kernel boundary and no checkpoint/restore. Batch and scheduled Tasks
+`sandboxd` selects the configured sandbox backend: fresh native/local Compose
+installs use bubblewrap with a shared-kernel boundary and no checkpoint/restore;
+the production release profile explicitly uses gVisor snapshots. See
+[Docker image deployment](docs/docker-deployment.zh-CN.md). Batch and scheduled Tasks
 also enforce database-backed worker ownership and recovery fences; DBOS
 redelivery is not permission to repeat an already-running task or unknown
 external side effects.

@@ -4,6 +4,10 @@ This guide defines the production release and deployment boundary for Flowork.
 For local evaluation or development, use the
 [installation guide](docs/installation.md).
 
+For the lightweight bubblewrap + DBOS self-hosting profile and reusable
+images, see [Docker image deployment](docs/docker-deployment.zh-CN.md).
+That profile does not replace this guide's production security/release contract.
+
 > [!WARNING]
 > The default Compose stack is a local environment. Do not expose it directly
 > to the Internet or treat locally built images as a production release.

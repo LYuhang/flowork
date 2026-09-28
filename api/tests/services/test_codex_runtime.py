@@ -373,11 +373,11 @@ def _isolate_broker_capability_file(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "vibecanvas_api.services.agent_runtime.codex._install_broker_capability",
-        lambda _capability: None,
+        lambda _capability, _path=None: None,
     )
     monkeypatch.setattr(
         "vibecanvas_api.services.agent_runtime.codex._remove_broker_capability",
-        lambda: None,
+        lambda _path=None: None,
     )
     monkeypatch.setattr(
         "vibecanvas_api.services.agent_runtime.codex._install_broker_model_catalog",
@@ -709,7 +709,7 @@ def test_codex_model_provider_uses_volatile_command_auth_without_token_in_config
     assert provider["namespace_tools"] is False
     assert provider["auth"] == {
         "command": "/bin/cat",
-        "args": ["/tmp/vibecanvas-runtime/model-capability"],
+        "args": ["/tmp/vibecanvas-runtime/model-capability-" + hashlib.sha256(b"chat").hexdigest()[:32]],
         "timeout_ms": 1_000,
         "refresh_interval_ms": 1,
     }
@@ -810,7 +810,7 @@ def test_codex_app_server_loads_dynamic_catalog_at_process_start(monkeypatch) ->
     )
     monkeypatch.setattr(
         "vibecanvas_api.services.agent_runtime.codex._codex_env",
-        lambda _runtime_root: {"CODEX_HOME": "/runtime/.codex"},
+        lambda _runtime_root, _chat_id=None: {"CODEX_HOME": "/runtime/.codex"},
     )
     broker = RuntimeTurnRequest(
         tenant_id="tenant",

@@ -11,7 +11,7 @@ VFS projection and optional user storage. Runtime and command workers reuse
 those mounts; writeback persists workspace changes. Provider selection also
 supports the explicitly configured gVisor isolation mode.
 
-Concurrency and lifecycle locks protect shared runtime turns, commands,
+Lifecycle and persistence locks protect shared runtime setup, commands,
 writeback and release. The manager bounds resident sessions at ``max_resident``
 and reaps eligible idle sessions through :meth:`SandboxManager.sweep_idle`.
 Synchronous provider operations run through ``asyncio.to_thread``.
@@ -31,7 +31,7 @@ import sys
 import tempfile
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import structlog
 from vibecanvas_engine.sandbox_bus import (
@@ -56,7 +56,9 @@ from vibecanvas_api.services.object_store import FilesystemObjectStore, get_obje
 from vibecanvas_api.services.run_workspace import RunWorkspace
 from vibecanvas_api.services.sandbox import get_sandbox_provider
 from vibecanvas_api.services.sandbox.admission import sandbox_admission
-from vibecanvas_api.services.sandbox.bus_broker import BusBroker, socket_path_for
+from vibecanvas_api.services.sandbox.bus_broker import (
+    BusBroker, RuntimeBusRouter, RuntimeTurnBus, socket_path_for,
+)
 from vibecanvas_api.services.sandbox.gvisor import ServeSnapshot, _workflow_python_binds
 from vibecanvas_api.services.sandbox.session_lifecycle import (
     SessionLifecycleState,
@@ -482,13 +484,11 @@ class SandboxSession:
         # may wait for HITL for an arbitrarily long time while the frontend and
         # API requests reconnect; control traffic must therefore not depend on
         # the original SSE response object.
-        self._runtime_brokers: dict[str, BusBroker] = {}
+        self._runtime_brokers: dict[str, RuntimeTurnBus] = {}
         self._runtime_broker_lock = asyncio.Lock()
-        self._runtime_turn_lock = asyncio.Lock()
-        # Main-Agent Runtime process, kept warm across turns for this Chat.
-        # A session is already serialized by ``_lock``, so one duplex channel
-        # can safely carry consecutive requests while HITL control messages are
-        # still routed by the active turn id through ``_runtime_brokers``.
+        self._runtime_persist_lock = asyncio.Lock()
+        self._runtime_router: RuntimeBusRouter | None = None
+        # Project transport is shared; each active Turn owns a routed stream.
         self._runtime_broker: BusBroker | None = None
         self._runtime_handle = None
         self._runtime_type: str | None = None
@@ -1090,256 +1090,106 @@ class SandboxSession:
         return set(await validate_mcp_connection_destination(connection))
 
     async def run_agent_runtime_stream(self, request: dict):
-        """Serialize a Project's turns, including cancellation cleanup.
-
-        Sibling Chats share a bus/app-server. A waiting Chat must not acquire
-        that bus between a cancelled turn releasing `_lock` and its teardown.
-        Queued requests count as activity so the shared sandbox stays alive.
-        """
+        """Run sibling Chats concurrently on the Project's resident transport."""
         self._begin_activity()
-        try:
-            async with self._runtime_turn_lock:
-                stream = self._run_agent_runtime_stream_locked(request)
-                try:
-                    async for event in stream:
-                        yield event
-                finally:
-                    await stream.aclose()
-        finally:
-            self._end_activity()
-
-    async def _run_agent_runtime_stream_locked(self, request: dict):
-        """Run one Agent Runtime turn on this workspace's warm process.
-
-        The private UDS carries the request and stream, so credentials are never
-        written into the workspace channel. Consecutive turns reuse the process
-        and imported Runtime modules; session close/TTL owns final teardown.
-        """
-        total_started = time.perf_counter()
-        runtime_turn_id = str(request.get("turn_id") or "runtime")
-        runtime_type = str(request.get("runtime_type") or "unknown")
-        runtime_model = request.get("model")
-        uses_codex_account = (
-            runtime_type == "codex"
-            and isinstance(runtime_model, dict)
-            and runtime_model.get("connection_type") == "chatgpt_account"
-        )
-        broker: BusBroker | None = None
-        turn_registered = False
-        invalidate_runtime = False
+        turn: RuntimeTurnBus | None = None
         received_result = False
+        turn_id = str(request["turn_id"])
+        model = request.get("model") or {}
+        account = model.get("connection_type") == "chatgpt_account"
+        started = time.perf_counter()
         try:
-            if self.skills_dir and self.user_id:
-                from vibecanvas_api.services.runtime_skills import (
-                    hydrate_runtime_skills,
-                )
-                phase_started = time.perf_counter()
-                await hydrate_runtime_skills(
-                    destination=self.skills_dir,
-                    tenant_id=self.tenant_id,
-                    skills=request.get("skills") or [],
-                )
-                logger.info(
-                    "agent_runtime_transport_timing",
-                    phase="hydrate_skills",
-                    elapsed_ms=int((time.perf_counter() - phase_started) * 1000),
-                    runtime_type=runtime_type,
-                    wf_id=self.wf_id,
-                    turn_id=runtime_turn_id,
-                )
+            # Only shared setup holds the Project lock. Model/tool execution
+            # and HITL waits must never block another Chat's setup or control.
             async with self._lock:
-                invalidate_runtime = True
-                broker, _ = await self._ensure_agent_runtime_locked(
-                    runtime_type=runtime_type,
-                    runtime_turn_id=runtime_turn_id,
-                    uses_codex_account=uses_codex_account,
-                )
-                runtime_request = self._mcp_runtime_request(request)
-                # Interactive Runtimes are Project-scoped and remain resident across
-                # Turns.  Codex account sessions follow the same lifecycle as
-                # API-backed Codex: explicit account disconnect,
-                # Project release, idle hibernation/TTL, or a transport error
-                # owns teardown.  ``invalidate_codex_account_sessions`` closes
-                # every locally-owned session for the disconnected principal so
-                # an idle Runtime cannot retain a revoked account credential.
-                invalidate_runtime = False
-
-                async with self._runtime_broker_lock:
-                    if runtime_turn_id in self._runtime_brokers:
-                        raise RuntimeError(
-                            f"agent runtime turn {runtime_turn_id} is already active"
-                        )
-                    self._runtime_brokers[runtime_turn_id] = broker
-                    turn_registered = True
-                phase_started = time.perf_counter()
-                try:
-                    await broker.send(
-                        {
-                            "type": MSG_RUNTIME_REQUEST,
-                            "request": runtime_request,
-                        }
+                if self.skills_dir and self.user_id:
+                    from vibecanvas_api.services.runtime_skills import hydrate_runtime_skills
+                    scope = hashlib.sha256(str(request["chat_id"]).encode()).hexdigest()[:32]
+                    destination = os.path.join(self.skills_dir, scope)
+                    await hydrate_runtime_skills(
+                        destination=destination, tenant_id=self.tenant_id,
+                        skills=request.get("skills") or [],
                     )
-                except (ConnectionError, BrokenPipeError):
-                    # The guest can finish closing Turn-local receivers just as
-                    # the host observes a terminal boundary.  Never surface a
-                    # stale resident transport as a failed user Turn: stop that
-                    # process, restore one clean Runtime, and submit exactly
-                    # once more before any product event has been accepted.
-                    logger.warning(
-                        "agent_runtime_stale_transport_recovered",
-                        runtime_type=runtime_type,
-                        wf_id=self.wf_id,
-                        turn_id=runtime_turn_id,
-                    )
-                    await self._stop_agent_runtime_locked()
+                    request = {**request, "skills": [
+                        {**skill, "root_path": f"/skills/{scope}/{skill['skill_id']}"}
+                        for skill in request.get("skills") or []
+                    ]}
+                for attempt in range(2):
                     broker, _ = await self._ensure_agent_runtime_locked(
-                        runtime_type=runtime_type,
-                        runtime_turn_id=runtime_turn_id,
-                        uses_codex_account=uses_codex_account,
+                        runtime_type=str(request["runtime_type"]),
+                        runtime_turn_id=turn_id, uses_codex_account=account,
                     )
-                    runtime_request = self._mcp_runtime_request(request)
+                    if self._runtime_router is None:
+                        self._runtime_router = RuntimeBusRouter(broker)
+                    turn = self._runtime_router.attach(turn_id)
                     async with self._runtime_broker_lock:
-                        self._runtime_brokers[runtime_turn_id] = broker
-                    await broker.send(
-                        {
-                            "type": MSG_RUNTIME_REQUEST,
-                            "request": runtime_request,
-                        }
-                    )
-                first_bus_message = True
-                async for message in broker.messages():
-                    if first_bus_message:
-                        first_bus_message = False
-                        logger.info(
-                            "agent_runtime_transport_timing",
-                            phase="first_sandbox_message",
-                            elapsed_ms=int(
-                                (time.perf_counter() - phase_started) * 1000
-                            ),
-                            runtime_type=runtime_type,
-                            wf_id=self.wf_id,
-                            turn_id=runtime_turn_id,
-                            message_type=message.get("type"),
-                        )
-                    kind = message.get("type")
-                    if kind == MSG_RUNTIME_EVENT:
-                        event = message.get("event")
-                        if isinstance(event, dict):
-                            await self._write_through_runtime_tool_event(event)
-                            yield event
-                    elif kind == MSG_RUNTIME_RESULT:
-                        received_result = True
-                        break
-                    elif kind == MSG_RUNTIME_ERROR:
-                        error = message.get("error") or {}
-                        raise RuntimeError(
-                            str(error.get("message") or "agent runtime failed")
-                        )
-                if not received_result:
-                    invalidate_runtime = True
-                    raise RuntimeError(
-                        "agent runtime disconnected before completing the turn"
-                    )
-
-                # The turn is quiescent here. Persist its workspace mutations
-                # without discarding the warm Runtime process.
-                try:
-                    phase_started = time.perf_counter()
-                    await asyncio.shield(self.writeback_vfs())
-                    logger.info(
-                        "agent_runtime_transport_timing",
-                        phase="workspace_writeback",
-                        elapsed_ms=int((time.perf_counter() - phase_started) * 1000),
-                        runtime_type=runtime_type,
-                        wf_id=self.wf_id,
-                        turn_id=runtime_turn_id,
-                    )
-                except Exception:
-                    logger.warning(
-                        "agent_runtime_writeback_failed",
-                        wf_id=self.wf_id,
-                        exc_info=True,
-                    )
-                runtime_volume = getattr(self, "runtime_volume", None)
-                if runtime_volume is not None:
-                    if uses_codex_account:
-                        self._persist_codex_account_auth()
-                    phase_started = time.perf_counter()
-                    await asyncio.to_thread(
-                        get_project_runtime_volume_provider().sync,
-                        runtime_volume,
-                    )
-                    logger.info(
-                        "agent_runtime_transport_timing",
-                        phase="runtime_volume_encrypted_sync",
-                        elapsed_ms=int(
-                            (time.perf_counter() - phase_started) * 1000
-                        ),
-                        runtime_type=runtime_type,
-                        wf_id=self.wf_id,
-                        turn_id=runtime_turn_id,
-                    )
-
-        except (ConnectionError, BrokenPipeError):
-            invalidate_runtime = True
-            raise
-        finally:
-            # A consumer cancellation (the normal host-side Stop path) closes
-            # this async generator at its current yield. In that case the
-            # resident process may still publish the cancelled Turn's trailing
-            # events and runtime_result onto the shared bus. Reusing that bus
-            # lets the next Turn consume the stale result and appear to finish
-            # immediately with NO_OP. Only a Runtime whose own result boundary
-            # was observed is safe to retain across Turns; the sandbox and VFS
-            # remain resident while this process-local transport is replaced.
-            if turn_registered and not received_result:
-                invalidate_runtime = True
-            if turn_registered:
-                async with self._runtime_broker_lock:
-                    if self._runtime_brokers.get(runtime_turn_id) is broker:
-                        self._runtime_brokers.pop(runtime_turn_id, None)
-            if invalidate_runtime:
-                async with self._lock:
-                    await self._stop_agent_runtime_locked()
-                # A checkpoint can be emitted before a Turn reaches its
-                # terminal result (for example before a later egress failure or
-                # user cancellation). Persist the stopped Runtime's native
-                # files here as well, otherwise the durable checkpoint may
-                # reference a rollout that disappears with this plaintext
-                # materialization and cannot be resumed after sandboxd restarts.
-                runtime_volume = getattr(self, "runtime_volume", None)
-                if runtime_volume is not None:
+                        self._runtime_brokers[turn_id] = turn
                     try:
-                        await asyncio.to_thread(
-                            get_project_runtime_volume_provider().sync,
-                            runtime_volume,
-                        )
-                        logger.info(
-                            "agent_runtime_transport_timing",
-                            phase="runtime_volume_failure_sync",
-                            runtime_type=runtime_type,
-                            wf_id=self.wf_id,
-                            turn_id=runtime_turn_id,
-                        )
-                    except Exception:
-                        # Preserve the original Runtime error. The exact
-                        # missing-rollout recovery in the Codex adapter handles
-                        # a previously incomplete snapshot on the next Turn.
-                        logger.warning(
-                            "agent_runtime_failure_volume_sync_failed",
-                            runtime_type=runtime_type,
-                            wf_id=self.wf_id,
-                            turn_id=runtime_turn_id,
-                            exc_info=True,
-                        )
-            logger.info(
-                "agent_runtime_transport_timing",
-                phase="transport_total",
-                elapsed_ms=int((time.perf_counter() - total_started) * 1000),
-                runtime_type=runtime_type,
-                wf_id=self.wf_id,
-                turn_id=runtime_turn_id,
-            )
+                        await turn.send({"type": MSG_RUNTIME_REQUEST,
+                                         "request": self._mcp_runtime_request(request)})
+                        break
+                    except (ConnectionError, BrokenPipeError):
+                        turn.detach()
+                        self._runtime_brokers.pop(turn_id, None)
+                        # Retry a stale idle transport only. A failed shared
+                        # transport is reported to every existing subscriber.
+                        if attempt or self._runtime_brokers:
+                            raise
+                        await self._stop_agent_runtime_locked()
+            async for message in turn.messages():
+                kind = message.get("type")
+                if kind == MSG_RUNTIME_EVENT:
+                    event = message.get("event")
+                    if isinstance(event, dict):
+                        await self._write_through_runtime_tool_event(event)
+                        yield event
+                elif kind == MSG_RUNTIME_RESULT:
+                    received_result = True
+                    break
+                elif kind == MSG_RUNTIME_ERROR:
+                    # An adapter error belongs to this Chat. The guest closes
+                    # only that Chat's app-server and leaves siblings running.
+                    received_result = True
+                    raise RuntimeError(str((message.get("error") or {}).get("message")
+                                           or "agent runtime failed"))
+        finally:
+            try:
+                if turn is not None:
+                    if not received_result:
+                        with suppress(ConnectionError, BrokenPipeError):
+                            await turn.send({"type": MSG_RUNTIME_CONTROL,
+                                             "response": {"action": "cancel", "turn_id": turn_id}})
+                            async def drain_cancelled_turn():
+                                async for frame in turn.messages():
+                                    if frame.get("type") in {MSG_RUNTIME_RESULT, MSG_RUNTIME_ERROR}:
+                                        return
+                            # Wait for A's CLI cleanup, without holding any Project
+                            # execution lock or terminating B on timeout.
+                            with suppress(TimeoutError, RuntimeError):
+                                await asyncio.wait_for(drain_cancelled_turn(), 10)
+                    turn.detach()
+                    async with self._runtime_broker_lock:
+                        if self._runtime_brokers.get(turn_id) is turn:
+                            self._runtime_brokers.pop(turn_id, None)
+                    # Serialize persistence, never the lifetime of sibling Turns.
+                    async with self._runtime_persist_lock:
+                        try:
+                            await self.writeback_vfs()
+                            if account:
+                                self._persist_codex_account_auth()
+                            if self.runtime_volume is not None and not self._runtime_brokers:
+                                await asyncio.to_thread(
+                                    get_project_runtime_volume_provider().sync, self.runtime_volume,
+                                )
+                        except Exception:
+                            logger.warning("agent_runtime_writeback_failed", wf_id=self.wf_id,
+                                           exc_info=True)
+            finally:
+                self._end_activity()
+            logger.info("agent_runtime_transport_timing", phase="transport_total",
+                        elapsed_ms=int((time.perf_counter() - started) * 1000),
+                        runtime_type=request.get("runtime_type"), wf_id=self.wf_id,
+                        turn_id=turn_id)
 
     async def _ensure_agent_runtime_locked(
         self,
@@ -1764,6 +1614,10 @@ class SandboxSession:
         self._runtime_broker = None
         self._runtime_type = None
         self._runtime_uses_codex_account = False
+        router = self._runtime_router
+        self._runtime_router = None
+        if router is not None:
+            await router.close()
         if broker is not None:
             await broker.close()
         if handle is not None:

@@ -63,6 +63,8 @@ class _FakeBroker:
         self.socket_path = socket_path
         self.turn_id = ""
         self.closed = False
+        self.incoming = asyncio.Queue()
+        self.sent = []
 
     async def start(self) -> None:
         return None
@@ -74,14 +76,21 @@ class _FakeBroker:
         return not self.closed
 
     async def send(self, message: dict) -> None:
-        self.turn_id = str((message.get("request") or {}).get("turn_id") or "")
+        self.sent.append(message)
+        self.turn_id = message["turn_id"]
+        if message["type"] == "runtime_request":
+            for frame in self.frames(self.turn_id):
+                self.incoming.put_nowait({**frame, "turn_id": self.turn_id})
+        elif (message.get("response") or {}).get("action") == "cancel":
+            self.incoming.put_nowait({"type": "runtime_result", "turn_id": self.turn_id})
+
+    def frames(self, turn_id):
+        return [{"type": "runtime_event", "event": {"type": "runtime.started", "turn_id": turn_id}},
+                {"type": "runtime_result"}]
 
     async def messages(self):
-        yield {
-            "type": "runtime_event",
-            "event": {"type": "runtime.started", "turn_id": self.turn_id},
-        }
-        yield {"type": "runtime_result"}
+        while True:
+            yield await self.incoming.get()
 
     async def close(self) -> None:
         self.closed = True
@@ -132,24 +141,14 @@ class _ResetOnSecondSendBroker(_FakeBroker):
 
 
 class _BlockingResultBroker(_FakeBroker):
-    async def messages(self):
-        yield {
-            "type": "runtime_event",
-            "event": {"type": "runtime.started", "turn_id": self.turn_id},
-        }
-        await asyncio.Event().wait()
+    def frames(self, turn_id):
+        return [{"type": "runtime_event", "event": {"type": "runtime.started", "turn_id": turn_id}}]
 
 
 class _RuntimeErrorBroker(_FakeBroker):
-    async def messages(self):
-        yield {
-            "type": "runtime_event",
-            "event": {"type": "checkpoint", "turn_id": self.turn_id},
-        }
-        yield {
-            "type": "runtime_error",
-            "error": {"message": "transient model egress failure"},
-        }
+    def frames(self, turn_id):
+        return [{"type": "runtime_event", "event": {"type": "checkpoint", "turn_id": turn_id}},
+                {"type": "runtime_error", "error": {"message": "transient model egress failure"}}]
 
 
 def test_codex_account_auth_is_staged_without_nested_mount_and_reconciled(
@@ -277,7 +276,7 @@ async def test_stale_runtime_transport_is_restored_before_user_turn_fails(
 
 @pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
-async def test_cancelled_turn_invalidates_runtime_before_next_turn(
+async def test_cancelled_turn_keeps_project_transport_alive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = _FakeProvider()
@@ -300,16 +299,16 @@ async def test_cancelled_turn_invalidates_runtime_before_next_turn(
     await stream.aclose()
 
     assert provider.launches == 1
-    assert provider.stops == 1
-    assert session._runtime_handle is None
-    assert session._runtime_broker is None
+    assert provider.stops == 0
+    assert session._runtime_handle is not None
+    assert session._runtime_broker is not None
 
     await session.close()
 
 
 @pytest.mark.usefixtures("fake_codex_cli")
 @pytest.mark.asyncio
-async def test_project_sibling_waits_for_cancelled_turn_cleanup(monkeypatch) -> None:
+async def test_project_siblings_run_concurrently_and_cancel_independently(monkeypatch) -> None:
     provider = _FakeProvider()
     monkeypatch.setattr(manager_module, "BusBroker", _BlockingResultBroker)
     session = SandboxSession(
@@ -319,16 +318,24 @@ async def test_project_sibling_waits_for_cancelled_turn_cleanup(monkeypatch) -> 
     first = session.run_agent_runtime_stream(_runtime_request("chat-a-turn"))
     second = session.run_agent_runtime_stream(_runtime_request("chat-b-turn"))
     assert (await anext(first))["turn_id"] == "chat-a-turn"
-    pending = asyncio.create_task(anext(second))
-    await asyncio.sleep(0)
-    assert not pending.done()
-    await first.aclose()
-    event = await asyncio.wait_for(pending, timeout=5)
+    event = await asyncio.wait_for(anext(second), timeout=1)
     assert event["turn_id"] == "chat-b-turn"
-    assert provider.stops == 1
-    assert provider.launches == 2
+    broker = session._runtime_broker
+    await first.aclose()
+    assert provider.stops == 0
+    assert provider.launches == 1
+    assert "chat-b-turn" in session._runtime_brokers
+    # A's late terminal frame must not finish B's stream.
+    pending = asyncio.create_task(anext(second))
+    await asyncio.sleep(0.02)
+    assert not pending.done()
+    broker.incoming.put_nowait({"type": "runtime_event", "turn_id": "chat-b-turn",
+                               "event": {"type": "message.delta", "turn_id": "chat-b-turn"}})
+    assert (await asyncio.wait_for(pending, 1))["turn_id"] == "chat-b-turn"
+    assert broker.sent[-1]["response"]["turn_id"] == "chat-a-turn"
     await second.aclose()
     await session.close()
+
 
 
 @pytest.mark.usefixtures("fake_codex_cli")
@@ -438,7 +445,7 @@ async def test_codex_turn_uses_direct_runtime_volume_without_checkpointing(
 
 
 @pytest.mark.asyncio
-async def test_failed_turn_syncs_native_runtime_volume_after_process_stop(
+async def test_failed_turn_syncs_volume_without_stopping_sibling_runtime(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -458,7 +465,7 @@ async def test_failed_turn_syncs_native_runtime_volume_after_process_stop(
 
     class RuntimeVolumeProvider:
         def sync(self, volume):
-            assert provider.lifecycle == ["stop"]
+            assert provider.lifecycle == []
             persisted.append(volume.volume_id)
             return 1
 
@@ -503,6 +510,7 @@ async def test_failed_turn_syncs_native_runtime_volume_after_process_stop(
         ]
 
     assert persisted == ["runtime-volume"]
+    await session.close()
 
 
 @pytest.mark.asyncio
@@ -795,9 +803,8 @@ async def test_codex_runtime_rejects_account_and_broker_rebinding(
 
     assert account_events[0]["turn_id"] == "turn-account"
     assert provider.launches == 1
-    # The rejected transport attempt tears down the resident process rather
-    # than risking reuse after a caller violates the immutable binding.
-    assert provider.stops == 1
+    # A rejected binding cannot tear down a sibling Chat's valid transport.
+    assert provider.stops == 0
     assert session._bound_runtime_type == "codex"
     assert session._bound_runtime_uses_codex_account is True
     assert (runtime_dir / ".codex" / "auth.json").read_text(

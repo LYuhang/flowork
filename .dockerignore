@@ -2,6 +2,10 @@
 .gitignore
 .env
 .env.example
+.env.*
+tmp/
+extension/flowork-extension.zip
+web/public/downloads/
 **/.venv
 .tools
 .playwright

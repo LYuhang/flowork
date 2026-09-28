@@ -2,11 +2,19 @@
 # Run:  ./scripts/deploy/local_server.sh up
 # Stop: ./scripts/deploy/local_server.sh down  (keeps persistent volumes)
 
+# API, worker and initialization jobs share one application image. The sandbox
+# image additionally carries the private wheel-only dependency builder.
+x-api-image: &api-image
+  image: ${FLOWORK_API_IMAGE:-flowork-api:local}
+  build:
+    context: .
+    dockerfile: api/Dockerfile
+
 services:
 
   # ─────── infra ───────
   postgres:
-    image: flowork-postgres:local
+    image: ${FLOWORK_POSTGRES_IMAGE:-flowork-postgres:local}
     build:
       context: .
       dockerfile: postgres/Dockerfile
@@ -21,7 +29,6 @@ services:
       - "${VIBECANVAS_INTERNAL_BIND_ADDRESS:-127.0.0.1}:${VIBECANVAS_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev -d vibecanvas"]
       interval: 2s
@@ -87,15 +94,12 @@ services:
   # Provision a separate role that can only execute Flowork's identity-history
   # erasure function; runtime workers never receive OpenFGA's owner password.
   openfga_erasure_bootstrap:
-    image: postgres:17.11-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    image: ${FLOWORK_POSTGRES_IMAGE:-flowork-postgres:local}
     command: ["/opt/flowork/bootstrap_openfga_erasure.sh"]
     environment:
       OPENFGA_ADMIN_DATABASE_URL: postgresql://openfga:${OPENFGA_POSTGRES_PASSWORD:-openfga-development-only}@openfga_postgres:5432/openfga?sslmode=disable
       OPENFGA_ERASURE_DATABASE_NAME: openfga
       OPENFGA_ERASURE_PASSWORD: ${OPENFGA_ERASURE_PASSWORD:-openfga-erasure-development-only}
-    volumes:
-      - ./scripts/security/bootstrap_openfga_erasure.sh:/opt/flowork/bootstrap_openfga_erasure.sh:ro
-      - ./scripts/security/openfga_erasure.sql:/opt/flowork/openfga_erasure.sql:ro
     depends_on:
       openfga_migrate:
         condition: service_completed_successfully
@@ -138,9 +142,7 @@ services:
       - authorization_data
 
   openfga_bootstrap:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
+    <<: *api-image
     command: ["python", "-m", "vibecanvas_api.authorization.bootstrap"]
     user: "10001:10001"
     environment:
@@ -162,9 +164,7 @@ services:
   # ─────── one-shot: schema migration ───────
   # Short-lived BYPASSRLS/DDL identity; never injected into runtime services.
   migrate:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
+    <<: *api-image
     command:
       - /bin/sh
       - -ec
@@ -206,6 +206,7 @@ services:
   # shared Unix socket, so a request may move between workers without creating
   # a second sandbox for the same logical scope.
   sandboxd:
+    image: ${FLOWORK_SANDBOX_IMAGE:-flowork-sandbox:local}
     build:
       context: .
       dockerfile: api/Dockerfile
@@ -248,7 +249,8 @@ services:
       AGENT_RUNTIME_ROOT: /var/lib/vibecanvas/agent-runtime
       VFS_VOLUME_ROOT: /var/lib/vibecanvas/vfs-volumes
       RUNSC_PATH: /usr/local/bin/runsc
-      SANDBOX_TYPE: ${SANDBOX_TYPE:-rootful-snapshot}
+      SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-bubblewrap}
+      SANDBOX_TYPE: ${SANDBOX_TYPE:-rootless-warm}
       # ptrace is the portable Docker baseline, including Docker Desktop/WSL2.
       # Native Linux operators may explicitly select systrap after the startup
       # probe succeeds on their kernel/seccomp profile.
@@ -315,9 +317,7 @@ services:
   # private UDS, uses only daemon-created temporary roots, and exits before any
   # API/worker can accept application traffic.
   sandbox_prewarm:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
+    <<: *api-image
     command:
       - python
       - -m
@@ -342,9 +342,7 @@ services:
 
   # ─────── application ───────
   api:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
+    <<: *api-image
     ports:
       - "${VIBECANVAS_INTERNAL_BIND_ADDRESS:-127.0.0.1}:${VIBECANVAS_API_PORT:-8000}:8000"
     user: "10001:10001"
@@ -437,9 +435,7 @@ services:
       - authorization
 
   background_worker:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
+    <<: *api-image
     command:
       - python
       - -m
@@ -508,6 +504,7 @@ services:
       - worker_egress
 
   web:
+    image: ${FLOWORK_WEB_IMAGE:-flowork-web:local}
     build:
       context: .
       dockerfile: web/Dockerfile

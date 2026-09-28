@@ -39,14 +39,12 @@ require_command df
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 plugin is unavailable"
 docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable to the current user"
 
-# The complete stack includes an Agent sandbox, document conversion, diagram
-# export, databases, and background workers. Check the resources assigned to
-# the Docker engine rather than the host totals so Docker Desktop limits are
-# accounted for. An 8 GiB allocation commonly reports about 7.5 GiB after VM
-# reservation, which is the supported lower bound used here.
-minimum_cpu_count=4
-minimum_memory_bytes=8053063680
-minimum_disk_kib=20971520
+# Low-concurrency bubblewrap + DBOS baseline. Heavy Agent/Office jobs and
+# builds need more headroom; see the measured profiles in the deployment guide.
+# Check Docker's allocation, including Docker Desktop VM reservations.
+minimum_cpu_count=2
+minimum_memory_bytes=1879048192
+minimum_disk_kib=10485760
 docker_cpu_count="$(docker info --format '{{.NCPU}}')"
 docker_memory_bytes="$(docker info --format '{{.MemTotal}}')"
 repository_free_kib="$(df -Pk "$REPO_ROOT" | awk 'NR == 2 { print $4 }')"
@@ -60,10 +58,10 @@ if (( docker_cpu_count < minimum_cpu_count )); then
   resource_failures+=("Docker has ${docker_cpu_count} CPU(s); at least ${minimum_cpu_count} are required")
 fi
 if (( docker_memory_bytes < minimum_memory_bytes )); then
-  resource_failures+=("Docker has $((docker_memory_bytes / 1024 / 1024)) MiB memory; an 8 GiB allocation is required")
+  resource_failures+=("Docker has $((docker_memory_bytes / 1024 / 1024)) MiB memory; a 2 GiB allocation is required (4 GiB recommended)")
 fi
 if (( repository_free_kib < minimum_disk_kib )); then
-  resource_failures+=("the repository filesystem has $((repository_free_kib / 1024 / 1024)) GiB free; at least 20 GiB is required")
+  resource_failures+=("the repository filesystem has $((repository_free_kib / 1024 / 1024)) GiB free; at least 10 GiB is required, plus room for data/build-cache growth")
 fi
 
 allow_unsupported_resources="${FLOWORK_ALLOW_UNSUPPORTED_RESOURCES:-false}"
@@ -116,7 +114,7 @@ fi
 
 if [[ -r /proc/sys/kernel/unprivileged_userns_clone ]] &&
    [[ "$(< /proc/sys/kernel/unprivileged_userns_clone)" == "0" ]]; then
-  fail "kernel.unprivileged_userns_clone=0; workflow gVisor sandboxes cannot start"
+  fail "kernel.unprivileged_userns_clone=0; workflow sandbox user namespaces cannot start"
 fi
 
 VIBECANVAS_ENV_FILE="$ENV_FILE" \

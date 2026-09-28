@@ -30,6 +30,7 @@ import asyncio
 import hashlib
 import os
 import shutil
+from contextlib import suppress
 from typing import AsyncIterator
 
 import structlog
@@ -37,6 +38,68 @@ import structlog
 from vibecanvas_engine.sandbox_bus import encode_frame, read_frame
 
 logger = structlog.get_logger(__name__)
+
+
+class RuntimeTurnBus:
+    """One Turn's view of a resident Project bus, including late-frame fencing."""
+
+    def __init__(self, router: "RuntimeBusRouter", turn_id: str):
+        self.router = router
+        self.turn_id = turn_id
+        self.queue: asyncio.Queue = asyncio.Queue()
+
+    async def send(self, message: dict) -> None:
+        await self.router.broker.send({**message, "turn_id": self.turn_id})
+
+    async def messages(self) -> AsyncIterator[dict]:
+        while True:
+            message = await self.queue.get()
+            if isinstance(message, Exception):
+                raise message
+            yield message
+
+    def detach(self) -> None:
+        self.router.turns.pop(self.turn_id, None)
+
+
+class RuntimeBusRouter:
+    """Exactly one socket reader; never let sibling Chats consume each other's frames."""
+
+    def __init__(self, broker: "BusBroker"):
+        self.broker = broker
+        self.turns: dict[str, RuntimeTurnBus] = {}
+        self.failure: Exception | None = None
+        self.task = asyncio.create_task(self._read())
+
+    def attach(self, turn_id: str) -> RuntimeTurnBus:
+        if self.failure is not None:
+            raise self.failure
+        if turn_id in self.turns:
+            raise RuntimeError(f"agent runtime turn {turn_id} is already active")
+        turn = RuntimeTurnBus(self, turn_id)
+        self.turns[turn_id] = turn
+        return turn
+
+    async def _read(self) -> None:
+        failure = ConnectionError("agent runtime bus disconnected")
+        try:
+            async for message in self.broker.messages():
+                turn = self.turns.get(str(message.get("turn_id") or ""))
+                if turn is not None:
+                    turn.queue.put_nowait(message)
+                # Detached Turns may still emit cleanup frames. Drop them;
+                # a result without the exact Turn identity must never finish B.
+        except Exception as exc:
+            failure = exc
+        finally:
+            self.failure = failure
+            for turn in self.turns.values():
+                turn.queue.put_nowait(failure)
+
+    async def close(self) -> None:
+        self.task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self.task
 
 # The host-side per-run socket ROOT. Short by design so the full socket path stays
 # ≤107 bytes regardless of the configured fs_root / storage root (FIX-4).

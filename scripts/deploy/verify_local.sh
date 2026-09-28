@@ -36,8 +36,12 @@ curl --noproxy '*' --fail --silent --show-error --max-time 10 "$api_health" >/de
 
 if ! VIBECANVAS_ENV_FILE="$ENV_FILE" \
   docker compose --env-file "$ENV_FILE" exec -T sandboxd \
-  sh -eu -c 'test "$(id -u)" = 0; test -x /usr/local/bin/runsc; runsc --version'; then
-  echo "ERROR: sandboxd is not running rootful with the pinned runsc binary." >&2
+  sh -eu -c 'case "${SANDBOX_RUNTIME:-bubblewrap}" in
+    bubblewrap) bwrap --version ;;
+    gvisor) test -x /usr/local/bin/runsc; runsc --version ;;
+    *) exit 1 ;;
+  esac'; then
+  echo "ERROR: sandboxd is missing its selected runtime binary." >&2
   exit 1
 fi
 
@@ -54,7 +58,7 @@ fi
 # executes a command after restore, and validates the one-shot Workflow base.
 if ! VIBECANVAS_ENV_FILE="$ENV_FILE" \
   docker compose --env-file "$ENV_FILE" run --rm --no-deps sandbox_prewarm; then
-  echo "ERROR: rootful gVisor checkpoint/restore verification failed." >&2
+  echo "ERROR: selected sandbox runtime/lifecycle verification failed." >&2
   echo "Inspect: ./scripts/deploy/local_server.sh logs sandboxd" >&2
   exit 1
 fi

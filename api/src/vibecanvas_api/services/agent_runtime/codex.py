@@ -569,7 +569,7 @@ def _codex_executable() -> str:
     return executable
 
 
-def _codex_env(runtime_root: str) -> dict[str, str]:
+def _codex_env(runtime_root: str, chat_id: str | None = None) -> dict[str, str]:
     allowed = {
         "PATH",
         "LANG",
@@ -592,8 +592,18 @@ def _codex_env(runtime_root: str) -> dict[str, str]:
     env["CODEX_SQLITE_HOME"] = runtime_root
     # Codex discovers Agent Skills from $HOME/.agents/skills. CODEX_HOME stays
     # dedicated to this Chat's thread state; account credentials are forbidden.
-    env["HOME"] = "/runtime/home"
+    env["HOME"] = _chat_home(chat_id) if chat_id is not None else "/runtime/home"
     return env
+
+
+def _chat_home(chat_id: str) -> str:
+    scope = hashlib.sha256(chat_id.encode()).hexdigest()[:32]
+    return f"/runtime/home/chats/{scope}"
+
+
+def _broker_capability_path(request: RuntimeTurnRequest) -> str:
+    scope = hashlib.sha256(request.chat_id.encode()).hexdigest()[:32]
+    return f"{_BROKER_CAPABILITY_PATH}-{scope}"
 
 
 def _broker_model_catalog_path(request: RuntimeTurnRequest) -> str:
@@ -677,7 +687,7 @@ def _broker_model_config(request: RuntimeTurnRequest) -> tuple[str, dict[str, An
                 "stream_idle_timeout_ms": 300_000,
                 "auth": {
                     "command": "/bin/cat",
-                    "args": [_BROKER_CAPABILITY_PATH],
+                    "args": [_broker_capability_path(request)],
                     "timeout_ms": 1_000,
                     # Re-read for every practical model request so a resident
                     # app-server cannot carry a previous Turn's lease forward.
@@ -874,10 +884,11 @@ def _uses_chatgpt_account(request: RuntimeTurnRequest) -> bool:
     return model.get("connection_type") == "chatgpt_account"
 
 
-def _install_broker_capability(capability: str) -> None:
+def _install_broker_capability(capability: str, path: str | None = None) -> None:
+    path = path or _BROKER_CAPABILITY_PATH
     os.makedirs(_BROKER_CAPABILITY_DIR, mode=0o700, exist_ok=True)
     os.chmod(_BROKER_CAPABILITY_DIR, 0o700)
-    temporary = f"{_BROKER_CAPABILITY_PATH}.{os.getpid()}.tmp"
+    temporary = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -892,8 +903,8 @@ def _install_broker_capability(capability: str) -> None:
                 payload = payload[written:]
         finally:
             os.close(descriptor)
-        os.replace(temporary, _BROKER_CAPABILITY_PATH)
-        os.chmod(_BROKER_CAPABILITY_PATH, 0o600)
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
     except Exception:
         try:
             os.unlink(temporary)
@@ -902,9 +913,9 @@ def _install_broker_capability(capability: str) -> None:
         raise
 
 
-def _remove_broker_capability() -> None:
+def _remove_broker_capability(path: str | None = None) -> None:
     try:
-        os.unlink(_BROKER_CAPABILITY_PATH)
+        os.unlink(path or _BROKER_CAPABILITY_PATH)
     except FileNotFoundError:
         pass
 
@@ -922,7 +933,7 @@ def _remove_forbidden_account_cache(runtime_root: str) -> None:
 
 def _prepare_codex_skills(request: RuntimeTurnRequest) -> None:
     """Project immutable /skills revisions into Codex's native Skill path."""
-    skills_root = "/runtime/home/.agents/skills"
+    skills_root = os.path.join(_chat_home(request.chat_id), ".agents", "skills")
     os.makedirs(skills_root, mode=0o700, exist_ok=True)
     if not os.path.isdir(skills_root):
         if request.skills:
@@ -1931,7 +1942,7 @@ def _normalize_codex_plan(plan: Any) -> list[dict[str, Any]]:
 
 
 def create_codex_app_server(request: RuntimeTurnRequest) -> CodexAppServer:
-    """Construct the Project-scoped app-server; each thread has its own cwd."""
+    """Construct a Chat-owned app-server using the shared Project state volume."""
     config_overrides: tuple[str, ...] = ()
     if not _uses_chatgpt_account(request):
         # Codex resolves its model catalog when app-server starts, before any
@@ -1944,7 +1955,7 @@ def create_codex_app_server(request: RuntimeTurnRequest) -> CodexAppServer:
         )
     return CodexAppServer(
         executable=_codex_executable(),
-        env=_codex_env(request.runtime_root),
+        env=_codex_env(request.runtime_root, request.chat_id),
         cwd="/data" if os.path.isdir("/data") else "/mount",
         outer_sandboxed=True,
         config_overrides=config_overrides,
@@ -2178,7 +2189,7 @@ async def run_codex_turn(
     app_server_start_ms = int((perf_counter() - phase_started) * 1000)
     if model_capability is not None:
         try:
-            _install_broker_capability(model_capability)
+            _install_broker_capability(model_capability, _broker_capability_path(request))
         except Exception:
             if close_client:
                 await client.close()
@@ -2306,6 +2317,7 @@ async def run_codex_turn(
         return status == "done"
 
     result_ready = False
+    next_message: asyncio.Task | None = None
     try:
         phase_started = perf_counter()
         if (
@@ -3507,13 +3519,16 @@ async def run_codex_turn(
     except CodexAppServerError as exc:
         raise RuntimeError(f"{exc.code}: {exc}") from exc
     finally:
+        if next_message is not None:
+            next_message.cancel()
+            await asyncio.gather(next_message, return_exceptions=True)
         if cli_gateway is not None:
             if close_client or hub_gateway_registry is None:
                 await cli_gateway.close()
             else:
                 await cli_gateway.deactivate()
         if model_capability is not None:
-            _remove_broker_capability()
+            _remove_broker_capability(_broker_capability_path(request))
             _remove_forbidden_account_cache(request.runtime_root)
         control_router.cancel()
         mcp_item_correlator.cancel()

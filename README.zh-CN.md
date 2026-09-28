@@ -43,7 +43,7 @@
 > Flowork 目前处于 Alpha 阶段。Agent、工作流、存储、权限控制、部署和沙盒等核心服务已经实现，但 API 与数据模型在首个稳定版本发布前仍可能调整。浏览器自动化功能尚处于实验阶段。
 
 > [!NOTE]
-> **在线体验：**[访问 Flowork Demo](https://20-55-50-206.sslip.io/)。该公开实例仅供测试使用，服务的可用性与稳定性无法保证。
+> **在线体验：**[访问 Flowork Demo](https://flowork.top/)。该公开实例仅供测试使用，服务的可用性与稳定性无法保证。
 
 ## 项目简介
 
@@ -141,7 +141,7 @@ cd flowork
 
 | 功能模块 | 用户可以做什么 | 演示 |
 | --- | --- | --- |
-| **Projects（项目）** | 创建一个命名项目，再在其中一键新建 Chat。项目内的对话共享文件、沙盒和 Codex 运行时，同时保留独立的对话历史。Agent 可构建 Workflow、生成文档和图表、整理文件，并在对话旁提供预览。项目沙盒按需启动、休眠和恢复。 | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
+| **Projects（项目）** | 创建一个命名项目，再在其中一键新建 Chat。项目内的对话共享文件和沙盒，各自持有独立的 Codex 会话，可并发运行、单独取消。Agent 可构建 Workflow、生成文档和图表、整理文件，并在对话旁提供预览。项目沙盒按需启动、休眠和恢复。 | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
 | **Workflow** | 在可视化画布上添加、连接和配置节点，检查工作流结构并执行整个流程或单个节点。运行结果、生成文件和历史版本可以集中查看，工作流也支持批量执行以及 JSON 导入和导出。 | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
 | **Task** | 使用表格文件批量运行 Workflow，或者按指定时间和间隔创建定时任务。Task Center 会持续显示排队和执行进度、事件、输出与异常，并允许用户暂停、取消或恢复适用的任务。 | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
 | **Deployment** | 将验证通过的 Workflow 发布为 API 或 Webhook，供外部系统调用。每个 Deployment 都提供调用信息、代码示例、在线测试、流量控制、凭据、运行历史与健康指标；如需按周期或指定日历时间执行 Workflow，请创建定时 Task。 | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
@@ -211,7 +211,7 @@ Flowork 将平台管理与任务执行分为两层。Web 应用提供 Chat、可
 
 PostgreSQL 是系统的权威数据源；OpenFGA 与行级安全策略共同保证访问控制边界；对象存储保存需要持久化的文件内容；DBOS 将队列和调度状态持久化在 PostgreSQL，Valkey 只提供临时通知、限流和协调，不承担任务队列。沙盒服务确保 Agent 与工作流不会在 API 进程内直接执行。
 
-`sandboxd` 按配置选择执行后端，默认使用 gVisor；bubblewrap 是面向本地可信开发的可选后端，共享宿主内核，隔离边界较弱，不支持进程检查点与恢复。批量和定时任务还通过数据库中的 Worker 所有权、心跳和写入校验防止重复领取及旧 Worker 回写；DBOS 重投递不等于可以重跑已启动任务或重复执行结果未知的外部操作。
+`sandboxd` 按配置选择执行后端：新建原生和本地 Compose 部署默认使用 bubblewrap + rootless-warm，共享宿主内核，不支持进程检查点与恢复；严格生产发布配置显式使用 gVisor 快照。见 [Docker 镜像部署](docs/docker-deployment.zh-CN.md)。批量和定时任务还通过数据库中的 Worker 所有权、心跳和写入校验防止重复领取及旧 Worker 回写；DBOS 重投递不等于可以重跑已启动任务或重复执行结果未知的外部操作。
 
 有关运行时生命周期、MCP 边界、存储职责、权限控制和网络隔离的详细说明，请参阅[架构指南](docs/architecture.md)。
 

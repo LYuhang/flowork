@@ -512,9 +512,36 @@ async def test_interactive_session_ttl_starts_only_after_all_activity_ends():
     session.hibernate.assert_awaited_once()
 
 
+def _stub_turn_transport(session):
+    class Broker:
+        def __init__(self):
+            self.incoming = asyncio.Queue()
+
+        async def send(self, message):
+            turn_id = message["turn_id"]
+            if message["type"] == "runtime_request":
+                await self.incoming.put({"type": "runtime_event", "turn_id": turn_id,
+                                         "event": {"chat_id": turn_id}})
+            else:
+                await self.incoming.put({"type": "runtime_result", "turn_id": turn_id})
+
+        async def messages(self):
+            while True:
+                yield await self.incoming.get()
+
+    broker = Broker()
+    session._ensure_agent_runtime_locked = AsyncMock(return_value=(broker, True))
+    session._mcp_runtime_request = lambda request: request
+    session.writeback_vfs = AsyncMock()
+
+
+def _turn_request(chat_id):
+    return {"chat_id": chat_id, "turn_id": chat_id, "runtime_type": "codex"}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("snapshot", [False, True])
-async def test_project_idle_policy_waits_for_running_and_queued_sibling_chats(snapshot):
+async def test_project_idle_policy_waits_for_concurrent_sibling_chats(snapshot):
     manager = SandboxManager(max_resident=2, idle_ttl_s=10)
     manager.snapshot_sessions = snapshot
     manager.warm_idle_ttl_s = 10
@@ -532,23 +559,17 @@ async def test_project_idle_policy_waits_for_running_and_queued_sibling_chats(sn
 
     session.hibernate = AsyncMock(side_effect=hibernate)
 
-    async def turn(request):
-        yield {"chat_id": request["chat_id"]}
-
-    session._run_agent_runtime_stream_locked = turn
-    first = session.run_agent_runtime_stream({"chat_id": "chat-a"})
-    second = session.run_agent_runtime_stream({"chat_id": "chat-b"})
+    _stub_turn_transport(session)
+    first = session.run_agent_runtime_stream(_turn_request("chat-a"))
+    second = session.run_agent_runtime_stream(_turn_request("chat-b"))
     assert (await anext(first))["chat_id"] == "chat-a"
-    waiting = asyncio.create_task(anext(second))
-    await asyncio.sleep(0)
-    assert not waiting.done()
+    assert (await asyncio.wait_for(anext(second), 1))["chat_id"] == "chat-b"
     assert session._inflight_operations == 2
     session.last_used = time.monotonic() - 100
     assert await manager.sweep_idle() == 0
     assert (await manager.status("tenant", "project"))["ttl_paused"] is True
 
     await first.aclose()
-    assert (await asyncio.wait_for(waiting, 2))["chat_id"] == "chat-b"
     assert session._inflight_operations == 1
     session.last_used = time.monotonic() - 100
     assert await manager.sweep_idle() == 0
@@ -570,6 +591,7 @@ async def test_project_idle_policy_waits_for_running_and_queued_sibling_chats(sn
         session.hibernate.assert_awaited_once()
     else:
         session.close.assert_awaited_once()
+    await session._runtime_router.close()
 
 
 @pytest.mark.asyncio
@@ -579,23 +601,23 @@ async def test_cancelled_queued_chat_does_not_unpin_running_project_sibling():
         provider=MagicMock(), base_binds=[], expose_run=False,
     )
 
-    async def turn(request):
-        yield {"chat_id": request["chat_id"]}
-
-    session._run_agent_runtime_stream_locked = turn
-    first = session.run_agent_runtime_stream({"chat_id": "chat-a"})
-    second = session.run_agent_runtime_stream({"chat_id": "chat-b"})
+    _stub_turn_transport(session)
+    first = session.run_agent_runtime_stream(_turn_request("chat-a"))
+    second = session.run_agent_runtime_stream(_turn_request("chat-b"))
     await anext(first)
+    await session._lock.acquire()  # B is queued only for shared setup.
     waiting = asyncio.create_task(anext(second))
     await asyncio.sleep(0)
     waiting.cancel()
     with pytest.raises(asyncio.CancelledError):
         await waiting
+    session._lock.release()
     assert session._inflight_operations == 1
     assert session.observe_activity()["busy"] is True
     await first.aclose()
     assert session._inflight_operations == 0
     assert session.observe_activity()["busy"] is False
+    await session._runtime_router.close()
 
 
 @pytest.mark.asyncio

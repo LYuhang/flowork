@@ -4,6 +4,9 @@ Flowork supports two local installation methods. Docker Compose is recommended
 for evaluation and self-hosted use. The native Linux setup is intended for
 contributors who need to work directly with the source code.
 
+For image builds, deployment without a source checkout, HTTPS and public URL
+configuration, see [Docker image deployment](docker-deployment.zh-CN.md).
+
 | Method | Recommended for | Host requirements |
 | --- | --- | --- |
 | **Docker Compose** | Evaluation and local self-hosting | Docker Engine or Docker Desktop with Compose v2 |
@@ -32,21 +35,24 @@ background workers.
 
 | Resource | Minimum | Recommended |
 | --- | ---: | ---: |
-| CPU available to Docker | 4 vCPU | 8 vCPU |
-| Memory available to Docker | 8 GiB | 16 GiB |
-| Free disk before installation | 20 GiB | 40 GiB or more |
+| CPU available to Docker | 2 vCPU | 4 vCPU |
+| Memory available to Docker | 2 GiB plus swap for small deployments | 4 GiB or more |
+| Free disk before installation | 10 GiB plus data/build-cache growth | 20 GiB or more |
 
 Docker Desktop users must allocate these CPU and memory resources to the Linux
 engine; host totals alone are not sufficient. Disk capacity must cover the
 repository, images and build cache, database and object-store growth, and
-sandbox snapshots. A GPU is not required.
+sandbox data. These numbers target low concurrency: two resident bubblewrap
+sandboxes and one DBOS worker process (two executor threads, concurrency one
+per queue). They are not a guarantee for concurrent Agent/Office/browser jobs.
+Build images sequentially on a small VPS. A GPU is not required.
 
 The preflight checks the Docker allocation and available repository filesystem
 space before a build starts. A deliberately undersized test installation can
 set `FLOWORK_ALLOW_UNSUPPORTED_RESOURCES=true` for that invocation, but such a
 deployment is outside the supported configuration and may fail when an Agent,
 LibreOffice, or diagram renderer runs. The host must also support privileged
-Linux containers and the gVisor startup probe; compatibility is verified
+Linux containers and the selected sandbox startup probe; compatibility is verified
 automatically before the API begins accepting traffic.
 
 Docker installation does not require Python, Node.js, or pnpm on the host. All
@@ -97,10 +103,11 @@ On the first run, the launcher:
 4. validates Docker, Compose, the network binding, and required settings;
 5. builds and starts the services;
 6. applies database migrations and initializes OpenFGA; and
-7. verifies the Web, API, `sandboxd`, and gVisor checkpoint/restore path.
+7. verifies the Web, API, `sandboxd`, and the selected sandbox lifecycle.
 
-The first build includes a patched Codex Rust build and can take tens of
-minutes; compilation also needs additional disk space for intermediate layers.
+The first build installs the pinned official Codex binary without compiling
+Rust. Office/diagram tools, Python dependencies and frontend assets still take
+time and build-cache space.
 When verification succeeds, open
 <http://localhost:9001>.
 
@@ -311,9 +318,9 @@ continue with the [development guide](development.md).
 ### Sandbox backend and lifecycle
 
 `SANDBOX_RUNTIME` selects the execution backend; `SANDBOX_TYPE` selects its
-privilege and lifecycle profile. Native deployment defaults to `bubblewrap`
-with `rootless-warm`. The separate Docker Compose profile uses `gvisor` with
-`rootful-snapshot`.
+privilege and lifecycle profile. Fresh native and local Docker deployments
+default to `bubblewrap` with `rootless-warm`. The production release overlay
+explicitly uses `gvisor` with `rootful-snapshot`.
 Checkpoint/restore belongs to the rootful gVisor snapshot profile; a warm native
 session does not imply that its process state can be checkpointed.
 
@@ -323,7 +330,7 @@ supports resident workers and Agent/Workflow execution, but has no real
 checkpoint/restore or post-start dynamic mount support. It shares the host
 kernel and the current implementation binds the host `/proc` read-only, so its
 isolation differs from gVisor. It is not an equivalent replacement for the
-Docker or production snapshot configuration. See
+production snapshot configuration. See
 [Sandbox lifecycle](architecture.md#sandbox-lifecycle) for the capability boundary.
 
 Installing `runsc` is not proof that the host supports the full sandbox profile.
@@ -393,8 +400,8 @@ following runtime settings are occasionally changed independently:
 | --- | --- | --- |
 | `VIBECANVAS_HTTP_PORT` | `9001` | Docker Web application port |
 | `WEB_PORT` | `9001` | Native launcher Web application port |
-| `SANDBOX_RUNTIME` | Native: `bubblewrap`; Docker: `gvisor` | Sandbox backend; native gVisor is an explicit alternative |
-| `SANDBOX_TYPE` | Docker: `rootful-snapshot`; native: `rootless-warm` | Sandbox privilege and lifecycle profile |
+| `SANDBOX_RUNTIME` | Native/local Docker: `bubblewrap`; production: `gvisor` | Sandbox backend |
+| `SANDBOX_TYPE` | Native/local Docker: `rootless-warm`; production: `rootful-snapshot` | Sandbox privilege and lifecycle profile |
 | `SANDBOX_MAX_RESIDENT` | `2` | Caps concurrently warm Agent/Workflow sandboxes; raise only after sizing per-session memory |
 | `OBJECT_STORE_PROVIDER` | `filesystem` | Local file-backed object storage; production deployments normally use `s3` |
 | `SANDBOX_EGRESS_MODE` | `proxy` | Routes sandbox HTTP(S) and WebSocket traffic through the controlled egress proxy |
@@ -511,7 +518,7 @@ binding, and the resolved Compose file without starting services:
 ```
 
 Use the verifier to check health endpoints, the private `sandboxd` socket, and
-the gVisor checkpoint/restore path:
+the selected sandbox lifecycle (checkpoint/restore only in snapshot mode):
 
 ```bash
 ./scripts/deploy/local_server.sh verify

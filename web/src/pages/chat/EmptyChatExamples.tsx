@@ -3,8 +3,9 @@ import { ArrowUpRight } from 'lucide-react';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import en from '@/lib/i18n/locales/en.json';
 
-type ExampleCategory = 'office' | 'diagram' | 'workflow' | 'operations' | 'knowledge';
+type ExampleCategory = 'automation' | 'office' | 'diagram' | 'workflow' | 'operations' | 'knowledge';
 
 interface ExampleDefinition {
   id: string;
@@ -19,6 +20,19 @@ interface ExampleDefinition {
 }
 
 const EXAMPLES: Record<ExampleCategory, readonly ExampleDefinition[]> = {
+  automation: [
+    {
+      id: 'order-audit',
+      icon: '⚙️',
+      command: '/workflow',
+      titleKey: 'chat.examples.automation.orderAudit.title',
+      title: 'From request to callable API',
+      descriptionKey: 'chat.examples.automation.orderAudit.description',
+      description: 'Build an order-audit Workflow with 15 node types, test it, and deploy an API.',
+      promptKey: 'chat.examples.automation.orderAudit.prompt',
+      prompt: en['chat.examples.automation.orderAudit.prompt'],
+    },
+  ],
   office: [
     {
       id: 'presentation',
@@ -201,6 +215,7 @@ const CATEGORIES: readonly {
   labelKey: string;
   label: string;
 }[] = [
+  { id: 'automation', labelKey: 'chat.examples.tab.automation', label: 'Automation' },
   { id: 'office', labelKey: 'chat.examples.tab.office', label: 'Office' },
   { id: 'diagram', labelKey: 'chat.examples.tab.diagram', label: 'Diagram' },
   { id: 'workflow', labelKey: 'chat.examples.tab.workflow', label: 'Workflow' },
@@ -214,6 +229,12 @@ const CATEGORY_STYLE: Record<ExampleCategory, {
   command: string;
   action: string;
 }> = {
+  automation: {
+    card: 'hover:border-emerald-300/70 hover:shadow-lg dark:hover:border-emerald-500/45',
+    icon: 'border-emerald-200/80 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/15',
+    command: 'border-emerald-200/70 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300',
+    action: 'text-emerald-700 dark:text-emerald-300',
+  },
   office: {
     card: 'hover:border-violet-300/70 hover:shadow-[0_2px_0_rgba(109,40,217,0.12),0_18px_34px_-20px_rgba(109,40,217,0.45)] dark:hover:border-violet-500/45',
     icon: 'border-violet-200/80 bg-gradient-to-br from-violet-100 via-fuchsia-50 to-white shadow-violet-950/15 dark:border-violet-500/30 dark:from-violet-500/25 dark:via-fuchsia-500/10 dark:to-surface-raised',
@@ -262,7 +283,7 @@ export function EmptyChatExamples({
       aria-label={t('chat.examples.label', 'Start with an example')}
       data-role="empty-chat-examples"
     >
-      <Tabs defaultValue="office">
+      <Tabs defaultValue="automation">
         <TabsList
           variant="underline"
           className="chat-scrollbar flex h-auto w-full justify-start overflow-x-auto"
@@ -289,7 +310,10 @@ export function EmptyChatExamples({
                     'motion-reduce:transform-none motion-reduce:transition-none',
                     CATEGORY_STYLE[category.id].card,
                   )}
-                  onClick={() => onSelect(t(example.promptKey, example.prompt))}
+                  onClick={() => onSelect(t(example.promptKey, {
+                    defaultValue: example.prompt,
+                    publicUrl: window.location.origin,
+                  }))}
                   data-example-id={`${category.id}:${example.id}`}
                 >
                   <span className="flex items-start justify-between gap-3">

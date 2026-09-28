@@ -30,7 +30,7 @@ class TableReadNode(BaseNode):
             },
             "file_path": {
                 "type": "string",
-                "pattern": "^/(run|mount)/.+",
+                "pattern": table_io.FILE_PATH_PATTERN,
                 "description": "Absolute Workflow-runtime path under /run or /mount. /run is execution-local; /mount is user-persistent. The file must already exist or be written by an upstream node. Never use the Agent authoring workspace /data. Supports {{field_name}} interpolation."
             },
             "file_format": {
@@ -65,7 +65,7 @@ class TableReadNode(BaseNode):
             "file_path must be an absolute Workflow-runtime path under /run/... or /mount/...; /data, /memory, /logs, relative paths, and arbitrary OS paths are not available to Workflow nodes.",
             "Never invent a file path or assume a file exists. Read only a user-provided existing /mount/... file or the exact /run/... or /mount/... path written by an upstream node.",
             "Use /run for files produced and consumed in the same execution. Use /mount only for user-provided or intentionally cross-run persistent files.",
-            "file_path supports {{field_name}} interpolation; to read an upstream file, use the exact path that upstream node wrote.",
+            "file_path supports {{field_name}} interpolation, including a whole path such as {{csv_path}} bound to an upstream file_path output. The resolved path must stay under /run/... or /mount/...; missing fields and path traversal fail before file I/O.",
             "Use batch mode. stream mode is reserved and will fail at runtime.",
             "file_format defaults to auto and detects .csv, .json/.jsonl/.ndjson, or .xlsx from the path; set it explicitly when the extension is ambiguous.",
             "sheet_name is only for Excel files.",
@@ -172,7 +172,7 @@ class TableReadNode(BaseNode):
         # Interpolate {{fields}}. The result is already a real path inside the
         # sandbox, so it is opened directly. Workflow runtime exposes `/run`
         # and `/mount`; Agent authoring roots such as `/data` are not available.
-        file_path = self._interpolate(config["file_path"], inputs)
+        file_path = table_io.resolve_file_path(config["file_path"], inputs)
 
         fmt = config.get("file_format", "auto")
         if fmt == "auto":

@@ -131,6 +131,8 @@ cd flowork
 
 ## 使用说明
 
+新 Chat 默认展示 **自动化 → 从需求到可调用服务**：用一条完整需求构建、测试并发布覆盖 15 类节点的订单审计 API。参见[示例说明与外部调用验证脚本](docs/automation-order-audit.md)。
+
 用户通常从 Chat 开始，通过对话说明需求；需要操作已登录的网页时，也可以从浏览器扩展发起对话。Agent 会根据目标调用工具并构建 Workflow，用户可以在画布上继续检查和调整。Workflow 随后可以直接运行，也可以通过 Task 执行批处理或定时任务；验证通过后，再通过 Deployment 发布给外部系统调用。
 
 ![Flowork 使用流程](docs/assets/usage-flow.zh-CN.svg)

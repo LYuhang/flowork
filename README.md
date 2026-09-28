@@ -190,6 +190,8 @@ verified.
 
 ## Usage
 
+Try **Chat → Automation → From request to callable API** to build and publish a 15-node-type order audit example from one instruction. See the [example and external API verifier](docs/automation-order-audit.md).
+
 Most work begins in Chat, where the user describes what they need. When the task
 involves an authenticated website, the conversation can start from the browser
 extension instead. The agent uses tools to build a Workflow, which the user can

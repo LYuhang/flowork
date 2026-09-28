@@ -25,7 +25,7 @@ class TableWriteNode(BaseNode):
         "properties": {
             "file_path": {
                 "type": "string",
-                "pattern": "^/(run|mount)/.+",
+                "pattern": table_io.FILE_PATH_PATTERN,
                 "description": "Absolute Workflow-runtime output path under /run or /mount. Use /run for execution-local output and /mount only for intentionally persistent output. Never use the Agent authoring workspace /data. Supports {{field_name}} interpolation."
             },
             "data_write": {
@@ -58,7 +58,7 @@ class TableWriteNode(BaseNode):
             "Use node_type='TableWriteNode' and at most one child.",
             "file_path must be an absolute Workflow-runtime path under /run/... or /mount/...; /data, /memory, /logs, relative paths, and arbitrary OS paths are not available to Workflow nodes.",
             "Use /run for normal same-execution output. Use /mount only when the result intentionally needs to persist across runs or be shared with the user.",
-            "file_path supports {{field_name}} interpolation; downstream readers should read the same path.",
+            "file_path supports {{field_name}} interpolation, including a whole path such as {{csv_path}}. The resolved path must stay under /run/... or /mount/...; missing fields and path traversal fail before file I/O. Downstream readers can bind the file_path output directly.",
             "file_format defaults to auto and detects .csv, .json/.jsonl/.ndjson, or .xlsx from the path.",
             "data_write optionally names the input field to write: object writes one row; list of objects writes many rows using the first row's keys as columns.",
             "If data_write is omitted, the node uses the first list-of-objects input, otherwise combines all inputs into one row.",
@@ -197,7 +197,7 @@ class TableWriteNode(BaseNode):
         # Interpolate {{fields}}. The result is already a real path inside the
         # sandbox, so it is written directly. Workflow runtime exposes `/run`
         # and `/mount`; use `/mount` only for intentional cross-run files.
-        file_path = self._interpolate(config["file_path"], inputs)
+        file_path = table_io.resolve_file_path(config["file_path"], inputs)
 
         fmt = config.get("file_format", "auto")
         if fmt == "auto":

@@ -11,7 +11,39 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from typing import Any
+
+
+# A whole upstream file_path is as useful as /run/{{filename}}. Runtime checks
+# below constrain the interpolated value before any file operation occurs.
+FILE_PATH_PATTERN = r"^(?:/(?:run|mount)/.+|\{\{\s*[^{}]+\s*\}\})$"
+
+
+def resolve_file_path(template: str, inputs: dict) -> str:
+    """Resolve dynamic Workflow paths without allowing an input to escape roots.
+
+    Literal paths are also used by standalone engine callers; their Workflow
+    root restriction is enforced by the node schema. Dynamic paths must be
+    checked after substitution, including symlinks and traversal segments.
+    """
+    if "{{" not in template:
+        return template
+
+    def replace(match):
+        key = match.group(1).strip()
+        value = inputs.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"file_path input '{key}' must be a non-empty string")
+        return value
+
+    path = re.sub(r"\{\{([^{}]+)\}\}", replace, template)
+    if "{" in path or "}" in path or "\x00" in path or ".." in path.split("/"):
+        raise ValueError("file_path contains an unresolved placeholder or invalid path segment")
+    for root in ("/run", "/mount"):
+        if path.startswith(root + "/") and os.path.realpath(path).startswith(os.path.realpath(root) + "/"):
+            return path
+    raise ValueError("Resolved file_path must remain under /run/... or /mount/...")
 
 
 _EXT_FORMAT = {

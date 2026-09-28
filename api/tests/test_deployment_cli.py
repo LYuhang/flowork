@@ -54,6 +54,8 @@ def test_credential_format_is_discoverable_without_reading_secrets(action, capsy
     assert "JSON, not a raw token" in help_text
     assert "only api_key as the Bearer token" in help_text
     assert "hmac_secret" in help_text
+    assert "do not wrap it in an inputs property" in help_text
+    assert "outputs.__end__" in help_text
 
 
 def test_symlink_rejected_before_dispatch(tmp_path, monkeypatch):

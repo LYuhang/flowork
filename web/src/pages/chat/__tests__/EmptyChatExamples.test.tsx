@@ -31,9 +31,26 @@ function renderExamples(visible: boolean, onSelect = vi.fn()) {
 }
 
 describe('EmptyChatExamples', () => {
+  it.each(['en', 'zh'])('defaults to a complete automation example in %s without submitting it', async (language) => {
+    await i18n.changeLanguage(language);
+    const onSelect = renderExamples(true);
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs[0]).toHaveTextContent(language === 'zh' ? '自动化' : 'Automation');
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    expect(onSelect).not.toHaveBeenCalled();
+    await userEvent.click(document.querySelector('[data-example-id="automation:order-audit"]')!);
+    const locale = language === 'zh' ? zh : en;
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(
+      locale['chat.examples.automation.orderAudit.prompt'].replaceAll('{{publicUrl}}', window.location.origin),
+    );
+    expect(onSelect.mock.calls[0][0]).toMatch(/^\/workflow /);
+    expect(onSelect.mock.calls[0][0]).not.toContain('{{publicUrl}}');
+  });
+
   it.each(['en', 'zh'])('specifies an editable DOCX report in %s instead of an ambiguous slide brief', async (language) => {
     await i18n.changeLanguage(language);
     const onSelect = renderExamples(true);
+    await userEvent.click(screen.getByRole('tab', { name: language === 'zh' ? '办公' : 'Office' }));
     await userEvent.click(document.querySelector('[data-example-id="office:report"]')!);
     expect(onSelect).toHaveBeenCalledWith(expect.stringContaining('DOCX'));
     expect(onSelect.mock.calls[0][0]).toMatch(/^\/document /);
@@ -46,8 +63,8 @@ describe('EmptyChatExamples', () => {
       </I18nextProvider>,
     );
     expect(screen.getByRole('region', { name: 'Start with an example' })).toBeInTheDocument();
-    expect(screen.getByText('📊')).toBeInTheDocument();
-    expect(screen.getAllByText('/document')).toHaveLength(3);
+    expect(screen.getByRole('tab', { name: 'Automation' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByText('/workflow')).toHaveLength(1);
     rerender(
       <I18nextProvider i18n={i18n}>
         <EmptyChatExamples visible={false} onSelect={vi.fn()} />
@@ -56,8 +73,9 @@ describe('EmptyChatExamples', () => {
     expect(screen.queryByRole('region', { name: 'Start with an example' })).toBeNull();
   });
 
-  it('uses explicit grid rows so cards with shorter copy keep icons top-aligned', () => {
+  it('uses explicit grid rows so cards with shorter copy keep icons top-aligned', async () => {
     renderExamples(true);
+    await userEvent.click(screen.getByRole('tab', { name: 'Office' }));
 
     const cards = screen.getAllByRole('button', { name: /创建|create|撰写|write|build/i });
     expect(cards).toHaveLength(3);
@@ -107,6 +125,7 @@ describe('EmptyChatExamples', () => {
 
     expect(screen.getByRole('tab', { name: '办公' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '绘图' })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: '办公' }));
     await user.click(screen.getByRole('button', { name: /创建演示文稿/i }));
     expect(onSelect.mock.calls[0]?.[0]).toMatch(/^\/document 请/);
   });

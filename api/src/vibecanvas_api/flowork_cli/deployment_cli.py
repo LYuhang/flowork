@@ -16,7 +16,12 @@ _CREDENTIAL_FILE_HELP = (
     "It contains deployment_id and api_key (API) or hmac_secret (webhook). "
     "For API calls, parse the file as JSON and use only api_key as the Bearer token; "
     "never send the whole file as a token. Read it inside the HTTP client process, "
-    "not into command arguments or logs."
+    "not into command arguments or logs. "
+    "POST the StartNode input object directly to the returned endpoint with "
+    "Content-Type: application/json; do not wrap it in an inputs property. "
+    "For example, --inputs '{\"batch_id\":\"example\",\"orders\":[]}' becomes "
+    "the HTTP body {\"batch_id\":\"example\",\"orders\":[]}. "
+    "The response contains outputs keyed by node_name; final values are in outputs.__end__."
 )
 
 

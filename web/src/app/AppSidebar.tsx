@@ -554,7 +554,7 @@ export function AppSidebar({
                     <button
                       type="button"
                       className={cn(
-                        'flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 pr-8 text-left text-ui font-semibold transition-colors',
+                        'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 pr-8 text-left text-ui font-semibold transition-colors',
                         activeProjectId === project.project_id
                           ? 'bg-primary/[0.06] text-foreground'
                           : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
@@ -562,12 +562,12 @@ export function AppSidebar({
                       aria-expanded={expanded}
                       onClick={() => selectProject(project.project_id)}
                     >
-                      {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-                      <span className="relative shrink-0">
-                        <Folder className="size-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{project.name}</span>
+                      {expanded ? <ChevronDown className="mt-0.5 size-3.5 shrink-0" /> : <ChevronRight className="mt-0.5 size-3.5 shrink-0" />}
+                      <span className="flex min-w-0 flex-1 flex-col items-start">
+                        <span className="flex w-full min-w-0 items-center gap-2">
+                          <Folder className="size-4 shrink-0" />
+                          <span className="min-w-0 truncate">{project.name}</span>
+                        </span>
                         <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground" title={sandboxLabel}>
                           <StatusDot status={sandboxTone} pulse={sandboxBusy || sandboxTone === 'running'} />
                           <span className="truncate">{project.runtime_type === 'codex' ? 'Codex' : project.runtime_type} · {sandboxLabel}</span>
@@ -576,7 +576,7 @@ export function AppSidebar({
                     </button>
                     <button
                       type="button"
-                      className="absolute right-1 grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-surface-raised hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
+                      className="absolute right-1 top-1 grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-surface-raised hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
                       onClick={(event) => {
                         event.stopPropagation();
                         newChat(project.project_id);

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { ChevronRight, FolderUp, MoreHorizontal, Trash2, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -182,20 +182,22 @@ export function KnowledgeSourceExplorer({
   );
 
   return (
-    <div className="flex h-full min-h-[28rem] overflow-hidden rounded-lg border border-edge-subtle bg-background">
+    <div className="flex h-full min-h-[28rem] flex-col overflow-hidden rounded-lg border border-edge-subtle bg-background md:flex-row">
       <aside
-        className="relative flex min-h-0 shrink-0 flex-col border-r border-edge-structural bg-surface-nav"
-        style={{ width: pane.width }}
+        className="relative flex max-h-56 min-h-0 w-full shrink-0 flex-col border-b border-edge-structural bg-surface-nav md:max-h-none md:w-[var(--knowledge-tree-width)] md:border-b-0 md:border-r"
+        style={{ '--knowledge-tree-width': `${pane.width}px` } as CSSProperties}
       >
-        <PaneResizeHandle
-          side="right"
-          width={pane.width}
-          minWidth={220}
-          maxWidth={400}
-          onWidthChange={pane.setWidth}
-          onReset={pane.resetWidth}
-          label={t('knowledge.resizeSources', 'Resize file tree')}
-        />
+        <div className="hidden md:block">
+          <PaneResizeHandle
+            side="right"
+            width={pane.width}
+            minWidth={220}
+            maxWidth={400}
+            onWidthChange={pane.setWidth}
+            onReset={pane.resetWidth}
+            label={t('knowledge.resizeSources', 'Resize file tree')}
+          />
+        </div>
         <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
           <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
             <FileTypeIcon directory className="size-6 rounded-md" />
@@ -324,7 +326,7 @@ export function KnowledgeSourceExplorer({
         />
       </aside>
 
-      <section className="min-h-0 min-w-0 flex-1" aria-live="polite">
+      <section className="min-h-96 min-w-0 flex-1 md:min-h-0" aria-live="polite">
         {selected ? (
           <KnowledgeFilePreview kbId={kbId} file={selected} />
         ) : null}

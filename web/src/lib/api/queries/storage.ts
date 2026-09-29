@@ -80,9 +80,18 @@ export function useWriteStorageContent() {
   return useMutation({
     mutationFn: (args: { path: string; content: string; content_type?: string }) =>
       writeStorageContent(args),
-    onSuccess: (_data, vars) => {
-      void qc.invalidateQueries({ queryKey: storageKeys.all });
-      qc.removeQueries({ queryKey: storageKeys.content(vars.path) });
+    onSuccess: async (data, vars) => {
+      // A completed save is authoritative. Keep the editor visible, and prevent
+      // an older in-flight read from replacing the newly saved content.
+      await qc.cancelQueries({ queryKey: storageKeys.content(vars.path), exact: true });
+      qc.setQueryData(storageKeys.content(vars.path), {
+        path: data.path,
+        content: vars.content,
+        content_type: data.content_type,
+        size_bytes: data.size_bytes,
+        truncated: false,
+      });
+      void qc.invalidateQueries({ queryKey: ['storage', 'list'] });
     },
   });
 }

@@ -71,12 +71,12 @@ export function McpToolDirectory({
   return (
     <div
       className={cn(
-        'grid min-h-0 flex-1 overflow-hidden bg-surface-work md:grid-cols-[minmax(220px,300px)_minmax(0,1fr)]',
+        'grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden bg-surface-work md:grid-cols-[minmax(220px,300px)_minmax(0,1fr)]',
         className,
       )}
       data-testid="mcp-tool-directory"
     >
-      <aside className="flex min-h-0 flex-col border-b border-edge-subtle bg-surface-sunken/55 md:border-b-0 md:border-r">
+      <aside className="flex min-h-0 min-w-0 flex-col border-b border-edge-subtle bg-surface-sunken/55 md:border-b-0 md:border-r">
         <div className="shrink-0 border-b border-edge-subtle p-3">
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-content-tertiary">
@@ -128,7 +128,7 @@ export function McpToolDirectory({
         </div>
       </aside>
 
-      <section className="min-h-0 overflow-y-auto overscroll-contain">
+      <section className="min-h-0 min-w-0 overflow-y-auto overscroll-contain">
         {selectedTool ? (
           <div className="mx-auto w-full max-w-4xl p-5 sm:p-7">
             <div className="flex items-start gap-3 border-b border-edge-subtle pb-5">

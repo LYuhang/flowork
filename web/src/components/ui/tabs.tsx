@@ -14,7 +14,7 @@ const tabsListVariants = cva(
         segmented:
           "inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1",
         underline:
-          "flex h-10 items-end gap-5 border-b border-edge-subtle",
+          "flex h-10 min-w-0 max-w-full shrink-0 items-end gap-5 overflow-x-auto overflow-y-hidden border-b border-edge-subtle",
         vertical:
           "flex w-full flex-col items-stretch gap-1",
       },

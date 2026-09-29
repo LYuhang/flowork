@@ -885,7 +885,7 @@ export function ChatComposer({
     <div
       className={cn(
         'flex flex-col',
-        embedded ? 'gap-1.5 p-2.5' : 'gap-2',
+        embedded ? 'm-3 mt-1 gap-2 rounded-2xl border border-edge-subtle bg-surface-raised p-2 shadow-raised transition-shadow duration-150 focus-within:border-focus/40 focus-within:shadow-popover motion-reduce:transition-none' : 'gap-2',
         quietFrame ? 'p-3.5' : !embedded && 'p-3',
       )}
     >
@@ -966,7 +966,7 @@ export function ChatComposer({
         <div
           className={cn(
             'relative overflow-hidden rounded-none transition-colors',
-            quietFrame
+            (quietFrame || embedded)
               ? 'bg-transparent'
               : 'border border-edge-structural bg-surface-raised',
             dragActive && 'border-focus bg-focus/[0.035] ring-2 ring-focus/15',

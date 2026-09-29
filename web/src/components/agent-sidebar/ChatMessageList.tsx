@@ -7,7 +7,7 @@
  * (Extracted from the former ChatSessionList right column.)
  */
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, CircleStop, Eye, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUpRight, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, CircleStop, Eye, Globe2, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessageAvatar, MessageItem } from '@/components/agent-sidebar/MessageItem';
@@ -732,9 +732,26 @@ export function ChatMessageList({
               <Skeleton className="h-10 w-4/5" />
             </div>
           ) : merged.length === 0 && !showStream ? (
-            <p className="text-sm text-muted-foreground">
-              {t('agent.empty_ready', 'Send a message to start the conversation.')}
-            </p>
+            compact && surface === 'browser' ? (
+              <section className="px-1 py-8" aria-label={t('embed.welcome.title', 'What would you like to do?')}>
+                <div className="mb-5 grid size-12 place-items-center rounded-2xl bg-focus/10 text-focus"><Globe2 className="size-6" aria-hidden /></div>
+                <h2 className="text-xl font-semibold tracking-tight">{t('embed.welcome.title', 'What would you like to do?')}</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('embed.welcome.description', 'Research across pages, organize information, or work through a form. Describe your goal to get started.')}</p>
+                <div className="mt-6 space-y-2">
+                  {[
+                    ['research', 'Research a topic', 'Research this topic using reliable sources: '],
+                    ['summary', 'Summarize this page', 'Summarize this page and list its key takeaways with source links.'],
+                    ['form', 'Help with a form', 'Help me fill out the form on this page with the following information: '],
+                  ].map(([key, label, prompt]) => (
+                    <button key={key} type="button" disabled={!activeChatId}
+                      onClick={() => useChatStreamStore.getState().setDraft(t(`embed.welcome.${key}_prompt`, prompt), activeChatId)}
+                      className="group flex w-full items-center justify-between gap-3 rounded-xl border border-edge-subtle bg-surface-raised px-3.5 py-3 text-left text-sm transition-colors hover:border-focus/30 hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-50 motion-reduce:transition-none">
+                      {t(`embed.welcome.${key}`, label)}<ArrowUpRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : <p className="text-sm text-muted-foreground">{t('agent.empty_ready', 'Send a message to start the conversation.')}</p>
           ) : (
             <>
               {renderItems.map((item) => {

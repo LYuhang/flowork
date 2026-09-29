@@ -101,6 +101,17 @@ describe('embedded Chat identity boundary', () => {
     expect(mintBrowserToken).toHaveBeenCalledTimes(calls);
   });
 
+  it('keeps the same mounted shell while the socket capability renews', async () => {
+    render(<MemoryRouter><EmbedChatPage /></MemoryRouter>);
+    await bind();
+    const shell = screen.getByTestId('shell');
+    await shellMessage({ type: 'BROWSER_TRANSPORT_STATE', connected: true });
+    await shellMessage({ type: 'BROWSER_WS_AUTH_REQUIRED' });
+    expect(screen.getByTestId('shell')).toBe(shell);
+    await shellMessage({ type: 'OPEN_WS_RESULT', ok: true, connected: true });
+    expect(screen.getByTestId('shell')).toBe(shell);
+  });
+
   it('preserves initial URL handoff while cold authentication resolves', async () => {
     useAuthStore.setState({ authenticated: false, user: null, sessionAudience: null });
     render(<MemoryRouter initialEntries={['/embed/chat?wf=handoff-scope&chat=handoff-chat']}><EmbedChatPage /></MemoryRouter>);

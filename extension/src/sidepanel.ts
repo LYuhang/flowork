@@ -370,9 +370,9 @@ async function mount(): Promise<void> {
     // seed the credential/model settings. (Entry B also
     // gets a BINDING via its own REQUEST_BINDING; a second one is idempotent.)
     iframe.addEventListener("load", () => {
-      if (loadTimer) clearTimeout(loadTimer);
-      hideShellState();
-      postToIframe({ type: "BINDING", ...b });
+      // HTTP error documents also fire load. Only the app's trusted ready
+      // handshake can dismiss the overlay; otherwise retain the retry timer.
+      postToIframe({ type: "BINDING", ...currentBinding });
     });
     iframe.addEventListener("error", () => showShellState("unavailable"));
     beginIframeLoad(b);
@@ -402,6 +402,11 @@ window.addEventListener("message", (ev: MessageEvent) => {
     turn_id?: string;
   } | null;
   if (!m?.type) return;
+
+  if (m.type === "EMBED_READY" || m.type === "REQUEST_BINDING") {
+    if (loadTimer) clearTimeout(loadTimer);
+    hideShellState();
+  }
 
   if (m.type === "ISLAND_PHASE") {
     // Forward the agent's relayed chat-stream phase
@@ -448,10 +453,10 @@ window.addEventListener("message", (ev: MessageEvent) => {
       if (r) postToIframe({ type: "BINDING", ...r });
     });
   } else if (m.type === "OPEN_WS") {
-    void sendToSw<{ ok?: boolean }>({
+    void sendToSw<{ ok?: boolean; connected?: boolean }>({
       type: "OPEN_WS",
       scopedToken: m.scopedToken,
-    }).then((r) => postToIframe({ type: "OPEN_WS_RESULT", ok: !!r?.ok }));
+    }).then((r) => postToIframe({ type: "OPEN_WS_RESULT", ok: !!r?.ok, connected: r?.connected === true }));
   }
 });
 
@@ -464,7 +469,9 @@ chrome.runtime.onMessage.addListener((msg: unknown) => {
     status?: string;
     browser_window_id?: string | number;
   } | null;
-  if (m?.type === "WS_OPEN" && statusEl) statusEl.hidden = true;
+  if (m?.type === "WS_OPEN" || m?.type === "WS_CLOSED") {
+    postToIframe({ type: "BROWSER_TRANSPORT_STATE", connected: m.type === "WS_OPEN" });
+  }
   if (m?.type === "WS_AUTH_REQUIRED") {
     postToIframe({ type: "BROWSER_WS_AUTH_REQUIRED" });
   }

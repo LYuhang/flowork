@@ -97,7 +97,7 @@ chrome.runtime.onMessage.addListener(
       }
       const nextKey = JSON.stringify([url, protocols]);
       if (client && clientKey === nextKey && client.isActive()) {
-        sendResponse({ ok: true, reused: true });
+        sendResponse({ ok: true, reused: true, connected: client.isConnected() });
         return false;
       }
       void (async () => {
@@ -106,7 +106,7 @@ chrome.runtime.onMessage.addListener(
           && await previous.refreshAuthentication(m.token, protocols)) {
         if (client !== previous) { sendResponse({ ok: false }); return; }
         clientKey = nextKey;
-        sendResponse({ ok: true, reused: true }); return;
+        sendResponse({ ok: true, reused: true, connected: previous.isConnected() }); return;
       }
       if (client !== previous) { sendResponse({ ok: false }); return; }
       // Exactly one socket per attached browser.
@@ -132,7 +132,7 @@ chrome.runtime.onMessage.addListener(
         );
       });
       connected.connect();
-      sendResponse({ ok: true });
+      sendResponse({ ok: true, connected: connected.isConnected() });
       })().catch(() => sendResponse({ ok: false }));
       return true;
     }

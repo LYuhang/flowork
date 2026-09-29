@@ -52,31 +52,60 @@ class BrowserCliRuntime:
         self._sequence = 0
         self._closed = False
         self._private_root = None
+        self._stderr_tail = bytearray()
+        self._stderr_task = None
+
+    async def _drain_stderr(self, stream):
+        while chunk := await stream.read(4096):
+            self._stderr_tail.extend(chunk)
+            del self._stderr_tail[:-8192]
 
     async def _start(self, material):
+        local_bearer = secrets.token_urlsafe(32)
+        try:
+            await self._start_runtime(material, local_bearer)
+        except BrowserStartupError:
+            raise
+        except Exception as error:
+            diagnostic = _startup_diagnostic(f"{type(error).__name__}: {error}", material, local_bearer)
+            logging.getLogger(__name__).warning("Browser CLI startup failed: %s", diagnostic)
+            raise BrowserStartupError(f"Browser CLI could not start: {diagnostic}") from error
+
+    async def _start_runtime(self, material, local_bearer):
         if self._closed:
             raise RuntimeError("Browser CLI turn has ended")
         executable = shutil.which(os.environ.get("BROWSER_CLI_COMMAND", "flowork-browser-runtime"))
         if not executable:
             raise BrowserStartupError("Browser CLI runtime is not installed in the sandbox. Contact the platform operator.")
-        local_bearer = secrets.token_urlsafe(32)
         self._private_root = tempfile.mkdtemp(prefix="flowork-browser-private-")
         self._relay = await start_browser_cdp_relay(local_bearer=local_bearer)
         await self._relay.activate(upstream_url=material["endpoint"], upstream_bearer=material["bearer"])
         self._process = await asyncio.create_subprocess_exec(
             executable, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL, start_new_session=True,
+            stderr=asyncio.subprocess.PIPE, start_new_session=True,
             # JSON frame sizes are not file-size limits. File transfer itself is
             # chunked by the browser runtime rather than written on this pipe.
             limit=2**31 - 1,
         )
+        self._stderr_tail.clear()
+        self._stderr_task = asyncio.create_task(self._drain_stderr(self._process.stderr))
         self._sequence += 1
         self._process.stdin.write(json.dumps({
             "id": self._sequence, "operation": "initialize",
             "arguments": {"endpoint": self._relay.endpoint, "bearer": local_bearer, "private_root": self._private_root},
         }).encode() + b"\n")
         await self._process.stdin.drain()
-        response = json.loads(await asyncio.wait_for(self._process.stdout.readline(), timeout=30))
+        line = await asyncio.wait_for(self._process.stdout.readline(), timeout=30)
+        if not line:
+            # A missing binary/module or permission failure must not masquerade
+            # as a browser disconnect. Drain only a bounded diagnostic tail.
+            if self._stderr_task.done():
+                await self._stderr_task
+            else:
+                await asyncio.wait({self._stderr_task}, timeout=1)
+            diagnostic = _startup_diagnostic(self._stderr_tail.decode(errors="replace"), material, local_bearer)
+            raise BrowserStartupError(f"Browser runtime exited before initialization (exit {self._process.returncode}): {diagnostic or 'No stderr diagnostic.'}")
+        response = json.loads(line)
         if response.get("id") != self._sequence:
             raise BrowserStartupError("Browser initialization returned an invalid response correlation.")
         if response.get("result", {}).get("status") != "succeeded":
@@ -286,6 +315,12 @@ class BrowserCliRuntime:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+        stderr_task, self._stderr_task = self._stderr_task, None
+        if stderr_task is not None:
+            if not stderr_task.done():
+                stderr_task.cancel()
+            await asyncio.gather(stderr_task, return_exceptions=True)
+        self._stderr_tail.clear()
         relay, self._relay = self._relay, None
         try:
             if relay is not None:

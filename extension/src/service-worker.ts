@@ -1168,6 +1168,7 @@ chrome.runtime.onMessage.addListener(
             typeof opened === "object" &&
             opened !== null &&
             (opened as { ok?: unknown }).ok === true,
+          connected: (opened as { connected?: unknown } | null)?.connected === true,
         });
       })();
       return true; // async sendResponse

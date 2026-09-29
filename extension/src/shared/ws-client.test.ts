@@ -237,3 +237,38 @@ describe("Playwright relay dispatch", () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 });
+
+
+describe("transport health", () => {
+  it("reconnects an unresponsive socket and ignores stale close events", () => {
+    vi.useFakeTimers();
+    class FakeWebSocket {
+      static OPEN = 1; static CONNECTING = 0;
+      static instances: FakeWebSocket[] = [];
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      send = vi.fn();
+      close = vi.fn((code = 1000) => { this.readyState = 3; this.onclose?.({ code } as CloseEvent); });
+      constructor() { FakeWebSocket.instances.push(this); }
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const client = new WsClient("wss://app.example/ws");
+    const closed = vi.fn(); client.onClose(closed); client.connect();
+    expect(client.isConnected()).toBe(false);
+    const first = FakeWebSocket.instances[0]; first.readyState = 1; first.onopen!();
+    expect(client.isConnected()).toBe(true);
+    vi.advanceTimersByTime(30_000); expect(first.close).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(15_000); expect(first.close).toHaveBeenCalledWith(4000, "Heartbeat timeout");
+    expect(client.isConnected()).toBe(false);
+    vi.advanceTimersByTime(1000); expect(FakeWebSocket.instances).toHaveLength(2);
+    const second = FakeWebSocket.instances[1]; second.readyState = 1; second.onopen!();
+    first.onclose!({ code: 4401 } as CloseEvent);
+    expect(closed).toHaveBeenCalledTimes(1); expect(client.isConnected()).toBe(true);
+    vi.advanceTimersByTime(30_000);
+    second.onmessage!({ data: JSON.stringify({ v: 1, kind: "echo", id: "ping", channel: "system", transport: "t", data: {} }) } as MessageEvent);
+    vi.advanceTimersByTime(30_000); expect(second.close).not.toHaveBeenCalled();
+    client.disconnect(); expect(client.isConnected()).toBe(false);
+  });
+});

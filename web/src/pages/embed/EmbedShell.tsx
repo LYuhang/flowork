@@ -15,7 +15,8 @@
  */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MessageSquare, Play, Settings } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Play, Settings } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { AgentChatSidebar } from '@/components/agent-sidebar/AgentChatSidebar';
 import { EmbedExecutionTab } from '@/pages/embed/EmbedExecutionTab';
 import { EmbedSettingsTab } from '@/pages/embed/EmbedSettingsTab';
@@ -32,6 +33,7 @@ export interface EmbedShellProps {
   browserControlAvailableHere?: boolean;
   /** Browser-only side panel hides workflow execution surfaces. */
   browserOnly?: boolean;
+  transportConnected?: boolean | null;
 }
 
 export function EmbedShell({
@@ -40,9 +42,15 @@ export function EmbedShell({
   browserControlChatId,
   browserControlAvailableHere,
   browserOnly = false,
+  transportConnected,
 }: EmbedShellProps) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<EmbedTab>('chat');
+  const [settingsVisited, setSettingsVisited] = useState(false);
+  const selectTab = (next: EmbedTab) => {
+    if (next === 'settings') setSettingsVisited(true);
+    setTab(next);
+  };
 
   const tabs: Array<{ id: EmbedTab; label: string; icon: typeof MessageSquare }> = [
     { id: 'chat', label: t('embed.tab.chat', 'Chat'), icon: MessageSquare },
@@ -61,8 +69,16 @@ export function EmbedShell({
   ];
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-work text-foreground">
-      {tabs.length > 1 && (
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-surface-work text-foreground">
+      {browserOnly && tab === 'settings' && (
+        <header className="flex h-14 shrink-0 items-center gap-2 px-3">
+          <Button variant="ghost" size="icon" className="rounded-full" onClick={() => selectTab('chat')} aria-label={t('embed.back_to_chat', 'Back to chat')}>
+            <ArrowLeft className="size-4" />
+          </Button>
+          <h1 className="text-sm font-semibold">{t('embed.tab.settings', 'Settings')}</h1>
+        </header>
+      )}
+      {!browserOnly && tabs.length > 1 && (
         <div
           role="tablist"
           aria-label={t('embed.tab.aria', 'Side panel sections')}
@@ -75,7 +91,7 @@ export function EmbedShell({
               role="tab"
               aria-selected={tab === id}
               data-action={`embed-tab-${id}`}
-              onClick={() => setTab(id)}
+              onClick={() => selectTab(id)}
               className={cn(
                 'flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/40',
                 tab === id
@@ -107,8 +123,10 @@ export function EmbedShell({
               defaultMode={defaultMode}
               browserControlChatId={browserControlChatId}
               browserControlAvailableHere={browserControlAvailableHere}
+              browserTransportConnected={transportConnected}
               chatSurface="browser"
-              showEmbeddedSettingsButton={false}
+              showEmbeddedSettingsButton={browserOnly}
+              onOpenEmbeddedSettings={() => selectTab('settings')}
               showComposerModelSelector
               active={tab === 'chat'}
             />
@@ -124,7 +142,7 @@ export function EmbedShell({
         <div
           className={cn('absolute inset-0', tab === 'settings' ? 'block' : 'hidden')}
         >
-          <EmbedSettingsTab />
+          {settingsVisited && <EmbedSettingsTab />}
         </div>
       </div>
     </div>

@@ -136,11 +136,13 @@ export function EmbedChatPage() {
   const [browserControlChatId, setBrowserControlChatId] = useState('');
   const [browserControlAvailableHere, setBrowserControlAvailableHere] = useState(false);
   const [browserId, setBrowserId] = useState('');
+  const [transportConnected, setTransportConnected] = useState<boolean | null>(null);
 
   // Gate the first render until the partitioned-cookie bootstrap
   // settles, so we don't flash the login pane for an authed embed.
   const [seeded, setSeeded] = useState(false);
   const [binding, setBinding] = useState(true);
+  const [shellReady, setShellReady] = useState(false);
   const [bindingFailed, setBindingFailed] = useState(false);
   const [boundWf, setBoundWf] = useState<string | null>(null);
   const browserBootstrap = useBrowserChatBootstrap(extensionAuthenticated);
@@ -163,6 +165,8 @@ export function EmbedChatPage() {
     setBrowserControlChatId('');
     setBrowserControlAvailableHere(false);
     setBrowserId('');
+    setTransportConnected(null);
+    setShellReady(false);
     setBoundWf(null);
     setBinding(true);
     setBindingFailed(false);
@@ -172,6 +176,10 @@ export function EmbedChatPage() {
     if (!trustedExtensionOrigin || window.parent === window) return;
     window.parent.postMessage(message, trustedExtensionOrigin);
   }, [trustedExtensionOrigin]);
+
+  useEffect(() => {
+    postToExtension({ type: 'EMBED_READY' });
+  }, [postToExtension]);
 
   // Keep the extension host shell in the same theme before subsequent iframe
   // paints. The shell persists this projection in chrome.storage, so its next
@@ -279,6 +287,10 @@ export function EmbedChatPage() {
       // window; the shell separately validates this iframe's source + web origin.
       if (e.source !== window.parent) return;
       if (!trustedExtensionOrigin || e.origin !== trustedExtensionOrigin) return;
+      if (e.data?.type === 'BROWSER_TRANSPORT_STATE') {
+        setTransportConnected(e.data.connected === true);
+        return;
+      }
       if (
         typeof e.data === 'object' &&
         e.data !== null &&
@@ -294,6 +306,7 @@ export function EmbedChatPage() {
         (e.data as { type?: unknown }).type === 'OPEN_WS_RESULT'
       ) {
         if ((e.data as { ok?: unknown }).ok === true) {
+          if ((e.data as { connected?: unknown }).connected === true) setTransportConnected(true);
           setBindingFailed(false);
           setBinding(false);
         } else {
@@ -436,6 +449,11 @@ export function EmbedChatPage() {
     return () => window.clearTimeout(timer);
   }, [binding, extensionAuthenticated, seeded]);
 
+  // Renewing a capability must preserve the mounted chat, draft and settings.
+  useEffect(() => {
+    if (!binding && extensionAuthenticated && wf) setShellReady(true);
+  }, [binding, extensionAuthenticated, wf]);
+
   const retryBinding = useCallback(() => {
     setBinding(true);
     setBindingFailed(false);
@@ -511,7 +529,7 @@ export function EmbedChatPage() {
     );
   }
 
-  if (binding && bindingFailed) {
+  if (binding && bindingFailed && !shellReady) {
     const appHref = `${getBasePath() || ''}/chat`;
     return (
       <div className="flex h-screen items-center justify-center bg-surface-app p-5">
@@ -542,7 +560,7 @@ export function EmbedChatPage() {
     );
   }
 
-  if (binding) {
+  if (binding && !shellReady) {
     return (
       <div className="flex h-screen items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
         <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -552,13 +570,24 @@ export function EmbedChatPage() {
   }
 
   return (
+    <div className="flex h-dvh min-h-0 flex-col">
+      {bindingFailed && shellReady ? (
+        <div className="flex items-center justify-between gap-2 bg-state-warning/10 px-3 py-2 text-xs" role="status">
+          <span>{t('embed.browser.reconnecting')}</span>
+          <Button size="sm" variant="ghost" onClick={retryBinding}>{t('retry', 'Retry')}</Button>
+        </div>
+      ) : null}
+      <div className="min-h-0 flex-1">
     <EmbedShell
       key={identity}
       wfId={wf}
       defaultMode={defaultMode}
       browserControlChatId={browserControlChatId}
       browserControlAvailableHere={browserControlAvailableHere}
+      transportConnected={bindingFailed ? false : transportConnected}
       browserOnly
     />
+      </div>
+    </div>
   );
 }

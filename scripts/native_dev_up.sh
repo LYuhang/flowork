@@ -702,9 +702,19 @@ EOF
   echo "web    pid=$(cat "$RUNDIR/web.pid" 2>/dev/null) http://$_check:$WEB_PORT  (host: ${WEB_HOST:-127.0.0.1}, mode: $WEB_MODE, log: $RUNDIR/web.log)"
 }
 
+verify_browser_runtime() {
+  local browser_command="${BROWSER_CLI_COMMAND:-flowork-browser-runtime}"
+  if ! "$browser_command" --version; then
+    echo "ERROR: Browser CLI cannot start; inspect the diagnostic above." >&2
+    echo "Run ./scripts/bootstrap_native_linux.sh --prepare-only to repair its pinned dependencies." >&2
+    return 1
+  fi
+}
+
 cmd_up() {
   resolve_backend_python
   resolve_codex_runtime
+  verify_browser_runtime
   install_backend_packages
   resolve_sandbox_python_paths
   start_pg
@@ -783,7 +793,7 @@ cmd_status() {
 }
 
 case "${1:-up}" in
-  check-runtime) resolve_backend_python; resolve_codex_runtime ;;
+  check-runtime) resolve_backend_python; resolve_codex_runtime; verify_browser_runtime ;;
   up)     cmd_up ;;
   down)   cmd_down ;;
   status) cmd_status ;;

@@ -92,10 +92,12 @@ export interface AgentChatSidebarProps {
   /** Extension-local projection; browser/window ids never enter the Turn API. */
   browserControlChatId?: string;
   browserControlAvailableHere?: boolean;
+  browserTransportConnected?: boolean | null;
   /** Chat history surface. Embedded side-panel uses browser history. */
   chatSurface?: 'chat' | 'browser';
   /** Embedded shell already has a Settings tab; keep the chat header focused. */
   showEmbeddedSettingsButton?: boolean;
+  onOpenEmbeddedSettings?: () => void;
   /** Show the inline model selector in the composer footer. */
   showComposerModelSelector?: boolean;
   /** Whether the mounted sidebar is currently visible in its parent tab. */
@@ -107,8 +109,10 @@ export function AgentChatSidebar({
   defaultMode,
   browserControlChatId,
   browserControlAvailableHere = false,
+  browserTransportConnected,
   chatSurface = embedded ? 'browser' : 'chat',
   showEmbeddedSettingsButton = true,
+  onOpenEmbeddedSettings,
   showComposerModelSelector = false,
   active = true,
 }: AgentChatSidebarProps = {}) {
@@ -419,7 +423,8 @@ export function AgentChatSidebar({
   const composerDisabledReason =
     activeRunDiscoveryStatus === 'error'
         ? t('composer.active_run_discovery_failed', 'Could not check active agent state. Refresh or retry in a moment.')
-        : browserDisabledReason;
+        : browserDisabledReason ?? (embedded && browserTransportConnected !== undefined && browserTransportConnected !== true
+          ? t('embed.browser.reconnecting', 'Connecting to the browser service. Your draft is preserved; sending will resume when connected.') : null);
 
   // Embedded: never collapse to a launcher — the side panel IS the chat.
   if (!embedded && collapsed) {
@@ -475,17 +480,21 @@ export function AgentChatSidebar({
   const headerTitle = embedded ? (
     chatSurface === 'browser' ? (
       <div className="mr-auto flex min-w-0 items-center gap-2">
-        <div className="relative flex h-7 w-7 shrink-0 items-center justify-center">
+        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-focus/10">
           <MessageSquare className="h-4 w-4 text-muted-foreground" />
           <StatusDot
             className="absolute -right-0.5 -top-0.5"
-            status={running ? 'running' : 'neutral'}
+            status={running ? 'running' : browserTransportConnected === true ? 'success' : browserTransportConnected === false ? 'warning' : 'neutral'}
             pulse={running}
           />
         </div>
         <div className="min-w-0">
           <div className="truncate text-[13px] font-semibold leading-4">{t('embed.browser.title', 'Browser assistant')}</div>
-          <div className="truncate text-xs leading-3 text-muted-foreground">{t('embed.browser.subtitle', 'Works with this page')}</div>
+          <div className="mt-1 truncate text-xs leading-4 text-muted-foreground" role="status">{browserTransportConnected === true
+            ? t('embed.browser.connected', 'Connected · ready for a task')
+            : browserTransportConnected === false ? t('embed.browser.connection_lost', 'Connection lost · reconnecting')
+            : browserTransportConnected === null ? t('embed.binding', 'Connecting to the browser…')
+            : t('embed.browser.subtitle', 'Works with this page')}</div>
         </div>
       </div>
     ) : (
@@ -535,10 +544,10 @@ export function AgentChatSidebar({
       )}
       <div
         className={cn(
-          'flex items-center border-b',
+          'flex shrink-0 items-center',
           embedded
-            ? 'surface-topbar h-12 gap-0.5 px-2.5'
-            : 'h-12 gap-1 px-3',
+            ? 'min-h-16 gap-0.5 px-3 py-2'
+            : 'h-12 gap-1 border-b px-3',
         )}
       >
         {headerTitle}
@@ -567,7 +576,7 @@ export function AgentChatSidebar({
             aria-label={t('agent_settings.title', 'Agent settings')}
             title={t('agent_settings.title', 'Agent settings')}
             data-action="agent-sidebar-settings"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => onOpenEmbeddedSettings ? onOpenEmbeddedSettings() : setSettingsOpen(true)}
           >
             <Settings2 className="h-4 w-4" />
           </Button>
@@ -624,7 +633,7 @@ export function AgentChatSidebar({
         </div>
       </div>
 
-      {(!embedded || showEmbeddedSettingsButton) && (
+      {(!embedded || (showEmbeddedSettingsButton && !onOpenEmbeddedSettings)) && (
         <AgentSettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
       )}
     </aside>

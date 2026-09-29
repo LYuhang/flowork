@@ -226,7 +226,7 @@ export function AppSidebar({
   );
   const effectiveCollapsed = mobile ? false : collapsed;
   const showChatContext = location.pathname === '/chat' && !effectiveCollapsed;
-  const boot = useGeneralChatBootstrap();
+  const boot = useGeneralChatBootstrap(showChatContext);
   const carrierScopeId = boot.data?.carrier_scope_id ?? null;
   const sessions = useChatSessions(showChatContext ? carrierScopeId : null);
   const projects = useChatProjects(showChatContext);

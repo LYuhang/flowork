@@ -98,6 +98,38 @@ async def test_startup_diagnostic_is_actionable_and_contains_no_connection_crede
 
 
 @pytest.mark.asyncio
+async def test_unexpected_startup_error_retains_safe_cause(monkeypatch):
+    runtime = module.BrowserCliRuntime(AsyncMock(return_value=MATERIAL))
+    monkeypatch.setattr(runtime, "_start_runtime", AsyncMock(side_effect=KeyError("endpoint ws://private")))
+    with pytest.raises(module.BrowserStartupError) as caught:
+        await runtime._start(MATERIAL)
+    assert "KeyError" in str(caught.value)
+    assert "private" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_missing_module_reports_stderr_without_credentials(monkeypatch, tmp_path):
+    runtime = module.BrowserCliRuntime(AsyncMock(return_value=MATERIAL))
+    stdout, stderr = asyncio.StreamReader(), asyncio.StreamReader()
+    stdout.feed_eof()
+    stderr.feed_data(b"Cannot find module 'playwright-core' at ws://private Bearer private")
+    stderr.feed_eof()
+    process = SimpleNamespace(returncode=1, stdout=stdout, stderr=stderr,
+        stdin=SimpleNamespace(write=lambda _: None, drain=AsyncMock()))
+    relay = SimpleNamespace(endpoint="ws://local", activate=AsyncMock(), close=AsyncMock())
+    monkeypatch.setattr(module.shutil, "which", lambda _: "/usr/bin/flowork-browser-runtime")
+    monkeypatch.setattr(module.tempfile, "mkdtemp", lambda **_: str(tmp_path / "worker"))
+    monkeypatch.setattr(module, "start_browser_cdp_relay", AsyncMock(return_value=relay))
+    monkeypatch.setattr(module.asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
+    with pytest.raises(module.BrowserStartupError) as caught:
+        await runtime._start(MATERIAL)
+    assert "playwright-core" in str(caught.value)
+    assert "private" not in str(caught.value)
+    assert "exit 1" in str(caught.value)
+    await runtime._stderr_task
+
+
+@pytest.mark.asyncio
 async def test_authorization_exception_closes_worker(monkeypatch):
     runtime, _, frames, _ = worker(monkeypatch, authorize=AsyncMock(side_effect=ConnectionError()))
     assert (await runtime.execute(*MUTATION, AsyncMock()))["status"] == "failed"

@@ -162,9 +162,15 @@ fi
   echo "ERROR: expected codex-cli ${CODEX_CLI_VERSION}, got $(codex --version 2>/dev/null || echo missing)" >&2
   exit 1
 }
-if [[ "$(flowork-browser-runtime --version 2>/dev/null || true)" != "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})" ]]; then
-  npm --prefix "$REPO_ROOT/api/playwright-runtime" ci --ignore-scripts --no-audit --no-fund
-  install_public_npm_package "$REPO_ROOT/api/playwright-runtime"
+if [[ "$(flowork-browser-runtime --version 2>/dev/null || true)" != "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})" ]] ||
+   [[ -L "$(npm root --global)/flowork-browser-runtime" ]]; then
+  # Installing a directory globally creates a link back into the checkout.
+  # Cleaning its ignored node_modules then breaks production browser control.
+  # A packed install owns its exact pinned dependencies under the global root.
+  browser_package_dir="$(mktemp -d)"
+  browser_package_name="$(npm pack "$REPO_ROOT/api/playwright-runtime" --ignore-scripts --silent --pack-destination "$browser_package_dir")"
+  install_public_npm_package "$browser_package_dir/$browser_package_name"
+  rm -rf -- "$browser_package_dir"
 fi
 [[ "$(flowork-browser-runtime --version)" == "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})" ]] || {
   echo "ERROR: expected Browser CLI runtime 0.4.0 with Playwright core ${PLAYWRIGHT_CORE_VERSION}" >&2

@@ -31,6 +31,7 @@ export class WsClient {
   private closed = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingFrames: string[] = [];
+  private lastReceivedAt = 0;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private openCbs: (() => void)[] = [];
   private closeCbs: ((event: CloseEvent) => void)[] = [];
@@ -79,6 +80,8 @@ export class WsClient {
     this.ws = ws;
 
     ws.onopen = () => {
+      if (this.ws !== ws || this.closed) return;
+      this.lastReceivedAt = Date.now();
       this.attempt = 0; // reset backoff once we have a live socket
       this.stopHeartbeat();
       // The Runtime may spend tens of seconds reasoning before its first
@@ -86,6 +89,11 @@ export class WsClient {
       // jump-host tunnels during that idle period; the backend already answers
       // protocol pings with an echo.
       this.heartbeat = setInterval(() => {
+        if (Date.now() - this.lastReceivedAt >= 45_000) {
+          this.stopHeartbeat();
+          ws.close(4000, "Heartbeat timeout");
+          return;
+        }
         this.ping({ type: "keepalive" });
       }, 15_000);
       const pending = this.pendingFrames.splice(0);
@@ -94,12 +102,14 @@ export class WsClient {
     };
 
     ws.onmessage = (ev: MessageEvent) => {
+      if (this.ws !== ws || this.closed) return;
       let e: Envelope;
       try {
         e = decode(String(ev.data));
       } catch {
         return; // ignore malformed frames; never eval server payloads (§6)
       }
+      this.lastReceivedAt = Date.now();
       if (e.kind === "echo") {
         const result = e.data as { type?: string; ok?: boolean; expires_at?: number } | null;
         if ((result?.type === "auth_status" || (result?.type === "auth_refresh" && result.ok === true))
@@ -121,7 +131,8 @@ export class WsClient {
     };
 
     ws.onclose = (event: CloseEvent) => {
-      if (this.ws === ws) this.ws = null;
+      if (this.ws !== ws) return;
+      this.ws = null;
       this.stopHeartbeat();
       for (const finish of this.refreshes.values()) finish(false);
       if (this.closed) return; // intentional close: do not reconnect
@@ -146,6 +157,10 @@ export class WsClient {
   /** Whether this client still owns a live, connecting, or backoff transport. */
   isActive(): boolean {
     return !this.closed;
+  }
+
+  isConnected(): boolean {
+    return !this.closed && this.ws?.readyState === WebSocket.OPEN;
   }
 
   /** Only a signed, same-identity token accepted by the server may renew this

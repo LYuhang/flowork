@@ -550,3 +550,37 @@ Do not resolve an encryption or authentication error by replacing `.env` or
 - Set up tests and development tools with the [Development guide](development.md).
 - Review data protection and retention in
   [Security and data lifecycle](security-and-data-lifecycle.md).
+
+### Browser runtime installation and diagnostics
+
+The native bootstrap installs `flowork-browser-runtime` 0.4.0 and its pinned
+`playwright-core` 1.63.0-alpha-2026-08-05 dependency as a self-contained global
+npm package. It packs the source first; installing the source directory directly
+with `npm install -g <directory>` creates a symlink and can break browser control
+when the checkout's ignored `node_modules` is cleaned. Existing linked installs
+are replaced automatically on the next bootstrap.
+
+```bash
+./scripts/bootstrap_native_linux.sh --prepare-only
+flowork-browser-runtime --version
+./scripts/native_dev_up.sh check-runtime
+```
+
+The native launcher checks that Browser CLI can start before bringing up the
+services. A missing module or binary is an installation failure, even if the
+extension is logged in. Startup errors now include a bounded, credential-redacted
+runtime diagnostic rather than reporting every failure as a browser disconnect.
+
+Docker builds already run `npm ci` from `api/playwright-runtime/package-lock.json`,
+copy the runtime **with its node_modules**, and check its version. No separate
+Chromium download is needed for controlling the user's Chrome through the
+extension. Keep the native and Docker runtime version pins aligned.
+
+The extension connects automatically. Its header shows the actual transport
+state; a successful request to open a socket does not mean it is connected yet.
+A 15-second heartbeat detects an unresponsive transport after 45 seconds and
+reconnects with capped backoff. Transient reconnects and capability renewal
+preserve the chat and draft. If a command was interrupted
+after dispatch, inspect the page before retrying a write to avoid duplicate
+submissions. For a public deployment, preserve WebSocket Upgrade headers on
+`/api/v1/browser/ws` as described in [DEPLOY.md](../DEPLOY.md).

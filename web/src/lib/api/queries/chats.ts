@@ -284,14 +284,15 @@ async function fetchChatWorkspace(chatId: string): Promise<ChatWorkspace> {
   return (await res.json()) as ChatWorkspace;
 }
 
-export const useChatBootstrap = (surface: 'chat' | 'browser') =>
+export const useChatBootstrap = (surface: 'chat' | 'browser', enabled = true) =>
   useQuery({
     queryKey: ['chat-bootstrap', surface],
     queryFn: () => fetchGeneralChatBootstrap(surface),
     staleTime: 5 * 60 * 1000,
+    enabled,
   });
 
-export const useGeneralChatBootstrap = () => useChatBootstrap('chat');
+export const useGeneralChatBootstrap = (enabled = true) => useChatBootstrap('chat', enabled);
 
 export interface CreateChatSessionInput {
   scopeId: string;

@@ -70,6 +70,8 @@ Ordinary browser commands do not introduce a separate CLI approval workflow.
 ### Files and credentials
 
 All command file paths refer to the cloud sandbox, not the user's computer.
+A snapshot saved with --output_file contains UTF-8 readable text, not JSON;
+use a .txt filename and read it as text. Its JSON receipt describes that file.
 Upload transfers real file bytes to a file input or pending chooser. Do not type
 a sandbox path into an operating-system picker. In run-code, setInputFiles and
 fileChooser.setFiles also transfer sandbox bytes, including FilePayload buffers.

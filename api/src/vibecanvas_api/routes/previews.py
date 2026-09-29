@@ -414,7 +414,12 @@ def _descriptor(
             )
             if size <= INLINE_TEXT_BYTES:
                 load_policy = "inline"
-                content = PreviewContent(inlineText=text_value)
+                content = PreviewContent(
+                    inlineText=text_value,
+                    # Inline content avoids a preview fetch; retain the signed
+                    # original-byte URL for downloading small text/CSV files.
+                    url=_safe_inline_url(resolved=resolved, auth=auth),
+                )
             else:
                 load_policy = "stream"
                 content = PreviewContent(

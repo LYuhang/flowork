@@ -29,6 +29,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
+from ..observability.timing import RequestTimings
+
 from ..auth.deps import (
     AuthContext,
     current_user,
@@ -2038,6 +2040,7 @@ async def get_chat_history(
     before_turn_id: str | None = Query(default=None),
     service: AuthzService = Depends(get_authz_service),
 ):
+    timings = RequestTimings(request.scope)
     await _authorize_chat(
         request=request,
         auth=auth,
@@ -2045,6 +2048,8 @@ async def get_chat_history(
         chat_id=chat_id,
         action=Action.VIEW,
     )
+    timings.mark("history_authz")
+
     def _sanitize_visible_content(content: str) -> str:
         text = content or ""
         while True:
@@ -2069,6 +2074,7 @@ async def get_chat_history(
     selected = await chat_repo.get_authorized_inventory(chat_id)
     if selected is None or selected["scope_id"] != scope_id:
         raise HTTPException(status_code=404, detail=f"chat {chat_id} not found")
+    timings.mark("history_inventory")
     visible, stored_total, stored_offset = await chat_repo.list_message_page(
         chat_id,
         limit=page.limit,
@@ -2076,12 +2082,14 @@ async def get_chat_history(
         tail=tail,
         before_turn_id=before_turn_id,
     )
+    timings.mark("history_messages")
     hitl_projections: list[tuple[str, HistoryMessage]] = []
     for artifact_row, hitl_row in await hitl_repo.list_artifact_refs_for_chat(chat_id):
         projected = _hitl_history_projection(artifact_row, hitl_row)
         if projected is not None:
             hitl_projections.append(projected)
 
+    timings.mark("history_interactions")
     stored_history: list[HistoryMessage] = []
     for item in visible:
         stored = item.get("content") if isinstance(item.get("content"), dict) else {}
@@ -2159,6 +2167,7 @@ async def get_chat_history(
     total = stored_total + max(0, len(projected_history) - len(stored_history))
     offset = stored_offset
     msgs = projected_history
+    timings.mark("history_projection")
     elapsed_ms = int((perf_counter() - started_at) * 1000)
     if elapsed_ms >= 250:
         logger.info(

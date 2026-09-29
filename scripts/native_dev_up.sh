@@ -171,7 +171,7 @@ web_build_needed() {
   local marker="$WEB_DIR/dist/index.html"
   case "$mode" in
     1|true|yes) return 0 ;;
-    0|false|no) [[ ! -f "$marker" ]] ;;
+    0|false|no) [[ ! -f "$marker" ]]; return ;;
     auto|"") ;;
     *) echo "ERROR: WEB_REBUILD must be auto, 1, or 0"; return 2 ;;
   esac

@@ -92,15 +92,16 @@ class OpenFgaAuthzService:
         user = openfga_principal(principal.type.value, principal.id)
         object_ = openfga_object(root.type, root.id)
         actions = tuple(relations)
+        guarded_results = await self._revocation_guard.denies_many(
+            checks=tuple(
+                (principal, item, root, context.membership_role)
+                for item in actions
+            ),
+        )
         guarded = {
             item
-            for item in actions
-            if await self._revocation_guard.denies(
-                principal=principal,
-                action=item,
-                resource=root,
-                membership_role=context.membership_role,
-            )
+            for item, denied in zip(actions, guarded_results, strict=True)
+            if denied
         }
         query_actions = tuple(item for item in actions if item not in guarded)
         queried = await self._client.batch_check(

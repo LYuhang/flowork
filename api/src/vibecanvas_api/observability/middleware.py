@@ -53,9 +53,14 @@ class RequestIdMiddleware:
                 # Expose application time separately from proxy/network wait
                 # in browser Resource Timing. Stop at headers: SSE duration is
                 # the lifetime of a stream, not request processing latency.
+                timings = [f"app;dur={(perf_counter() - started_at) * 1000:.1f}"]
+                timings.extend(
+                    f"{name};dur={duration:.1f}"
+                    for name, duration in scope.get("state", {}).get("response_timings", [])
+                )
                 headers.append((
                     b"server-timing",
-                    f"app;dur={(perf_counter() - started_at) * 1000:.1f}".encode("ascii"),
+                    ", ".join(timings).encode("ascii"),
                 ))
                 message = {**message, "headers": headers}
             await send(message)

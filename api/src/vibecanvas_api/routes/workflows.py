@@ -37,6 +37,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..observability.timing import RequestTimings
+
 from ..audit.context import extract_request_audit_context
 from ..auth.deps import (
     AuthContext,
@@ -266,6 +268,7 @@ async def list_workflows(
     auth: AuthContext = Depends(current_user),
     service: AuthzService = Depends(get_authz_service),
 ):
+    timings = RequestTimings(request.scope)
     principal = principal_for_auth(auth)
     context = context_for_auth(auth, request)
     authorized_ids = await service.list_authorized_ids(
@@ -274,11 +277,13 @@ async def list_workflows(
         ResourceType.WORKFLOW,
         context,
     )
+    timings.mark("workflow_visibility")
     rows, total = await repo.list_authorized_workflows(
         authorized_ids,
         limit=page.limit,
         offset=page.offset,
     )
+    timings.mark("workflow_inventory")
     resources = [
         _workflow_resource(auth, item["wf_id"]) for item in rows
     ]
@@ -288,11 +293,13 @@ async def list_workflows(
         resources=resources,
         context=context,
     )
+    timings.mark("workflow_capabilities")
     provenance = ResourceProvenanceBuilder(session)
     items = [
         await _meta_to_out(item, decisions[resource], provenance)
         for item, resource in zip(rows, resources, strict=True)
     ]
+    timings.mark("workflow_projection")
     return Page[WorkflowMetaOut](
         items=items,
         total=total,

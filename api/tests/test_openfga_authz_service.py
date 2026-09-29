@@ -81,6 +81,35 @@ def _service(client, coordinator=None) -> OpenFgaAuthzService:
 
 
 @pytest.mark.asyncio
+async def test_single_resource_check_batches_guards_without_weakening_revocation():
+    client = _FakeClient({"can_view", "can_update"})
+    service = _service(client)
+
+    class Guard:
+        calls = 0
+
+        async def denies_many(self, *, checks):
+            self.calls += 1
+            assert len(checks) > 1
+            return tuple(action is Action.VIEW for _, action, _, _ in checks)
+
+    guard = Guard()
+    service._revocation_guard = guard
+    decision = await service.check(
+        PrincipalRef(PrincipalType.USER, "user-1"),
+        Action.VIEW,
+        ResourceRef(ResourceType.WORKFLOW, "wf-1", "org-1"),
+        _context(consistency=ConsistencyPreference.HIGHER_CONSISTENCY),
+    )
+    assert guard.calls == 1
+    assert not decision.allowed
+    assert Action.VIEW not in decision.capabilities
+    assert Action.UPDATE in decision.capabilities
+    assert all(relation != "can_view" for _, relation, _ in client.batch_calls[0][0])
+    assert client.batch_calls[0][1] is ConsistencyPreference.HIGHER_CONSISTENCY
+
+
+@pytest.mark.asyncio
 async def test_check_computes_complete_capabilities_and_custom_union():
     client = _FakeClient({
         "can_view_metadata",

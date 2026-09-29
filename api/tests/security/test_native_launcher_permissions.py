@@ -15,6 +15,29 @@ ROOT = Path(__file__).resolve().parents[3]
 LAUNCHER = ROOT / "scripts" / "native_dev_up.sh"
 
 
+@pytest.mark.parametrize("mode,build", [("0", False), ("false", False), ("no", False), ("1", True), ("auto", True)])
+def test_native_prebuilt_mode_ignores_newer_sources(tmp_path, mode, build):
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "public").mkdir()
+    marker = tmp_path / "dist/index.html"
+    marker.write_text("built")
+    source = tmp_path / "src/new.ts"
+    source.write_text("changed")
+    os.utime(marker, (100, 100))
+    os.utime(source, (200, 200))
+    function = "web_build_needed() {" + LAUNCHER.read_text().split(
+        "web_build_needed() {", 1
+    )[1].split("\n}", 1)[0] + "\n}\n"
+    command = function + "if web_build_needed; then exit 0; else exit 1; fi"
+    env = {**os.environ, "WEB_DIR": str(tmp_path), "WEB_REBUILD": mode}
+    result = subprocess.run(["bash", "-eu", "-c", command], env=env)
+    assert (result.returncode == 0) is build
+    marker.unlink()
+    # Even explicit reuse must build when there is no usable artifact.
+    assert subprocess.run(["bash", "-eu", "-c", command], env=env).returncode == 0
+
+
 def test_native_launcher_repairs_preexisting_runtime_permissions() -> None:
     source = LAUNCHER.read_text(encoding="utf-8")
 

@@ -12,10 +12,9 @@ import { useTranslation } from 'react-i18next';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessageAvatar, MessageItem } from '@/components/agent-sidebar/MessageItem';
 import { workflowIdFromToolCall } from '@/components/agent-sidebar/tool-call-utils';
-import {
-  InteractiveArtifactBlock,
-  type InteractiveArtifact,
-  type SubmitInteractiveAsNewTurn,
+import type {
+  InteractiveArtifact,
+  SubmitInteractiveAsNewTurn,
 } from '@/components/agent-sidebar/tool-render/InteractiveArtifactBlock';
 import { mergeChunks } from '@/components/agent-sidebar/types';
 import type { MergedMessage, MergedToolCall, RawChunk } from '@/components/agent-sidebar/types';
@@ -38,6 +37,12 @@ const EMPTY_STREAM_BUFFER: RawChunk[] = [];
 // them only when a user expands a group (or a live tool auto-expands it).
 const ToolCallBlock = lazy(() => import('@/components/agent-sidebar/ToolCallBlock').then(
   (module) => ({ default: module.ToolCallBlock }),
+));
+
+// Forms, approvals and HTML artifacts are optional transcript content. Their
+// renderer must not delay ordinary messages while the route starts up.
+const InteractiveArtifactBlock = lazy(() => import('@/components/agent-sidebar/tool-render/InteractiveArtifactBlock').then(
+  (module) => ({ default: module.InteractiveArtifactBlock }),
 ));
 
 const RUNTIME_PHASE_REVEAL_DELAY_MS = 400;
@@ -781,14 +786,20 @@ export function ChatMessageList({
                         expansionKey={`${chatStateKey ?? chatClientStateKey({ account, scopeId: wfId, surface, chatId: 'draft' })}:tool:${toolGroupKey(item)}`}
                       />
                     ) : item.kind === 'interactive_artifact' ? (
-                      <InteractiveArtifactBlock
-                        call={item.call}
-                        showAvatar={item.showAvatar}
-                        compact={compact}
-                        onOpenFilePreview={onOpenFilePreview}
-                        onOpenInteractivePreview={onOpenInteractivePreview}
-                        onSubmitAsNewMessage={onSubmitInteractiveAsNewMessage}
-                      />
+                      <Suspense fallback={
+                        <div role="status" aria-label={t('loading', 'Loading…')}>
+                          <Skeleton className="h-24 w-full rounded-xl" />
+                        </div>
+                      }>
+                        <InteractiveArtifactBlock
+                          call={item.call}
+                          showAvatar={item.showAvatar}
+                          compact={compact}
+                          onOpenFilePreview={onOpenFilePreview}
+                          onOpenInteractivePreview={onOpenInteractivePreview}
+                          onSubmitAsNewMessage={onSubmitInteractiveAsNewMessage}
+                        />
+                      </Suspense>
                     ) : (
                       <MessageItem
                         message={item.message}

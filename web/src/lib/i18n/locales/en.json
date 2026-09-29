@@ -3505,4 +3505,14 @@
   "embed.browser.reconnecting": "Connecting to the browser service. Your draft is preserved; sending will resume when connected.",
   "embed.browser.connected": "Connected · ready for a task",
   "embed.browser.connection_lost": "Connection lost · reconnecting"
+  ,"deployments.settings.intro": "Changes apply to new requests after saving."
+  ,"deployments.settings.acceptTraffic": "Accept requests"
+  ,"deployments.settings.acceptTrafficHelp": "Pause to stop accepting new requests."
+  ,"deployments.settings.rateHelp": "Maximum requests per second. 0 means unlimited; excess requests receive HTTP 429."
+  ,"deployments.settings.versionHelp": "Choose the saved version used for new requests."
+  ,"deployments.settings.unsaved": "Unsaved changes"
+  ,"deployments.settings.saved": "All changes saved"
+  ,"deployments.settings.discard": "Discard changes"
+  ,"deployments.settings.protected": "Protected"
+  ,"deployments.settings.rotateHelp": "Rotating the key immediately invalidates the old one. Update your clients with the new key."
 }

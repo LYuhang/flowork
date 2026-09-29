@@ -4,7 +4,9 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
+  Check,
   Code2,
+  SlidersHorizontal,
   KeyRound,
   Pencil,
   Play,
@@ -258,59 +260,77 @@ function ConfigTab({ dep }: { dep: Deployment }) {
     onError: (e) => toast.error(e instanceof Error ? e.message : String(e)),
   });
 
+  const reset = () => {
+    setRateQps(dep.rate_limit_qps);
+    setEnabled(dep.enabled);
+    setMountEnabled(dep.mount_enabled ?? true);
+    setVersion(originalVersion);
+  };
+
   return (
-    <div className="space-y-5">
-
-      <SectionBlock
-        title={t('deployments.detail.trafficControl', 'Traffic and runtime controls')}
-        description={t('deployments.detail.trafficControlHelp', 'Control whether this deployment accepts traffic and how many requests per second it allows. Requests above the limit receive HTTP 429.')}
-        contentClassName="grid gap-4 md:grid-cols-2"
-      >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="dep-qps">{t('deployments.create.fields.rateLimitQps', 'Rate limit (QPS)')}</Label>
-          <Input
-            id="dep-qps"
-            name="rate-limit-qps"
-            type="number"
-            min={0}
-            value={rateQps}
-            onChange={(event) => setRateQps(Number(event.target.value) || 0)}
-          />
+    <section className="min-w-0 overflow-hidden rounded-xl border border-edge-subtle bg-surface-base">
+      <header className="flex items-start gap-3 px-5 py-5 sm:px-6">
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+          <SlidersHorizontal className="size-4" aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold">{t('deployments.detail.trafficControl', 'Traffic and runtime controls')}</h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('deployments.settings.intro', 'Changes apply to new requests after saving.')}</p>
         </div>
-          <label className="flex items-center gap-2 md:self-end md:pb-2">
-            <Switch id="dep-enabled" checked={enabled} onCheckedChange={setEnabled} />
-            <span className="text-sm">{t('deployments.col.enabled', 'Enabled')}</span>
-          </label>
-      </SectionBlock>
-
-      <SectionBlock title={t('deployments.executionSettings', 'Execution settings')}>
-        <div className="space-y-3">
-          <Label>{t('tasks.version.label', 'Workflow version')}</Label>
-          <Select value={version} onValueChange={setVersion} disabled={versionsQuery.isLoading || versionsQuery.isError}>
-            <SelectTrigger aria-label={t('tasks.version.label', 'Workflow version')}><SelectValue /></SelectTrigger>
-            <SelectContent>{versionOptions.map(v => <SelectItem key={v} value={v} disabled={v === 'head'}>
-              {v === 'head' ? t('deployments.legacyHead', 'Global HEAD (legacy)') : v.includes('.sv') ? v : t('tasks.version.latestMajor', '{{major}} · latest saved', { major: v })}
-            </SelectItem>)}</SelectContent>
-          </Select>
-          {versionsQuery.isError && <p role="alert">{t('tasks.version.error', 'Could not load workflow versions.')}</p>}
-          <label className="flex items-center gap-2">
-            <Switch checked={mountEnabled} onCheckedChange={setMountEnabled} />
-            <span>{t('deployments.mount', 'Mount user storage (/mount)')}</span>
-          </label>
-          <p className="text-xs text-muted-foreground">{t('deployments.mountHelp', 'Shares authorized user storage, not Chat files. Each accepted call keeps its version and mount settings.')}</p>
+      </header>
+      <div className="divide-y divide-edge-subtle px-5 sm:px-6">
+        <div className="flex items-start justify-between gap-6 py-5">
+          <div className="min-w-0 space-y-1.5">
+            <Label htmlFor="dep-enabled">{t('deployments.settings.acceptTraffic', 'Accept requests')}</Label>
+            <p id="dep-enabled-help" className="text-xs leading-5 text-muted-foreground">{t('deployments.settings.acceptTrafficHelp', 'Pause to stop accepting new requests.')}</p>
+          </div>
+          <Switch id="dep-enabled" aria-describedby="dep-enabled-help" checked={enabled} onCheckedChange={setEnabled} disabled={patchMutation.isPending} className="mt-0.5 shrink-0" />
         </div>
-      </SectionBlock>
-      <div className="flex justify-end">
-        <Button
-          onClick={() => patchMutation.mutate()}
-          disabled={!dirty || patchMutation.isPending}
-        >
-          {patchMutation.isPending
-            ? t('common.saving', 'Saving…')
-            : t('deployments.detail.save', 'Save changes')}
-        </Button>
+        <div className="grid items-start gap-3 py-5 sm:grid-cols-[minmax(0,1fr)_13rem] sm:gap-6">
+          <div className="min-w-0 space-y-1.5">
+            <Label htmlFor="dep-qps">{t('deployments.create.fields.rateLimitQps', 'Rate limit (QPS)')}</Label>
+            <p id="dep-qps-help" className="text-xs leading-5 text-muted-foreground">{t('deployments.settings.rateHelp', 'Maximum requests per second. 0 means unlimited; excess requests receive HTTP 429.')}</p>
+          </div>
+          <Input id="dep-qps" name="rate-limit-qps" type="number" min={0} step={1} value={rateQps}
+            aria-describedby="dep-qps-help" disabled={patchMutation.isPending}
+            onChange={(event) => setRateQps(Number(event.target.value) || 0)} className="w-full tabular-nums" />
+        </div>
+        <div className="grid items-start gap-3 py-5 sm:grid-cols-[minmax(0,1fr)_13rem] sm:gap-6">
+          <div className="min-w-0 space-y-1.5">
+            <Label htmlFor="dep-version">{t('tasks.version.label', 'Workflow version')}</Label>
+            <p id="dep-version-help" className="text-xs leading-5 text-muted-foreground">{t('deployments.settings.versionHelp', 'Choose the saved version used for new requests.')}</p>
+          </div>
+          <div className="min-w-0 space-y-2">
+            <Select value={version} onValueChange={setVersion} disabled={versionsQuery.isLoading || versionsQuery.isError || patchMutation.isPending}>
+              <SelectTrigger id="dep-version" aria-describedby="dep-version-help" aria-label={t('tasks.version.label', 'Workflow version')}><SelectValue /></SelectTrigger>
+              <SelectContent>{versionOptions.map(v => <SelectItem key={v} value={v} disabled={v === 'head'}>
+                {v === 'head' ? t('deployments.legacyHead', 'Global HEAD (legacy)') : v.includes('.sv') ? v : t('tasks.version.latestMajor', '{{major}} · latest saved', { major: v })}
+              </SelectItem>)}</SelectContent>
+            </Select>
+            {versionsQuery.isError && <p role="alert" className="text-xs text-destructive">{t('tasks.version.error', 'Could not load workflow versions.')}</p>}
+          </div>
+        </div>
+        <div className="flex items-start justify-between gap-6 py-5">
+          <div className="min-w-0 space-y-1.5">
+            <Label htmlFor="dep-mount">{t('deployments.mount', 'Mount user storage (/mount)')}</Label>
+            <p id="dep-mount-help" className="max-w-md text-xs leading-5 text-muted-foreground">{t('deployments.mountHelp', 'Shares authorized user storage, not Chat files. Each accepted call keeps its version and mount settings.')}</p>
+          </div>
+          <Switch id="dep-mount" aria-describedby="dep-mount-help" checked={mountEnabled} onCheckedChange={setMountEnabled} disabled={patchMutation.isPending} className="mt-0.5 shrink-0" />
+        </div>
       </div>
-    </div>
+      <footer className="flex flex-col gap-3 border-t border-edge-subtle bg-surface-sunken/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+          {dirty ? <span className="size-1.5 rounded-full bg-state-warning" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
+          {dirty ? t('deployments.settings.unsaved', 'Unsaved changes') : t('deployments.settings.saved', 'All changes saved')}
+        </p>
+        <div className="flex items-center justify-end gap-2">
+          {dirty && <Button variant="ghost" onClick={reset} disabled={patchMutation.isPending}>{t('deployments.settings.discard', 'Discard changes')}</Button>}
+          <Button onClick={() => patchMutation.mutate()} disabled={!dirty || patchMutation.isPending}>
+            {patchMutation.isPending ? t('common.saving', 'Saving…') : t('deployments.detail.save', 'Save changes')}
+          </Button>
+        </div>
+      </footer>
+    </section>
   );
 }
 
@@ -762,11 +782,13 @@ function MetricLineChart({
   formatTime: (value?: string | null) => string;
 }) {
   const values = data.map((row) => metric === 'latency_p95' ? row.latency_p95 ?? 0 : row[metric]);
-  const max = Math.max(1, ...values);
+  const max = Math.max(0, ...values);
+  const scaleMax = Math.max(1, max);
+  const displayValue = (value: number) => formatNumber(value, { maximumFractionDigits: 0 });
   const points = values.map((value, index) => ({
     value,
     x: values.length <= 1 ? 0 : (index / (values.length - 1)) * 100,
-    y: 44 - (value / max) * 40,
+    y: 44 - (value / scaleMax) * 40,
     ts: data[index]!.ts,
   }));
   const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
@@ -774,9 +796,9 @@ function MetricLineChart({
     <figure className="min-w-0 border-t border-edge-subtle pt-3 first:border-t-0 first:pt-0 md:border-l md:border-t-0 md:pl-4 md:pt-0 md:first:border-l-0 md:first:pl-0">
       <figcaption className="mb-2 flex items-baseline justify-between gap-3">
         <span className="text-sm font-medium">{label}</span>
-        <span className="text-xs tabular-nums text-muted-foreground">{formatNumber(max)} {unit}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{displayValue(max)} {unit}</span>
       </figcaption>
-      <svg viewBox="0 0 100 48" className="h-28 w-full overflow-visible" role="img" aria-label={`${label}; maximum ${max} ${unit}`}>
+      <svg viewBox="0 0 100 48" className="h-28 w-full overflow-visible" role="img" aria-label={`${label}; maximum ${displayValue(max)} ${unit}`}>
         <path d="M 0 4 H 100 M 0 24 H 100 M 0 44 H 100" fill="none" stroke="currentColor" strokeWidth="0.6" className="text-edge-subtle" vectorEffect="non-scaling-stroke" />
         <path d={path} fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray={dash} className={color} vectorEffect="non-scaling-stroke" />
         {points.map((point) => (
@@ -788,9 +810,9 @@ function MetricLineChart({
             tabIndex={0}
             className={color}
             fill="currentColor"
-            aria-label={`${formatTime(point.ts)}: ${point.value} ${unit}`}
+            aria-label={`${formatTime(point.ts)}: ${displayValue(point.value)} ${unit}`}
           >
-            <title>{formatTime(point.ts)}: {point.value} {unit}</title>
+            <title>{formatTime(point.ts)}: {displayValue(point.value)} {unit}</title>
           </circle>
         ))}
       </svg>
@@ -984,45 +1006,34 @@ function SecurityTab({ dep }: { dep: Deployment }) {
 
   return (
     <div className="space-y-4">
-      <SectionBlock title={t('deployments.detail.securityModel', 'Access control')}>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-state-success" aria-hidden="true" />
-            </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {dep.trigger_type === 'api'
-                ? t('deployments.detail.apiKeyHint', 'This API deployment uses a bearer key. The key is only shown at creation or rotation.')
-                : t('deployments.detail.webhookHint', 'This webhook deployment uses an HMAC signing secret shown only at creation.')}
-            </p>
+      <section className="overflow-hidden rounded-xl border border-edge-subtle bg-surface-base">
+        <header className="flex items-center gap-3 px-5 py-5">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-state-success/10 text-state-success">
+            <ShieldCheck className="size-4" aria-hidden="true" />
+          </span>
+          <h2 className="text-sm font-semibold">{t('deployments.detail.securityModel', 'Access control')}</h2>
+        </header>
+        <div className="space-y-4 px-5 pb-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-sunken/60 px-3 py-2.5">
+            <span className="text-xs font-medium">{dep.trigger_type === 'api' ? 'Bearer API Key' : 'HMAC SHA-256'}</span>
+            <span className="flex items-center gap-1.5 text-xs text-state-success"><Check className="size-3.5" aria-hidden="true" />{t('deployments.settings.protected', 'Protected')}</span>
           </div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {dep.trigger_type === 'api'
+              ? t('deployments.detail.apiKeyHint', 'This API deployment uses a bearer key. The key is only shown at creation or rotation.')
+              : t('deployments.detail.webhookHint', 'This webhook deployment uses an HMAC signing secret shown only at creation.')}
+          </p>
           {dep.trigger_type === 'api' && (
-            <Button variant="outline" onClick={() => setRotateConfirmOpen(true)} disabled={rotateMutation.isPending}>
-              <KeyRound className="mr-2 h-4 w-4" aria-hidden="true" />
-              {t('deployments.detail.rotateKey', 'Rotate API key')}
-            </Button>
+            <div className="space-y-3 border-t border-edge-subtle pt-4">
+              <p className="text-xs leading-5 text-muted-foreground">{t('deployments.settings.rotateHelp', 'Rotating the key immediately invalidates the old one. Update your clients with the new key.')}</p>
+              <Button variant="outline" className="w-full" onClick={() => setRotateConfirmOpen(true)} disabled={rotateMutation.isPending}>
+                <KeyRound className="size-4" aria-hidden="true" />
+                {t('deployments.detail.rotateKey', 'Rotate API key')}
+              </Button>
+            </div>
           )}
         </div>
-        <div className="mt-4 max-w-xl">
-          <Label>{dep.trigger_type === 'api'
-            ? t('deployments.create.apiKey', 'API Key')
-            : t('deployments.create.hmacSecret', 'HMAC Secret')}</Label>
-          <Input
-            type="password"
-            value="credential-is-not-retrievable"
-            readOnly
-            disabled
-            className="mt-2 font-mono"
-            aria-label={t('deployments.secret.stored', 'Stored credential')}
-          />
-          <p className="mt-2 text-xs text-muted-foreground">
-            {t(
-              'deployments.secret.notRetrievable',
-              'The existing credential cannot be retrieved. Rotate it to receive a new one-time value.',
-            )}
-          </p>
-        </div>
-      </SectionBlock>
+      </section>
 
       <Dialog open={rotateConfirmOpen} onOpenChange={setRotateConfirmOpen}>
         <DialogContent>
@@ -1267,7 +1278,7 @@ export function DeploymentDetailPage() {
             </section>
             <MonitoringTab depId={depId} active={activeTab === 'activity'} onTest={() => setTab('usage')} />
           </TabsContent>
-          <TabsContent value="settings" className="space-y-8">
+          <TabsContent value="settings" className="grid items-start gap-5 pt-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
             {canUpdate ? <ConfigTab dep={dep} /> : null}
             {canManageSecret ? <SecurityTab dep={dep} /> : null}
           </TabsContent>

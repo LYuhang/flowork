@@ -3505,4 +3505,14 @@
   "embed.browser.reconnecting": "正在连接浏览器服务。草稿已保留，连接恢复后即可发送。",
   "embed.browser.connected": "已连接 · 可以开始任务",
   "embed.browser.connection_lost": "连接中断 · 正在重连"
+  ,"deployments.settings.intro": "保存后，设置将应用于新的请求。"
+  ,"deployments.settings.acceptTraffic": "接收请求"
+  ,"deployments.settings.acceptTrafficHelp": "关闭后将停止接收新的请求。"
+  ,"deployments.settings.rateHelp": "每秒最多接收的请求数。0 表示不限速，超出限制返回 HTTP 429。"
+  ,"deployments.settings.versionHelp": "选择新请求使用的工作流版本。"
+  ,"deployments.settings.unsaved": "有未保存的修改"
+  ,"deployments.settings.saved": "所有修改已保存"
+  ,"deployments.settings.discard": "撤销修改"
+  ,"deployments.settings.protected": "已保护"
+  ,"deployments.settings.rotateHelp": "轮换后，旧密钥立即失效，需要在调用端更新为新密钥。"
 }

@@ -86,7 +86,7 @@ vi.mock('@/lib/api/queries/workflow', () => ({
 }));
 
 import { DeploymentDetailPage } from '@/pages/deployments/DeploymentDetailPage';
-import { getHistory, rotateKey } from '@/lib/api/deployments';
+import { getHistory, getMetrics, patchDeployment, rotateKey } from '@/lib/api/deployments';
 
 const testI18n = i18n.createInstance();
 void testI18n.use(initReactI18next).init({
@@ -367,6 +367,37 @@ describe('<DeploymentDetailPage>', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('No runs yet.')).toBeInTheDocument();
     expect(getHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it('discards pending settings without changing the deployment', async () => {
+    const user = userEvent.setup();
+    renderAt(DEP_ID);
+    await screen.findByRole('heading', { level: 1, name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
+    const qps = screen.getByRole('spinbutton', { name: 'Rate limit (QPS)' });
+    fireEvent.change(qps, { target: { value: '3' } });
+    await user.click(screen.getByRole('switch', { name: 'Accept requests' }));
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(qps).toHaveValue(10);
+    expect(screen.getByRole('switch', { name: 'Accept requests' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(patchDeployment).not.toHaveBeenCalled();
+  });
+
+  it('displays zero errors while keeping an all-zero chart finite', async () => {
+    vi.mocked(getMetrics).mockResolvedValue({
+      series: [{ ts: '2026-05-24T10:00:00Z', calls: 0, errors: 0, latency_p50: 0, latency_p95: 0 }],
+      bucket: 'hour', from: '2026-05-23T00:00:00Z', to: '2026-05-24T00:00:00Z',
+    });
+    const user = userEvent.setup();
+    renderAt(DEP_ID);
+    await screen.findByRole('heading', { level: 1, name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Activity$/i }));
+    const chart = await screen.findByRole('img', { name: 'Errors; maximum 0 errors' });
+    expect(chart.querySelector('circle')).toHaveAttribute('cy', '44');
+    expect(chart.innerHTML).not.toMatch(/NaN|Infinity/);
   });
 
   it('confirms API-key rotation and requires acknowledging the one-time secret', async () => {

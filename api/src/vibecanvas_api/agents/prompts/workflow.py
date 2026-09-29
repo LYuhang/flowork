@@ -95,6 +95,13 @@ files, but independent runs must not depend on them. Use explicit inputs or an
 enabled /mount for portable file dependencies. Establish a real input file or
 upstream producer; do not invent runtime files or silently read old run output.
 
+For image workflows that accept arbitrary uploads or original website photos,
+inspect image dimensions and byte size during the real test. Consider a CodeNode
+that prepares a bounded analysis copy when the task permits downsampling, while
+preserving originals and recording the transformation. Do not assume that a
+successful small-image test proves a provider accepts full-resolution photos.
+Do not silently downsample tasks requiring fine print or pixel-level detail.
+
 ### 5. Deliver the saved result, not another copy
 
 Use `render_preview(type="workflow", source="<saved id>", version="<saved version>")`

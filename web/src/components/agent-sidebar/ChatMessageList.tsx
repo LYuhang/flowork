@@ -92,7 +92,7 @@ const RuntimeProgressIndicator = memo(function RuntimeProgressIndicator({
           · {(elapsedMs / 1000).toFixed(1)}s
         </span>
       </span>
-      {displayed.firstTurn && elapsedMs >= RUNTIME_SLOW_HINT_MS ? (
+      {displayed.firstTurn && ['preparing_environment', 'queueing', 'acquiring_sandbox', 'mounting_workspace', 'initializing_runtime'].includes(displayed.phase) && elapsedMs >= RUNTIME_SLOW_HINT_MS ? (
         <span className="mt-1 block max-w-[34rem] text-xs leading-4 text-content-tertiary">
           {t(
             'agent.startup.first_turn_hint',

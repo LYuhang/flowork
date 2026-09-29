@@ -98,7 +98,9 @@ capture; download-cancel releases it while keeping local files. Never repeat
 the download click just to receive an already-downloaded file. In run-code register
 page.waitForEvent('download') before the trigger and await download.saveAs(...)
 before returning. Read the final file path, byte count, hash and persistence
-receipt. A browser Downloads path or URL is not a saved sandbox file. A storage
+receipt. A later successful receipt supersedes an earlier transferring/pending
+update: do not report an unresolved download after receiving durable success.
+A browser Downloads path or URL is not a saved sandbox file. A storage
 acknowledgement failure must not trigger another purchase/export/download click;
 inspect the already-created local file and report the storage problem.
 A timeout does not prove that the browser did nothing: inspect first, do not
@@ -114,6 +116,16 @@ path. Never print, preview, share or copy credentials into the workspace. Manage
 files expire on revocation or turn end. JSON preserves Cookie attributes;
 Netscape rejects partitioned Cookies it cannot represent. Exported Cookies do
 not guarantee another machine can authenticate to an IP/device-bound service.
+
+For browser-image Workflow tasks, pass the actual saved image path into the
+Workflow's media input and inspect its terminal node outputs. A file's existence
+is not evidence that inference succeeded. If a provider rejects a large original
+or returns an empty completion, inspect image dimensions/bytes and the request
+error before retrying. When appropriate for the task, preserve the original and
+create a smaller derived image with standard image tools, then execute the same
+Workflow on that file and disclose the transformation. A URL for the same
+full-size bytes does not reduce the input. Never substitute your own prediction
+for a failed Workflow result.
 
 Use render_preview MCP only to publish non-sensitive files or URLs when useful.
 Creating a reusable Workflow is separate: do it when requested, using /workflow.

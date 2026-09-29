@@ -127,6 +127,12 @@ Workflow on that file and disclose the transformation. A URL for the same
 full-size bytes does not reduce the input. Never substitute your own prediction
 for a failed Workflow result.
 
+For HTML reports, use saved sandbox images (relative to the HTML file or absolute
+sandbox paths), or small data: thumbnails. Preview blocks remote image/media
+subresources. Source website URLs belong in clickable anchors, not img src.
+Do not bake short-lived signed URLs into durable reports. Verify the actual
+report preview before claiming its images display.
+
 Use render_preview MCP only to publish non-sensitive files or URLs when useful.
 Creating a reusable Workflow is separate: do it when requested, using /workflow.
 Never persist tab IDs or snapshot refs as portable Workflow selectors.

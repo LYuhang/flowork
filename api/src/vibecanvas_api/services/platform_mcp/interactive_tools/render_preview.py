@@ -27,6 +27,10 @@ async def render_preview(
     Use ``type="file", source="/data/report.pdf"`` for an existing absolute
     local file path, or ``type="url", source="https://example.com"`` for an
     HTTP(S) web address. Save generated HTML to an .html file and use file mode.
+    HTML files are read-only previews: external images/media/scripts are blocked.
+    Save images to the sandbox and use relative paths or absolute sandbox paths
+    such as /data/photo.jpg; data: images also work. Keep website URLs as source
+    hyperlinks. Do not use external image URLs or temporary signed URLs in a report.
     Use type="workflow", source="<workflow id>", version="v1.sv3" to preview
     a saved graph. source is required; omitting version resolves global HEAD
     and pins that exact version in the card. Pass the version returned by your

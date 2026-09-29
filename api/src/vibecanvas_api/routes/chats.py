@@ -1686,7 +1686,7 @@ async def create_interactive_resource_session(
                     object_store=get_object_store(),
                 ).read_bytes(wf_id=source_scope, path=path)
                 if source is not None and len(source) <= 2 * 1024 * 1024:
-                    rules.update(html_vfs_read_rules(source.decode("utf-8", "replace")))
+                    rules.update(html_vfs_read_rules(source.decode("utf-8", "replace"), path))
 
     sorted_rules = tuple(sorted(rules))
     workspace_rules = rules_for_root(sorted_rules, "data")
@@ -3427,13 +3427,13 @@ async def post_message(
         finally:
             if browser_lease is not None:
                 from ..browser.session_control import (
-                    release_unconfirmed_browser_session,
+                    release_sidepanel_browser_session,
                 )
 
-                await release_unconfirmed_browser_session(
-                    browser_lease,
-                    reason="browser_runtime_startup_incomplete",
-                )
+                # Browser work is scoped to this Agent turn. Keep the durable
+                # fence until runtime cleanup is complete, then free it for the
+                # next explicit side-panel send (including a different Chat).
+                await release_sidepanel_browser_session(browser_lease)
 
     # Authorization may have changed while model/MCP/runtime inputs were being
     # assembled. Recheck at the durable Agent Run mutation boundary so revoke

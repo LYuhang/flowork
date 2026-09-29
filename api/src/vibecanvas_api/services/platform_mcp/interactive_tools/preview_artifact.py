@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+import re
+from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -50,11 +52,51 @@ def _preview_payload(full: dict[str, Any], preview_chars: int) -> dict[str, Any]
     }
 
 
+class _HtmlMediaReferences(HTMLParser):
+    """Match the image/media resources blocked by the Preview CSP."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.external_count = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in {"img", "source", "video", "audio", "image"}:
+            return
+        for name, value in attrs:
+            if not value:
+                continue
+            if name in {"src", "poster", "href", "xlink:href"}:
+                self.external_count += bool(re.match(r"^(?:https?:)?//", value.strip(), re.I))
+            elif name == "srcset":
+                self.external_count += len(re.findall(r"(?:^|,)\s*(?:https?:)?//", value, re.I))
+
+
+async def _validate_html_media(session, path: str) -> None:
+    result = await session.read_file(path)
+    if not result.get("ok") or not isinstance(result.get("content"), str):
+        raise ToolError("file_preview_read_failed", f"Unable to read HTML before publishing Preview: {path}")
+    parser = _HtmlMediaReferences()
+    parser.feed(result["content"])
+    if parser.external_count:
+        raise ToolError(
+            "file_preview_external_media",
+            "HTML Preview blocks external image/media URLs. Save these assets in the sandbox "
+            "and reference their absolute sandbox paths or paths relative to this HTML file "
+            "(data: images are also supported), then publish again. Keep original website URLs "
+            "as clickable source links, not img src values.",
+            info={"path": path, "external_media_count": parser.external_count},
+        )
+
+
 async def _prepare_file_preview(*, runtime: ToolRuntime, path: str) -> None:
     """Persist a generated file before publishing its path to Preview."""
-    if not path.startswith("/data/"):
+    is_html = PurePosixPath(path).suffix.lower() in {".html", ".htm"}
+    if not path.startswith("/data/") and not is_html:
         return
     session = await _require_session(runtime.context)
+    if is_html:
+        await _validate_html_media(session, path)
+    if not path.startswith("/data/"):
+        return
     if not await session.sync_workspace_path(path):
         raise ToolError(
             "file_preview_sync_failed",

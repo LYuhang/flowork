@@ -130,10 +130,23 @@ async def release_unconfirmed_browser_session(
     return bool(result.get("ok"))
 
 
+async def release_sidepanel_browser_session(lease: BrowserSessionLease) -> bool:
+    """End exactly this turn's lease after all browser runtime work is closed."""
+    async with session_scope(tenant_id=lease.tenant_id) as session:
+        result = await ChatRepo(session, lease.user_id).release_browser_session(
+            lease.chat_id,
+            browser_session_id=lease.browser_session_id,
+            browser_session_generation=lease.session_generation,
+            reason="browser_turn_finished",
+        )
+    return bool(result.get("ok"))
+
+
 __all__ = [
     "BrowserSessionControlError",
     "BrowserSessionLease",
     "confirm_sidepanel_browser_session",
     "release_unconfirmed_browser_session",
+    "release_sidepanel_browser_session",
     "reserve_sidepanel_browser_session",
 ]

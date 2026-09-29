@@ -346,3 +346,40 @@ async def test_unsynced_diagram_file_creates_no_interactive_card(monkeypatch):
     assert artifact["error"]["code"] == "file_preview_sync_failed"
     assert "before creating its Preview" in content
     persist.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('html', [
+    '<img src="https://images.example/photo.jpg">',
+    '<picture><source srcset="//images.example/photo.jpg 2x"><img src="photo.jpg"></picture>',
+    '<video poster="https://images.example/poster.jpg"></video>',
+])
+async def test_html_external_media_returns_actionable_error_before_publication(monkeypatch, html):
+    module = importlib.import_module("vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact")
+    persist = AsyncMock()
+    monkeypatch.setattr(module, "_persist_interactive_state", persist)
+    session = SimpleNamespace(read_file=AsyncMock(return_value={"ok": True, "content": html}),
+                              sync_workspace_path=AsyncMock(return_value=True))
+    content, artifact = await render_preview.coroutine(
+        type="file", source="/data/report.html",
+        runtime=SimpleNamespace(context=SimpleNamespace(_attached_session=session)),
+    )
+    assert artifact["error"]["code"] == "file_preview_external_media"
+    assert "relative" in content
+    persist.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_html_local_images_and_external_source_links_can_be_published(monkeypatch):
+    module = importlib.import_module("vibecanvas_api.services.platform_mcp.interactive_tools.preview_artifact")
+    persist = AsyncMock()
+    monkeypatch.setattr(module, "_persist_interactive_state", persist)
+    html = '<img src="photo.jpg"><img src="/data/photo.jpg"><img src="data:image/png;base64,AA=="><a href="https://example.com/source">Source</a>'
+    session = SimpleNamespace(read_file=AsyncMock(return_value={"ok": True, "content": html}),
+                              sync_workspace_path=AsyncMock(return_value=True))
+    _, artifact = await render_preview.coroutine(
+        type="file", source="/data/report.html",
+        runtime=SimpleNamespace(context=SimpleNamespace(_attached_session=session)),
+    )
+    assert artifact["status"] == "success"
+    persist.assert_awaited_once()

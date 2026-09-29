@@ -598,12 +598,15 @@ async def playwright_cdp(ws: WebSocket):
             # A transport failure may race the acknowledgement/refusal before
             # the initialization await begins. Retrieve any stored exception.
             initialized.exception()
-        playwright_controllers.unregister(
+        owns_controller = playwright_controllers.unregister(
             transport_id=transport_id,
             channel=channel,
             sender=_send_to_playwright,
         )
-        try:
-            await _send_extension("close")
-        except Exception:
-            pass
+        # A replacement controller can connect before this one's finally runs.
+        # Its session fence may be unchanged during recovery; do not close it.
+        if owns_controller:
+            try:
+                await _send_extension("close")
+            except Exception:
+                pass

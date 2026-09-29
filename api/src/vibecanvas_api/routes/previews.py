@@ -950,7 +950,7 @@ async def create_preview_resource_session(
             "utf-8", "replace"
         )
         if is_html:
-            rules.update(html_vfs_read_rules(source))
+            rules.update(html_vfs_read_rules(source, source_path))
         else:
             rules.update(markdown_vfs_read_rules(source, source_path))
     sorted_rules = tuple(sorted(rules))

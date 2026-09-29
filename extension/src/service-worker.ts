@@ -989,6 +989,7 @@ chrome.runtime.onMessage.addListener(
         }
         if (action === "close") {
           await closePlaywrightCdpBridge();
+          void setIsland(false);
           sendResponse(response({ result: { closed: true } }));
           return;
         }

@@ -96,12 +96,13 @@ def _rule_from_candidate(candidate: str) -> str | None:
     return normalized
 
 
-def html_vfs_read_rules(html: str) -> tuple[str, ...]:
+def html_vfs_read_rules(html: str, source_path: str | None = None) -> tuple[str, ...]:
     """Return exact files or static directory prefixes referenced by HTML.
 
     The Agent keeps using ordinary Linux paths; no capability vocabulary is
     added to the tool schema. Dynamic template strings are narrowed to their
-    longest static directory prefix.
+    longest static directory prefix. File previews also resolve relative resource
+    references against their source file, constrained to that file's VFS root.
     """
     parser = _ResourceAttributeParser()
     try:
@@ -119,10 +120,16 @@ def html_vfs_read_rules(html: str) -> tuple[str, ...]:
         for candidate in candidates
         if (rule := _rule_from_candidate(candidate)) is not None
     }
+    if source_path is not None:
+        rules.update(
+            rule
+            for candidate in parser.paths
+            if (rule := _relative_file_rule(candidate, source_path)) is not None
+        )
     return tuple(sorted(rules))
 
 
-def _markdown_rule_from_candidate(candidate: str, source_path: str) -> str | None:
+def _relative_file_rule(candidate: str, source_path: str) -> str | None:
     value = unquote(candidate.strip())
     try:
         parsed = urlsplit(value)
@@ -131,7 +138,7 @@ def _markdown_rule_from_candidate(candidate: str, source_path: str) -> str | Non
     if parsed.scheme or parsed.netloc or not parsed.path:
         return None
     path = parsed.path
-    if "\x00" in path or "\\" in path:
+    if "\x00" in path or "\\" in path or any(marker in path for marker in _DYNAMIC_MARKERS):
         return None
     if path.startswith("/"):
         return _rule_from_candidate(path)
@@ -143,6 +150,8 @@ def _markdown_rule_from_candidate(candidate: str, source_path: str) -> str | Non
     root = f"/{source_parts[1]}/"
     resolved = posixpath.normpath(posixpath.join(posixpath.dirname(source), path))
     if not resolved.startswith(root) or resolved.endswith("/"):
+        return None
+    if path.endswith("/") or resolved == posixpath.dirname(source):
         return None
     return resolved
 
@@ -167,7 +176,7 @@ def markdown_vfs_read_rules(markdown: str, source_path: str) -> tuple[str, ...]:
     rules = {
         rule
         for candidate in parser.paths
-        if (rule := _markdown_rule_from_candidate(candidate, source_path)) is not None
+        if (rule := _relative_file_rule(candidate, source_path)) is not None
     }
     return tuple(sorted(rules))
 

@@ -53,3 +53,22 @@ async def test_existing_chat_reuses_exact_persisted_generation(repo):
     lease = await control.reserve_sidepanel_browser_session(tenant_id="tenant", user_id="user", chat_id="old-chat")
     assert lease == control.BrowserSessionLease("tenant", "user", "old-chat", "brs_existing", 7)
     repo.release_browser_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_finished_turn_releases_its_attached_lease_with_exact_fence(repo):
+    repo.release_browser_session.return_value = {"ok": True}
+    lease = control.BrowserSessionLease("tenant", "user", "old-chat", "session", 7)
+    assert await control.release_sidepanel_browser_session(lease)
+    repo.release_browser_session.assert_awaited_once_with(
+        "old-chat", browser_session_id="session", browser_session_generation=7,
+        reason="browser_turn_finished",
+    )
+
+
+@pytest.mark.asyncio
+async def test_finished_old_turn_cannot_release_a_replacement_generation(repo):
+    repo.release_browser_session.return_value = {"ok": False, "error_code": "browser_session_generation_mismatch"}
+    lease = control.BrowserSessionLease("tenant", "user", "old-chat", "old-session", 7)
+    assert not await control.release_sidepanel_browser_session(lease)
+    assert repo.release_browser_session.await_count == 1

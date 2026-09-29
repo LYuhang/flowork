@@ -99,3 +99,38 @@ def test_diagram_resource_rules_support_freeform_plan_graphs_and_invalid_json():
         b'"resourceRef":"/mount/brand/logo.svg"}]}}'
     ) == ("/mount/brand/logo.svg",)
     assert diagram_vfs_read_rules(b"not-json") == ()
+
+
+def test_html_file_relative_images_are_authorized_as_exact_files():
+    assert html_vfs_read_rules(
+        '<img src="01_lijiang_lake.jpg">'
+        '<img src="./02_ayacucho_andes.jpg?rev=2">'
+        '<img src="../shared/green%20field.jpg">'
+        '<video poster="03_west_java_fields.jpg"></video>'
+        '<img src="/mount/brand/logo.png">',
+        "/data/landscape_recognition/results_report.html",
+    ) == (
+        "/data/landscape_recognition/01_lijiang_lake.jpg",
+        "/data/landscape_recognition/02_ayacucho_andes.jpg",
+        "/data/landscape_recognition/03_west_java_fields.jpg",
+        "/data/shared/green field.jpg",
+        "/mount/brand/logo.png",
+    )
+
+
+def test_html_file_relative_resources_cannot_expand_root_or_escape_to_other_roots():
+    assert html_vfs_read_rules(
+        '<img src="../../memory/private.png">'
+        '<img src="https://example.com/tracker.png">'
+        '<img src="//example.com/tracker.png">'
+        '<img src="data:image/png;base64,AA">'
+        '<img src="../">'
+        '<img src=".">'
+        '<img src="images/${name}">'
+        '<img src="images%5cprivate.png">',
+        "/data/report/index.html",
+    ) == ()
+
+
+def test_inline_html_has_no_implicit_relative_directory():
+    assert html_vfs_read_rules('<img src="photo.jpg">') == ()

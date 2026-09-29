@@ -43,3 +43,22 @@ it('does not request history for an unsent draft', async () => {
   await useAuthStore.getState().bootstrap();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
+
+it('starts cold Chat bootstrap after authentication and shares the in-flight request', async () => {
+  let resolveBootstrap!: (response: Response) => void;
+  const bootstrap = new Promise<Response>((resolve) => { resolveBootstrap = resolve; });
+  const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(identity)))
+    .mockReturnValueOnce(bootstrap);
+  vi.stubGlobal('fetch', fetchMock);
+  await useAuthStore.getState().bootstrap();
+  expect(useAuthStore.getState().authenticated).toBe(true);
+  const bootstrapKey = ['chat-bootstrap', 'chat'];
+  expect(queryClient.getQueryState(bootstrapKey)?.fetchStatus).toBe('fetching');
+  const duplicate = vi.fn();
+  const mounted = queryClient.fetchQuery({ queryKey: bootstrapKey, queryFn: duplicate });
+  const payload = { carrier_scope_id: 'scope', surface: 'chat', available_commands: [] };
+  resolveBootstrap(new Response(JSON.stringify(payload)));
+  expect(await mounted).toEqual(payload);
+  expect(duplicate).not.toHaveBeenCalled();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});

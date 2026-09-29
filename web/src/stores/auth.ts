@@ -41,7 +41,25 @@ async function warmRecentChatHistory(user: AuthUser | null): Promise<void> {
   const pathname = window.location.pathname.replace(/\/$/, '');
   if (!pathname.endsWith('/chat') || pathname.endsWith('/embed/chat')) return;
   const recent = readRecentChatLocation(user, 'chat');
-  if (!recent?.scopeId || recent.draft) return;
+  if (!recent?.scopeId) {
+    // A new tab has no selection hint. Start the first dependency of the
+    // inventory/history chain while React is still mounting the Chat route.
+    // Use the mounted query's key so it joins this request instead of retrying.
+    await queryClient.prefetchQuery({
+      queryKey: ['chat-bootstrap', 'chat'],
+      staleTime: 5 * 60 * 1000,
+      retry: false,
+      queryFn: async ({ signal }) => {
+        const response = await sessionFetch(`${API_BASE}/api/v1/chats/bootstrap?surface=chat`, {
+          credentials: 'include', signal,
+        });
+        if (!response.ok) throw new Error(`chat bootstrap failed: ${response.status}`);
+        return response.json();
+      },
+    });
+    return;
+  }
+  if (recent.draft) return;
   // Register the in-flight request with the same query used by ChatPage.
   // A direct fetch + setQueryData races the mounted query and downloads twice.
   await queryClient.prefetchQuery({

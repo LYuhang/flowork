@@ -13,9 +13,13 @@ export interface ReconcileChatArgs {
 }
 
 async function refreshActiveProjection(queryKey: readonly unknown[]): Promise<void> {
-  await queryClient.invalidateQueries({ queryKey });
-  await queryClient.refetchQueries({ queryKey, type: 'active' });
+  // Invalidation already refetches active observers. A second explicit fetch
+  // doubles every history/list request on focus and periodic reconciliation.
+  // Join an existing read instead of cancelling and restarting it.
+  await queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
 }
+
+const pendingReconciliations = new Map<string, Promise<void>>();
 
 /**
  * Reconcile chat state after a disconnected or backgrounded frontend returns.
@@ -26,7 +30,21 @@ async function refreshActiveProjection(queryKey: readonly unknown[]): Promise<vo
  * and refreshes the server-backed chat projections so a tab that was offline
  * while another tab continued the conversation catches up automatically.
  */
-export async function reconcileChatWithServer({
+export function reconcileChatWithServer(args: ReconcileChatArgs): Promise<void> {
+  if (!args.wfId) return Promise.resolve();
+  const key = JSON.stringify([args.wfId, args.chatId ?? null, args.surface ?? 'chat']);
+  const pending = pendingReconciliations.get(key);
+  if (pending) return pending;
+  // Focus, visibility, reconnect and the timer can all arrive together. Share
+  // one reconciliation until it settles; later events still fetch fresh state.
+  const next = reconcileChat(args).finally(() => {
+    if (pendingReconciliations.get(key) === next) pendingReconciliations.delete(key);
+  });
+  pendingReconciliations.set(key, next);
+  return next;
+}
+
+async function reconcileChat({
   wfId,
   chatId,
   surface = 'chat',

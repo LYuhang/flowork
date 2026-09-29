@@ -728,7 +728,11 @@ export const useChatState = (
     retry: false,
     refetchInterval: (query) => {
       const jobs = query.state.data?.background_jobs ?? [];
-      return jobs.length > 0 ? 1000 : false;
+      // Finished jobs remain in history. Their presence must not keep a chat
+      // polling every second forever; reconciliation still discovers new jobs.
+      return jobs.some((job) => (
+        job.status === 'queued' || job.status === 'running' || job.status === 'cancelling'
+      )) ? 1000 : false;
     },
   });
 

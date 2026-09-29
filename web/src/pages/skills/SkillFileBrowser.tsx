@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type KeyboardEvent } from 'react';
 import {
   ChevronRight,
 } from 'lucide-react';
@@ -77,7 +77,7 @@ function visibleTreeItems(
   ]);
 }
 
-export function SkillFileBrowser({
+function SkillFileBrowserContent({
   files,
   skillMd,
   loadFile,
@@ -246,20 +246,22 @@ export function SkillFileBrowser({
     }
   };
   return (
-    <div className="flex h-full min-h-[26rem] overflow-hidden rounded-md border border-edge-subtle bg-background">
+    <div className="flex h-full min-h-[26rem] flex-col overflow-hidden rounded-md border border-edge-subtle bg-background md:flex-row">
       <aside
-        className="relative flex min-h-0 shrink-0 flex-col border-r border-edge-structural bg-surface-nav"
-        style={{ width: treePane.width }}
+        className="relative flex max-h-56 min-h-0 w-full shrink-0 flex-col border-b border-edge-structural bg-surface-nav md:max-h-none md:w-[var(--skill-tree-width)] md:border-b-0 md:border-r"
+        style={{ '--skill-tree-width': `${treePane.width}px` } as CSSProperties}
       >
-        <PaneResizeHandle
-          side="right"
-          width={treePane.width}
-          minWidth={220}
-          maxWidth={380}
-          onWidthChange={treePane.setWidth}
-          onReset={treePane.resetWidth}
-          label={`${labels.files}: resize`}
-        />
+        <div className="hidden md:block">
+          <PaneResizeHandle
+            side="right"
+            width={treePane.width}
+            minWidth={220}
+            maxWidth={380}
+            onWidthChange={treePane.setWidth}
+            onReset={treePane.resetWidth}
+            label={`${labels.files}: resize`}
+          />
+        </div>
         <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
           <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
             <FileTypeIcon directory className="size-6 rounded-md" />
@@ -322,11 +324,11 @@ export function SkillFileBrowser({
         </div>
       </aside>
 
-      <section className="min-h-0 min-w-0 flex-1">
+      <section className="min-h-96 min-w-0 flex-1 md:min-h-0">
         <FileWorkbenchPreview
           fileName={selected}
-          mimeType={loaded.kind === 'ready' ? loaded.blob.type : selected === 'SKILL.md' ? 'text/markdown' : null}
-          blob={loaded.kind === 'ready' ? loaded.blob : null}
+          mimeType={selected === 'SKILL.md' ? 'text/markdown' : loaded.kind === 'ready' ? loaded.blob.type : null}
+          blob={selected !== 'SKILL.md' && loaded.kind === 'ready' ? loaded.blob : null}
           text={selected === 'SKILL.md' ? skillMd : null}
           loading={loading}
           error={error ? `${labels.failed}: ${error}` : null}
@@ -334,4 +336,9 @@ export function SkillFileBrowser({
       </section>
     </div>
   );
+}
+
+// File caches, pending requests and tree selection belong to one package revision.
+export function SkillFileBrowser(props: ComponentProps<typeof SkillFileBrowserContent>) {
+  return <SkillFileBrowserContent key={props.persistKey ?? 'default'} {...props} />;
 }

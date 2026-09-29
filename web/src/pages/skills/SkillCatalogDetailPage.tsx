@@ -94,7 +94,7 @@ export function SkillCatalogDetailPage() {
             </SectionBlock>
           </TabsContent>
           <TabsContent value="instructions" className="page-scroll-region mt-0 min-h-0 flex-1 max-w-4xl p-1"><Markdown className="text-sm leading-6">{skill.body ?? ''}</Markdown></TabsContent>
-          <TabsContent value="files" className="mt-0 min-h-0 flex-1 overflow-hidden"><SkillFileBrowser persistKey={`${skill.source}:${skill.source_id}`} files={files} skillMd={skill.skill_md ?? ''} loadFile={loadFile} selectedPath={selectedFile} onSelectedPathChange={selectFileInUrl} labels={{ files: t('skills.detail.files.bundle', 'Package Files'), loading: t('skills.detail.files.loading', 'Loading File…'), failed: t('skills.detail.files.failed', 'Could Not Load File'), binary: t('skills.detail.files.binary', 'Binary File Preview Is Not Available.') }} /></TabsContent>
+          <TabsContent value="files" className="mt-0 min-h-0 flex-1 overflow-hidden"><SkillFileBrowser persistKey={`${skill.source}:${skill.source_id}:${skill.revision}`} files={files} skillMd={skill.skill_md ?? ''} loadFile={loadFile} selectedPath={selectedFile} onSelectedPathChange={selectFileInUrl} labels={{ files: t('skills.detail.files.bundle', 'Package Files'), loading: t('skills.detail.files.loading', 'Loading File…'), failed: t('skills.detail.files.failed', 'Could Not Load File'), binary: t('skills.detail.files.binary', 'Binary File Preview Is Not Available.') }} /></TabsContent>
           <TabsContent value="requirements" className="page-scroll-region mt-0 min-h-0 flex-1 max-w-3xl space-y-5 pr-2">
             <SectionBlock
               title={t('skills.detail.validation.title', 'SKILL.md validated')}

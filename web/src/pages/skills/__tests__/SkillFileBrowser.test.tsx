@@ -94,4 +94,32 @@ describe('<SkillFileBrowser>', () => {
     expect(await screen.findByText('theme: light')).toBeInTheDocument();
     expect(loadFile).toHaveBeenCalledWith('agents/openai.yaml');
   });
+  it('restores SKILL.md text after previewing an image', async () => {
+    const user = userEvent.setup();
+    render(<SkillFileBrowser files={['image.png']} skillMd="# Skill instructions"
+      loadFile={async () => new Blob(['image'], { type: 'image/png' })}
+      labels={{ files: 'Files', loading: 'Loading', failed: 'Failed', binary: 'Binary' }} />);
+    await user.click(screen.getByRole('button', { name: 'image.png' }));
+    expect(await screen.findByRole('img', { name: 'image.png' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'SKILL.md' }));
+    expect(await screen.findByRole('heading', { name: 'Skill instructions' })).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('does not reuse cached file content from another revision', async () => {
+    const user = userEvent.setup();
+    const labels = { files: 'Files', loading: 'Loading', failed: 'Failed', binary: 'Binary' };
+    const first = vi.fn(async () => new Blob(['# Old guide'], { type: 'text/markdown' }));
+    const second = vi.fn(async () => new Blob(['# New guide'], { type: 'text/markdown' }));
+    const { rerender } = render(<SkillFileBrowser persistKey="skill:revision-one"
+      files={['guide.md']} skillMd="# Skill" loadFile={first} labels={labels} />);
+    await user.click(screen.getByRole('button', { name: 'guide.md' }));
+    expect(await screen.findByRole('heading', { name: 'Old guide' })).toBeInTheDocument();
+    rerender(<SkillFileBrowser persistKey="skill:revision-two" files={['guide.md']}
+      skillMd="# Skill" loadFile={second} labels={labels} />);
+    await user.click(screen.getByRole('button', { name: 'guide.md' }));
+    expect(await screen.findByRole('heading', { name: 'New guide' })).toBeInTheDocument();
+    expect(second).toHaveBeenCalledOnce();
+  });
+
 });

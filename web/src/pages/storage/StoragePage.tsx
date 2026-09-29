@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Eye,
   Loader2,
+  MoreHorizontal,
   Pencil,
   RefreshCw,
   Search,
@@ -28,6 +29,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -562,7 +564,7 @@ export function StoragePage() {
       data-edit-state={previewCanEdit ? (editDirty ? 'dirty' : 'saved') : 'view'}
     >
       <section className="flex min-w-0 flex-1 flex-col">
-        <header className="surface-topbar flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-1.5 sm:px-4">
+        <header className="surface-topbar flex min-h-12 shrink-0 flex-col gap-2 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <ResourceIcon kind="storage" size="sm" />
             <Select value={activeRoot} onValueChange={openPath}>
@@ -598,7 +600,15 @@ export function StoragePage() {
             ))}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-2">
+            <Button variant="outline" size="sm" disabled={!canCreate} onClick={openMkdirDialog}>
+              <FolderPlus className="size-4" />
+              {t('storage.newFolder', 'New folder')}
+            </Button>
+            <Button size="sm" disabled={!canCreate || upload.isPending} onClick={() => fileInputRef.current?.click()}>
+              {upload.isPending ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              {t('upload', 'Upload')}
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -694,6 +704,7 @@ export function StoragePage() {
                             onDoubleClick={() => openItem(item)}
                           >
                             <td className="min-w-0 px-3 py-2 sm:px-4">
+                              <div className="flex min-w-0 items-center gap-2">
                               <button
                                 type="button"
                                 ref={(element) => {
@@ -722,6 +733,24 @@ export function StoragePage() {
                                   ) : null}
                                 </span>
                               </button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="shrink-0" aria-label={`${t('actions', 'Actions')}: ${item.name}`} onClick={(event) => event.stopPropagation()}>
+                                    <MoreHorizontal className="size-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+                                  <DropdownMenuItem onSelect={() => openItem(item)}>
+                                    {item.kind === 'folder' ? <FolderOpen /> : <Eye />}
+                                    {item.kind === 'folder' ? t('open', 'Open') : t('view', 'View')}
+                                  </DropdownMenuItem>
+                                  {item.kind === 'file' && <DropdownMenuItem onSelect={() => void submitDownload(item)}><Download />{t('download', 'Download')}</DropdownMenuItem>}
+                                  {(item.can_rename || item.can_delete) && <DropdownMenuSeparator />}
+                                  {item.can_rename && <DropdownMenuItem onSelect={() => openRenameDialog(item)}><Pencil />{t('rename', 'Rename')}</DropdownMenuItem>}
+                                  {item.can_delete && <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleteTarget(item)}><Trash2 />{t('delete', 'Delete')}</DropdownMenuItem>}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                              </div>
                             </td>
                             <td className="hidden px-3 py-2 text-meta md:table-cell">{displayType(item, t)}</td>
                             <td className="hidden px-3 py-2 text-meta lg:table-cell">

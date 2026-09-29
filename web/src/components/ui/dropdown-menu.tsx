@@ -45,7 +45,7 @@ const DropdownMenuSubContent = React.forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      "z-popover max-h-[min(var(--radix-dropdown-menu-content-available-height),22rem)] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border border-edge-structural bg-popover p-1 text-popover-foreground shadow-popover duration-popover data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 motion-reduce:animate-none origin-[--radix-dropdown-menu-content-transform-origin]",
+      "z-modal-popover max-w-[calc(100vw-1.5rem)] max-h-[min(var(--radix-dropdown-menu-content-available-height),22rem)] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border border-edge-structural bg-popover p-1 text-popover-foreground shadow-popover duration-popover data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 motion-reduce:animate-none origin-[--radix-dropdown-menu-content-transform-origin]",
       className
     )}
     {...props}
@@ -64,7 +64,7 @@ const DropdownMenuContent = React.forwardRef<
       sideOffset={sideOffset}
       collisionPadding={collisionPadding}
       className={cn(
-        "z-popover max-h-[min(var(--radix-dropdown-menu-content-available-height),22rem)] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border border-edge-structural bg-popover p-1 text-popover-foreground shadow-popover duration-popover",
+        "z-modal-popover max-w-[calc(100vw-1.5rem)] max-h-[min(var(--radix-dropdown-menu-content-available-height),22rem)] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border border-edge-structural bg-popover p-1 text-popover-foreground shadow-popover duration-popover",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 motion-reduce:animate-none origin-[--radix-dropdown-menu-content-transform-origin]",
         className
       )}

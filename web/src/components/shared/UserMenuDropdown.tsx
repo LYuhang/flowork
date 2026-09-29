@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuthStore } from '@/stores/auth';
 
-export function UserMenuDropdown() {
+export function UserMenuDropdown({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -43,12 +43,12 @@ export function UserMenuDropdown() {
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
           aria-label={t('topbar_open_user_menu', 'Open user menu')}
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           title={displayName}
           data-action="open-user-menu"
         >
@@ -69,7 +69,7 @@ export function UserMenuDropdown() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link to="/settings" data-action="open-settings">
+          <Link to="/settings" onClick={onNavigate} data-action="open-settings">
             <SettingsIcon className="mr-2 h-4 w-4" />
             {t('topbar_settings', 'Settings')}
           </Link>

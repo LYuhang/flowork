@@ -122,7 +122,7 @@ export function WorkflowRow({
         data-testid="wf-row"
         data-wf-id={wf.wf_id}
       >
-      <td className="py-3 pl-4 pr-3">
+      <td data-col="name" className="py-3 pl-4 pr-3">
         <div className="flex min-w-0 items-start gap-3">
           <ResourceIcon kind="workflow" size="sm" className="mt-0.5" />
           <div className="min-w-0 flex-1">
@@ -177,12 +177,12 @@ export function WorkflowRow({
           </div>
         </div>
       </td>
-      <td className="whitespace-nowrap px-3 py-3">
+      <td data-col="version" data-label={t('col_version', 'Version')} className="whitespace-nowrap px-3 py-3">
         <span className="inline-flex rounded-full border bg-background px-2 py-0.5 text-meta">
           v{wf.active_v}.sv{wf.active_sv}
         </span>
       </td>
-      <td className="whitespace-nowrap px-3 py-3">
+      <td data-col="sandbox" data-label={t('workspace.col_sandbox', 'Sandbox')} className="whitespace-nowrap px-3 py-3">
         <button
           type="button"
           className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-meta transition-colors hover:bg-muted hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
@@ -200,10 +200,10 @@ export function WorkflowRow({
           <span>{sandboxLabel}</span>
         </button>
       </td>
-      <td className="hidden whitespace-nowrap px-3 py-3 text-sm text-muted-foreground xl:table-cell">
+      <td data-col="updated" data-label={t('col_updated', 'Updated')} className="hidden whitespace-nowrap px-3 py-3 text-sm text-muted-foreground xl:table-cell">
         {formatDateTime(wf.updated_at)}
       </td>
-      <td className="py-3 pl-3 pr-4">
+      <td data-col="actions" className="py-3 pl-3 pr-4">
         <div className="flex items-center justify-end gap-1">
           {canView ? (
             <Button asChild variant="outline" size="sm" data-testid="wf-row-open">

@@ -26,7 +26,6 @@ import { useAuthStore } from '@/stores/auth';
 import { useUIStore } from '@/stores/ui';
 import { getAgentRuntimeSettings } from '@/lib/api/agent-runtime';
 import { setTimezone } from '@/lib/timezone';
-import { scheduleAuthenticatedRoutePreloads } from '@/app/route-loaders';
 
 const CommandPalette = lazy(() =>
   import('@/components/command-palette/CommandPalette').then((module) => ({
@@ -65,14 +64,6 @@ export function AppLayout() {
     return () => {
       active = false;
     };
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-    return scheduleAuthenticatedRoutePreloads(location.pathname);
-    // This is a once-per-authenticated-shell warmup. Route intent continues
-    // to use the higher-priority per-link preload path in AppSidebar.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   useEffect(() => {
@@ -138,7 +129,7 @@ export function AppLayout() {
 
   return (
     <ErrorBoundary scope="page">
-      <div className="surface-shell relative flex h-screen w-screen flex-col overflow-hidden text-foreground">
+      <div className="surface-shell relative flex h-screen supports-[height:100dvh]:h-dvh w-screen flex-col overflow-hidden text-foreground">
         <a
           href="#main-content"
           className="sr-only z-toast rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground focus:not-sr-only focus:fixed focus:left-3 focus:top-3"

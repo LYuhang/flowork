@@ -19,7 +19,7 @@
  * we already cover in E2E.
  */
 import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
@@ -55,6 +55,26 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe('<WorkspacePage>', () => {
+  it('keeps search focused while the catalog request is pending', async () => {
+    let releaseCatalog!: () => void;
+    const pending = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+    server.use(http.get('*/api/v1/workflows', async ({ request }) => {
+      if (new URL(request.url).searchParams.get('limit') === '200') await pending;
+      return HttpResponse.json({ items: [fixtureWorkflow({ wf_id: 'wf_a', workflow_name: 'Alpha' })], total: 1, limit: 15, offset: 0 });
+    }));
+    renderWithProviders(<WorkspacePage />);
+    await screen.findByText('Alpha');
+    const search = screen.getByTestId('wf-search');
+    search.focus();
+    fireEvent.change(search, { target: { value: 'A' } });
+    expect(screen.getByTestId('wf-search')).toBe(search);
+    expect(search).toHaveFocus();
+    fireEvent.change(search, { target: { value: 'Alpha' } });
+    releaseCatalog();
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    expect(search).toHaveFocus();
+  });
+
   it('renders the page header under the Provider stack', async () => {
     renderWithProviders(<WorkspacePage />);
     expect(await screen.findByText('Workflows')).toBeInTheDocument();

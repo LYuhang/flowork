@@ -41,30 +41,34 @@ async function warmRecentChatHistory(user: AuthUser | null): Promise<void> {
   const pathname = window.location.pathname.replace(/\/$/, '');
   if (!pathname.endsWith('/chat') || pathname.endsWith('/embed/chat')) return;
   const recent = readRecentChatLocation(user, 'chat');
-  if (!recent?.scopeId) return;
-  const params = new URLSearchParams({ limit: '30', offset: '0', tail: 'true' });
-  const response = await sessionFetch(
-    `${API_BASE}/api/v1/chat-scopes/${encodeURIComponent(recent.scopeId)}`
-      + `/chats/${encodeURIComponent(recent.chatId)}/messages?${params.toString()}`,
-    { credentials: 'include' },
-  );
-  if (!response.ok) return;
-  const page = await response.json() as {
-    items?: unknown[];
-    total?: number;
-    limit?: number;
-    offset?: number;
-  };
-  if (!Array.isArray(page.items)) return;
-  queryClient.setQueryData(
-    ['chat-history', recent.scopeId, recent.chatId, null],
-    {
-      items: page.items,
-      total: typeof page.total === 'number' ? page.total : page.items.length,
-      limit: typeof page.limit === 'number' ? page.limit : 30,
-      offset: typeof page.offset === 'number' ? page.offset : 0,
+  if (!recent?.scopeId || recent.draft) return;
+  // Register the in-flight request with the same query used by ChatPage.
+  // A direct fetch + setQueryData races the mounted query and downloads twice.
+  await queryClient.prefetchQuery({
+    queryKey: ['chat-history', recent.scopeId, recent.chatId, null],
+    staleTime: 2 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const params = new URLSearchParams({ limit: '30', offset: '0', tail: 'true' });
+      const response = await sessionFetch(
+        `${API_BASE}/api/v1/chat-scopes/${encodeURIComponent(recent.scopeId!)}`
+          + `/chats/${encodeURIComponent(recent.chatId)}/messages?${params.toString()}`,
+        { credentials: 'include', signal },
+      );
+      if (!response.ok) throw new Error(`chat history failed: ${response.status}`);
+      const page = await response.json() as {
+        items?: unknown[]; total?: number; limit?: number; offset?: number;
+      };
+      if (!Array.isArray(page.items)) throw new Error('Invalid chat history');
+      return {
+        items: page.items,
+        total: typeof page.total === 'number' ? page.total : page.items.length,
+        limit: typeof page.limit === 'number' ? page.limit : 30,
+        offset: typeof page.offset === 'number' ? page.offset : 0,
+      };
     },
-  );
+  });
 }
 
 // One-way migration: an older build persisted the raw Session bearer here.

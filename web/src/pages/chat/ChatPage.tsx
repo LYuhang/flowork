@@ -1174,11 +1174,11 @@ export function ChatPage() {
         </DropdownMenu>
       </header>
 
-      {boot.isLoading ? (
+      {boot.isLoading && !activeHistory.isSuccess ? (
         <main className="flex flex-1">
           <AsyncState kind="loading" title={t('chat.loading', 'Preparing chat workspace...')} />
         </main>
-      ) : boot.isError || !carrierScopeId ? (
+      ) : (boot.isError && !activeHistory.isSuccess) || !carrierScopeId ? (
         <main className="flex flex-1">
           <AsyncState
             kind="error"

@@ -53,28 +53,6 @@ const NAV_ROUTE_LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
   '/management': loadPlatformManagementPage,
 };
 
-const PRIMARY_IDLE_ROUTES = [
-  '/workspace',
-  '/tasks',
-  '/deployments',
-  '/mcp-servers',
-  '/skills',
-  '/knowledge',
-  '/storage',
-  '/settings',
-] as const;
-
-const DETAIL_IDLE_ROUTES = [
-  '/tasks/:taskId',
-  '/deployments/:depId',
-  '/knowledge/:kbId',
-  '/skills/:id',
-  '/mcp-servers/:id',
-  '/mcp-servers/discover/:source',
-  '/skills/discover/:source',
-  '/workflow/:wfId',
-] as const;
-
 const pendingPreloads = new Map<string, Promise<unknown>>();
 
 /** Preload a top-level route after the user signals navigation intent. */
@@ -90,50 +68,4 @@ export function preloadRoute(pathname: string): Promise<unknown> | undefined {
   });
   pendingPreloads.set(pathname, pending);
   return pending;
-}
-
-/**
- * Warm authenticated product surfaces after the current route becomes idle.
- *
- * A pointer hover remains the highest-priority signal. This background pass
- * closes the remaining gap for keyboard navigation and immediate clicks on a
- * cold production server. Primary list pages load first; heavier editor and
- * detail modules only start after those imports settle, so Chat bootstrap is
- * never blocked by optional route code.
- */
-export function scheduleAuthenticatedRoutePreloads(currentPathname: string): () => void {
-  let cancelled = false;
-  let detailTimer: number | null = null;
-  const run = () => {
-    if (cancelled) return;
-    const primary = PRIMARY_IDLE_ROUTES
-      .filter((pathname) => pathname !== currentPathname)
-      .map((pathname) => preloadRoute(pathname))
-      .filter((pending): pending is Promise<unknown> => Boolean(pending));
-    void Promise.allSettled(primary).then(() => {
-      if (cancelled) return;
-      detailTimer = window.setTimeout(() => {
-        if (cancelled) return;
-        DETAIL_IDLE_ROUTES.forEach((pathname) => { void preloadRoute(pathname); });
-      }, 120);
-    });
-  };
-
-  const idleWindow = window as Window & {
-    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-    cancelIdleCallback?: (id: number) => void;
-  };
-  let idleId: number | null = null;
-  let fallbackTimer: number | null = null;
-  if (idleWindow.requestIdleCallback) {
-    idleId = idleWindow.requestIdleCallback(run, { timeout: 700 });
-  } else {
-    fallbackTimer = window.setTimeout(run, 250);
-  }
-  return () => {
-    cancelled = true;
-    if (idleId !== null) idleWindow.cancelIdleCallback?.(idleId);
-    if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
-    if (detailTimer !== null) window.clearTimeout(detailTimer);
-  };
 }

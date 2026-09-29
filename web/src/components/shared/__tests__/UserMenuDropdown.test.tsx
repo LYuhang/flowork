@@ -13,6 +13,8 @@ import userEvent from '@testing-library/user-event';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import i18n from 'i18next';
 import { MemoryRouter } from 'react-router';
+import { useState } from 'react';
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 // Mock the auth store before importing the component.
 const mockLogout = vi.fn(async () => {});
@@ -38,11 +40,11 @@ void testI18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 });
 
-function renderShell() {
+function renderShell(onNavigate?: () => void) {
   return render(
     <I18nextProvider i18n={testI18n}>
       <MemoryRouter>
-        <UserMenuDropdown />
+        <UserMenuDropdown onNavigate={onNavigate} />
       </MemoryRouter>
     </I18nextProvider>,
   );
@@ -94,5 +96,37 @@ describe('<UserMenuDropdown>', () => {
     });
     const link = settings.closest('a');
     expect(link).toHaveAttribute('href', '/settings');
+  });
+
+  it('closes its navigation container when Settings is selected', async () => {
+    const onNavigate = vi.fn();
+    renderShell(onNavigate);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /open user menu/i }));
+    await user.click(await screen.findByRole('menuitem', { name: /settings/i }));
+    expect(onNavigate).toHaveBeenCalledOnce();
+  });
+
+  it('releases the pointer lock after navigating out of a mobile Sheet', async () => {
+    function MobileShell() {
+      const [open, setOpen] = useState(false);
+      return (
+        <Sheet open={open} onOpenChange={setOpen}>
+          <SheetTrigger>Navigation</SheetTrigger>
+          <SheetContent aria-describedby={undefined}>
+            <SheetTitle>Navigation menu</SheetTitle>
+            <UserMenuDropdown onNavigate={() => setOpen(false)} />
+          </SheetContent>
+        </Sheet>
+      );
+    }
+    render(<I18nextProvider i18n={testI18n}><MemoryRouter><MobileShell /></MemoryRouter></I18nextProvider>);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Navigation' }));
+    await user.click(screen.getByRole('button', { name: /open user menu/i }));
+    await user.click(await screen.findByRole('menuitem', { name: /settings/i }));
+    await waitFor(() => expect(document.body.style.pointerEvents).not.toBe('none'));
+    await user.click(screen.getByRole('button', { name: 'Navigation' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });

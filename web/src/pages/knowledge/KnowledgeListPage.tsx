@@ -201,7 +201,7 @@ export function KnowledgeListPage() {
       {filtered.length ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((item) => (
-            <Link key={item.id} to={`/knowledge/${item.id}`} className="group flex min-h-44 flex-col rounded-xl border border-edge-subtle bg-surface-raised p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+            <Link key={item.id} to={`/knowledge/${item.id}`} className="group flex min-w-0 min-h-44 flex-col rounded-xl border border-edge-subtle bg-surface-raised p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
               <span className="flex items-start justify-between gap-3">
                 <ResourceIcon kind="knowledge" size="lg" className="size-10 rounded-lg" />
                 <span className="rounded-md bg-surface-sunken px-2 py-1 text-xs font-medium tabular-nums text-content-secondary">
@@ -212,7 +212,7 @@ export function KnowledgeListPage() {
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="truncate text-base font-semibold text-content-primary">{item.name}</span>
                 </span>
-                <span className="mt-1 line-clamp-2 text-sm leading-5 text-content-secondary">{item.description || t('knowledge.noDescription', 'No description')}</span>
+                <span className="mt-1 [overflow-wrap:anywhere] line-clamp-2 text-sm leading-5 text-content-secondary">{item.description || t('knowledge.noDescription', 'No description')}</span>
                 <span className="mt-3 block text-xs text-content-tertiary">
                   {item.file_count} {t('knowledge.files', 'files')} · {t('knowledge.updatedAt', 'Updated {{time}}', { time: formatTime(item.latest_updated_at) })}
                 </span>

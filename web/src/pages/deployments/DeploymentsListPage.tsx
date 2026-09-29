@@ -225,7 +225,7 @@ export function DeploymentsListPage() {
         className="gap-5"
       >
         <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
-        <div className="relative min-w-[240px] sm:max-w-md">
+        <div className="relative min-w-0 sm:max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             value={searchDraft}
@@ -277,7 +277,7 @@ export function DeploymentsListPage() {
 
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-edge-structural bg-surface-work">
           <ManagementToolbar className="border-x-0 border-t-0 bg-surface-sunken/70 px-4 py-3">
-            <div className="relative min-w-[240px] flex-1">
+            <div className="relative min-w-0 basis-full sm:basis-60 sm:flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
                 value={searchDraft}
@@ -337,8 +337,8 @@ export function DeploymentsListPage() {
               )}
             />
           ) : (
-            <div className="app-scrollbar min-h-0 flex-1 overflow-auto" data-testid="deployments-table-scroll">
-              <table className="min-w-[960px] w-full text-sm">
+            <div className="resource-list-container app-scrollbar min-h-0 flex-1 overflow-auto" data-testid="deployments-table-scroll">
+              <table role="table" className="resource-table resource-table-deployments w-full text-sm">
                 <thead className="sticky top-0 z-10 border-b bg-surface-sunken text-left text-xs font-medium text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 font-medium">{t('deployments.col.name', 'Name')}</th>
@@ -356,18 +356,19 @@ export function DeploymentsListPage() {
                     const capabilities = new Set(dep.access?.capabilities ?? []);
                     return (
                       <tr key={dep.id} className="border-b last:border-b-0 hover:bg-muted/30">
-                        <td className="px-4 py-3">
+                        <td data-col="name" className="px-4 py-3">
                           <div className="flex min-w-0 items-start gap-2.5">
                             <ResourceIcon kind="deployment" size="sm" />
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <Link
                                 to={`/deployments/${dep.id}`}
-                                className="font-medium text-foreground underline-offset-4 hover:text-primary hover:underline"
+                                title={dep.name}
+                                className="block truncate font-medium text-foreground underline-offset-4 hover:text-primary hover:underline"
                               >
                                 {dep.name}
                               </Link>
                               <div className="mt-1 flex max-w-[360px] items-center gap-1.5 text-xs text-muted-foreground">
-                                <code className="truncate font-mono" translate="no">{endpoint}</code>
+                                <code className="min-w-0 flex-1 truncate font-mono" title={endpoint} translate="no">{endpoint}</code>
                                 <CopyButton
                                   value={endpoint}
                                   label={t('deployments.actions.copyEndpoint', 'Copy endpoint')}
@@ -378,28 +379,28 @@ export function DeploymentsListPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
+                        <td data-col="type" data-label={t('deployments.col.type', 'Type')} className="px-4 py-3">
                           <StatusBadge status="neutral" showDot={false}>
                             {triggerLabel(dep.trigger_type, t)}
                           </StatusBadge>
                         </td>
-                        <td className="px-4 py-3">
+                        <td data-col="status" data-label={t('deployments.col.status', 'Status')} className="px-4 py-3">
                           <StatusBadge status={dep.enabled ? 'success' : 'neutral'}>
                             {dep.enabled
                               ? t('deployments.status.active', 'Active')
                               : t('deployments.status.disabled', 'Disabled')}
                           </StatusBadge>
                         </td>
-                        <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-muted-foreground" title={dep.wf_id}>
+                        <td data-col="workflow" data-label={t('deployments.col.workflow', 'Workflow')} className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-muted-foreground" title={dep.wf_id}>
                           {dep.wf_id}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        <td data-col="invokes" data-label={t('deployments.col.invokes', 'Calls')} className="px-4 py-3 text-right tabular-nums text-muted-foreground">
                           {formatNumber(dep.invoke_count)}
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">
+                        <td title={formatTime(dep.last_invoked_at)} data-col="lastActivity" data-label={t('deployments.col.lastActivity', 'Last activity')} className="px-4 py-3 text-muted-foreground">
                           {formatTime(dep.last_invoked_at)}
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td data-col="actions" className="px-4 py-3 text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button

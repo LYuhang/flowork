@@ -81,6 +81,21 @@ docker compose up -d --no-build --wait
 HTTPS，并将应用请求转发到 `127.0.0.1:9001`；支持 SSE 长连接和 WebSocket。
 证书续期必须自动化。应用端口继续只绑定回环地址。
 
+### 页面加载性能
+
+- 在公开 HTTPS 入口启用 HTTP/2，避免页面脚本和 API 争抢 HTTP/1.1 连接。
+  Ubuntu 24.04 的 nginx 1.24 使用 `listen 443 ssl http2;`；较新版 nginx
+  可使用 `http2 on;`，应用前运行 `nginx -t`。
+- Web 镜像对 `/assets/` 下带内容哈希的构建文件设置一年缓存，并压缩 JS/CSS。
+  外层代理应保留这些响应头；HTML、API 和 SSE 不使用这套长期缓存。
+- 手动部署使用 Vite Preview 时，它默认返回 `Cache-Control: no-cache`。
+  应由入口 nginx **仅对带内容哈希的静态文件**覆盖为
+  `Cache-Control: public, max-age=31536000, immutable`，并启用 JS/CSS 压缩。
+  不要把长期缓存应用到整个站点。修改 location 的 `add_header` 时须保留
+  server 层已有的安全响应头。
+- 更新版本时先上传新静态文件，再替换 `index.html`；短期保留旧哈希文件，
+  使仍打开旧页面的用户可以继续加载其按需模块。
+
 | 配置/路径 | 应使用的值 |
 | --- | --- |
 | `VIBECANVAS_PUBLIC_URL` | `https://your-domain.example` |

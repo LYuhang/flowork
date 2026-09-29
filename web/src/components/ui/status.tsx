@@ -22,7 +22,7 @@ const statusColor = {
 } satisfies Record<SemanticStatus, string>;
 
 const statusBadgeVariants = cva(
-  'inline-flex min-h-6 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium',
+  'inline-flex min-h-6 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium',
   {
     variants: {
       status: {

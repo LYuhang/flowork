@@ -290,6 +290,75 @@ export function WorkspacePage() {
 
         <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
 
+        {/* Keep search/sort controls mounted while a different query loads.
+            Switching from a page to the searchable catalog must not drop
+            focus or interrupt typing after the first character. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <ManagementToolbar className="rounded-lg border-x border-edge-subtle">
+            <div className="relative min-w-[220px] flex-1 sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                data-testid="wf-search"
+                className="pl-8"
+                aria-label={t('search_workflows', 'Search by name, ID, or description…')}
+                placeholder={t(
+                  'search_workflows',
+                  'Search by name, ID, or description…',
+                )}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <Select
+              value={sandboxFilter}
+              onValueChange={(value) => {
+                setSandboxFilter(value as SandboxFilter);
+              }}
+            >
+              <SelectTrigger className="w-[154px]" aria-label={t('workspace.filter_sandbox', 'Filter by sandbox')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('workspace.sandbox_all', 'All sandboxes')}</SelectItem>
+                <SelectItem value="running">{t('workspace.sandbox_running', 'Running')}</SelectItem>
+                <SelectItem value="hibernated">{t('workflow.sandbox.hibernated', 'Sandbox hibernated')}</SelectItem>
+                <SelectItem value="idle">{t('workflow.sandbox.idle', 'Sandbox idle')}</SelectItem>
+                <SelectItem value="closed">{t('workflow.sandbox.closed', 'Sandbox closed')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={sortOption}
+              onValueChange={(value) => {
+                const next = readSortOption(value as SortOption);
+                setSort(next.sortKey, next.sortDir);
+              }}
+            >
+              <SelectTrigger className="w-[160px]" aria-label={t('workspace.sort', 'Sort workflows')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="updated_desc">{t('workspace.sort_updated_desc', 'Updated newest')}</SelectItem>
+                <SelectItem value="updated_asc">{t('workspace.sort_updated_asc', 'Updated oldest')}</SelectItem>
+                <SelectItem value="name_asc">{t('workspace.sort_name_asc', 'Name A-Z')}</SelectItem>
+                <SelectItem value="name_desc">{t('workspace.sort_name_desc', 'Name Z-A')}</SelectItem>
+              </SelectContent>
+            </Select>
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-4 w-4" />
+                {t('clear', 'Clear')}
+              </Button>
+            )}
+            <span className="ml-auto whitespace-nowrap text-meta">
+              {filtersActive
+                ? t('wf_count_filtered', '{{shown}} of {{total}} workflows', {
+                    shown: totalItems,
+                    total: catalogWorkspace.data?.total ?? totalItems,
+                  })
+                : t('wf_count', '{{n}} workflows', { n: totalItems })}
+            </span>
+          </ManagementToolbar>
+
         {isLoading ? (
           <div className="flex flex-col gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -306,84 +375,18 @@ export function WorkspacePage() {
             technicalDetailsLabel={t('common.technicalDetails', 'Technical details')}
           />
         ) : (
-          // Bounded column: toolbar + pagination stay pinned; only the table
-          // region (flex-1) scrolls when the viewport is short.
-          <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <ManagementToolbar className="rounded-lg border-x border-edge-subtle">
-              <div className="relative min-w-[220px] flex-1 sm:max-w-sm">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  data-testid="wf-search"
-                  className="pl-8"
-                  aria-label={t('search_workflows', 'Search by name, ID, or description…')}
-                  placeholder={t(
-                    'search_workflows',
-                    'Search by name, ID, or description…',
-                  )}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <Select
-                value={sandboxFilter}
-                onValueChange={(value) => {
-                  setSandboxFilter(value as SandboxFilter);
-                }}
-              >
-                <SelectTrigger className="w-[154px]" aria-label={t('workspace.filter_sandbox', 'Filter by sandbox')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('workspace.sandbox_all', 'All sandboxes')}</SelectItem>
-                  <SelectItem value="running">{t('workspace.sandbox_running', 'Running')}</SelectItem>
-                  <SelectItem value="hibernated">{t('workflow.sandbox.hibernated', 'Sandbox hibernated')}</SelectItem>
-                  <SelectItem value="idle">{t('workflow.sandbox.idle', 'Sandbox idle')}</SelectItem>
-                  <SelectItem value="closed">{t('workflow.sandbox.closed', 'Sandbox closed')}</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
-                value={sortOption}
-                onValueChange={(value) => {
-                  const next = readSortOption(value as SortOption);
-                  setSort(next.sortKey, next.sortDir);
-                }}
-              >
-                <SelectTrigger className="w-[160px]" aria-label={t('workspace.sort', 'Sort workflows')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="updated_desc">{t('workspace.sort_updated_desc', 'Updated newest')}</SelectItem>
-                  <SelectItem value="updated_asc">{t('workspace.sort_updated_asc', 'Updated oldest')}</SelectItem>
-                  <SelectItem value="name_asc">{t('workspace.sort_name_asc', 'Name A-Z')}</SelectItem>
-                  <SelectItem value="name_desc">{t('workspace.sort_name_desc', 'Name Z-A')}</SelectItem>
-                </SelectContent>
-              </Select>
-              {filtersActive && (
-                <Button variant="ghost" size="sm" onClick={clearFilters}>
-                  <X className="h-4 w-4" />
-                  {t('clear', 'Clear')}
-                </Button>
-              )}
-              <span className="ml-auto whitespace-nowrap text-meta">
-                {filtersActive
-                  ? t('wf_count_filtered', '{{shown}} of {{total}} workflows', {
-                      shown: totalItems,
-                      total: catalogWorkspace.data?.total ?? totalItems,
-                    })
-                  : t('wf_count', '{{n}} workflows', { n: totalItems })}
-              </span>
-            </ManagementToolbar>
-
+          <>
             {/* Table — the scroll region. Capped to the available height so the
                 pagination bar below never scrolls away with the rows. The
                 percentage columns adapt to the available width; low-priority
                 metadata disappears before the workflow name becomes cramped. */}
             <div
-              className="surface-panel app-scrollbar min-h-0 flex-1 overflow-auto rounded-lg"
+              className="resource-list-container surface-panel app-scrollbar min-h-0 flex-1 overflow-auto rounded-lg"
               data-testid="wf-table-scroll"
             >
               <table
-                className="w-full table-fixed text-left text-ui"
+                role="table"
+                className="resource-table resource-table-workflows w-full table-fixed text-left text-ui"
                 data-testid="wf-table"
               >
                 <colgroup>
@@ -468,8 +471,9 @@ export function WorkspacePage() {
                 onPageChange={setPage}
               />
             </div>
-          </div>
+          </>
         )}
+        </div>
       </ManagementPageShell>
 
       <CreateWorkflowDialog open={createOpen} onOpenChange={setCreateOpen} />

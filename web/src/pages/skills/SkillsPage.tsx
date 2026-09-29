@@ -93,13 +93,13 @@ function SkillCard({ skill, onDelete }: { skill: Skill; onDelete: (skill: Skill)
           </DropdownMenu>
         </div>
       </div>
-      <p className="line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-muted-foreground">
+      <p className="[overflow-wrap:anywhere] line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-muted-foreground">
         {skill.description || t('skills.no_description', 'No Description')}
       </p>
       <ResourceProvenanceLine provenance={skill.provenance} />
       <div className="mt-auto flex flex-wrap gap-1 border-t pt-3">
         {skill.allowed_tools.slice(0, 4).map((tool) => (
-          <span key={tool} className="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs text-secondary-foreground">{tool}</span>
+          <span key={tool} className="max-w-full truncate rounded bg-secondary px-1.5 py-0.5 font-mono text-xs text-secondary-foreground">{tool}</span>
         ))}
         {skill.allowed_tools.length > 4 ? <span className="text-xs text-muted-foreground">+{skill.allowed_tools.length - 4}</span> : null}
         {skill.allowed_tools.length === 0 ? <span className="text-xs text-muted-foreground">{t('skills.no_tools_short', 'No tool requirements')}</span> : null}
@@ -131,7 +131,7 @@ function CatalogCard({ item, installed }: { item: SkillCatalogItem; installed?: 
         </div>
         <span className="shrink-0 text-xs text-muted-foreground">v{item.version}</span>
       </div>
-      <p className="line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-muted-foreground">{item.description}</p>
+      <p className="[overflow-wrap:anywhere] line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-muted-foreground">{item.description}</p>
       <div className="mt-auto flex items-center justify-between gap-3 border-t pt-3">
         <span className="text-xs text-muted-foreground">
           {t('skills.files_count', { count: item.files.length, defaultValue: '{{count}} Files' })}

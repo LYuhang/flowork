@@ -263,7 +263,9 @@ export function AppSidebar({
       }));
     return [...optimistic, ...persisted];
   }, [carrierScopeId, optimisticChatSessions, sessions.data?.items]);
-  const sandboxStatuses = useProjectSandboxStatuses((projects.data ?? []).map((item) => item.project_id));
+  const sandboxStatuses = useProjectSandboxStatuses(
+    showChatContext ? (projects.data ?? []).map((item) => item.project_id) : [],
+  );
   const sandboxStatusByProject = new Map((sandboxStatuses.data?.items ?? []).map((item) => [item.project_id, item]));
   const sandboxAction = useProjectSandboxAction();
   const [releaseProject, setReleaseProject] = useState<{ project_id: string; name: string } | null>(null);
@@ -443,7 +445,7 @@ export function AppSidebar({
           mobile
             ? 'flex h-full w-full border-0'
             : 'hidden border-r md:flex',
-          effectiveCollapsed ? 'w-16' : 'w-60',
+          !mobile && (effectiveCollapsed ? 'w-16' : 'w-60'),
         )}
       >
       <div
@@ -464,6 +466,7 @@ export function AppSidebar({
           <AppLogo />
         )}
       </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="shrink-0 px-2 py-2">
         {navGroups.map((group, groupIndex) => (
           <section
@@ -514,7 +517,7 @@ export function AppSidebar({
         ))}
       </div>
       {showChatContext ? (
-        <div className="flex min-h-0 flex-1 flex-col border-t border-edge-subtle pt-3">
+        <div className={cn("flex min-h-0 flex-1 flex-col border-t border-edge-subtle pt-3", mobile && "min-h-40")}>
           <div className="flex items-center justify-between px-3">
             <span className="text-xs font-semibold text-muted-foreground">
               {t('nav.projects', 'Projects')}
@@ -554,7 +557,7 @@ export function AppSidebar({
                     <button
                       type="button"
                       className={cn(
-                        'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 pr-8 text-left text-ui font-semibold transition-colors',
+                        'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 pr-8 [@media(pointer:coarse)]:pr-11 text-left text-ui font-semibold transition-colors',
                         activeProjectId === project.project_id
                           ? 'bg-primary/[0.06] text-foreground'
                           : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
@@ -576,7 +579,7 @@ export function AppSidebar({
                     </button>
                     <button
                       type="button"
-                      className="absolute right-1 top-1 grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-surface-raised hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
+                      className="absolute right-1 top-1 grid size-7 [@media(pointer:coarse)]:size-9 place-items-center rounded-md text-muted-foreground opacity-0 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-surface-raised hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
                       onClick={(event) => {
                         event.stopPropagation();
                         newChat(project.project_id);
@@ -640,7 +643,7 @@ export function AppSidebar({
                                 onFocus={() => preloadChat(item.chat_id)}
                                 onClick={() => selectChat(item.chat_id, project.project_id)}
                                 className={cn(
-                                  'flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
+                                  'flex h-8 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:pr-11 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
                                   item.chat_id === activeChatId
                                     ? 'bg-primary/[0.07] font-semibold text-foreground'
                                     : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
@@ -654,7 +657,7 @@ export function AppSidebar({
                               </button>
                                 <button
                                   type="button"
-                                  className="absolute right-1 grid size-6 place-items-center rounded text-muted-foreground opacity-0 hover:bg-surface-raised hover:text-destructive focus-visible:opacity-100 group-hover/chat-history:opacity-100"
+                                  className="absolute right-1 grid size-6 [@media(pointer:coarse)]:size-9 place-items-center rounded text-muted-foreground opacity-0 [@media(hover:none)]:opacity-100 hover:bg-surface-raised hover:text-destructive focus-visible:opacity-100 group-hover/chat-history:opacity-100"
                                   aria-label={t('nav.chatHistory.delete', 'Delete')}
                                   onClick={(event) => {
                                     event.stopPropagation();
@@ -713,14 +716,15 @@ export function AppSidebar({
           </div>
         </div>
       ) : <div className="min-h-0 flex-1" />}
-      <div className="mt-auto shrink-0 border-t border-edge-subtle p-2">
+      </div>
+      <div className={cn('mt-auto shrink-0 border-t border-edge-subtle p-2', mobile && 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
         {!effectiveCollapsed && (
           <div className="flex min-w-0 items-center gap-2">
             <div className="min-w-0 flex-1 [&_[data-testid=organization-switcher]]:w-full [&_[data-testid=organization-switcher]]:max-w-none">
               <OrganizationSwitcher />
             </div>
             <div className="flex shrink-0 items-center">
-              <UserMenuDropdown />
+              <UserMenuDropdown onNavigate={onNavigate} />
             </div>
           </div>
         )}

@@ -56,7 +56,7 @@ export function OrganizationSwitcher() {
   if (!activeOrganizationId) return null;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"

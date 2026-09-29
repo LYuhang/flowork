@@ -134,7 +134,7 @@ function McpServerCard({
               {server.name}
             </Link>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-secondary-foreground">
+              <span className="max-w-full truncate rounded bg-secondary px-1.5 py-0.5 font-mono text-secondary-foreground">
                 {server.tool_prefix}
               </span>
               <span>{server.transport}</span>
@@ -202,7 +202,7 @@ function McpServerCard({
           </DropdownMenu> : null}
         </div>
       </div>
-      <p className="line-clamp-2 min-h-10 text-sm text-muted-foreground">
+      <p className="[overflow-wrap:anywhere] line-clamp-2 min-h-10 text-sm text-muted-foreground">
         {server.description || t('mcp.no_description', 'No Brief Description Saved Yet.')}
       </p>
       <div className="truncate text-xs text-muted-foreground" title={server.endpoint}>
@@ -244,7 +244,7 @@ function CatalogCard({ item, installed }: { item: McpCatalogItem; installed?: Mc
         </div>
         {item.version ? <span className="shrink-0 text-xs text-muted-foreground">v{item.version}</span> : null}
       </div>
-      <p className="line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-muted-foreground">
+      <p className="[overflow-wrap:anywhere] line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-muted-foreground">
         {item.description || t('mcp.catalog.no_description', 'No Description Provided.')}
       </p>
       <div className="mt-auto flex items-center justify-between gap-3 border-t pt-3">

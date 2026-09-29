@@ -805,6 +805,25 @@
     @apply w-full max-w-7xl;
   }
 
+  /* Short touch viewports need one page scroll: a fixed-height header plus
+     nested list scroller can otherwise leave the list with no usable height. */
+  @media (max-width: 767px) {
+    .page-shell[data-page-archetype='list-index'] {
+      padding: 1rem;
+      overflow-y: auto;
+    }
+
+    .page-shell-contained[data-page-archetype='list-index'] > .page-content {
+      height: auto;
+      min-height: 100%;
+      gap: 1rem;
+    }
+
+    .management-page-content > * {
+      flex-shrink: 0;
+    }
+  }
+
   .table-panel {
     @apply overflow-hidden rounded-lg border border-edge-subtle bg-surface-work;
   }
@@ -1068,4 +1087,76 @@
     will-change: auto;
   }
 
+}
+
+/* Resource tables adapt to the space left by navigation, not the viewport.
+   Keep one set of links/actions; compact layouts turn each record into a card. */
+.resource-list-container { container-type: inline-size; }
+.resource-table { width: 100%; table-layout: fixed; }
+.resource-table th, .resource-table td { vertical-align: middle; }
+.resource-table th { white-space: nowrap; }
+.resource-table td[data-col="name"] { min-width: 0; }
+.resource-table td[data-col="actions"] { white-space: nowrap; }
+.resource-table td[data-col="lastActivity"], .resource-table td[data-col="created"] { overflow: hidden; text-overflow: ellipsis; }
+.resource-table td[data-col="lastActivity"],
+.resource-table td[data-col="created"],
+.resource-table td[data-col="duration"] { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.resource-table-deployments th:nth-child(1) { width: 34%; }
+.resource-table-deployments th:nth-child(2) { width: 9%; }
+.resource-table-deployments th:nth-child(3) { width: 10%; }
+.resource-table-deployments th:nth-child(4) { width: 15%; }
+.resource-table-deployments th:nth-child(5) { width: 7%; }
+.resource-table-deployments th:nth-child(6) { width: 18%; }
+.resource-table-deployments th:nth-child(7) { width: 7%; }
+.resource-table-tasks th:nth-child(1) { width: 9%; }
+.resource-table-tasks th:nth-child(2) { width: 10%; }
+.resource-table-tasks th:nth-child(3) { width: 21%; }
+.resource-table-tasks th:nth-child(4) { width: 9%; }
+.resource-table-tasks th:nth-child(5) { width: 10%; }
+.resource-table-tasks th:nth-child(6) { width: 12%; }
+.resource-table-tasks th:nth-child(7) { width: 6%; }
+.resource-table-tasks th:nth-child(8) { width: 12%; }
+.resource-table-tasks th:nth-child(9) { width: 6%; }
+.resource-table-tasks th:nth-child(10) { width: 5%; }
+
+@container (max-width: 1100px) {
+  .resource-table-tasks { display: block; }
+  .resource-table-tasks colgroup { display: none; }
+  .resource-table-tasks thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .resource-table-tasks tbody { display: block; }
+  .resource-table-tasks tbody tr { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem 1rem; padding: 1rem; }
+  .resource-table-tasks tbody td { display: block; min-width: 0; max-width: none; padding: 0; text-align: left; white-space: normal; }
+  .resource-table-tasks td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; font: 500 0.6875rem/1rem ui-sans-serif, system-ui, sans-serif; color: oklch(var(--text-tertiary)); }
+  .resource-table-tasks td[data-col="name"] { grid-column: 1 / -1; order: -1; }
+  .resource-table-tasks td[data-col="actions"] { position: absolute; top: 0.75rem; right: 0.75rem; }
+  .resource-table-tasks td[data-col="name"] { padding-right: 2.75rem; }
+  .resource-table-tasks td[data-col="sandbox"], .resource-table-tasks td[data-col="progress"], .resource-table-tasks td[data-col="created"], .resource-table-tasks td[data-col="lastActivity"], .resource-table-tasks td[data-col="updated"] { grid-column: 1 / -1; }
+  .resource-table-tasks td[colspan] { grid-column: 1 / -1; }
+}
+@container (max-width: 960px) {
+  .resource-table-deployments { display: block; }
+  .resource-table-deployments colgroup { display: none; }
+  .resource-table-deployments thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .resource-table-deployments tbody { display: block; }
+  .resource-table-deployments tbody tr { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem 1rem; padding: 1rem; }
+  .resource-table-deployments tbody td { display: block; min-width: 0; max-width: none; padding: 0; text-align: left; white-space: normal; }
+  .resource-table-deployments td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; font: 500 0.6875rem/1rem ui-sans-serif, system-ui, sans-serif; color: oklch(var(--text-tertiary)); }
+  .resource-table-deployments td[data-col="name"] { grid-column: 1 / -1; order: -1; }
+  .resource-table-deployments td[data-col="actions"] { position: absolute; top: 0.75rem; right: 0.75rem; }
+  .resource-table-deployments td[data-col="name"] { padding-right: 2.75rem; }
+  .resource-table-deployments td[data-col="sandbox"], .resource-table-deployments td[data-col="progress"], .resource-table-deployments td[data-col="created"], .resource-table-deployments td[data-col="lastActivity"], .resource-table-deployments td[data-col="updated"] { grid-column: 1 / -1; }
+  .resource-table-deployments td[colspan] { grid-column: 1 / -1; }
+}
+@container (max-width: 760px) {
+  .resource-table-workflows { display: block; }
+  .resource-table-workflows colgroup { display: none; }
+  .resource-table-workflows thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .resource-table-workflows tbody { display: block; }
+  .resource-table-workflows tbody tr { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem 1rem; padding: 1rem; }
+  .resource-table-workflows tbody td { display: block; min-width: 0; max-width: none; padding: 0; text-align: left; white-space: normal; }
+  .resource-table-workflows td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; font: 500 0.6875rem/1rem ui-sans-serif, system-ui, sans-serif; color: oklch(var(--text-tertiary)); }
+  .resource-table-workflows td[data-col="name"] { grid-column: 1 / -1; order: -1; }
+  .resource-table-workflows td[data-col="actions"] { grid-column: 1 / -1; order: 10; text-align: right; }
+  .resource-table-workflows td[data-col="sandbox"], .resource-table-workflows td[data-col="progress"], .resource-table-workflows td[data-col="created"], .resource-table-workflows td[data-col="lastActivity"], .resource-table-workflows td[data-col="updated"] { grid-column: 1 / -1; }
+  .resource-table-workflows td[colspan] { grid-column: 1 / -1; }
 }

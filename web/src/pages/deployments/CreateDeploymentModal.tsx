@@ -105,7 +105,7 @@ export function CreateDeploymentModal({
   initialName = '',
 }: CreateDeploymentModalProps) {
   const { t } = useTranslation();
-  const workflowsQuery = useWorkspaceList(200, 0);
+  const workflowsQuery = useWorkspaceList(200, 0, open);
   const workflows = useMemo(() => workflowsQuery.data?.items ?? [], [workflowsQuery.data?.items]);
   const [body, setBody] = useState<CreateDeploymentBody>(() =>
     defaultBody(initialWorkflowId, initialName),
@@ -147,7 +147,7 @@ export function CreateDeploymentModal({
   }, [body.wf_id, t, workflows]);
 
   const versionsQuery = useWorkflowVersions(
-    body.wf_id || undefined,
+    open ? body.wf_id || undefined : undefined,
   );
   const versions = useMemo<WorkflowVersionOption[]>(() => {
     const raw = (versionsQuery.data as { versions?: unknown[] } | undefined)?.versions ?? [];

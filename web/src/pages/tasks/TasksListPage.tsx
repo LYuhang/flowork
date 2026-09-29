@@ -343,7 +343,7 @@ function BatchTaskCreatePanel({
           </div>
         </aside>
 
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {(snapshotQuery.isLoading || versionSelection.loading) && effectiveWorkflowId ? (
             <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
               {t('tasks.new.loadingWorkflow', 'Loading workflow...')}
@@ -985,7 +985,7 @@ export function TasksListPage() {
         description={t('tasks.subtitle', 'Batch and scheduled workflow runs')}
       >
         <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
-        <div className="relative min-w-[240px] sm:max-w-md">
+        <div className="relative min-w-0 sm:max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             value={queryText}
@@ -1215,10 +1215,10 @@ export function TasksListPage() {
           />
         ) : (
           <div
-            className="app-scrollbar min-h-0 flex-1 overflow-auto border border-edge-structural bg-surface-work"
+            className="resource-list-container app-scrollbar min-h-0 flex-1 overflow-auto border border-edge-structural bg-surface-work"
             data-testid="tasks-table-scroll"
           >
-            <table className="min-w-[1120px] w-full text-sm">
+            <table role="table" className="resource-table resource-table-tasks w-full text-sm">
               <thead className="sticky top-0 z-10 border-b bg-surface-sunken text-left text-xs font-medium text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 font-medium">{t('tasks.col.status', 'Status')}</th>
@@ -1243,21 +1243,21 @@ export function TasksListPage() {
                       key={task.id}
                       className="border-b transition-colors last:border-b-0 hover:bg-surface-hover focus-within:bg-surface-hover"
                     >
-                      <td className="px-4 py-3">
+                      <td data-col="status" data-label={t('tasks.col.status', 'Status')} className="px-4 py-3">
                         <StatusBadge status={taskSemanticStatus(displayStatus)}>
                           {t(`tasks.status.${displayStatus}`, displayStatus)}
                         </StatusBadge>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                      <td data-col="sandbox" data-label={t('tasks.col.sandbox', 'Sandbox')} className="px-4 py-3">
+                        <span className="inline-flex whitespace-nowrap items-center gap-2 text-xs text-muted-foreground">
                           <StatusDot status={sandboxSemanticStatus(task.sandbox_status)} />
                           {t(`tasks.sandbox.${task.sandbox_status ?? 'released'}`, task.sandbox_status ?? 'released')}
                         </span>
                       </td>
-                      <td className="max-w-[220px] px-4 py-3">
+                      <td data-col="name" className="max-w-[220px] px-4 py-3">
                         <div className="flex min-w-0 items-start gap-2.5">
                           <ResourceIcon kind="task" size="sm" />
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <Link
                               to={`/tasks/${task.id}`}
                               className="block truncate font-medium underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
@@ -1272,13 +1272,13 @@ export function TasksListPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">
+                      <td data-col="type" data-label={t('tasks.col.type', 'Type')} className="px-4 py-3 text-muted-foreground">
                         {t(`tasks.type.${task.task_type}`, task.task_type)}
                       </td>
-                      <td className="max-w-[150px] truncate px-4 py-3 font-mono text-xs" title={task.workflow_id ?? ''}>
+                      <td data-col="workflow" data-label={t('tasks.col.workflow', 'Workflow')} className="max-w-[150px] truncate px-4 py-3 font-mono text-xs" title={task.workflow_id ?? ''}>
                         {task.workflow_id ?? '—'}
                       </td>
-                      <td className="px-4 py-3">
+                      <td data-col="progress" data-label={t('tasks.col.progress', 'Progress')} className="px-4 py-3">
                         {task.task_type === 'scheduled_run' ? (
                           <span className="text-xs text-muted-foreground">
                             {formatScheduleProgress(task, formatTime, t)}
@@ -1294,13 +1294,13 @@ export function TasksListPage() {
                           />
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                      <td data-col="duration" data-label={t('tasks.col.duration', 'Duration')} className="px-4 py-3 text-xs text-muted-foreground">
                         {duration(task)}
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                      <td title={formatTime(task.submitted_at)} data-col="created" data-label={t('tasks.col.created', 'Created')} className="px-4 py-3 text-xs text-muted-foreground">
                         {formatTime(task.submitted_at)}
                       </td>
-                      <td className="px-4 py-3">
+                      <td data-col="result" data-label={t('tasks.col.result', 'Result')} className="px-4 py-3">
                         {task.results_uri && capabilities.has('export') ? (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -1336,7 +1336,7 @@ export function TasksListPage() {
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td data-col="actions" className="px-4 py-3 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
                             <Button

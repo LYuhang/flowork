@@ -110,6 +110,9 @@ def test_request_id_middleware_does_not_buffer_sse():
 
     assert len(arrivals) == _N_CHUNKS, arrivals
     assert "x-request-id" in headers
+    assert headers["server-timing"].startswith("app;dur=")
+    # The measurement is emitted with headers, before the delayed stream body.
+    assert float(headers["server-timing"].split("=")[1]) < arrivals[-1] * 1000
     spread = _assert_streams_incrementally(arrivals)
     min_expected = _CHUNK_DELAY * (_N_CHUNKS - 2)
     assert spread >= min_expected, (

@@ -131,6 +131,8 @@ export interface ChatComposerProps {
   chatId: string | null;
   /** Main-app Project that owns a newly materialized Chat. */
   projectId?: string | null;
+  /** The server already knows the Chat's immutable Project binding. */
+  chatPersisted?: boolean;
   /**
    * Default composer mode for embedded chat. When `'browser'`, a bare non-slash
    * message is sent as `mode=browser` — the embedded side panel is browser-
@@ -162,6 +164,7 @@ export function ChatComposer({
   wfId,
   chatId,
   projectId,
+  chatPersisted = false,
   defaultMode,
   embedded,
   agentSurface = embedded ? 'browser' : 'chat',
@@ -196,6 +199,7 @@ export function ChatComposer({
   const runtimeCapabilitiesQuery = useAgentRuntimeCapabilities(chatId, {
     enabled: !!chatId && historyReady,
     projectId,
+    persisted: chatPersisted,
   });
   const chatAgentSettings = useChatAgentSettingsStore((state) =>
     chatId ? state.entries[chatId] : undefined,

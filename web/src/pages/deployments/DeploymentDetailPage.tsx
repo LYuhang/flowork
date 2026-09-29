@@ -420,7 +420,7 @@ function deploymentCodeExamples(
     curl: [
       `curl --request POST '${endpoint}' \\`,
       "  --header 'Content-Type: application/json' \\",
-      "  --header 'Authorization: Bearer ${FLOWORK_API_KEY}' \\",
+      '  --header "Authorization: Bearer ${FLOWORK_API_KEY}" \\',
       `  --data '${payload}'`,
     ].join('\n'),
     python: [

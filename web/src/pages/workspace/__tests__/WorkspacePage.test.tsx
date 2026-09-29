@@ -55,6 +55,20 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe('<WorkspacePage>', () => {
+  it('searches a complete cached first page without clearing rows or downloading another catalog', async () => {
+    let requests = 0;
+    server.use(http.get('*/api/v1/workflows', () => {
+      requests += 1;
+      return HttpResponse.json({ items: [fixtureWorkflow({ wf_id: 'wf_a', workflow_name: 'Alpha' })], total: 1, limit: 15, offset: 0 });
+    }));
+    renderWithProviders(<WorkspacePage />);
+    await screen.findByText('Alpha');
+    fireEvent.change(screen.getByTestId('wf-search'), { target: { value: 'Alpha' } });
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('1 of 1 workflows')).toBeInTheDocument());
+    expect(requests).toBe(1);
+  });
+
   it('keeps search focused while the catalog request is pending', async () => {
     let releaseCatalog!: () => void;
     const pending = new Promise<void>((resolve) => { releaseCatalog = resolve; });

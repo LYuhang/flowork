@@ -20,13 +20,18 @@ export const runtimeCapabilitiesKey = (chatId?: string | null) => [
 
 export function useAgentRuntimeCapabilities(
   chatId?: string | null,
-  options?: { enabled?: boolean; projectId?: string | null },
+  options?: { enabled?: boolean; projectId?: string | null; persisted?: boolean },
 ) {
+  // An existing Chat already resolves its Project on the server. Adding the
+  // asynchronously loaded project id changes the key mid-request and fetches
+  // the exact same capabilities twice on refresh. Drafts still need a Project
+  // key: their selected connection/model can change before materialization.
+  const projectId = options?.persisted ? undefined : options?.projectId;
   return useQuery({
-    queryKey: options?.projectId
-      ? [...runtimeCapabilitiesKey(chatId), options.projectId]
+    queryKey: projectId
+      ? [...runtimeCapabilitiesKey(chatId), projectId]
       : runtimeCapabilitiesKey(chatId),
-    queryFn: () => getAgentRuntimeCapabilities(chatId, options?.projectId),
+    queryFn: () => getAgentRuntimeCapabilities(chatId, projectId),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
     // Global Settings may be changed in another tab. Existing chats remain

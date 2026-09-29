@@ -582,6 +582,27 @@ export function ChatPage() {
     setActiveChatId,
   ]);
 
+  // Resume the restored conversation once per selection. The startup-selection
+  // effect below also observes project/session lists, which settle separately;
+  // doing discovery there issued the same request on every list update.
+  useEffect(() => {
+    if (!carrierScopeId || !activeChatId || activeChatId !== restoredChatId) return;
+    let disposed = false;
+    void readServerActiveTurns(carrierScopeId).then((turns) => {
+      if (disposed) return;
+      if (turns === null) {
+        setActiveRunDiscoveryStatus('error');
+        return;
+      }
+      for (const turn of turns) {
+        markChatStarted(turn.chatId);
+        void resumeActiveTurn(turn);
+      }
+      setActiveRunDiscoveryStatus('ready');
+    });
+    return () => { disposed = true; };
+  }, [activeChatId, carrierScopeId, markChatStarted, restoredChatId]);
+
   useEffect(() => {
     if (!carrierScopeId) return;
     const discoveryGeneration = ++activeRunDiscoveryGenerationRef.current;
@@ -619,19 +640,7 @@ export function ChatPage() {
     // user or by an explicit navigation intent.
     if (activeChatId) {
       initialChatSelectionRef.current = true;
-      if (activeChatId === restoredChatId) {
-        void readServerActiveTurns(carrierScopeId).then((turns) => {
-          if (turns === null) {
-            setActiveRunDiscoveryStatus('error');
-            return;
-          }
-          for (const turn of turns) {
-            markChatStarted(turn.chatId);
-            void resumeActiveTurn(turn);
-          }
-          setActiveRunDiscoveryStatus('ready');
-        });
-      } else {
+      if (activeChatId !== restoredChatId) {
         queueMicrotask(() => setActiveRunDiscoveryStatus('ready'));
       }
       return;
@@ -1326,6 +1335,7 @@ export function ChatPage() {
                           wfId={carrierScopeId}
                           chatId={activeChatId}
                           projectId={selectedProjectId}
+                          chatPersisted={activeChatIsPersisted || activeHistory.isSuccess}
                           agentSurface="chat"
                           quietFrame
                           showModelSelector
@@ -1358,6 +1368,7 @@ export function ChatPage() {
                             wfId={carrierScopeId}
                             chatId={activeChatId}
                             projectId={selectedProjectId}
+                            chatPersisted={activeChatIsPersisted || activeHistory.isSuccess}
                             agentSurface="chat"
                             quietFrame
                             showModelSelector

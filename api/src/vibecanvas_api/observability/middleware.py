@@ -15,6 +15,7 @@ that injects/reads the header via ``scope``/``send`` adds no buffering and lets
 from __future__ import annotations
 
 import uuid
+from time import perf_counter
 
 from vibecanvas_api.observability import context
 
@@ -34,6 +35,7 @@ class RequestIdMiddleware:
             await self.app(scope, receive, send)
             return
 
+        started_at = perf_counter()
         request_id = _request_id_from_scope(scope) or uuid.uuid4().hex
         # tenant_id is resolved later in the auth dependency; bind what we have.
         tokens = context.bind_request_context(request_id=request_id, tenant_id=None)
@@ -48,6 +50,13 @@ class RequestIdMiddleware:
                     (k, v) for (k, v) in headers if k.lower() != b"x-request-id"
                 ]
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
+                # Expose application time separately from proxy/network wait
+                # in browser Resource Timing. Stop at headers: SSE duration is
+                # the lifetime of a stream, not request processing latency.
+                headers.append((
+                    b"server-timing",
+                    f"app;dur={(perf_counter() - started_at) * 1000:.1f}".encode("ascii"),
+                ))
                 message = {**message, "headers": headers}
             await send(message)
 

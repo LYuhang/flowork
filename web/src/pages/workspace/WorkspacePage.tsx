@@ -126,6 +126,12 @@ export function WorkspacePage() {
   const catalogWorkspace = useWorkspaceCatalog(
     resourceScope === 'owned' && needsCatalog,
     FETCH_LIMIT,
+    // A complete first page is already the catalog. Reuse it when entering
+    // search/sort instead of clearing the list and downloading it again.
+    pageWorkspace.data?.offset === 0
+      && pageWorkspace.data.items.length === pageWorkspace.data.total
+      ? { data: pageWorkspace.data, updatedAt: pageWorkspace.dataUpdatedAt }
+      : undefined,
   );
   const workspace = needsCatalog ? catalogWorkspace : pageWorkspace;
   const updateListParams = (updates: Record<string, string | null>) => {

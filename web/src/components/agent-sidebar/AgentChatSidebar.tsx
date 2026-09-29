@@ -623,6 +623,7 @@ export function AgentChatSidebar({
             wfId={lastWfId}
             chatId={activeChatId}
             projectId={selectedSession?.project_id}
+            chatPersisted={selectedChatIsPersisted}
             defaultMode={defaultMode}
             embedded={embedded}
             agentSurface={embedded ? 'browser' : 'chat'}

@@ -39,11 +39,17 @@ export const useWorkspaceList = (limit = 50, offset = 0, enabled = true) =>
  * (cross-page search, non-default sort, or sandbox filtering). Normal page
  * entry remains a single small request.
  */
-export const useWorkspaceCatalog = (enabled: boolean, pageSize = 200) =>
+export const useWorkspaceCatalog = (
+  enabled: boolean,
+  pageSize = 200,
+  seed?: { data: Awaited<ReturnType<typeof fetchWorkspacePage>>; updatedAt: number },
+) =>
   useQuery({
     queryKey: ['workspace', 'catalog'],
     enabled,
     staleTime: 30_000,
+    initialData: seed?.data,
+    initialDataUpdatedAt: seed?.updatedAt,
     queryFn: async () => {
       const first = await fetchWorkspacePage(pageSize, 0);
       const offsets: number[] = [];

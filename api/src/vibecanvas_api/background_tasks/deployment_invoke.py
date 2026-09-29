@@ -176,7 +176,10 @@ async def _run(
                 owner_resource_type="deployment",
                 owner_resource_id=deployment_id,
             )
-            await DeploymentInvocationsRepo(s).mark_running(invocation_uuid)
+            if not await DeploymentInvocationsRepo(s).mark_running(invocation_uuid):
+                # DBOS can retry a step after its executor committed completion
+                # but before the acknowledgement reached the queue worker.
+                return
     except (LookupError, ValueError):
         async with short_session_scope(tenant_id=tenant_id) as s:
             await DeploymentInvocationsRepo(s).mark_terminal(
@@ -216,6 +219,8 @@ async def _run(
             execution_principal_id=str(lease.service_account_id),
             execution_principal_generation=lease.generation,
             mount_enabled=(snapshot or dep).get("mount_enabled", True),
+            deployment_id=deployment_id,
+            revision_id=(snapshot or {}).get("revision_id"),
         )
     except Exception as exc:
         # Top-level engine / loader failure — file it under a stable

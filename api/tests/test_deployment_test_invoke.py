@@ -179,6 +179,8 @@ async def test_test_invoke_runs_and_returns_outputs(
     )
 
     tenant_id, user_id, dep_id = await _seed_deployment(pg_engine, app_engine)
+    from tests.test_deployment_invoke_sync import _activate_test_revision
+    await _activate_test_revision(tenant_id, dep_id)
     ctx = _Ctx(tenant_id, user_id)
     async with session_scope(tenant_id=str(tenant_id)) as s:
         resp = await test_invoke(

@@ -11,7 +11,7 @@
  *     api path; the conditional render is exercised here).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -86,7 +86,7 @@ vi.mock('@/lib/api/queries/workflow', () => ({
 }));
 
 import { DeploymentDetailPage } from '@/pages/deployments/DeploymentDetailPage';
-import { getHistory, getMetrics, patchDeployment, rotateKey } from '@/lib/api/deployments';
+import { getDeployment, getHistory, getMetrics, patchDeployment, rotateKey } from '@/lib/api/deployments';
 
 const testI18n = i18n.createInstance();
 void testI18n.use(initReactI18next).init({
@@ -398,6 +398,81 @@ describe('<DeploymentDetailPage>', () => {
     const chart = await screen.findByRole('img', { name: 'Errors; maximum 0 errors' });
     expect(chart.querySelector('circle')).toHaveAttribute('cy', '44');
     expect(chart.innerHTML).not.toMatch(/NaN|Infinity/);
+  });
+
+  it('confirms a QPS-only update and preserves the draft on cancel', async () => {
+    const user = userEvent.setup();
+    renderAt(DEP_ID);
+    await screen.findByRole('heading', { name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Rate limit (QPS)' }), { target: { value: '3' } });
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('10')).toBeInTheDocument();
+    expect(within(dialog).getByText('3')).toBeInTheDocument();
+    expect(within(dialog).getByText(/without restarting the instance/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Prepare a new instance/)).not.toBeInTheDocument();
+    expect(patchDeployment).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('spinbutton', { name: 'Rate limit (QPS)' })).toHaveValue(3);
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm and save' }));
+    await waitFor(() => expect(patchDeployment).toHaveBeenCalledExactlyOnceWith(DEP_ID, { rate_limit_qps: 3 }));
+  });
+
+  it('distinguishes the serving revision from a starting candidate', async () => {
+    const dep = await getDeployment(DEP_ID);
+    vi.mocked(getDeployment).mockResolvedValueOnce({ ...dep, rollout_status: 'preparing', active_revision_id: 'old-instance', runtime: { instances: [
+      { id: 'old-instance', state: 'active', version: 'v1.sv0', mount_enabled: true, pending_requests: 2, created_at: dep.created_at, activated_at: dep.created_at },
+      { id: 'new-instance', state: 'preparing', version: 'v1.sv1', mount_enabled: false, pending_requests: 0, created_at: dep.created_at, activated_at: null },
+    ] } });
+    renderAt(DEP_ID);
+    await screen.findByText('Runtime instances');
+    expect(screen.getByText('old-instance')).toBeInTheDocument();
+    expect(screen.getByText('new-instance')).toBeInTheDocument();
+    expect(screen.getByText('v1.sv0')).toBeInTheDocument();
+    expect(screen.getByText('v1.sv1')).toBeInTheDocument();
+    expect(screen.getByText('Serving')).toBeInTheDocument();
+    expect(screen.getByText('Starting')).toBeInTheDocument();
+  });
+
+  it('confirms resource changes as an instance replacement', async () => {
+    const user = userEvent.setup();
+    renderAt(DEP_ID);
+    await screen.findByRole('heading', { name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
+    await user.click(screen.getByText('Advanced · instance resources'));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'CPU cores' }), { target: { value: '1' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Memory (MiB)' }), { target: { value: '1024' } });
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText('0.5')).toBeInTheDocument();
+    expect(dialog.getByText('1024')).toBeInTheDocument();
+    expect(dialog.getByText(/Prepare a new instance/)).toBeInTheDocument();
+    expect(patchDeployment).not.toHaveBeenCalled();
+    await user.click(dialog.getByRole('button', { name: 'Confirm and save' }));
+    await waitFor(() => expect(patchDeployment).toHaveBeenCalledExactlyOnceWith(DEP_ID, { cpu_millis: 1000, memory_mb: 1024 }));
+  });
+
+  it.each([true, false])('explains mixed QPS and mount changes when enabled=%s', async (enabled) => {
+    const user = userEvent.setup();
+    renderAt(DEP_ID);
+    await screen.findByRole('heading', { name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Rate limit (QPS)' }), { target: { value: '3' } });
+    await user.click(screen.getByRole('switch', { name: 'Mount user storage (/mount)' }));
+    if (!enabled) await user.click(screen.getByRole('switch', { name: 'Accept requests' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText(/without restarting the instance/)).toBeInTheDocument();
+    if (enabled) {
+      expect(dialog.getByText(/If preparation fails, the current instance keeps serving/)).toBeInTheDocument();
+    } else {
+      expect(dialog.getByText(/Stop accepting new requests/)).toBeInTheDocument();
+      expect(dialog.getByText(/No replacement instance is started/)).toBeInTheDocument();
+      expect(dialog.queryByText(/Prepare a new instance/)).not.toBeInTheDocument();
+    }
+    expect(patchDeployment).not.toHaveBeenCalled();
   });
 
   it('confirms API-key rotation and requires acknowledging the one-time secret', async () => {

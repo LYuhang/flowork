@@ -20,6 +20,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { I18nextProvider, initReactI18next } from "react-i18next";
 import i18n from "i18next";
@@ -74,6 +75,7 @@ function renderAt(taskId: string) {
   });
   return render(
     <QueryClientProvider client={client}>
+      <TooltipProvider>
       <I18nextProvider i18n={testI18n}>
         <MemoryRouter initialEntries={[`/tasks/${taskId}`]}>
           <Routes>
@@ -81,6 +83,7 @@ function renderAt(taskId: string) {
           </Routes>
         </MemoryRouter>
       </I18nextProvider>
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }

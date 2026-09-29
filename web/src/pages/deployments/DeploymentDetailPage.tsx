@@ -64,19 +64,23 @@ import { StatusBadge } from '@/components/ui/status';
 import { formatNumber } from '@/lib/format/number';
 import { useWorkflowVersions } from '@/lib/api/queries/workflow';
 import { ActionableError } from '@/components/presentation/ActionableError';
+import { CodeSnippet } from '@/components/presentation/CodeSnippet';
 import { resolveApiUrl } from '@/lib/base-path';
 import { OneTimeSecretField } from '@/pages/deployments/OneTimeSecretField';
+import { DeploymentTerminal } from '@/pages/deployments/DeploymentTerminal';
+import { DeploymentInstances } from '@/pages/deployments/DeploymentInstances';
 import { useWorkflow } from '@/lib/api/queries/workflow';
 import { getStartNodeFields, type StartNodeField } from '@/lib/workflow/start-node';
 import type { TFunction } from 'i18next';
 
-type TabKey = 'overview' | 'usage' | 'activity' | 'settings';
+type TabKey = 'overview' | 'usage' | 'activity' | 'settings' | 'terminal';
 type CodeLanguage = 'curl' | 'python' | 'javascript';
 
 function deploymentDetailTab(value: string | null): TabKey {
   if (value === 'usage' || value === 'code' || value === 'test') return 'usage';
   if (value === 'activity' || value === 'runs' || value === 'monitoring') return 'activity';
   if (value === 'settings' || value === 'config' || value === 'security') return 'settings';
+  if (value === 'terminal') return 'terminal';
   return 'overview';
 }
 
@@ -145,12 +149,21 @@ function OverviewTab({
         ]}
       />
       <BasicInfoSection dep={dep} canUpdate={canUpdate} />
+      <DeploymentInstances dep={dep} />
     </div>
   );
 }
 
 function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: boolean }) {
   const { t } = useTranslation();
+  const formatTime = useFormatDateTime();
+  const endpoint = new URL(resolveApiUrl(endpointFor(dep)), window.location.href).href;
+  const copyable = (value: string, label: string) => (
+    <span className="flex min-w-0 items-start gap-2">
+      <span className="min-w-0 flex-1 break-all font-mono text-xs leading-7" translate="no">{value}</span>
+      <CopyButton className="shrink-0" value={value} label={t('deployments.detail.copyField', 'Copy {{field}}', { field: label })} />
+    </span>
+  );
   const qc = useQueryClient();
   const [name, setName] = useState(dep.name);
   const [editing, setEditing] = useState(false);
@@ -216,12 +229,16 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
         </div>
       ) : (
         <DetailSummary
-          className="max-w-3xl gap-y-5"
+          className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-4 gap-x-8 gap-y-5 sm:p-5"
           items={[
             { label: t('deployments.create.fields.name', 'Name'), value: dep.name },
-            { label: t('deployments.create.fields.slug', 'Slug'), value: <span className="font-mono text-xs" translate="no">{dep.slug}</span> },
-            { label: t('deployments.create.fields.wfId', 'Workflow ID'), value: <span className="font-mono text-xs" translate="no">{dep.wf_id}</span> },
             { label: t('deployments.create.fields.triggerType', 'Trigger type'), value: triggerLabel(dep, t) },
+            { label: t('deployments.detail.deploymentId', 'Deployment ID'), value: copyable(dep.id, t('deployments.detail.deploymentId', 'Deployment ID')) },
+            { label: t('deployments.create.fields.slug', 'Slug'), value: copyable(dep.slug, t('deployments.create.fields.slug', 'Slug')) },
+            { label: t('deployments.create.fields.wfId', 'Workflow ID'), value: copyable(dep.wf_id, t('deployments.create.fields.wfId', 'Workflow ID')), wide: true },
+            { label: t('deployments.detail.endpoint', 'Endpoint'), value: copyable(endpoint, t('deployments.detail.endpoint', 'Endpoint')), wide: true },
+            { label: t('deployments.detail.createdAt', 'Created'), value: formatTime(dep.created_at) },
+            { label: t('deployments.detail.updatedAt', 'Updated'), value: dep.updated_at ? formatTime(dep.updated_at) : '—' },
           ]}
         />
       )}
@@ -235,24 +252,45 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   const [rateQps, setRateQps] = useState<number>(dep.rate_limit_qps);
   const [enabled, setEnabled] = useState(dep.enabled);
   const [mountEnabled, setMountEnabled] = useState(dep.mount_enabled ?? true);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cpuMillis, setCpuMillis] = useState(dep.cpu_millis ?? 500);
+  const [memoryMb, setMemoryMb] = useState(dep.memory_mb ?? 256);
   const originalVersion = dep.version_pin === 'head' ? 'head' : dep.version_pin === 'major' ? `v${dep.pinned_major}` : `v${dep.pinned_major}.sv${dep.pinned_sub}`;
   const [version, setVersion] = useState(originalVersion);
   const versionsQuery = useWorkflowVersions(dep.wf_id);
   const versions = (versionsQuery.data as { versions?: { major: number; sub: number }[] } | undefined)?.versions ?? [];
   const versionOptions = [...new Set([originalVersion, ...versions.map(v => `v${v.major}`), ...versions.map(v => `v${v.major}.sv${v.sub}`)])];
 
-  const dirty = rateQps !== dep.rate_limit_qps || enabled !== dep.enabled || mountEnabled !== (dep.mount_enabled ?? true) || version !== originalVersion;
+  const resourcesChanged = cpuMillis !== (dep.cpu_millis ?? 500) || memoryMb !== (dep.memory_mb ?? 256);
+  const dirty = rateQps !== dep.rate_limit_qps || enabled !== dep.enabled || mountEnabled !== (dep.mount_enabled ?? true) || version !== originalVersion || resourcesChanged;
+  const validQps = Number.isSafeInteger(rateQps) && rateQps >= 0;
+  const validResources = Number.isInteger(cpuMillis) && cpuMillis >= 100 && cpuMillis <= 256000 && Number.isInteger(memoryMb) && memoryMb >= 128 && memoryMb <= 1048576;
+  const validForm = validQps && validResources;
+  const needsReplacement = version !== originalVersion || mountEnabled !== (dep.mount_enabled ?? true) || resourcesChanged;
+  const booleanLabel = (value: boolean) => value ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off');
+  const changes = [
+    ...(cpuMillis !== (dep.cpu_millis ?? 500) ? [{ label: t('deployments.resources.cpu', 'CPU cores'), before: String((dep.cpu_millis ?? 500) / 1000), after: String(cpuMillis / 1000) }] : []),
+    ...(memoryMb !== (dep.memory_mb ?? 256) ? [{ label: t('deployments.resources.memory', 'Memory (MiB)'), before: String(dep.memory_mb ?? 256), after: String(memoryMb) }] : []),
+    ...(rateQps !== dep.rate_limit_qps ? [{ label: t('deployments.create.fields.rateLimitQps', 'Rate limit (QPS)'), before: String(dep.rate_limit_qps), after: String(rateQps) }] : []),
+    ...(enabled !== dep.enabled ? [{ label: t('deployments.settings.acceptTraffic', 'Accept requests'), before: booleanLabel(dep.enabled), after: booleanLabel(enabled) }] : []),
+    ...(version !== originalVersion ? [{ label: t('tasks.version.label', 'Workflow version'), before: originalVersion, after: version }] : []),
+    ...(mountEnabled !== (dep.mount_enabled ?? true) ? [{ label: t('deployments.mount', 'Mount user storage (/mount)'), before: booleanLabel(dep.mount_enabled ?? true), after: booleanLabel(mountEnabled) }] : []),
+  ];
   const patchMutation = useMutation({
     mutationFn: () => {
       const match = /^v(\d+)(?:\.sv(\d+))?$/.exec(version);
       return patchDeployment(dep.id, {
+        ...(cpuMillis !== (dep.cpu_millis ?? 500) ? { cpu_millis: cpuMillis } : {}),
+        ...(memoryMb !== (dep.memory_mb ?? 256) ? { memory_mb: memoryMb } : {}),
         ...(rateQps !== dep.rate_limit_qps ? { rate_limit_qps: rateQps } : {}),
         ...(enabled !== dep.enabled ? { enabled } : {}),
         ...(mountEnabled !== (dep.mount_enabled ?? true) ? { mount_enabled: mountEnabled } : {}),
         ...(version !== originalVersion && match ? { version_pin: match[2] === undefined ? 'major' : 'specific', pinned_major: Number(match[1]), ...(match[2] === undefined ? {} : { pinned_sub: Number(match[2]) }) } : {}),
       });
     },
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      setConfirmOpen(false);
+      if (updated) qc.setQueryData(['deployment', dep.id], updated);
       void qc.invalidateQueries({ queryKey: ['deployment', dep.id] });
       void qc.invalidateQueries({ queryKey: ['deployments'] });
       toast.success(t('deployments.detail.saved', 'Saved'));
@@ -261,6 +299,8 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   });
 
   const reset = () => {
+    setCpuMillis(dep.cpu_millis ?? 500);
+    setMemoryMb(dep.memory_mb ?? 256);
     setRateQps(dep.rate_limit_qps);
     setEnabled(dep.enabled);
     setMountEnabled(dep.mount_enabled ?? true);
@@ -275,7 +315,11 @@ function ConfigTab({ dep }: { dep: Deployment }) {
         </span>
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">{t('deployments.detail.trafficControl', 'Traffic and runtime controls')}</h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('deployments.settings.intro', 'Changes apply to new requests after saving.')}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('deployments.settings.intro', 'Review how each change takes effect before saving.')}</p>
+          {dep.rollout_status && <p className="mt-2 text-xs text-content-secondary">
+            {t('deployments.runtime.rollout', 'Deployment state')}: {t(`deployments.runtime.${dep.rollout_status}`, dep.rollout_status)}
+            {' · '}{t('deployments.runtime.activeVersion', 'Serving version')}: {dep.runtime?.instances.find(instance => instance.id === dep.active_revision_id)?.version ?? '—'}
+          </p>}
         </div>
       </header>
       <div className="divide-y divide-edge-subtle px-5 sm:px-6">
@@ -292,7 +336,7 @@ function ConfigTab({ dep }: { dep: Deployment }) {
             <p id="dep-qps-help" className="text-xs leading-5 text-muted-foreground">{t('deployments.settings.rateHelp', 'Maximum requests per second. 0 means unlimited; excess requests receive HTTP 429.')}</p>
           </div>
           <Input id="dep-qps" name="rate-limit-qps" type="number" min={0} step={1} value={rateQps}
-            aria-describedby="dep-qps-help" disabled={patchMutation.isPending}
+            aria-describedby="dep-qps-help" aria-invalid={!validQps} disabled={patchMutation.isPending}
             onChange={(event) => setRateQps(Number(event.target.value) || 0)} className="w-full tabular-nums" />
         </div>
         <div className="grid items-start gap-3 py-5 sm:grid-cols-[minmax(0,1fr)_13rem] sm:gap-6">
@@ -318,6 +362,19 @@ function ConfigTab({ dep }: { dep: Deployment }) {
           <Switch id="dep-mount" aria-describedby="dep-mount-help" checked={mountEnabled} onCheckedChange={setMountEnabled} disabled={patchMutation.isPending} className="mt-0.5 shrink-0" />
         </div>
       </div>
+      <details className="border-t border-edge-subtle px-5 py-4 sm:px-6">
+        <summary className="cursor-pointer text-sm font-medium">{t('deployments.resources.title', 'Advanced · instance resources')}</summary>
+        <p className="mt-3 text-xs leading-5 text-content-tertiary">{t('deployments.resources.help', 'Limits apply to the whole instance. Changes require a new instance; both old and new limits must fit available capacity during a rollout.')}</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2"><Label htmlFor="dep-cpu">{t('deployments.resources.cpu', 'CPU cores')}</Label>
+            <Input id="dep-cpu" type="number" min={0.1} max={256} step={0.1} value={cpuMillis / 1000} disabled={patchMutation.isPending} onChange={event => setCpuMillis(Math.round(Number(event.target.value) * 1000))} />
+          </div>
+          <div className="space-y-2"><Label htmlFor="dep-memory">{t('deployments.resources.memory', 'Memory (MiB)')}</Label>
+            <Input id="dep-memory" type="number" min={128} max={1048576} step={128} value={memoryMb} disabled={patchMutation.isPending} onChange={event => setMemoryMb(Number(event.target.value))} />
+          </div>
+        </div>
+        {!validResources && <p role="alert" className="mt-2 text-xs text-destructive">{t('deployments.resources.invalid', 'CPU must be 0.1–256 cores; memory must be a whole number from 128 to 1048576 MiB.')}</p>}
+      </details>
       <footer className="flex flex-col gap-3 border-t border-edge-subtle bg-surface-sunken/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
           {dirty ? <span className="size-1.5 rounded-full bg-state-warning" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
@@ -325,11 +382,48 @@ function ConfigTab({ dep }: { dep: Deployment }) {
         </p>
         <div className="flex items-center justify-end gap-2">
           {dirty && <Button variant="ghost" onClick={reset} disabled={patchMutation.isPending}>{t('deployments.settings.discard', 'Discard changes')}</Button>}
-          <Button onClick={() => patchMutation.mutate()} disabled={!dirty || patchMutation.isPending}>
+          <Button onClick={() => setConfirmOpen(true)} disabled={!dirty || !validForm || patchMutation.isPending}>
             {patchMutation.isPending ? t('common.saving', 'Saving…') : t('deployments.detail.save', 'Save changes')}
           </Button>
         </div>
       </footer>
+      <Dialog open={confirmOpen} onOpenChange={(open) => { if (!patchMutation.isPending) setConfirmOpen(open); }}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t('deployments.settings.confirmTitle', 'Review deployment changes')}</DialogTitle>
+            <DialogDescription>{t('deployments.settings.confirmDescription', 'Check the new values and their effect on requests before confirming.')}</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-hidden rounded-lg border border-edge-subtle">
+            <div className="grid grid-cols-2 gap-3 bg-surface-sunken px-4 py-2 text-xs text-content-tertiary">
+              <span>{t('deployments.settings.before', 'Currently saved')}</span>
+              <span>{t('deployments.settings.after', 'New value')}</span>
+            </div>
+            <dl className="divide-y divide-edge-subtle">
+              {changes.map(change => <div key={change.label} className="px-4 py-3">
+                <dt className="mb-1.5 text-xs font-medium">{change.label}</dt>
+                <dd className="grid grid-cols-2 gap-3 break-words text-sm tabular-nums">
+                  <span className="text-content-tertiary">{change.before}</span>
+                  <span className="font-medium">{change.after}</span>
+                </dd>
+              </div>)}
+            </dl>
+          </div>
+          <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-content-secondary">
+            {rateQps !== dep.rate_limit_qps && <li>{t('deployments.settings.effectQps', 'The request limit updates immediately, without restarting the instance.')}</li>}
+            {!enabled && dep.enabled && <li>{t('deployments.settings.effectDisable', 'Stop accepting new requests. Accepted requests finish before the instance is released.')}</li>}
+            {enabled && !dep.enabled && <li>{t('deployments.settings.effectEnable', 'Prepare a resident instance and start accepting requests once it is ready.')}</li>}
+            {needsReplacement && enabled && dep.enabled && <li>{t('deployments.settings.effectReplace', 'Prepare a new instance while the current instance serves requests. Switch traffic when ready, then drain and release the old instance. If preparation fails, the current instance keeps serving.')}</li>}
+            {needsReplacement && !enabled && <li>{t('deployments.settings.effectDeferred', 'Save the runtime settings for the next enable. No replacement instance is started while this deployment is disabled.')}</li>}
+          </ul>
+          {patchMutation.isError && <p role="alert" className="break-words text-sm text-destructive">{patchMutation.error instanceof Error ? patchMutation.error.message : String(patchMutation.error)}</p>}
+          <DialogFooter>
+            <Button variant="outline" disabled={patchMutation.isPending} onClick={() => setConfirmOpen(false)}>{t('cancel', 'Cancel')}</Button>
+            <Button disabled={patchMutation.isPending || !dirty || !validForm} onClick={() => patchMutation.mutate()}>
+              {patchMutation.isPending ? t('common.saving', 'Saving…') : t('deployments.settings.confirmSave', 'Confirm and save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -516,9 +610,8 @@ function CodeExamplesTab({
         </TabsList>
         {(['curl', 'python', 'javascript'] as const).map((value) => (
           <TabsContent key={value} value={value} className="mt-3">
-            <pre className="app-scrollbar max-h-[32rem] overflow-auto rounded-lg bg-surface-sunken p-4 font-mono text-xs leading-5 text-foreground" data-testid={`deployment-code-${value}`}>
-              <code>{examples[value]}</code>
-            </pre>
+            <CodeSnippet code={examples[value]} language={value === 'curl' ? 'bash' : value}
+              showHeader={false} testId={`deployment-code-${value}`} />
           </TabsContent>
         ))}
       </Tabs>
@@ -1129,6 +1222,12 @@ export function DeploymentDetailPage() {
     queryKey: ['deployment', depId],
     queryFn: () => getDeployment(depId!),
     enabled: !!depId,
+    refetchInterval: (q) => {
+      if (tab !== 'overview' && tab !== 'settings') return false;
+      const dep = q.state.data;
+      if (!dep?.runtime || (!dep.enabled && dep.runtime.instances.length === 0)) return false;
+      return dep.rollout_status === 'ready' ? 15_000 : 5_000;
+    },
     refetchOnWindowFocus: false,
   });
   const metricsQuery = useQuery({
@@ -1179,7 +1278,7 @@ export function DeploymentDetailPage() {
     ? canInspectRuns
     : tab === 'settings'
       ? canUpdate || canManageSecret
-      : true;
+      : tab === 'terminal' ? canUpdate : true;
   const activeTab: TabKey = allowedTab ? tab : 'overview';
   const latestMetric = metricsQuery.data?.series.at(-1) ?? null;
   const versionLabel = dep.version_pin === 'head'
@@ -1251,6 +1350,7 @@ export function DeploymentDetailPage() {
               {t('deployments.detail.tabs.usage', 'Usage')}
             </TabsTrigger>
             {canInspectRuns ? <TabsTrigger value="activity" className="shrink-0">{t('deployments.detail.tabs.activity', 'Activity')}</TabsTrigger> : null}
+            {canUpdate ? <TabsTrigger value="terminal" className="shrink-0">{t('deployments.terminal.title')}</TabsTrigger> : null}
             {canUpdate || canManageSecret ? <TabsTrigger value="settings" className="shrink-0">{t('deployments.detail.tabs.settings', 'Settings')}</TabsTrigger> : null}
           </TabsList>
           <TabsContent value="overview">
@@ -1277,6 +1377,9 @@ export function DeploymentDetailPage() {
               <RunsTab depId={depId} active={activeTab === 'activity'} />
             </section>
             <MonitoringTab depId={depId} active={activeTab === 'activity'} onTest={() => setTab('usage')} />
+          </TabsContent>
+          <TabsContent value="terminal">
+            {canUpdate && activeTab === 'terminal' ? <DeploymentTerminal dep={dep} /> : null}
           </TabsContent>
           <TabsContent value="settings" className="grid items-start gap-5 pt-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
             {canUpdate ? <ConfigTab dep={dep} /> : null}

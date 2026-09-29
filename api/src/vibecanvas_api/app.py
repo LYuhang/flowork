@@ -373,6 +373,7 @@ def build_app() -> FastAPI:
     from .routes import chat_engagement as _chat_engagement_routes
     from .routes import deployment_invoke as _deployment_invoke_routes
     from .routes import deployments as _deployment_routes
+    from .routes import deployment_terminal as _deployment_terminal_routes
     from .routes import enterprise_identity as _enterprise_identity_routes
     from .routes import envs as _envs_routes
     from .routes import executions as _exec_routes
@@ -411,6 +412,7 @@ def build_app() -> FastAPI:
     app.include_router(_chat_engagement_routes.router)
     app.include_router(_task_routes.router)
     app.include_router(_deployment_routes.router)
+    app.include_router(_deployment_terminal_routes.router)
     app.include_router(_deployment_invoke_routes.router)
     app.include_router(_mcp_servers_routes.router)
     app.include_router(_skills_routes.router)

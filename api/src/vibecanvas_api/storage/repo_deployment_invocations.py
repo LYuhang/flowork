@@ -73,6 +73,7 @@ class DeploymentInvocationsRepo:
         status: str,
         inputs: dict | None = None,
         snapshot: dict | None = None,
+        revision_id: uuid.UUID | None = None,
     ) -> uuid.UUID:
         invocation_id = invocation_id or uuid.uuid4()
         private = None
@@ -91,14 +92,16 @@ class DeploymentInvocationsRepo:
                 """
                 INSERT INTO deployment_invocations (
                     id, tenant_id, deployment_id, wf_id, trigger_type, source,
-                    status, started_at, private_ciphertext, private_nonce,
-                    private_key_id
+                    status, started_at, revision_id, private_ciphertext, private_nonce,
+                    private_key_id, dispatch_deadline
                 )
                 VALUES (
                     :id, :tenant_id, :deployment_id, :wf_id, :trigger_type,
                     :source, :status,
                     CASE WHEN :status = 'running' THEN now() ELSE NULL END,
-                    :private_ciphertext, :private_nonce, :private_key_id
+                    :revision_id, :private_ciphertext, :private_nonce, :private_key_id,
+                    CASE WHEN CAST(:revision_id AS uuid) IS NOT NULL AND :source IN ('sync_api','test')
+                        THEN now()+interval '5 minutes' ELSE NULL END
                 )
                 """
             ),
@@ -110,6 +113,7 @@ class DeploymentInvocationsRepo:
                 "trigger_type": trigger_type,
                 "source": source,
                 "status": status,
+                "revision_id": revision_id,
                 "private_ciphertext": private.ciphertext if private else None,
                 "private_nonce": private.nonce if private else None,
                 "private_key_id": private.key_id if private else None,
@@ -170,17 +174,19 @@ class DeploymentInvocationsRepo:
             "snapshot": private.get("snapshot"),
         }
 
-    async def mark_running(self, invocation_id: uuid.UUID) -> None:
-        await self.session.execute(
+    async def mark_running(self, invocation_id: uuid.UUID) -> bool:
+        result = await self.session.execute(
             text(
                 """
                 UPDATE deployment_invocations
                 SET status = 'running', started_at = COALESCE(started_at, now())
-                WHERE id = :id
+                WHERE id = :id AND status IN ('queued', 'running') AND runtime_claim IS NULL
+                RETURNING id
                 """
             ),
             {"id": invocation_id},
         )
+        return result.scalar_one_or_none() is not None
 
     async def mark_terminal(
         self,
@@ -190,6 +196,7 @@ class DeploymentInvocationsRepo:
         latency_ms: float | None,
         error: str | None = None,
         result_summary: dict | None = None,
+        runtime_claim: uuid.UUID | None = None,
     ) -> None:
         await self.session.execute(
             text(
@@ -200,7 +207,8 @@ class DeploymentInvocationsRepo:
                     latency_ms = :latency_ms,
                     error = :error,
                     result_summary = CAST(:result_summary AS jsonb)
-                WHERE id = :id
+                WHERE id = :id AND status IN ('queued', 'running')
+                    AND (runtime_claim IS NULL OR runtime_claim = :runtime_claim)
                 """
             ),
             {
@@ -209,6 +217,7 @@ class DeploymentInvocationsRepo:
                 "latency_ms": latency_ms,
                 "error": _operational_error(error),
                 "result_summary": json.dumps(result_summary or {}),
+                "runtime_claim": runtime_claim,
             },
         )
 

@@ -69,6 +69,8 @@ def run_workflow_sandboxed_sync(
     execution_principal_id: str | None = None,
     execution_principal_generation: int = 0,
     mount_enabled: bool = True,
+    deployment_id: str | None = None,
+    revision_id: str | None = None,
 ) -> tuple[dict, dict, float]:
     """Run the workflow once INSIDE the selected OS sandbox (the sole sync runner).
 
@@ -107,6 +109,13 @@ def run_workflow_sandboxed_sync(
     in unchanged (no one-shot-only assumptions encoded here). ``RunWorkspace``
     owns the execution-local run directory and cleanup.
     """
+    if bool(deployment_id) != bool(revision_id):
+        raise ValueError("deployment execution requires both deployment_id and revision_id")
+    if revision_id and config.sandbox_service_mode != "service":
+        raise RuntimeError(
+            "resident deployment execution requires SANDBOX_SERVICE_MODE=service; "
+            "start the delegated sandbox daemon before invoking a deployment"
+        )
     # Set the tenant ContextVar before any sync repository call so the
     # short-lived session emits ``SET LOCAL app.tenant_id``.
     current_sync_tenant_id.set(tenant_id)
@@ -165,7 +174,11 @@ def run_workflow_sandboxed_sync(
         except Exception:  # pragma: no cover - fail closed in proxy mode
             logger.warning("egress_allowlist_compute_failed", exc_info=True)
             allow_hosts = set()
-        response = asyncio.run(get_sandbox_manager().run_workflow_once(
+        manager = get_sandbox_manager()
+        execute = manager.run_deployment if deployment_id and revision_id else manager.run_workflow_once
+        revision_args = {"deployment_id": deployment_id, "revision_id": revision_id} if deployment_id and revision_id else {}
+        response = asyncio.run(execute(
+            **revision_args,
             workflow_id=workflow_id,
             workflow=workflow_dict,
             inputs=inputs,

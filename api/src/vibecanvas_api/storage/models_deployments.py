@@ -58,6 +58,8 @@ class Deployment(Base):
     version_pin: Mapped[str] = mapped_column(Text, nullable=False)
     pinned_major: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     pinned_sub: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cpu_millis: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("500"))
+    memory_mb: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("256"))
     api_key_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     hmac_secret_ref: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
@@ -76,6 +78,9 @@ class Deployment(Base):
     mount_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"),
     )
+    active_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    rollout_status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    rollout_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_invoked_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )

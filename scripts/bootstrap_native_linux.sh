@@ -51,6 +51,11 @@ command -v sudo >/dev/null || {
   exit 1
 }
 
+if [[ "$PREPARE_ONLY" != "1" ]] && { [[ ! -d /run/systemd/system ]] || [[ ! -f /sys/fs/cgroup/cgroup.controllers ]]; }; then
+  echo "ERROR: native resident deployments require systemd and cgroup v2. Enable systemd (including on WSL), or use --prepare-only to install dependencies." >&2
+  exit 1
+fi
+
 echo "[1/7] Installing host packages"
 sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -263,8 +268,13 @@ fi
 )
 
 if [[ "$PREPARE_ONLY" == "1" ]]; then
-  echo "Preparation complete. Start later with: ./launch.sh start"
+  echo "Preparation complete. Install the delegated service with: sudo .venv/bin/python scripts/install_native_service.py --user $(id -un)"
   exit 0
 fi
 
-exec "$REPO_ROOT/launch.sh" start
+# systemd owns the cgroup delegation required by resident deployments.
+# Keep an existing live service running; installing a new unit is not a restart.
+sudo "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/install_native_service.py" \
+  --user "$(id -un)" --repo "$REPO_ROOT" --launch-env "$launch_env"
+sudo systemctl start flowork.service
+sudo systemctl --no-pager status flowork.service

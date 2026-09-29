@@ -195,7 +195,9 @@ are displayed by the browser workbook renderer. Poppler renders PDF pages. The
 draw.io CLI and its disposable Xvfb display produce the image feedback used to
 review native diagrams. The
 installer verifies these runtime commands before creating the local
-configuration and starting Flowork.
+configuration and starting Flowork through a delegated systemd service.
+A running systemd host with cgroup v2 is required for resident deployments.
+The installer does not restart an already-running service.
 
 The bootstrap installs the official, version-pinned Codex CLI 0.157.1 package
 and verifies its reported version before starting services. Flowork no longer
@@ -215,7 +217,8 @@ To prepare the environment without starting services:
 Start the prepared installation later with:
 
 ```bash
-./launch.sh start
+sudo .venv/bin/python scripts/install_native_service.py --user "$(id -un)"
+sudo systemctl start flowork.service
 ```
 
 If dependencies are installed manually instead of through the bootstrap, add
@@ -306,11 +309,20 @@ unhealthy; a successful install alone does not mean the services have started.
 
 | Action | Command |
 | --- | --- |
-| Start | `./launch.sh start` |
-| Stop | `./launch.sh stop` |
-| Restart | `./launch.sh restart` |
+| Start | `sudo systemctl start flowork.service` |
+| Stop | `sudo systemctl stop flowork.service` |
+| Restart | `sudo systemctl restart flowork.service` |
 | Show status | `./launch.sh status` |
 | Show recent logs | `./launch.sh logs` |
+
+The native launcher defaults to `WEB_REBUILD=auto`. Set `WEB_REBUILD=0` when
+publishing a verified prebuilt `web/dist`; it reuses that artifact even when
+source timestamps are newer, but still builds if `dist/index.html` is missing.
+Publish build files as the service user, or use `rsync --chown=flowork:flowork`
+(substitute your service account) when copying as root. Both `web/dist` and the
+runtime `web-dist` must remain writable by that user for subsequent updates.
+Copy hashed assets before replacing `index.html` so ongoing page loads can
+finish using the previous build.
 
 For manual dependency installation, test commands, and frontend development,
 continue with the [development guide](development.md).
@@ -479,10 +491,11 @@ resulting stack.
 For a native installation:
 
 ```bash
-./launch.sh stop
+sudo systemctl stop flowork.service
 git pull --ff-only
 ./scripts/bootstrap_native_linux.sh --prepare-only
-./launch.sh restart
+sudo .venv/bin/python scripts/install_native_service.py --user "$(id -un)"
+sudo systemctl start flowork.service
 ```
 
 Production systems must use verified release images and the upgrade procedure
@@ -584,3 +597,8 @@ preserve the chat and draft. If a command was interrupted
 after dispatch, inspect the page before retrying a write to avoid duplicate
 submissions. For a public deployment, preserve WebSocket Upgrade headers on
 `/api/v1/browser/ws` as described in [DEPLOY.md](../DEPLOY.md).
+
+
+## 常驻部署的资源配额
+
+常驻部署需要 cgroup v2 委派。CPU、内存配额、切流期间容量检查、原生 systemd 启动方式与 Docker 配置见 [Resident deployment resources](resident-deployments.md)。

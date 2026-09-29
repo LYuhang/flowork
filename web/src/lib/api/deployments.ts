@@ -54,6 +54,8 @@ export interface Deployment {
   pinned_sub: number | null;
   enabled: boolean;
   mount_enabled?: boolean;
+  cpu_millis?: number;
+  memory_mb?: number;
   rate_limit_qps: number;
   invoke_count: number;
   last_invoked_at: string | null;
@@ -62,6 +64,22 @@ export interface Deployment {
   deleted_at: string | null;
   access: ResourceAccess;
   provenance: ResourceProvenance;
+  active_revision_id?: string | null;
+  rollout_status?: string;
+  rollout_error?: string | null;
+  runtime?: { instances: DeploymentInstance[] };
+}
+
+export interface DeploymentInstance {
+  metrics?: { memory_bytes: number | null; cpu_percent: number | null; uptime_seconds?: number; cpu_millis?: number; memory_mb?: number } | null;
+  observed_at?: string | null;
+  id: string;
+  state: 'preparing' | 'active' | 'draining';
+  version: string;
+  mount_enabled: boolean;
+  pending_requests: number;
+  created_at: string;
+  activated_at: string | null;
 }
 
 export interface DeploymentListResponse {
@@ -87,6 +105,8 @@ export interface ListDeploymentsParams {
 }
 
 export interface CreateDeploymentBody {
+  cpu_millis?: number;
+  memory_mb?: number;
   wf_id: string;
   name: string;
   slug: string;
@@ -113,6 +133,8 @@ export interface CreateDeploymentResponse {
 }
 
 export interface PatchDeploymentBody {
+  cpu_millis?: number;
+  memory_mb?: number;
   name?: string;
   enabled?: boolean;
   rate_limit_qps?: number;

@@ -39,6 +39,10 @@ def run_job(job: dict) -> dict:
     """
     from vibecanvas_api.sandbox_entry import run_one
 
+    if job.get("kind") == "prewarm":
+        from vibecanvas_engine.workflow import Workflow
+        return {"status": "success"}
+
     try:
         rc = run_one(job["run_root"], job["run_id"], job.get("tenant") or "")
     except Exception as e:

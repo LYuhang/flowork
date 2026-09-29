@@ -240,8 +240,10 @@ async def execute(call, args):
                 fields = settings(args) if operation == "deployment.update" else {"enabled": operation == "deployment.enable"}
                 result = await routes.patch_deployment(dep_id, routes.PatchDeploymentBody(**fields), **params)
                 return deployment_status(result)
-            snapshot = {"workflow": await resolve_workflow(session, ctx.username, fresh),
-                        "mount_enabled": fresh.get("mount_enabled", True)}
+            from vibecanvas_api.services.deployment_revisions import admit_revision
+            _, active_revision = await admit_revision(session, dep_id)
+            snapshot = {"workflow": await resolve_workflow(session, ctx.username, active_revision["spec"]),
+                        "mount_enabled": active_revision["spec"]["mount_enabled"]}
         # A live test owns its session independently of the shell's observer.
         # Interrupting observation must not leave history stuck at running.
         async def test():

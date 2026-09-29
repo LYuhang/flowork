@@ -3505,14 +3505,68 @@
   "embed.browser.reconnecting": "正在连接浏览器服务。草稿已保留，连接恢复后即可发送。",
   "embed.browser.connected": "已连接 · 可以开始任务",
   "embed.browser.connection_lost": "连接中断 · 正在重连"
-  ,"deployments.settings.intro": "保存后，设置将应用于新的请求。"
+  ,"deployments.settings.intro": "保存前请确认各项修改的生效方式。"
   ,"deployments.settings.acceptTraffic": "接收请求"
   ,"deployments.settings.acceptTrafficHelp": "关闭后将停止接收新的请求。"
   ,"deployments.settings.rateHelp": "每秒最多接收的请求数。0 表示不限速，超出限制返回 HTTP 429。"
-  ,"deployments.settings.versionHelp": "选择新请求使用的工作流版本。"
+  ,"deployments.settings.versionHelp": "版本变更会先准备新实例，就绪后再切换流量。"
   ,"deployments.settings.unsaved": "有未保存的修改"
   ,"deployments.settings.saved": "所有修改已保存"
   ,"deployments.settings.discard": "撤销修改"
   ,"deployments.settings.protected": "已保护"
-  ,"deployments.settings.rotateHelp": "轮换后，旧密钥立即失效，需要在调用端更新为新密钥。"
+  ,"deployments.settings.rotateHelp": "轮换后，旧密钥立即失效，需要在调用端更新为新密钥。",
+  "deployments.settings.on": "开启",
+  "deployments.settings.off": "关闭",
+  "deployments.settings.confirmTitle": "确认部署修改",
+  "deployments.settings.confirmDescription": "请核对修改前后的值，以及对请求和运行实例的影响。",
+  "deployments.settings.before": "当前已保存",
+  "deployments.settings.after": "修改后",
+  "deployments.settings.effectQps": "QPS 限流配置立即生效，无需重启实例。",
+  "deployments.settings.effectDisable": "停止接收新请求；已接收的请求完成后，再释放实例。",
+  "deployments.settings.effectEnable": "准备常驻实例，就绪后开始接收请求。",
+  "deployments.settings.effectReplace": "旧实例继续服务，同时准备新实例。新实例就绪后切流，旧实例完成剩余请求后释放。若新实例准备失败，旧实例继续服务。",
+  "deployments.settings.effectDeferred": "保存运行配置，待下次启用时使用。部署停用期间不会启动替换实例。",
+  "deployments.settings.confirmSave": "确认并保存",
+  "deployments.runtime.title": "运行实例",
+  "deployments.runtime.description": "运行配置保存后，需等待新实例就绪并完成切流才会生效。",
+  "deployments.runtime.rollout": "部署状态",
+  "deployments.runtime.activeVersion": "当前服务版本",
+  "deployments.runtime.empty": "当前没有运行中的常驻实例。",
+  "deployments.runtime.pendingRequests": "待完成请求",
+  "deployments.runtime.activatedAt": "开始服务时间",
+  "deployments.runtime.pending": "等待更新",
+  "deployments.runtime.preparing": "启动中",
+  "deployments.runtime.ready": "配置已生效",
+  "deployments.runtime.active": "服务中",
+  "deployments.runtime.draining": "排空中",
+  "deployments.runtime.waiting_capacity": "等待可用资源",
+  "deployments.runtime.failed": "实例准备失败",
+  "deployments.runtime.stopped": "已停止接收请求",
+  "deployments.resources.title": "高级设置 · 实例资源",
+  "deployments.resources.cpu": "CPU 核数",
+  "deployments.resources.memory": "内存（MiB）",
+  "deployments.resources.help": "配额限制整个实例。修改后需要新建实例，切流期间新旧实例的配额之和必须在可用容量内。",
+  "deployments.resources.invalid": "CPU 范围为 0.1–256 核；内存为 128–1048576 MiB 的整数。",
+  "deployments.resources.cpuUsage": "CPU 使用率 · 100% 表示 1 核",
+  "deployments.resources.memoryUsage": "内存用量 / 限额",
+  "deployments.resources.uptime": "运行时长（分钟）",
+  "deployments.resources.observedAt": "最近采样",
+  "taskDetail.executionLoadError": "无法加载执行记录",
+  "deployments.terminal.title": "终端",
+  "deployments.terminal.description": "连接到当前运行实例的 Bash，可查看文件和执行命令。",
+  "deployments.terminal.connect": "连接终端",
+  "deployments.terminal.reconnect": "重新连接",
+  "deployments.terminal.disconnect": "断开连接",
+  "deployments.terminal.unavailable": "部署启用且实例就绪后可连接终端。",
+  "deployments.terminal.hint": "支持复制粘贴和 Ctrl+C。离开此页会断开终端，工作流继续运行。切流后请重新连接新实例。",
+  "deployments.terminal.state.idle": "尚未连接",
+  "deployments.terminal.state.connecting": "正在连接…",
+  "deployments.terminal.state.connected": "已连接",
+  "deployments.terminal.state.closed": "连接已关闭，可重新连接。",
+  "deployments.terminal.state.changed": "运行实例已切换，请连接新实例。",
+  "deployments.terminal.state.error": "连接中断或无法建立，请检查登录状态及实例状态后重试。",
+  "deployments.detail.copyField": "复制{{field}}",
+  "deployments.detail.deploymentId": "部署 ID",
+  "deployments.detail.createdAt": "创建时间",
+  "deployments.detail.updatedAt": "更新时间"
 }

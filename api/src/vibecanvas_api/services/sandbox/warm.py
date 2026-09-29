@@ -801,7 +801,7 @@ class WarmGvisorPool:
             f.write("")
         os.rename(ready + ".tmp", ready)
         ready_at = time.perf_counter()
-        if self.fileops:
+        if self.fileops and job_kind != "terminal":
             logger.warning(
                 "agent_sandbox_job_queued",
                 job_id=job_id,
@@ -819,7 +819,7 @@ class WarmGvisorPool:
         while True:
             if taken_at is None and os.path.exists(taken_path):
                 taken_at = time.perf_counter()
-                if self.fileops:
+                if self.fileops and job_kind != "terminal":
                     logger.warning(
                         "agent_sandbox_job_taken",
                         job_id=job_id,
@@ -851,14 +851,14 @@ class WarmGvisorPool:
                 with self._activity_lock:
                     self._abandoned_jobs.discard(job_id)
                 done_at = time.perf_counter()
-                if self.fileops:
+                if self.fileops and (job_kind != "terminal" or not isinstance(result, dict) or result.get("ok") is False):
                     logger.warning(
                         "agent_sandbox_job_done",
                         job_id=job_id,
                         slot=slot,
                         kind=job_kind,
                         op=op_kind,
-                        ok=bool(result.get("ok")) if isinstance(result, dict) else None,
+                        ok=bool(result.get("ok", result.get("status") == "success")) if isinstance(result, dict) else None,
                         queued_ms=(
                             int((taken_at - ready_at) * 1000)
                             if taken_at is not None else None

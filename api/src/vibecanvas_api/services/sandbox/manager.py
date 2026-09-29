@@ -2840,6 +2840,8 @@ class SandboxManager:
         self._close_tasks: set[asyncio.Task] = set()
         self._closing_scopes: dict[tuple[str, str], asyncio.Task] = {}
         self._shutdown = False
+        from .deployment_runtime import DeploymentRuntime
+        self.deployments = DeploymentRuntime(self)
 
     async def operational_snapshot(self) -> dict[str, int]:
         """Return bounded, content-free stats for the current API worker."""
@@ -3149,6 +3151,12 @@ class SandboxManager:
             timeout=timeout,
             allow_hosts=set(allow_hosts),
         )
+
+    async def run_deployment(self, **kwargs) -> dict:
+        return await self.deployments.run(**kwargs)
+
+    async def deployment_terminal(self, **kwargs) -> dict:
+        return await self.deployments.terminal(**kwargs)
 
     async def run_workflow_once(
         self,
@@ -3913,7 +3921,7 @@ class SandboxManager:
         pool_runs_root = os.path.dirname(run_dir) if run_dir else None
         store = get_object_store()
         if run_dir and (not isinstance(store, FilesystemObjectStore)
-                        or not expose_mount or wf_id.startswith(("schedule-", "batch-"))):
+                        or not expose_mount or wf_id.startswith(("schedule-", "batch-", "deployment-"))):
             # Task execution and no-mount sessions must not see neighbouring
             # tenant workspaces (or their hydrated mounts) through /runs.
             # Object-backed projections also need a logical directory name.

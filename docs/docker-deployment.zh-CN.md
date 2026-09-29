@@ -159,3 +159,8 @@ Project 共享工作目录和沙盒；各 Chat 的 Codex 会话、MCP 回调及�
 
 生成的 `.env` 包含数据库密码和数据加密密钥，不能提交到 Git。
 修改域名时可再次执行 `init --public-url ...`，脚本保留原有密钥并更新 URL 配置。
+
+
+## 常驻部署的资源配额
+
+常驻部署需要 cgroup v2 委派。CPU、内存配额、切流期间容量检查、原生 systemd 启动方式与 Docker 配置见 [Resident deployment resources](resident-deployments.md)。

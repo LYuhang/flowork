@@ -30,6 +30,8 @@ Error mapping intentionally does not reveal resource existence:
 """
 from __future__ import annotations
 
+from vibecanvas_api.services.deployment_completion import complete_before_cancelling
+
 import asyncio
 import hashlib
 import json
@@ -179,6 +181,7 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
 
 
 @router.post("/{slug}/invoke")
+@complete_before_cancelling
 async def invoke_sync(
     slug: str,
     body: dict,
@@ -226,6 +229,10 @@ async def invoke_sync(
     tenant_id = str(tenant_id_var.get())
 
     async with session_scope(tenant_id=tenant_id) as session:
+        from vibecanvas_api.services.deployment_revisions import admit_revision
+        from vibecanvas_api.services.deployment_snapshots import resolve_workflow
+        dep, revision = await admit_revision(session, dep["id"])
+        workflow_dict = await resolve_workflow(session, dep["user_id"], revision["spec"])
         service_account_id = dep.get("service_account_id")
         lease = None
         if service_account_id is not None:
@@ -247,6 +254,7 @@ async def invoke_sync(
             trigger_type=dep["trigger_type"],
             source="sync_api",
             status="running",
+            revision_id=revision["id"],
         )
 
     started = perf_counter()
@@ -254,7 +262,6 @@ async def invoke_sync(
     errors: dict = {}
     fatal_http_exc: HTTPException | None = None
     try:
-        workflow_dict = await load_workflow_version(dep)
         execution_identity = (
             {
                 "execution_principal_type": "service_account",
@@ -271,7 +278,8 @@ async def invoke_sync(
             user_id=str(lease.created_by if lease is not None else dep["user_id"]),
             run_id=str(invocation_id),
             workflow_dict=workflow_dict,
-            mount_enabled=dep.get("mount_enabled", True),
+            mount_enabled=revision["spec"]["mount_enabled"],
+            deployment_id=str(dep["id"]), revision_id=str(revision["id"]),
             execution_resource_type=ResourceType.DEPLOYMENT_INVOCATION.value,
             **execution_identity,
         )

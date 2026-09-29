@@ -45,6 +45,7 @@ export function EntityDetailShell({
             {backLabel}
           </Link>
           <PageHeader
+            wrapTitle
             title={title}
             description={description}
             icon={Icon}

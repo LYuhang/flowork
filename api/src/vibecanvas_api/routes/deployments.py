@@ -23,6 +23,8 @@ table, mirroring the durable batch-submit transaction pattern.
 """
 from __future__ import annotations
 
+from vibecanvas_api.services.deployment_completion import complete_before_cancelling
+
 import asyncio
 import re
 import uuid
@@ -260,6 +262,8 @@ class CreateDeploymentBody(BaseModel):
     pinned_sub: Optional[int] = None
     rate_limit_qps: int = 10
     mount_enabled: bool = False
+    cpu_millis: int = Field(default=500, ge=100, le=256000, strict=True)
+    memory_mb: int = Field(default=256, ge=128, le=1048576, strict=True)
     enabled: bool = True
 
     @field_validator("slug")
@@ -399,6 +403,8 @@ async def create_deployment(
         pinned_sub=pinned_sub,
         rate_limit_qps=body.rate_limit_qps,
         mount_enabled=body.mount_enabled,
+        cpu_millis=body.cpu_millis,
+        memory_mb=body.memory_mb,
         enabled=body.enabled,
     )
     if not body.enabled:
@@ -567,6 +573,8 @@ class PatchDeploymentBody(BaseModel):
     pinned_major: Optional[int] = None
     pinned_sub: Optional[int] = None
     mount_enabled: Optional[bool] = None
+    cpu_millis: Optional[int] = Field(default=None, ge=100, le=256000, strict=True)
+    memory_mb: Optional[int] = Field(default=None, ge=128, le=1048576, strict=True)
 
 
 async def _scrub_secret_fields(
@@ -700,6 +708,8 @@ async def get_deployment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="deployment not found",
         )
+    from vibecanvas_api.services.deployment_revisions import runtime_summary
+    dep["runtime"] = await runtime_summary(session, dep_id)
     return await _scrub_secret_fields(
         dep,
         authorized.decision,
@@ -749,7 +759,7 @@ async def patch_deployment(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="rate_limit_qps must be >= 0",
             )
-    if any(fields.get(key, False) is None for key in ("name", "enabled", "mount_enabled", "rate_limit_qps", "version_pin")):
+    if any(fields.get(key, False) is None for key in ("name", "enabled", "mount_enabled", "rate_limit_qps", "version_pin", "cpu_millis", "memory_mb")):
         raise HTTPException(422, "Deployment settings cannot be null.")
     if "name" in fields and (not fields["name"].strip() or len(fields["name"]) > 200):
         raise HTTPException(422, "name must contain 1 to 200 characters.")
@@ -776,11 +786,14 @@ async def patch_deployment(
     )
     if fields:
         await repo.update(dep_id, **fields)
-        if "enabled" in fields and dep.get("service_account_id") is not None:
+        if fields.get("enabled") is True and dep.get("service_account_id") is not None:
             await ServiceAccountsRepo(session).set_status(
                 uuid.UUID(str(dep["service_account_id"])),
                 status="active" if fields["enabled"] else "disabled",
             )
+        from vibecanvas_api.services.deployment_revisions import EXECUTION_FIELDS
+        if any(key in fields and fields[key] != dep.get(key) for key in (*EXECUTION_FIELDS, "enabled")):
+            await session.execute(text("UPDATE deployments SET rollout_status='pending', rollout_error=NULL WHERE id=:id"), {"id": dep_id})
         await session.flush()
     updated = await repo.get(dep_id)
     assert updated is not None
@@ -1134,6 +1147,7 @@ async def revoke_deployment_access(
 
 
 @router.post("/{dep_id}/test-invoke")
+@complete_before_cancelling
 async def test_invoke(
     dep_id: uuid.UUID,
     body: dict,
@@ -1188,34 +1202,45 @@ async def test_invoke(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="deployment execution identity unavailable",
             ) from exc
+    invocation_tenant = str(dep['tenant_id'])
     # The sandbox calls the Runtime Model Broker through a separate HTTP
     # request. Publish the running invocation in its own committed transaction
     # before starting the sandbox so that request can resolve the Invocation ->
     # Deployment authorization root and verify the execution is still active.
     # A separate short session also preserves the request session's RLS-bound
     # transaction for the authenticated control-plane work below.
-    async with session_scope(tenant_id=ctx.tenant_id) as invocation_session:
+    async with session_scope(tenant_id=invocation_tenant) as invocation_session:
+        from vibecanvas_api.services.deployment_revisions import admit_revision
+        dep, revision = await admit_revision(invocation_session, dep_id)
+        workflow_dict = await resolve_workflow(invocation_session, dep["user_id"], revision["spec"])
+        approved_snapshot = getattr(request.state, "cli_deployment_snapshot", None)
+        if approved_snapshot and (approved_snapshot["workflow"] != workflow_dict or approved_snapshot["mount_enabled"] != revision["spec"]["mount_enabled"]):
+            raise HTTPException(409, "deployment_revision_changed")
         invocation_id = await DeploymentInvocationsRepo(
             invocation_session
         ).create(
-            tenant_id=uuid.UUID(ctx.tenant_id),
+            tenant_id=uuid.UUID(invocation_tenant),
             deployment_id=dep_id,
             wf_id=dep["wf_id"],
             trigger_type=dep["trigger_type"],
             source="test",
             status="running",
+            revision_id=revision["id"],
         )
     started = perf_counter()
     emit = getattr(request.state, "cli_deployment_progress", None)
     if emit is not None:
-        await emit({"progress": {"deployment_id": str(dep_id), "execution_id": str(invocation_id),
-            "status": "running", "message": "A real test invocation started. Do not submit it again."}})
+        # A disconnected progress observer must not strand an admitted call
+        # before its execution/finalization block starts.
+        try:
+            await emit({"progress": {"deployment_id": str(dep_id), "execution_id": str(invocation_id),
+                "status": "running", "message": "A real test invocation started. Do not submit it again."}})
+        except Exception:
+            pass
     outputs: dict = {}
     errors: dict = {}
     fatal_http_exc: HTTPException | None = None
     try:
-        approved_snapshot = getattr(request.state, "cli_deployment_snapshot", None)
-        workflow_dict = approved_snapshot["workflow"] if approved_snapshot else await load_workflow_version(dep)
         execution_identity = (
             {
                 "execution_principal_type": "service_account",
@@ -1227,11 +1252,12 @@ async def test_invoke(
         outputs, errors, exec_secs = await asyncio.to_thread(
             run_workflow_sandboxed_sync,
             workflow_id=dep["wf_id"], inputs=body,
-            tenant_id=ctx.tenant_id,
+            tenant_id=invocation_tenant,
             user_id=str(lease.created_by if lease is not None else dep["user_id"]),
             run_id=str(invocation_id),
             workflow_dict=workflow_dict,
-            mount_enabled=approved_snapshot["mount_enabled"] if approved_snapshot else dep.get("mount_enabled", True),
+            mount_enabled=revision["spec"]["mount_enabled"],
+            deployment_id=str(dep_id), revision_id=str(revision["id"]),
             execution_resource_type=ResourceType.DEPLOYMENT_INVOCATION.value,
             **execution_identity,
         )
@@ -1243,7 +1269,7 @@ async def test_invoke(
     except Exception as exc:
         exec_time_ms = (perf_counter() - started) * 1000.0
         errors = {"__top__": f"{type(exc).__name__}: {exc}"}
-    async with session_scope(tenant_id=ctx.tenant_id) as invocation_session:
+    async with session_scope(tenant_id=invocation_tenant) as invocation_session:
         await DeploymentInvocationsRepo(invocation_session).mark_terminal(
             invocation_id,
             status="failed" if errors else "succeeded",

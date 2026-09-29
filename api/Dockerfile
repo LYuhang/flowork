@@ -199,8 +199,10 @@ COPY api/alembic/ /app/alembic/
 # Strict cutover commands are deployment assets, not Runtime compatibility
 # readers. They run before the application image is admitted.
 COPY scripts/security/ /app/scripts/security/
+COPY scripts/with_cgroup_delegation.py /opt/flowork/with_cgroup_delegation.py
 
-RUN pip install --no-cache-dir --no-deps --no-build-isolation .
+RUN pip install --no-cache-dir --no-deps --no-build-isolation . && \
+    python -c "from vibecanvas_api.services.agent_runtime.cli_gateway import platform_guidance; assert platform_guidance().strip()"
 
 # Keep the independently versioned browser CLI after the large OS/Python
 # dependency layers. Updating browser automation must not invalidate apt or pip
@@ -245,9 +247,10 @@ RUN groupadd --gid 10001 vibecanvas && \
       /run/vibecanvas-sandbox
 
 EXPOSE 8000
-ENV VIBECANVAS_API_CORS_ORIGINS=http://localhost:3000
+ENV VIBECANVAS_API_CORS_ORIGINS=http://localhost:3000 \
+    VIBECANVAS_STORAGE_ROOT=/var/lib/vibecanvas/local-data
 USER 10001:10001
 
-# Production-ready default. Override VIBECANVAS_API_DEV_TOKEN at run time.
+# Configure database, public URL and authentication settings at runtime.
 CMD ["uvicorn", "vibecanvas_api.app:build_app", "--factory", \
      "--host", "0.0.0.0", "--port", "8000"]

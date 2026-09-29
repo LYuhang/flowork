@@ -108,8 +108,10 @@ class DeploymentsService:
         """Durably dispatch a ``deployment_invoke`` background workflow."""
         task_id = invocation_id or uuid.uuid4()
         inv_repo = DeploymentInvocationsRepo(self.session)
-        snapshot = {"workflow": await resolve_workflow(self.session, deployment["user_id"], deployment),
-                    "mount_enabled": deployment.get("mount_enabled", True)}
+        from vibecanvas_api.services.deployment_revisions import admit_revision
+        deployment, revision = await admit_revision(self.session, deployment["id"])
+        snapshot = {"workflow": await resolve_workflow(self.session, deployment["user_id"], revision["spec"]),
+                    "mount_enabled": revision["spec"]["mount_enabled"], "revision_id": str(revision["id"])}
         await inv_repo.create(
             invocation_id=task_id,
             tenant_id=deployment["tenant_id"],
@@ -120,6 +122,7 @@ class DeploymentsService:
             status="queued",
             inputs=payload,
             snapshot=snapshot,
+            revision_id=revision["id"],
         )
         try:
             await enqueue_background_job_in_transaction(

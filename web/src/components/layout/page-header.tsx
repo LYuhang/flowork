@@ -14,6 +14,7 @@ export function PageHeader({
   metadata,
   eyebrow,
   className,
+  wrapTitle = false,
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -24,6 +25,7 @@ export function PageHeader({
   metadata?: ReactNode;
   eyebrow?: ReactNode;
   className?: string;
+  wrapTitle?: boolean;
 }) {
   return (
     <div
@@ -36,12 +38,12 @@ export function PageHeader({
             {eyebrow}
           </div>
         ) : null}
-        <div className="flex min-w-0 items-center gap-2.5">
+        <div className={cn('flex min-w-0 items-center gap-2.5', wrapTitle && 'flex-wrap')}>
           {resourceKind ? <ResourceIcon kind={resourceKind} size="md" /> : null}
           {!resourceKind && Icon ? (
             <Icon className="size-5 shrink-0 text-content-secondary" aria-hidden />
           ) : null}
-          <h1 className="text-title min-w-0 truncate text-content-primary">{title}</h1>
+          <h1 className={`text-title min-w-0 text-content-primary ${wrapTitle ? 'flex-1 break-words [overflow-wrap:anywhere]' : 'truncate'}`}>{title}</h1>
           {status}
         </div>
         {description ? (

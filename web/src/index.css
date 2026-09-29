@@ -611,6 +611,16 @@
     font-family: var(--font-code);
   }
 
+  .code-snippet-highlight .shiki,
+  .code-snippet-highlight .shiki span {
+    color: var(--shiki-light);
+    font-style: var(--shiki-light-font-style);
+    font-weight: var(--shiki-light-font-weight);
+    text-decoration: var(--shiki-light-text-decoration);
+  }
+
+  .dark .code-snippet-highlight .shiki,
+  .dark .code-snippet-highlight .shiki span,
   .dark .markdown-document-code-highlight .shiki,
   .dark .markdown-document-code-highlight .shiki span {
     color: var(--shiki-dark) !important;

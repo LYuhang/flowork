@@ -94,6 +94,8 @@ _MANAGER_METHODS = {
     "run_mcp_probe",
     "ensure_workflow_dependencies",
     "run_workflow_once",
+    "run_deployment",
+    "deployment_terminal",
 }
 
 
@@ -420,7 +422,7 @@ class RemoteSandboxManager:
     def _operation_timeout(method: str, kwargs: dict[str, Any]) -> float | None:
         if method == "terminate_task_scope":
             return 60.0  # Control acknowledgement, never an execution deadline.
-        if method in {"execute_workflow_job", "run_workflow_once"} and kwargs.get("timeout") is None:
+        if method in {"execute_workflow_job", "run_workflow_once", "run_deployment"} and kwargs.get("timeout") is None:
             # This RPC follows an execution, not a short control request.
             # Its owner polls independently and cancels its dedicated pool.
             return None
@@ -662,6 +664,12 @@ class RemoteSandboxManager:
             timeout=timeout,
             allow_hosts=allow_hosts,
         )
+
+    async def run_deployment(self, **kwargs: Any) -> dict:
+        return await self._manager_call("run_deployment", **kwargs)
+
+    async def deployment_terminal(self, **kwargs: Any) -> dict:
+        return await self._manager_call("deployment_terminal", **kwargs)
 
     async def run_workflow_once(self, **kwargs: Any) -> dict:
         return await self._manager_call("run_workflow_once", **kwargs)
@@ -969,6 +977,7 @@ class SandboxDaemon:
         self.server: grpc.aio.Server | None = None
         self._health: health.aio.HealthServicer | None = None
         self._stop = asyncio.Event()
+        self._rollouts: asyncio.Task | None = None
         self._reaper: asyncio.Task | None = None
         self._stopped = False
 
@@ -1046,6 +1055,8 @@ class SandboxDaemon:
             health_pb2.HealthCheckResponse.SERVING,
         )
         self._reaper = asyncio.create_task(self._reap(), name="sandboxd-idle-reaper")
+        from vibecanvas_api.services.deployment_rollout import DeploymentRollouts
+        self._rollouts = asyncio.create_task(DeploymentRollouts(self.manager).serve(self._stop), name="deployment-rollouts")
         logger.info("sandbox_service_ready", endpoint=self.endpoint,
                     generation=self.generation)
 
@@ -1062,6 +1073,10 @@ class SandboxDaemon:
             self._reaper.cancel()
             with contextlib.suppress(BaseException):
                 await self._reaper
+        if self._rollouts is not None:
+            self._rollouts.cancel()
+            with contextlib.suppress(BaseException):
+                await self._rollouts
         await self.manager.shutdown()
         if self.socket_path:
             with contextlib.suppress(FileNotFoundError):

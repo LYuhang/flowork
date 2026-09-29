@@ -3505,14 +3505,68 @@
   "embed.browser.reconnecting": "Connecting to the browser service. Your draft is preserved; sending will resume when connected.",
   "embed.browser.connected": "Connected · ready for a task",
   "embed.browser.connection_lost": "Connection lost · reconnecting"
-  ,"deployments.settings.intro": "Changes apply to new requests after saving."
+  ,"deployments.settings.intro": "Review how each change takes effect before saving."
   ,"deployments.settings.acceptTraffic": "Accept requests"
   ,"deployments.settings.acceptTrafficHelp": "Pause to stop accepting new requests."
   ,"deployments.settings.rateHelp": "Maximum requests per second. 0 means unlimited; excess requests receive HTTP 429."
-  ,"deployments.settings.versionHelp": "Choose the saved version used for new requests."
+  ,"deployments.settings.versionHelp": "Version changes prepare a new instance before switching traffic."
   ,"deployments.settings.unsaved": "Unsaved changes"
   ,"deployments.settings.saved": "All changes saved"
   ,"deployments.settings.discard": "Discard changes"
   ,"deployments.settings.protected": "Protected"
-  ,"deployments.settings.rotateHelp": "Rotating the key immediately invalidates the old one. Update your clients with the new key."
+  ,"deployments.settings.rotateHelp": "Rotating the key immediately invalidates the old one. Update your clients with the new key.",
+  "deployments.settings.on": "On",
+  "deployments.settings.off": "Off",
+  "deployments.settings.confirmTitle": "Review deployment changes",
+  "deployments.settings.confirmDescription": "Check the new values and their effect on requests before confirming.",
+  "deployments.settings.before": "Currently saved",
+  "deployments.settings.after": "New value",
+  "deployments.settings.effectQps": "The request limit updates immediately, without restarting the instance.",
+  "deployments.settings.effectDisable": "Stop accepting new requests. Accepted requests finish before the instance is released.",
+  "deployments.settings.effectEnable": "Prepare a resident instance and start accepting requests once it is ready.",
+  "deployments.settings.effectReplace": "Prepare a new instance while the current instance serves requests. Switch traffic when ready, then drain and release the old instance. If preparation fails, the current instance keeps serving.",
+  "deployments.settings.effectDeferred": "Save the runtime settings for the next enable. No replacement instance is started while this deployment is disabled.",
+  "deployments.settings.confirmSave": "Confirm and save",
+  "deployments.runtime.title": "Runtime instances",
+  "deployments.runtime.description": "Saved settings take effect after the new instance is ready and traffic has switched.",
+  "deployments.runtime.rollout": "Deployment state",
+  "deployments.runtime.activeVersion": "Serving version",
+  "deployments.runtime.empty": "No resident instance is running.",
+  "deployments.runtime.pendingRequests": "Unfinished requests",
+  "deployments.runtime.activatedAt": "Serving since",
+  "deployments.runtime.pending": "Update pending",
+  "deployments.runtime.preparing": "Starting",
+  "deployments.runtime.ready": "Settings active",
+  "deployments.runtime.active": "Serving",
+  "deployments.runtime.draining": "Draining requests",
+  "deployments.runtime.waiting_capacity": "Waiting for capacity",
+  "deployments.runtime.failed": "Preparation failed",
+  "deployments.runtime.stopped": "Stopped",
+  "deployments.resources.title": "Advanced · instance resources",
+  "deployments.resources.cpu": "CPU cores",
+  "deployments.resources.memory": "Memory (MiB)",
+  "deployments.resources.help": "Limits apply to the whole instance. Changes require a new instance; both old and new limits must fit available capacity during a rollout.",
+  "deployments.resources.invalid": "CPU must be 0.1–256 cores; memory must be a whole number from 128 to 1048576 MiB.",
+  "deployments.resources.cpuUsage": "CPU usage · 100% = 1 core",
+  "deployments.resources.memoryUsage": "Memory usage / limit",
+  "deployments.resources.uptime": "Uptime (minutes)",
+  "deployments.resources.observedAt": "Last observed",
+  "taskDetail.executionLoadError": "Could not load execution history",
+  "deployments.terminal.title": "Terminal",
+  "deployments.terminal.description": "Open Bash in the serving instance to inspect files and run commands.",
+  "deployments.terminal.connect": "Connect terminal",
+  "deployments.terminal.reconnect": "Reconnect",
+  "deployments.terminal.disconnect": "Disconnect",
+  "deployments.terminal.unavailable": "Enable the deployment and wait for its instance to become ready before connecting.",
+  "deployments.terminal.hint": "Supports copy, paste and Ctrl+C. Leaving this tab disconnects the terminal; workflows keep running. Reconnect after an instance switch.",
+  "deployments.terminal.state.idle": "Not connected",
+  "deployments.terminal.state.connecting": "Connecting…",
+  "deployments.terminal.state.connected": "Connected",
+  "deployments.terminal.state.closed": "Connection closed. You can reconnect.",
+  "deployments.terminal.state.changed": "The serving instance changed. Connect to the new instance.",
+  "deployments.terminal.state.error": "Connection interrupted or unavailable. Check your login and instance status, then retry.",
+  "deployments.detail.copyField": "Copy {{field}}",
+  "deployments.detail.deploymentId": "Deployment ID",
+  "deployments.detail.createdAt": "Created",
+  "deployments.detail.updatedAt": "Updated"
 }

@@ -45,6 +45,8 @@ import { DetailSummary } from "@/components/layout/detail-summary";
 import { ResourceShareDialog } from "@/components/modals/ResourceShareDialog";
 import { ResourceProvenanceLine } from "@/components/resources/ResourceProvenanceLine";
 import { ActionableError } from "@/components/presentation/ActionableError";
+import { CodeSnippet } from "@/components/presentation/CodeSnippet";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -317,6 +319,7 @@ function EventRow({
     ? [payload.scope.type, payload.scope.id].filter(Boolean).join(":")
     : "";
   const payloadStr = useMemo(() => {
+    if (!expanded) return "";
     try {
       return JSON.stringify(
         {
@@ -330,7 +333,7 @@ function EventRow({
     } catch {
       return "";
     }
-  }, [payload]);
+  }, [expanded, payload]);
 
   return (
     <li className="border-b border-edge-subtle py-2.5 last:border-b-0">
@@ -338,12 +341,13 @@ function EventRow({
         type="button"
         className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-md px-1 py-1 text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
       >
         <StatusBadge className="w-fit" status={eventLevelTone(level)}>
           {t(`taskDetail.level.${level}`, level)}
         </StatusBadge>
         <span className="min-w-0">
-          <span className="block text-xs font-medium leading-5">{message}</span>
+          <span className="block break-words text-xs font-medium leading-5 [overflow-wrap:anywhere]">{message}</span>
           <span className="mt-0.5 block truncate text-xs text-content-tertiary">
             {(payload as TaskEventPayload & { _event_ts?: string })._event_ts
               ? formatTime((payload as TaskEventPayload & { _event_ts?: string })._event_ts)
@@ -354,9 +358,7 @@ function EventRow({
         </span>
       </button>
       {expanded && payloadStr !== "{}" && (
-        <pre className="mt-2 max-h-56 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-100">
-          {payloadStr}
-        </pre>
+        <CodeSnippet className="mt-2" code={payloadStr} language="json" />
       )}
     </li>
   );
@@ -462,10 +464,7 @@ export function TaskDetailPage() {
     if (frame.event_type === "terminal") {
       void qc.invalidateQueries({ queryKey: ["tasks"] });
       void qc.invalidateQueries({ queryKey: ["task", taskId] });
-      if (taskQuery.data?.task_type === "scheduled_run") {
-        void qc.invalidateQueries({ queryKey: ["task", taskId, "scheduled-run"] });
-        void qc.invalidateQueries({ queryKey: ["task", taskId, "scheduled-run", "executions"] });
-      }
+      // The task prefix already includes schedule, executions and event pages.
     }
   }, [qc, stream.events, taskId, taskQuery.data?.task_type]);
 
@@ -687,10 +686,14 @@ export function TaskDetailPage() {
         </StatusBadge>
       }
       metadata={(<>
-        <span className="font-mono">
-          {t("taskDetail.taskId", "Task ID")}: {task.id.slice(0, 8)}…
-          {task.workflow_id ? ` · ${t("tasks.col.workflow", "Workflow")}: ${task.workflow_id}` : ""}
+        <span className="inline-flex min-w-0 items-center gap-1">
+          <span className="font-mono" title={task.id}>{t("taskDetail.taskId", "Task ID")}: {task.id.slice(0, 8)}…</span>
+          <CopyButton value={task.id} />
         </span>
+        {task.workflow_id && <span className="inline-flex min-w-0 items-center gap-1">
+          <span className="min-w-0 break-all font-mono">{t("tasks.col.workflow", "Workflow")}: {task.workflow_id}</span>
+          <CopyButton className="shrink-0" value={task.workflow_id} />
+        </span>}
         <ResourceProvenanceLine provenance={task.provenance} />
       </>)}
       actions={
@@ -798,12 +801,12 @@ export function TaskDetailPage() {
               ) : null}
         </>
       }
-      className={`max-w-5xl gap-0 ${activeTab === "logs" ? "!overflow-hidden" : ""}`}
+      className="max-w-5xl gap-0"
     >
       <Tabs
         value={activeTab}
         onValueChange={selectTab}
-        className={activeTab === "logs" ? "flex min-h-0 flex-1 flex-col" : "shrink-0"}
+        className="shrink-0"
       >
         <TabsList
           variant="underline"
@@ -884,8 +887,9 @@ export function TaskDetailPage() {
               </div>
               <div className="min-w-0">
                 <dt className="text-xs text-content-tertiary">{t("taskDetail.output", "Output")}</dt>
-                <dd className="mt-1 truncate font-medium" title={batchSetup.outputPath ?? undefined}>
-                  {batchSetup.outputPath ?? t("taskDetail.outputManaged", "Managed by Flowork")}
+                <dd className="mt-1 flex min-w-0 items-start gap-1 font-medium">
+                  <span className="min-w-0 break-all">{batchSetup.outputPath ?? t("taskDetail.outputManaged", "Managed by Flowork")}</span>
+                  {batchSetup.outputPath && <CopyButton className="shrink-0" value={batchSetup.outputPath} />}
                 </dd>
               </div>
             </dl>
@@ -941,7 +945,10 @@ export function TaskDetailPage() {
                     },
                     {
                       label: t("tasks.col.workflow", "Workflow"),
-                      value: <span className="font-mono text-xs" translate="no">{scheduledQuery.data.schedule.workflow_id}</span>,
+                      value: <span className="flex min-w-0 items-start gap-1">
+                        <span className="min-w-0 break-all font-mono text-xs leading-7" translate="no">{scheduledQuery.data.schedule.workflow_id}</span>
+                        <CopyButton className="shrink-0" value={scheduledQuery.data.schedule.workflow_id} />
+                      </span>,
                     },
                     {
                       label: t("tasks.scheduled.timing", "Timing"),
@@ -987,7 +994,19 @@ export function TaskDetailPage() {
               description={t("tasks.scheduled.runHistoryDescription", "Select an execution to focus its timing, result, and event context.")}
               actions={executionsQuery.isFetching ? <span className="text-xs text-muted-foreground">{t("tasks.loading", "Loading…")}</span> : null}
             >
-              {executions.length === 0 ? (
+              {executionsQuery.isError && (
+                <ActionableError
+                  className="mb-3"
+                  title={t("taskDetail.executionLoadError", "Could not load execution history")}
+                  actionLabel={t("retry", "Retry")}
+                  onAction={() => void executionsQuery.refetch()}
+                />
+              )}
+              {executionsQuery.isPending ? (
+                <div role="status" className="rounded-lg border border-edge-subtle p-5 text-sm text-content-tertiary">
+                  {t("tasks.loading", "Loading…")}
+                </div>
+              ) : executions.length === 0 && !executionsQuery.isError ? (
                 <div className="rounded-md border border-dashed border-edge-subtle p-5 text-sm text-content-tertiary">
                   {t("tasks.scheduled.noRuns", "No executions yet.")}
                 </div>
@@ -998,24 +1017,25 @@ export function TaskDetailPage() {
                       key={execution.id}
                       type="button"
                       onClick={() => setSelectedExecutionId(execution.id)}
-                      className={`grid w-full grid-cols-[96px_1fr_auto] items-center gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-surface-hover ${
+                      aria-pressed={selectedExecution?.id === execution.id}
+                      className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 border-b border-edge-subtle px-4 py-3 text-left text-sm last:border-b-0 hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus sm:grid-cols-[minmax(7rem,auto)_minmax(0,1fr)_auto] sm:items-center ${
                         selectedExecution?.id === execution.id ? "bg-focus/[0.06] font-medium ring-1 ring-inset ring-focus/20" : ""
                       }`}
                     >
-                      <StatusBadge status={executionStatusTone(execution.status)}>
+                      <StatusBadge className="w-fit max-w-full" status={executionStatusTone(execution.status)}>
                         {t(`tasks.executionStatus.${execution.status}`, execution.status)}
                       </StatusBadge>
-                      <span className="min-w-0">
-                        <span className="block truncate text-xs text-muted-foreground">
+                      <span className="col-span-2 row-start-2 min-w-0 sm:col-span-1 sm:row-start-auto">
+                        <span className="block break-words text-xs leading-5 text-muted-foreground">
                           {t(`tasks.trigger.${execution.trigger_type}`, execution.trigger_type)} · {formatTime(execution.triggered_at)}
                         </span>
                         {execution.error && (
-                          <span className="mt-0.5 block truncate text-xs text-destructive">
+                          <span className="mt-0.5 line-clamp-2 break-words text-xs text-destructive [overflow-wrap:anywhere]">
                             {execution.error}
                           </span>
                         )}
                       </span>
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <span className="col-start-2 row-start-1 pt-1 font-mono text-xs text-muted-foreground sm:col-start-3 sm:pt-0">
                         {execution.id.slice(0, 8)}
                       </span>
                     </button>
@@ -1024,19 +1044,27 @@ export function TaskDetailPage() {
               )}
               {selectedExecution && (
                 <div className="mt-4 border-t border-edge-subtle pt-4 text-xs">
-                  <div className="font-medium text-foreground">
+                  <div className="flex flex-wrap items-center gap-2 font-medium text-foreground">
                     {t("tasks.scheduled.selectedRun", "Selected run")}{" "}
                     <span className="font-mono text-muted-foreground">
                       {selectedExecution.id.slice(0, 8)}
                     </span>
+                    <CopyButton value={selectedExecution.id} />
                   </div>
-                  <div className="mt-2 grid gap-1 text-muted-foreground">
-                    <div>{t("taskDetail.startedAt", "Started")}: {formatTime(selectedExecution.started_at)}</div>
-                    <div>{t("taskDetail.finishedAt", "Finished")}: {formatTime(selectedExecution.finished_at)}</div>
-                    <div>{t("tasks.scheduled.notification", "Notification")}: {selectedExecution.notification_state?.status
+                  <DetailSummary className="mt-4 sm:grid-cols-3" items={[
+                    { label: t("taskDetail.startedAt", "Started"), value: formatTime(selectedExecution.started_at) },
+                    { label: t("taskDetail.finishedAt", "Finished"), value: formatTime(selectedExecution.finished_at) },
+                    { label: t("tasks.scheduled.notification", "Notification"), value: selectedExecution.notification_state?.status
                       ? t(`tasks.notificationStatus.${String(selectedExecution.notification_state.status)}`, String(selectedExecution.notification_state.status))
-                      : "—"}</div>
-                  </div>
+                      : "—" },
+                  ]} />
+                  {selectedExecution.error && (
+                    <ActionableError
+                      className="mt-4"
+                      title={t("taskDetail.error", "Task execution failed")}
+                      technicalDetails={<span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{selectedExecution.error}</span>}
+                    />
+                  )}
                 </div>
               )}
             </SectionBlock>
@@ -1104,13 +1132,12 @@ export function TaskDetailPage() {
         </TabsContent>
 
         {/* Live event log */}
-        <TabsContent value="logs" className="mt-0 min-h-0 flex-1 overflow-hidden">
+        <TabsContent value="logs" className="mt-0">
           <SectionBlock
             variant="plain"
             title={t("taskDetail.events", "Events")}
             description={t("taskDetail.eventsDescription", "Live execution updates. Expand an event only when technical details are needed.")}
-            className="flex h-full min-h-0 flex-col"
-            contentClassName="flex min-h-0 flex-1 flex-col"
+            contentClassName="min-w-0"
             actions={<span className="text-xs text-muted-foreground">
                 {stream.done
                   ? t("taskDetail.streamClosed", "Stream closed")
@@ -1168,7 +1195,7 @@ export function TaskDetailPage() {
           </div>
           <div
             ref={eventLogRegionRef}
-            className="app-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pr-2"
+            className="app-scrollbar max-h-[65dvh] min-h-48 overflow-y-auto overscroll-contain pr-2"
             data-role="task-event-log-scroll-region"
           >
             {eventsQuery.isLoading ? (

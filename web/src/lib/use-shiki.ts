@@ -10,6 +10,9 @@ export function useShiki(code: string, lang: string): string | null {
   const [result, setResult] = useState<{ key: string; html: string | null } | null>(null);
 
   useEffect(() => {
+    // Large execution payloads remain copyable/readable without an expensive
+    // syntax-tokenisation pass blocking interaction on the main thread.
+    if (code.length > 65_536) return;
     let cancelled = false;
     import('shiki')
       .then(({ codeToHtml }) => codeToHtml(code, {

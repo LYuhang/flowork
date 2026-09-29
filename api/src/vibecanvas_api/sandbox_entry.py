@@ -628,6 +628,9 @@ def _run_one_job_to_outbox(pool_holder: dict, pool_lock, concurrency: int,
         if desc.get("kind") == "fileop":
             from vibecanvas_api.services.sandbox.fileops import run_fileop
             result = run_fileop(desc.get("op") or {}, roots=_fileop_roots(runs_root))
+        elif desc.get("kind") == "terminal":
+            from vibecanvas_api.services.sandbox.terminal import terminal_operation
+            result = terminal_operation(desc.get("op") or {})
         elif desc.get("kind") == "mcp":
             result = run_mcp_job(desc.get("op") or {})
         else:

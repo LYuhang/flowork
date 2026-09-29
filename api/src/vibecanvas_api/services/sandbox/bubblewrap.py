@@ -295,6 +295,9 @@ class BubblewrapProvider(RootlessGvisorProvider):
         )
         # start_new_session so stop_serve can kill the whole process group,
         # matching RootlessGvisorProvider.run_serve.
+        resource_group = getattr(self, 'resource_group', None)
+        if resource_group is not None:
+            argv = resource_group.wrap_command(argv)
         proc = subprocess.Popen(
             argv,
             stdout=subprocess.PIPE,

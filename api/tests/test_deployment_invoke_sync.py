@@ -268,6 +268,23 @@ async def _seed_full_deployment(pg_engine, app_engine, *, enabled: bool = True):
     return tenant_id, slug, api_key, dep_id
 
 
+async def _activate_test_revision(tenant_id, dep_id):
+    """Publish a resolved resident revision for route tests with a mocked runner."""
+    import json
+    from vibecanvas_api.services.deployment_revisions import execution_spec
+    from vibecanvas_api.services.deployment_snapshots import resolve_workflow
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        dep = dict((await session.execute(text('SELECT * FROM deployments WHERE id=:id'), {'id': dep_id})).mappings().one())
+        graph = await resolve_workflow(session, dep['user_id'], dep)
+        spec = execution_spec(dep, graph, str(dep['user_id']))
+        revision = uuid.uuid4()
+        await session.execute(text("""INSERT INTO deployment_runtime_revisions(id,tenant_id,deployment_id,spec,state)
+            VALUES (:id,:tenant,:dep,CAST(:spec AS jsonb),'active')"""),
+            {'id': revision, 'tenant': tenant_id, 'dep': dep_id, 'spec': json.dumps(spec)})
+        await session.execute(text("UPDATE deployments SET active_revision_id=:revision, rollout_status='ready' WHERE id=:id"),
+            {'revision': revision, 'id': dep_id})
+
+
 # --------------------------------------------------------------------- tests
 
 
@@ -287,7 +304,8 @@ async def test_invoke_sync_returns_outputs(
     from vibecanvas_api.storage import db as db_mod
     monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
-    _, slug, api_key, _ = await _seed_full_deployment(pg_engine, app_engine)
+    tenant, slug, api_key, dep_id = await _seed_full_deployment(pg_engine, app_engine)
+    await _activate_test_revision(tenant, dep_id)
     result = await invoke_sync(
         slug=slug, body={"x": 21},
         authorization=f"Bearer {api_key}",
@@ -443,6 +461,7 @@ async def test_invoke_honors_pinned_version_not_head(
             {"id": dep_id, "t": tenant_id, "u": user_id, "w": wf_id, "s": slug, "h": h},
         )
 
+    await _activate_test_revision(tenant_id, dep_id)
     result = await invoke_sync(
         slug=slug, body={"x": 21}, authorization=f"Bearer {api_key}",
     )

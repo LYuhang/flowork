@@ -111,11 +111,17 @@ disk usage.
 
 #### Native Linux or WSL
 
-Use the native bootstrap when developing on Debian, Ubuntu, or WSL:
+Use the native bootstrap on Debian, Ubuntu, or WSL with systemd enabled:
 
 ```bash
 ./scripts/bootstrap_native_linux.sh
 ```
+
+The bootstrap installs a systemd service with cgroup v2 delegation for resident
+workflow deployments. Resource limits, rolling instance replacement and the
+interactive deployment terminal are documented in
+[Resident deployments](docs/resident-deployments.md). Existing running services
+are not automatically restarted when their unit is updated.
 
 For prerequisites, manual setup, local configuration, and production guidance,
 see the [installation guide](docs/installation.md).
@@ -124,9 +130,9 @@ see the [installation guide](docs/installation.md).
 
 | Action | Docker Compose | Native Linux/WSL |
 | --- | --- | --- |
-| Start | `./scripts/deploy/local_server.sh up` | `./launch.sh start` |
-| Stop | `./scripts/deploy/local_server.sh stop` | `./launch.sh stop` |
-| Restart | `./scripts/deploy/local_server.sh restart` | `./launch.sh restart` |
+| Start | `./scripts/deploy/local_server.sh up` | `sudo systemctl start flowork.service` |
+| Stop | `./scripts/deploy/local_server.sh stop` | `sudo systemctl stop flowork.service` |
+| Restart | `./scripts/deploy/local_server.sh restart` | `sudo systemctl restart flowork.service` |
 | Status | `./scripts/deploy/local_server.sh status` | `./launch.sh status` |
 | Logs | `./scripts/deploy/local_server.sh logs` | `./launch.sh logs` |
 

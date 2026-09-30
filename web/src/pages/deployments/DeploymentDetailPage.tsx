@@ -578,7 +578,6 @@ function CodeExamplesTab({
     () => deploymentCodeExamples(dep, exampleInputs),
     [dep, exampleInputs],
   );
-  const code = examples[language];
   return (
     <section className="border-y border-edge-subtle py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -596,11 +595,6 @@ function CodeExamplesTab({
             )}
           </p>
         </div>
-        <CopyButton
-          value={code}
-          label={t('deployments.code.copy', 'Copy code example')}
-          copiedLabel={t('deployments.actions.copied', 'Copied')}
-        />
       </div>
       <Tabs value={language} onValueChange={(value) => setLanguage(value as CodeLanguage)} className="mt-4">
         <TabsList aria-label={t('deployments.code.language', 'Code language')}>
@@ -611,7 +605,9 @@ function CodeExamplesTab({
         {(['curl', 'python', 'javascript'] as const).map((value) => (
           <TabsContent key={value} value={value} className="mt-3">
             <CodeSnippet code={examples[value]} language={value === 'curl' ? 'bash' : value}
-              showHeader={false} testId={`deployment-code-${value}`} />
+              copyLabel={t('deployments.code.copy', 'Copy code example')}
+              copiedLabel={t('deployments.actions.copied', 'Copied')}
+              testId={`deployment-code-${value}`} />
           </TabsContent>
         ))}
       </Tabs>

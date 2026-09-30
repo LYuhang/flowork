@@ -1229,7 +1229,6 @@ export function TasksListPage() {
                   <th className="px-4 py-3 font-medium">{t('tasks.col.progress', 'Progress')}</th>
                   <th className="px-4 py-3 font-medium">{t('tasks.col.duration', 'Duration')}</th>
                   <th className="px-4 py-3 font-medium">{t('tasks.col.created', 'Created')}</th>
-                  <th className="px-4 py-3 font-medium">{t('tasks.col.result', 'Result')}</th>
                   <th className="px-4 py-3 text-right font-medium">{t('tasks.col.actions', 'Actions')}</th>
                 </tr>
               </thead>
@@ -1299,42 +1298,6 @@ export function TasksListPage() {
                       </td>
                       <td title={formatTime(task.submitted_at)} data-col="created" data-label={t('tasks.col.created', 'Created')} className="px-4 py-3 text-xs text-muted-foreground">
                         {formatTime(task.submitted_at)}
-                      </td>
-                      <td data-col="result" data-label={t('tasks.col.result', 'Result')} className="px-4 py-3">
-                        {task.results_uri && capabilities.has('export') ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 gap-1.5 px-2 text-xs text-primary"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <Download className="h-3.5 w-3.5" />
-                                {t('taskDetail.download', 'Download')}
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem asChild>
-                                <a href={`/api/v1/tasks/${task.id}/download?format=csv`}>CSV</a>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <a href={`/api/v1/tasks/${task.id}/download?format=jsonl`}>JSONL</a>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <a href={`/api/v1/tasks/${task.id}/download?format=xlsx`}>Excel (.xlsx)</a>
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : task.error ? (
-                          <span className="max-w-[180px] truncate text-xs text-state-danger" title={task.error}>
-                            {task.error}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
                       </td>
                       <td data-col="actions" className="px-4 py-3 text-right">
                         <DropdownMenu>

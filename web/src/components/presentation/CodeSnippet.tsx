@@ -3,11 +3,13 @@ import { cn } from '@/lib/utils';
 import { CopyButton } from '@/components/ui/copy-button';
 
 /** Readable immediately; highlighting loads only when this block is mounted. */
-export function CodeSnippet({ code, language, className, showHeader = true, testId }: {
+export function CodeSnippet({ code, language, className, showHeader = true, copyLabel, copiedLabel, testId }: {
   code: string;
   language: string;
   className?: string;
   showHeader?: boolean;
+  copyLabel?: string;
+  copiedLabel?: string;
   testId?: string;
 }) {
   const html = useShiki(code, language);
@@ -16,7 +18,7 @@ export function CodeSnippet({ code, language, className, showHeader = true, test
       {showHeader && (
         <div className="flex items-center justify-between gap-3 border-b border-edge-subtle px-3 py-2">
           <span className="font-mono text-xs text-content-tertiary">{language.toUpperCase()}</span>
-          <CopyButton value={code} />
+          <CopyButton value={code} label={copyLabel} copiedLabel={copiedLabel} />
         </div>
       )}
       <div className="code-snippet-highlight app-scrollbar max-h-96 overflow-auto text-xs leading-5 [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:p-4 [&_pre]:font-mono" tabIndex={0}>

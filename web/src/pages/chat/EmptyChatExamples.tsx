@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import en from '@/lib/i18n/locales/en.json';
 
-type ExampleCategory = 'automation' | 'office' | 'diagram' | 'workflow' | 'operations' | 'knowledge';
+type ExampleCategory = 'automation' | 'office' | 'diagram' | 'workflow' | 'operations' | 'knowledge' | 'skill';
 
 interface ExampleDefinition {
   id: string;
@@ -173,6 +173,26 @@ const EXAMPLES: Record<ExampleCategory, readonly ExampleDefinition[]> = {
       prompt: '/deployment From my existing workflows, select the most recently updated valid workflow whose name or description best matches customer feedback. Deploy it as an authenticated API endpoint, use the latest workflow version, and configure a conservative request rate limit.',
     },
   ],
+  skill: [
+    {
+      id: 'template', icon: '🧩', command: '/skill',
+      titleKey: 'chat.examples.skill.template.title', title: "Create a Skill template",
+      descriptionKey: 'chat.examples.skill.template.description', description: "Start a local SKILL.md template without publishing.",
+      promptKey: 'chat.examples.skill.template.prompt', prompt: en['chat.examples.skill.template.prompt'],
+    },
+    {
+      id: 'download', icon: '📥', command: '/skill',
+      titleKey: 'chat.examples.skill.download.title', title: "Download an available Skill",
+      descriptionKey: 'chat.examples.skill.download.description', description: "Inspect available Skills and save a local copy.",
+      promptKey: 'chat.examples.skill.download.prompt', prompt: en['chat.examples.skill.download.prompt'],
+    },
+    {
+      id: 'update', icon: '🛠️', command: '/skill',
+      titleKey: 'chat.examples.skill.update.title', title: "Improve my custom Skill",
+      descriptionKey: 'chat.examples.skill.update.description', description: "Validate the complete package and publish a new version.",
+      promptKey: 'chat.examples.skill.update.prompt', prompt: en['chat.examples.skill.update.prompt'],
+    },
+  ],
   knowledge: [
     {
       id: 'create',
@@ -220,6 +240,7 @@ const CATEGORIES: readonly {
   { id: 'diagram', labelKey: 'chat.examples.tab.diagram', label: 'Diagram' },
   { id: 'workflow', labelKey: 'chat.examples.tab.workflow', label: 'Workflow' },
   { id: 'operations', labelKey: 'chat.examples.tab.operations', label: 'Tasks and deployments' },
+  { id: 'skill', labelKey: 'chat.examples.tab.skill', label: 'Skill' },
   { id: 'knowledge', labelKey: 'chat.examples.tab.knowledge', label: 'Knowledge' },
 ];
 
@@ -259,6 +280,13 @@ const CATEGORY_STYLE: Record<ExampleCategory, {
     command: 'border-amber-200/70 bg-amber-50 text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300',
     action: 'text-amber-800 dark:text-amber-300',
   },
+  skill: {
+    card: 'hover:border-indigo-300/70 hover:shadow-[0_2px_0_rgba(5,150,105,0.12),0_18px_34px_-20px_rgba(5,150,105,0.45)] dark:hover:border-indigo-500/45',
+    icon: 'border-indigo-200/80 bg-gradient-to-br from-indigo-100 via-violet-50 to-white shadow-indigo-950/15 dark:border-indigo-500/30 dark:from-indigo-500/25 dark:via-violet-500/10 dark:to-surface-raised',
+    command: 'border-indigo-200/70 bg-indigo-50 text-indigo-700 dark:border-indigo-500/25 dark:bg-indigo-500/10 dark:text-indigo-300',
+    action: 'text-indigo-700 dark:text-indigo-300',
+  },
+
   knowledge: {
     card: 'hover:border-emerald-300/70 hover:shadow-[0_2px_0_rgba(5,150,105,0.12),0_18px_34px_-20px_rgba(5,150,105,0.45)] dark:hover:border-emerald-500/45',
     icon: 'border-emerald-200/80 bg-gradient-to-br from-emerald-100 via-teal-50 to-white shadow-emerald-950/15 dark:border-emerald-500/30 dark:from-emerald-500/25 dark:via-teal-500/10 dark:to-surface-raised',

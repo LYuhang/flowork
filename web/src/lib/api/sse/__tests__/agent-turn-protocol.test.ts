@@ -27,6 +27,23 @@ describe('Agent Turn wire protocol', () => {
     );
   });
 
+  it('preserves the selected Skill identity in the wire body and retry snapshot', async () => {
+    const skillUse = { skill_id: '0d40d11d-942a-4fb2-a2b4-15acfe9e5162', name: 'research' };
+    await runAgentTurn({ wfId: 'scope_1', chatId: 'chat_skill', content: '/skill-use:[research] summarize', skillUse });
+    expect(capturedBody).toMatchObject({ skill_use: skillUse });
+    expect(useChatStreamStore.getState().runtimes.chat_skill.lastInput?.skillUse).toEqual(skillUse);
+  });
+
+  it.each(['selected_skill_unavailable', 'selected_skill_changed'])('explains %s without losing the rejection', async (code) => {
+    server.use(
+      http.post('*/api/v1/chat-scopes/:scopeId/chats/:chatId/messages', () => HttpResponse.json({ detail: { code } }, {status:409})),
+      http.get('*/api/v1/chats/:chatId/turns/by-client-request/:requestId', () => HttpResponse.json({detail:'not found'},{status:404})),
+    );
+    await expect(streamAgentTurn({wfId:'scope_1',chatId:'chat_skill_denied',content:'/skill-use:[research] summarize',
+      skillUse:{skill_id:'0d40d11d-942a-4fb2-a2b4-15acfe9e5162',name:'research'},signal:new AbortController().signal,
+    })).rejects.toThrow(/Select.*again/);
+  });
+
   it('preserves the selected approval mode and sends surface but no browser topology', async () => {
     await streamAgentTurn({
       wfId: 'scope_1',

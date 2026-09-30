@@ -168,6 +168,8 @@ cd flowork
 | `/task` | 让 Agent 查找或管理 Task，也可以导出可搜索的事件与执行诊断包来排查问题 | 主应用与浏览器扩展；Codex |
 | `/deployment` | 让 Agent 查找或管理 Deployment，也可以导出可搜索的调用日志与指标来排查问题 | 主应用与浏览器扩展；Codex |
 | `/knowledge` | 让 Agent 读取、创建和更新当前组织中的 Knowledge 文件资料包 | 主应用与浏览器扩展；Codex |
+| `/skill` | 查看 Skills、创建模板、下载文件包、更新自己创建的 Custom Skill 或删除安装 | 主应用和浏览器扩展；Codex |
+| `/skill-use` | 从候选列表选择 Skill，按 ID 为当前任务使用指定技能 | 主应用和浏览器扩展；Codex |
 | [`/diagram`](docs/diagram.zh-CN.md) | 创建原生 draw.io 文件、检查结构，并通过 draw.io Desktop 渲染后发布预览 | 主应用与浏览器扩展；Codex |
 | `/document` | 创建或修改专业的 PPTX、DOCX、XLSX 或 PDF 文件，检查文档结构与实际渲染效果，然后在 Preview 中交付原生文件 | 主应用与浏览器扩展；Codex |
 | `/browser` | 让 Agent 读取或操作当前浏览器中的标签页和已登录页面 | 仅限浏览器扩展侧边栏；Codex |

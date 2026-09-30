@@ -289,4 +289,23 @@ describe('chat attachments', () => {
     expect(input).toHaveValue('Keep this question');
   });
 
+  it('selects a Skill through the composer menu without sending and permits cancellation', async () => {
+    server.use(
+      http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({carrier_scope_id:SCOPE,surface:'chat',available_commands:['skill']})),
+      http.get('*/api/v1/skills', () => HttpResponse.json({items:[{id:'22222222-2222-4222-8222-222222222222',name:'research',source:'custom',access:{capabilities:['use']}}]})),
+    );
+    renderComposer();
+    const input=screen.getByRole('textbox');
+    fireEvent.change(input,{target:{value:'/skill'}});
+    await userEvent.click(await screen.findByRole('option',{name:/\/skill-use/}));
+    await userEvent.click(await screen.findByRole('button',{name:/research/}));
+    expect(input).toHaveValue('/skill-use:[research] ');
+    expect(useChatStreamStore.getState().runtimes[CHAT]?.state).not.toBe('streaming');
+    fireEvent.change(input,{target:{value:'/skill'}});
+    await userEvent.click(await screen.findByRole('option',{name:/\/skill-use/}));
+    await userEvent.keyboard('{Escape}');
+    expect(input).toHaveValue('/skill');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
 });

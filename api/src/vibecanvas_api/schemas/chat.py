@@ -296,9 +296,16 @@ class BackgroundResultsControl(BaseModel):
         return normalized
 
 
+class SkillUseSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    skill_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=128)
+
+
 class MessagePostBody(BaseModel):
     role: Literal["user"] = "user"
     content: str = ""
+    skill_use: SkillUseSelection | None = None
     # Control messages use the ordinary Turn endpoint and Runtime history, but
     # are hidden from the product transcript. Their model-facing content is
     # resolved from durable HITL state by the backend, never supplied by UI text.
@@ -348,6 +355,15 @@ class MessagePostBody(BaseModel):
 
     @model_validator(mode="after")
     def validate_message_kind(self) -> "MessagePostBody":
+        if self.skill_use is not None or self.content.startswith('/skill-use'):
+            from vibecanvas_api.services.skill_selection import SKILL_USE_PATTERN
+            match = SKILL_USE_PATTERN.fullmatch(self.content.strip())
+            if self.control is not None or self.skill_use is None or match is None:
+                raise ValueError("Select a Skill from the /skill-use menu before sending")
+            if match[1] != self.skill_use.name:
+                raise ValueError("The Skill command and selected Skill do not match; select it again")
+            if not (match[2] or '').strip():
+                raise ValueError("Describe the task after the selected Skill")
         if self.control is None:
             if not self.content.strip() and not self.attachments:
                 raise ValueError("a text message requires content or attachments")

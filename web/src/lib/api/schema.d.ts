@@ -3297,6 +3297,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/skills/{skill_id}/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Custom Skill Bundle
+         * @description Replace an owned custom package and publish its next version atomically.
+         */
+        put: operations["update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/skills/{skill_id}/versions/{revision_id}": {
         parameters: {
             query?: never;
@@ -5024,6 +5044,11 @@ export interface components {
             /** Paths */
             paths?: string[] | null;
         };
+        /** Body_update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put */
+        Body_update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put: {
+            /** Bundle */
+            bundle: string;
+        };
         /** Body_upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post */
         Body_upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post: {
             /** File */
@@ -6529,6 +6554,7 @@ export interface components {
              * @default
              */
             content: string;
+            skill_use?: components["schemas"]["SkillUseSelection"] | null;
             /** Control */
             control?: components["schemas"]["HitlContinueControl"] | components["schemas"]["BackgroundResultsControl"] | null;
             /** Client Request Id */
@@ -7889,6 +7915,16 @@ export interface components {
             created_at?: string | null;
             access: components["schemas"]["ResourceAccessOut"];
             provenance: components["schemas"]["ResourceProvenanceOut"];
+        };
+        /** SkillUseSelection */
+        SkillUseSelection: {
+            /**
+             * Skill Id
+             * Format: uuid
+             */
+            skill_id: string;
+            /** Name */
+            name: string;
         };
         /** SkillVersionCreate */
         SkillVersionCreate: {
@@ -14767,6 +14803,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SkillVersionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put"];
             };
         };
         responses: {

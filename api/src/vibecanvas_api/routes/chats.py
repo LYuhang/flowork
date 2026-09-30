@@ -165,8 +165,8 @@ SSE_HEADERS = {
 }
 
 AVAILABLE_COMMANDS_BY_SURFACE: dict[str, set[str]] = {
-    "chat": {"task", "deployment", "knowledge", "workflow", "diagram", "document"},
-    "browser": {"task", "deployment", "knowledge", "workflow", "browser", "diagram", "document"},
+    "chat": {"task", "deployment", "knowledge", "skill", "workflow", "diagram", "document"},
+    "browser": {"task", "deployment", "knowledge", "skill", "workflow", "browser", "diagram", "document"},
 }
 
 def _available_commands(surface: str, runtime_type: str | None = None) -> set[str]:
@@ -2631,7 +2631,12 @@ async def post_message(
         # `/command` parsing (Design §6 — a tool cannot do this; it lives at the
         # routes layer). Resolve a leading slash command, strip it from
         # the content, and reconcile the persisted active_modes for this chat.
-        cmd, stripped = parse_command(body.content)
+        if body.skill_use is not None:
+            from ..services.skill_selection import SKILL_USE_PATTERN
+            cmd = None
+            stripped = SKILL_USE_PATTERN.fullmatch(body.content.strip())[2].strip()
+        else:
+            cmd, stripped = parse_command(body.content)
     agent_surface = body.agent_surface or "chat"
     command_runtime_binding = await runtime_repo.get_chat_binding(chat_id)
     command_runtime_type = (
@@ -3347,10 +3352,15 @@ async def post_message(
     ]
     runtime_skills = await runtime_skill_descriptors(
         session=session,
+        chat_id=chat_id,
         service=authz_service,
         principal=principal_for_auth(auth),
         context=context_for_auth(auth, http_request),
     )
+    if body.skill_use is not None:
+        from ..services.skill_selection import selected_skill_instruction
+        runtime_instructions.append(selected_skill_instruction(body.skill_use, runtime_skills))
+        user_message.setdefault("additional_kwargs", {})["skill_use"] = body.skill_use.model_dump(mode="json")
     todo_state = await chat_repo.get_todo_state(chat_id)
     interactive_artifact_refs = (
         await hitl_repo.project_artifact_refs_for_chat(chat_id)
@@ -3507,6 +3517,7 @@ async def post_message(
             input_message_id=f"{chat_id}:user:{turn_id}",
             input_snapshot={
                 "content": body.content,
+                "skill_use": body.skill_use.model_dump(mode="json") if body.skill_use else None,
                 "message_type": (
                     "control" if control_projection is not None else "text"
                 ),
@@ -3704,6 +3715,7 @@ async def post_message(
             },
             "meta": {
                 "command": cmd,
+                "skill_use": body.skill_use.model_dump(mode="json") if body.skill_use else None,
                 "surface": body.surface,
             },
         },

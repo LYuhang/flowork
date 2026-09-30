@@ -93,8 +93,8 @@ class HitlRepo:
         correlation = row.runtime_correlation_json or {}
         if row.status == "pending" and correlation.get("source") in {"flowork_cli", "render_choices", "browser_transfer"}:
             method = str(correlation.get("runtime_method", ""))
-            is_resource = method.startswith(("task.", "deployment.", "knowledge."))
-            table = "knowledge_cli_leases" if method.startswith("knowledge.") else ("deployment_cli_leases" if method.startswith("deployment.") else ("task_cli_leases" if is_resource else "workflow_cli_leases"))
+            is_resource = method.startswith(("task.", "deployment.", "knowledge.", "skill."))
+            table = "skill_cli_leases" if method.startswith("skill.") else "knowledge_cli_leases" if method.startswith("knowledge.") else ("deployment_cli_leases" if method.startswith("deployment.") else ("task_cli_leases" if is_resource else "workflow_cli_leases"))
             operation_filter = "" if is_resource else "AND l.operation='delete'"
             is_choices = correlation.get("source") == "render_choices"
             if is_choices or correlation.get("source") == "browser_transfer":

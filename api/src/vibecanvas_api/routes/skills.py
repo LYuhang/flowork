@@ -92,7 +92,14 @@ async def _row_to_out(
     row: dict,
     decision: Decision,
     provenance: ResourceProvenanceBuilder,
+    *,
+    user_id: str,
 ) -> SkillOut:
+    access = access_from_decision(decision)
+    if row.get("source") != "custom" or str(row.get("user_id")) != str(user_id):
+        access = access.model_copy(update={"capabilities": [
+            action for action in access.capabilities if action not in {Action.UPDATE, Action.PUBLISH}
+        ]})
     return SkillOut(
         id=str(row["skill_id"]),
         name=row["name"],
@@ -106,7 +113,7 @@ async def _row_to_out(
         revision_hash=row.get("revision_hash"),
         created_at=_iso(row.get("created_at")),
         updated_at=_iso(row.get("updated_at")),
-        access=access_from_decision(decision),
+        access=access,
         provenance=await provenance.build(
             creator_user_id=row.get("user_id"),
             origin_type=(
@@ -115,6 +122,22 @@ async def _row_to_out(
             ),
         ),
     )
+
+
+def _require_owned_custom_skill(row: dict | None, user_id: str) -> None:
+    """Editing is limited to the creator's custom package, even for admins."""
+    if row is None:
+        raise HTTPException(status_code=404, detail="skill not found")
+    if row.get("source") != "custom":
+        raise HTTPException(status_code=403, detail={
+            "code": "skill_read_only_source",
+            "message": "Only custom Skills can be edited; installed catalog Skills are read-only.",
+        })
+    if str(row.get("user_id")) != str(user_id):
+        raise HTTPException(status_code=403, detail={
+            "code": "skill_not_creator",
+            "message": "You can only edit custom Skills that you created.",
+        })
 
 
 def _bundle_paths(row: dict) -> list[str]:
@@ -329,6 +352,7 @@ async def _finish_skill_creation(
         source="skill-installation-create",
     )
     await session.commit()
+    request.state.skill_publication_receipt = {"skill_id": str(skill_id), "published": True}
     await apply_committed_structural_mutations(coordinator, mutation_ids)
     await _rebind_request_organization(session, ctx)
     decision = await service.check(
@@ -377,7 +401,7 @@ async def list_skills(
     provenance = ResourceProvenanceBuilder(session)
     return {
         "items": [
-            await _row_to_out(row, decisions[resource], provenance)
+            await _row_to_out(row, decisions[resource], provenance, user_id=ctx.user_id)
             for row, resource in zip(rows, resources, strict=True)
         ]
     }
@@ -486,6 +510,7 @@ async def install_catalog_skill(
         row,
         decision,
         ResourceProvenanceBuilder(session),
+        user_id=ctx.user_id,
     )
 
 
@@ -544,6 +569,7 @@ async def create_custom_skill(
         row,
         decision,
         ResourceProvenanceBuilder(session),
+        user_id=ctx.user_id,
     )
 
 
@@ -613,8 +639,7 @@ async def save_custom_skill_draft(
     )
     repo = SkillsRepo(session)
     current = await repo.get(sid)
-    if current is None or current.get("source") != "custom":
-        raise HTTPException(status_code=404, detail="custom skill not found")
+    _require_owned_custom_skill(current, ctx.user_id)
     existing = await repo.read_draft_files(sid)
     if existing is None:
         existing = await repo.read_current_files(sid)
@@ -672,8 +697,7 @@ async def publish_custom_skill_version(
     )
     repo = SkillsRepo(session)
     current = await repo.get(sid)
-    if current is None or current.get("source") != "custom":
-        raise HTTPException(status_code=404, detail="custom skill not found")
+    _require_owned_custom_skill(current, ctx.user_id)
     draft = await repo.get_draft(sid)
     files = await repo.read_draft_files(sid)
     if draft is None or files is None:
@@ -721,7 +745,60 @@ async def publish_custom_skill_version(
         row,
         authorized.decision,
         ResourceProvenanceBuilder(session),
+        user_id=ctx.user_id,
     )
+
+
+@router.put("/{skill_id}/bundle", response_model=SkillOut)
+async def update_custom_skill_bundle(
+    skill_id: str,
+    request: Request,
+    bundle: UploadFile = File(...),
+    ctx: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    """Replace an owned custom package and publish its next version atomically."""
+    sid = _parse_uuid(skill_id)
+    for action in (Action.UPDATE, Action.PUBLISH):
+        authorized = await _authorize_skill(
+            request=request, ctx=ctx, service=service, skill_id=sid,
+            action=action, consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
+        )
+    repo = SkillsRepo(session)
+    _require_owned_custom_skill(await repo.get(sid), ctx.user_id)
+    _frontmatter, files = await _read_custom_bundle(bundle)
+    # Serialize with UI publications before assigning the next version.
+    current = await repo._lock_custom_skill(sid)
+    _require_owned_custom_skill(current, ctx.user_id)
+    version = int(current["version"]) + 1
+    raw = next(data for path, _ct, data in files if path == "SKILL.md")
+    try:
+        frontmatter, files = validate_skill_files(_replace_skill_md(
+            files, _with_version(raw.decode("utf-8"), version),
+        ))
+        draft = await repo.save_draft(
+            skill_id=sid, tenant_id=uuid.UUID(ctx.tenant_id), files=files,
+        )
+        if draft is None:
+            raise HTTPException(404, "custom skill not found")
+        row = await repo.publish_draft(
+            skill_id=sid, tenant_id=uuid.UUID(ctx.tenant_id), version=version,
+            name=str(frontmatter["name"]).strip(),
+            description=str(frontmatter["description"]).strip(),
+            allowed_tools=list(frontmatter.get("allowed_tools") or []),
+            expected_draft_hash=draft["draft_hash"], files=files,
+        )
+        await session.flush()
+    except (ValueError, UnicodeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(409, "The Skill name or version already exists") from exc
+    if row is None:
+        raise HTTPException(404, "custom skill not found")
+    return await _row_to_out(row, authorized.decision, ResourceProvenanceBuilder(session), user_id=ctx.user_id)
 
 
 @router.get("/{skill_id}/versions", response_model=list[SkillRevisionOut])
@@ -894,6 +971,7 @@ async def get_skill(
         row,
         authorized.decision,
         ResourceProvenanceBuilder(session),
+        user_id=ctx.user_id,
     )
     files = _bundle_paths(row)
     draft = await repo.get_draft(sid)
@@ -987,6 +1065,7 @@ async def delete_skill(
         source="skill-installation-delete",
     )
     await session.commit()
+    request.state.skill_deletion_receipt = {"skill_id": str(skill_id), "deleted": True}
     await apply_committed_structural_mutations(coordinator, mutation_ids)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

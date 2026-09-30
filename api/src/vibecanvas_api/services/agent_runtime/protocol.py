@@ -189,12 +189,19 @@ class RuntimeInstruction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instruction_id: str = Field(pattern=r"^[a-z][a-z0-9_.:-]{0,127}$")
-    kind: Literal["command_context"]
-    scope: Literal["chat"]
+    kind: Literal["command_context", "skill_selection"]
+    scope: Literal["chat", "turn"]
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     version: int = Field(ge=1)
     content: str = Field(min_length=1)
     activated_this_turn: bool = False
+
+    @model_validator(mode="after")
+    def validate_instruction_scope(self) -> "RuntimeInstruction":
+        expected = "turn" if self.kind == "skill_selection" else "chat"
+        if self.scope != expected:
+            raise ValueError("instruction scope does not match its kind")
+        return self
 
 
 class RuntimeContextSection(BaseModel):
@@ -478,9 +485,9 @@ class RuntimeTurnRequest(BaseModel):
                 raise ValueError(
                     "Sandbox-stage MCP request cannot carry Host authority descriptors"
                 )
-        skill_names = [skill.name.casefold() for skill in self.skills]
-        if len(skill_names) != len(set(skill_names)):
-            raise ValueError("runtime skills must not contain duplicate names")
+        skill_ids = [skill.skill_id for skill in self.skills]
+        if len(skill_ids) != len(set(skill_ids)):
+            raise ValueError("runtime skills must not contain duplicate IDs")
         instruction_ids = [item.instruction_id for item in self.instructions]
         if len(instruction_ids) != len(set(instruction_ids)):
             raise ValueError("runtime instructions must not contain duplicate ids")

@@ -2,6 +2,11 @@
 import json
 from uuid import UUID
 
+try:
+    from . import skill_cli
+except ImportError:
+    import skill_cli
+
 OPERATIONS = frozenset({"skill.list", "skill.get", "skill.files", "skill.read",
                         "mcp.list", "mcp.get", "mcp.tools"})
 
@@ -11,6 +16,8 @@ def add_parser(groups):
                               ("mcp", ("list", "get", "tools"))):
         root = groups.add_parser(resource, help=f"Discover authorized {resource} installations for SubAgent nodes.", allow_abbrev=False)
         commands = root.add_subparsers(dest="action", required=True)
+        if resource == "skill":
+            skill_cli.add_commands(commands)
         for action in actions:
             leaf = commands.add_parser(action, allow_abbrev=False,
                 description="Read resource metadata or definitions. Does not invoke MCP business tools. IDs refer to installed resources, not catalog entries.")

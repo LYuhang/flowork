@@ -74,13 +74,13 @@ export function SkillCatalogDetailPage() {
       >
 
         <Tabs value={activeTab} onValueChange={(tab) => { const next = new URLSearchParams(params); next.set('tab', tab); setParams(next, { replace: true }); }} className="flex min-h-0 flex-1 flex-col gap-4">
-          <TabsList variant="underline" className="h-auto w-full shrink-0 justify-start">
+          <TabsList variant="underline" className="chat-scrollbar h-auto w-full shrink-0 justify-start overflow-x-auto">
             <TabsTrigger value="overview">{t('skills.detail.tab.overview', 'Overview')}</TabsTrigger>
             <TabsTrigger value="instructions">{t('skills.detail.tab.instructions', 'Instructions')}</TabsTrigger>
             <TabsTrigger value="files">{t('skills.detail.tab.files', 'Files')}</TabsTrigger>
             <TabsTrigger value="requirements">{t('skills.detail.tab.requirements', 'Requirements')}</TabsTrigger>
           </TabsList>
-          <TabsContent value="overview" className="page-scroll-region mt-0 min-h-0 flex-1 max-w-3xl pr-2">
+          <TabsContent value="overview" className="page-scroll-region mt-0 min-h-0 w-full flex-1 pr-2">
             <SectionBlock title={t('skills.detail.about', 'About this Skill')}>
               <p className="text-sm leading-6 text-muted-foreground">{skill.description}</p>
             </SectionBlock>
@@ -93,9 +93,9 @@ export function SkillCatalogDetailPage() {
               ]} />
             </SectionBlock>
           </TabsContent>
-          <TabsContent value="instructions" className="page-scroll-region mt-0 min-h-0 flex-1 max-w-4xl p-1"><Markdown className="text-sm leading-6">{skill.body ?? ''}</Markdown></TabsContent>
+          <TabsContent value="instructions" className="page-scroll-region mt-0 min-h-0 w-full flex-1 pr-2"><SectionBlock title="SKILL.md"><Markdown className="min-w-0 text-sm leading-6">{skill.body ?? ''}</Markdown></SectionBlock></TabsContent>
           <TabsContent value="files" className="mt-0 min-h-0 flex-1 overflow-hidden"><SkillFileBrowser persistKey={`${skill.source}:${skill.source_id}:${skill.revision}`} files={files} skillMd={skill.skill_md ?? ''} loadFile={loadFile} selectedPath={selectedFile} onSelectedPathChange={selectFileInUrl} labels={{ files: t('skills.detail.files.bundle', 'Package Files'), loading: t('skills.detail.files.loading', 'Loading File…'), failed: t('skills.detail.files.failed', 'Could Not Load File'), binary: t('skills.detail.files.binary', 'Binary File Preview Is Not Available.') }} /></TabsContent>
-          <TabsContent value="requirements" className="page-scroll-region mt-0 min-h-0 flex-1 max-w-3xl space-y-5 pr-2">
+          <TabsContent value="requirements" className="page-scroll-region mt-0 min-h-0 w-full flex-1 space-y-5 pr-2">
             <SectionBlock
               title={t('skills.detail.validation.title', 'SKILL.md validated')}
               description={t('skills.detail.validation.catalog', 'The catalog package contains valid name, description, and instruction metadata.')}

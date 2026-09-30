@@ -130,3 +130,19 @@ describe('EmptyChatExamples', () => {
     expect(onSelect.mock.calls[0]?.[0]).toMatch(/^\/document 请/);
   });
 });
+
+
+describe('Skill management examples', () => {
+  it.each(['en', 'zh'])('offers editable template, download and update prompts in %s', async (language) => {
+    await i18n.changeLanguage(language);
+    const onSelect = renderExamples(true);
+    await userEvent.click(screen.getByRole('tab', { name: /^Skill$/ }));
+    expect(onSelect).not.toHaveBeenCalled();
+    for (const id of ['template', 'download', 'update']) {
+      await userEvent.click(document.querySelector(`[data-example-id="skill:${id}"]`)!);
+      expect(onSelect).toHaveBeenLastCalledWith(expect.stringMatching(/^\/skill /));
+    }
+    expect(onSelect).toHaveBeenCalledTimes(3);
+    expect(onSelect.mock.calls[2][0]).toContain('research-notes');
+  });
+});

@@ -85,6 +85,7 @@ export function SSEStatusBanner({
       chatId,
       projectId: lastInput.projectId,
       content: lastInput.content,
+      skillUse: lastInput.skillUse,
       control: lastInput.control,
       attachments: lastInput.attachments,
       mode: lastInput.mode,

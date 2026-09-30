@@ -685,3 +685,36 @@ For operational details, continue with
 retention, and vulnerability reporting, see
 [Security and data lifecycle](security-and-data-lifecycle.md) and
 [`SECURITY.md`](../SECURITY.md).
+
+
+## Skill management and explicit use
+
+`/skill` activates the platform Skill management CLI guidance. `/skill-use`
+opens a searchable installation picker; selecting a Skill produces
+`/skill-use:[name] task` and sends its stable ID separately. The server resolves
+the authorized published Skill and the Chat-specific sandbox path. Selection
+is local to the current turn; it does not activate a persistent management mode.
+
+| CLI command | Effect |
+| --- | --- |
+| `flowork-cli skill list/get/files/read` | Discover installed catalog/custom Skills and inspect their latest published contents; list includes source. |
+| `flowork-cli skill init --name NAME --output_dir NEW_DIR` | Create a local SKILL.md template without publishing. |
+| `flowork-cli skill download --skill_id ID --output_dir NEW_DIR` | Download the latest full package without overwriting local files. |
+| `flowork-cli skill check --source_dir DIR` | Validate the complete package without publishing. |
+| `flowork-cli skill create --source_dir DIR` | Validate and publish a new Custom Skill. |
+| `flowork-cli skill update --skill_id ID --source_dir DIR` | Replace the full package and unpublished draft, validate, and publish the next version automatically. Missing local files are removed from the published package. |
+| `flowork-cli skill delete --skill_id ID` | Remove the caller's own installation while preserving local downloads and any upstream catalog source. |
+
+Only the creator may update a Custom Skill. Catalog packages and other users'
+Skills cannot be edited through this workflow. Write operations follow the
+existing approval policy. Unknown write outcomes must be inspected with list/get
+before retrying. Skill CLI approvals use migration 147; apply migrations with
+the configured migration-owner connection, keeping the application's restricted
+runtime database role unchanged. Docker/native migration entrypoints use the
+same migrations; no additional runtime dependency is required.
+
+Chat mounts are scoped under `/skills/<chat-scope>/<installation-id>/` so sibling
+Chats do not overwrite one another's Skill projection. Instructions use the same
+path generator as sandbox setup. Missing selected files fail before model
+invocation; removed or renamed selections require choosing the Skill again.
+The Workflow/SubAgent immutable resource paths described above remain separate.

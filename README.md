@@ -255,6 +255,8 @@ combined when a task spans more than one area.
 | `/task` | Ask the agent to find or manage Tasks, or export searchable event and execution diagnostics for troubleshooting | Main app and extension; Codex |
 | `/deployment` | Ask the agent to find or manage Deployments, or export searchable invocation logs and metrics for troubleshooting | Main app and extension; Codex |
 | `/knowledge` | Let the Agent read, create, and version Knowledge file packages in the active organization | Main app and extension; Codex |
+| `/skill` | Inspect Skills, create a template, download packages, update your own Custom Skills, or remove an installation | Main app and extension; Codex |
+| `/skill-use` | Select an available Skill by ID to use for the current task | Main app and extension; Codex |
 | [`/diagram`](docs/diagram.md) | Create native draw.io files, check their structure, and render them with draw.io Desktop before publishing a preview | Main app and extension; Codex |
 | `/document` | Create or revise professional PPTX, DOCX, XLSX, or PDF files, review their structure and rendered output, then publish the native file in Preview | Main app and extension; Codex |
 | `/browser` | Let the agent read or operate tabs and authenticated pages in the connected browser | Extension side panel only; Codex |

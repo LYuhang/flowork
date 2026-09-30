@@ -15,6 +15,7 @@ from vibecanvas_api.agents.prompts.workflow import WORKFLOW
 from vibecanvas_api.agents.prompts.deployment import DEPLOYMENT
 from vibecanvas_api.agents.prompts.knowledge import KNOWLEDGE
 from vibecanvas_api.agents.prompts.task import TASK
+from vibecanvas_api.agents.prompts.skill import SKILL
 from vibecanvas_api.agents.prompts.diagram import DIAGRAM
 from vibecanvas_api.agents.prompts.document import DOCUMENT
 
@@ -35,6 +36,12 @@ class CommandMode:
 
 
 COMMAND_MODES: dict[str, CommandMode] = {
+    "skill": CommandMode(
+        name="skill", trigger="/skill", kind="additive", sticky=True,
+        context_prompt=SKILL, tools=[],
+        activation_message="This is the latest /skill activation. Inspect or manage only the Skills requested by the user using the Skill CLI.",
+        external_control=None,
+    ),
     "task": CommandMode(
         name="task",
         trigger="/task",

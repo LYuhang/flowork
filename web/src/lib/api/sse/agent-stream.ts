@@ -20,6 +20,7 @@
  * future TanStack Query inputs and this fetch can share the same type.
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import i18n from '@/lib/i18n';
 import { useAuthStore } from '@/stores/auth';
 import { getApiBase } from '@/lib/base-path';
 import { getTimezone } from '@/lib/timezone';
@@ -58,7 +59,11 @@ export function buildAgentSettings(settings: AgentSettings = getAgentSettings())
 
 type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 
+export type SkillUseSelection = components['schemas']['SkillUseSelection'];
+
 export type HitlContinueControl = components['schemas']['HitlContinueControl'];
+
+class SkillSelectionRejectedError extends Error {}
 
 interface RecoverRunResponse {
   run_id: string;
@@ -84,6 +89,7 @@ export interface StreamAgentTurnArgs {
   content: string;
   control?: HitlContinueControl;
   attachments?: Attachment[];
+  skillUse?: SkillUseSelection;
   /** Browser turns use the handed-off extension transport; Chat is default. */
   mode?: 'chat' | 'browser';
   /** Where the chat lives. `/browser` is side-panel-only — the side-panel embed
@@ -303,6 +309,7 @@ async function streamOwnedAgentTurn(
       ...(args.control ? { control: args.control } : {}),
       client_request_id: clientRequestId,
       attachments: args.attachments ?? [],
+      ...(args.skillUse ? { skill_use: args.skillUse } : {}),
       mode: args.mode ?? 'chat',
       approval_mode: args.approvalMode ?? getApprovalMode(),
       timezone: getTimezone(),
@@ -324,6 +331,13 @@ async function streamOwnedAgentTurn(
         throw new Error('auth');
       }
       if (!res.ok) {
+        const body = await res.clone().json().catch(() => null);
+        if (body?.detail?.code === 'selected_skill_unavailable') {
+          throw new SkillSelectionRejectedError(i18n.t('composer.skill.unavailable', 'The selected Skill is no longer available. Select a Skill again; your draft is preserved.'));
+        }
+        if (body?.detail?.code === 'selected_skill_changed') {
+          throw new SkillSelectionRejectedError(i18n.t('composer.skill.changed', 'The selected Skill was renamed. Select it again; your draft is preserved.'));
+        }
         throw new Error(`agent turn rejected: ${res.status}`);
       }
       const headerTurnId = res.headers.get('X-Turn-Id');
@@ -377,6 +391,10 @@ async function streamOwnedAgentTurn(
     },
     });
   } catch (err) {
+    if (err instanceof SkillSelectionRejectedError) {
+      flushPendingTextEvents();
+      throw err;
+    }
     if ((err as { name?: string }).name === 'AbortError') {
       flushPendingTextEvents();
       throw err;

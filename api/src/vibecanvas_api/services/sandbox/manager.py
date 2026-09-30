@@ -1172,15 +1172,15 @@ class SandboxSession:
             # and HITL waits must never block another Chat's setup or control.
             async with self._lock:
                 if self.skills_dir and self.user_id:
-                    from vibecanvas_api.services.runtime_skills import hydrate_runtime_skills
-                    scope = hashlib.sha256(str(request["chat_id"]).encode()).hexdigest()[:32]
+                    from vibecanvas_api.services.runtime_skills import hydrate_runtime_skills, runtime_skill_scope, runtime_skill_root
+                    scope = runtime_skill_scope(str(request["chat_id"]))
                     destination = os.path.join(self.skills_dir, scope)
                     await hydrate_runtime_skills(
                         destination=destination, tenant_id=self.tenant_id,
                         skills=request.get("skills") or [],
                     )
                     request = {**request, "skills": [
-                        {**skill, "root_path": f"/skills/{scope}/{skill['skill_id']}"}
+                        {**skill, "root_path": runtime_skill_root(str(request["chat_id"]), str(skill["skill_id"]))}
                         for skill in request.get("skills") or []
                     ]}
                 for attempt in range(2):

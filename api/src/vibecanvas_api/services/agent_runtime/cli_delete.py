@@ -19,7 +19,7 @@ from vibecanvas_api.storage.hitl_repo import HitlRepo
 
 
 async def renew(call):
-    table = "knowledge_cli_leases" if call.operation.startswith("knowledge.") else ("deployment_cli_leases" if call.operation.startswith("deployment.") else ("task_cli_leases" if call.operation.startswith("task.") else "workflow_cli_leases"))
+    table = "skill_cli_leases" if call.operation.startswith("skill.") else "knowledge_cli_leases" if call.operation.startswith("knowledge.") else ("deployment_cli_leases" if call.operation.startswith("deployment.") else ("task_cli_leases" if call.operation.startswith("task.") else "workflow_cli_leases"))
     async with session_scope(tenant_id=call.capability.tenant_id) as session:
         result = await session.execute(text(f"""UPDATE {table} SET expires_at=now()+interval '30 seconds'
             WHERE call_id=:id AND expires_at > now() RETURNING call_id"""), {"id": call.call_id})
@@ -28,7 +28,7 @@ async def renew(call):
 
 
 async def release(call):
-    table = "knowledge_cli_leases" if call.operation.startswith("knowledge.") else ("deployment_cli_leases" if call.operation.startswith("deployment.") else ("task_cli_leases" if call.operation.startswith("task.") else "workflow_cli_leases"))
+    table = "skill_cli_leases" if call.operation.startswith("skill.") else "knowledge_cli_leases" if call.operation.startswith("knowledge.") else ("deployment_cli_leases" if call.operation.startswith("deployment.") else ("task_cli_leases" if call.operation.startswith("task.") else "workflow_cli_leases"))
     async with session_scope(tenant_id=call.capability.tenant_id) as session:
         if call.hitl_id:
             await HitlRepo(session).resolve(hitl_request_id=call.hitl_id, decision="cancel",
@@ -42,11 +42,13 @@ async def _approve(call, meta, *, prompt=None):
     cap = call.capability
     hitl_id = "hitl_" + uuid.uuid4().hex
     call.hitl_id = hitl_id
-    task_command = call.operation.startswith(("task.", "deployment.", "knowledge."))
+    task_command = call.operation.startswith(("task.", "deployment.", "knowledge.", "skill."))
     tool_name = "flowork-cli " + call.operation.replace(".", " ")
     title = "Approve Deployment operation" if call.operation.startswith("deployment.") else ("Approve Task operation" if task_command else "Delete Workflow")
     if call.operation.startswith("knowledge."):
         title = "Approve Knowledge operation"
+    if call.operation.startswith("skill."):
+        title = "Approve Skill operation"
     arguments = meta if task_command else {"workflow_id": meta["wf_id"]}
     prompt = prompt or (f"Delete Workflow {meta.get('workflow_name', '')!r} (ID: {meta['wf_id']})? "
               "All versions will become unavailable. Workflow data and run files will be removed. "

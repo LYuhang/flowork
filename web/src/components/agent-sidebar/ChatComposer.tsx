@@ -1,3 +1,5 @@
+import { SkillUsePicker } from './SkillUsePicker';
+import type { SkillUseSelection } from '@/lib/api/sse/agent-stream';
 import { CONTEXT_DRAFT_RESET_EVENT } from '@/lib/chat/context-draft';
 import { discardReloadedDraft, useContextDraft } from '@/lib/chat/use-context-draft';
 import { ContextAttachmentCard } from './ContextAttachmentCard';
@@ -205,6 +207,8 @@ export function ChatComposer({
     composerStateKey ? state.composerInputs[composerStateKey] ?? '' : '',
   );
   const setComposerInput = useChatStreamStore((s) => s.setComposerInput);
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [selectedSkill, setSelectedSkill] = useState<(SkillUseSelection & { scope: string | null }) | null>(null);
   const projectMcpQuery = useProjectMcpSelection(projectId);
   const updateProjectMcp = useSetProjectMcpSelection();
   const runtimeCapabilitiesQuery = useAgentRuntimeCapabilities(chatId, {
@@ -643,6 +647,7 @@ export function ChatComposer({
     approvalMode?: ApprovalMode,
     control?: HitlContinueControl,
     onAccepted?: () => void,
+    skillUse?: SkillUseSelection,
   ) => {
     if (!chatId) return false;
     return runAgentTurn({
@@ -652,6 +657,7 @@ export function ChatComposer({
       content,
       control,
       attachments,
+      skillUse,
       mode,
       approvalMode,
       agentSettings: getChatAgentSettings(chatId),
@@ -695,6 +701,12 @@ export function ChatComposer({
       mode = undefined;
     }
 
+    const skillUse = selectedSkill?.scope === composerStateKey ? { skill_id: selectedSkill.skill_id, name: selectedSkill.name }
+      : lastInput?.content === content ? lastInput.skillUse : undefined;
+    if (content.startsWith('/skill-use') && (!skillUse || !content.startsWith(`/skill-use:[${skillUse.name}] `))) {
+      setSkillPickerOpen(true);
+      return;
+    }
     preparationRef.current = true;
     setDraftPreparing(true);
     try {
@@ -771,6 +783,7 @@ export function ChatComposer({
           surface: agentSurface === 'browser' ? 'browser' : 'chat',
         });
       },
+      content.startsWith('/skill-use:') ? skillUse : undefined,
     );
     if (!accepted) {
       // A request is sent only when the backend exposes durable acceptance.
@@ -803,6 +816,8 @@ export function ChatComposer({
       lastInput.mode,
       lastInput.approvalMode ?? useAgentSettingsStore.getState().approvalMode,
       lastInput.control,
+      undefined,
+      lastInput.skillUse,
     );
   };
 
@@ -841,6 +856,11 @@ export function ChatComposer({
   );
 
   const completeCommand = (cmd: SlashCommand) => {
+    if (cmd.trigger === '/skill-use') {
+      setSkillPickerOpen(true);
+      setMenuDismissed(true);
+      return;
+    }
     setValue(`${cmd.trigger} `);
     setMenuDismissed(true);
     // The controlled re-render can reset the caret — refocus + move it to end.
@@ -974,7 +994,15 @@ export function ChatComposer({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {menuOpen && (
+        {skillPickerOpen && <SkillUsePicker onClose={() => { setSkillPickerOpen(false); setMenuDismissed(false); textareaRef.current?.focus(); }} onSelect={(skill) => {
+          const task = value.replace(/^\/skill-use:\[[^\]]*\]\s*|^\/[^\s]+\s*/, '');
+          setSelectedSkill({ skill_id: skill.id, name: skill.name, scope: composerStateKey });
+          setValue(`/skill-use:[${skill.name}] ${task}`);
+          setSkillPickerOpen(false);
+          setMenuDismissed(true);
+          requestAnimationFrame(() => { const input = textareaRef.current; input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); });
+        }} />}
+        {menuOpen && !skillPickerOpen && (
           <div
             className="absolute bottom-full left-0 right-0 z-50 mb-1 overflow-hidden rounded-md border bg-popover shadow-md"
             role="listbox"

@@ -352,6 +352,7 @@ async def test_skill_installation_stays_private_and_owner_can_use_revisions(
                 openfga_client=store,
             )
             owner_skills = await runtime_skill_descriptors(
+                chat_id="skill-authorization-test",
                 session=session,
                 service=service,
                 principal=PrincipalRef(

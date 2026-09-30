@@ -933,6 +933,11 @@ def _remove_forbidden_account_cache(runtime_root: str) -> None:
 
 def _prepare_codex_skills(request: RuntimeTurnRequest) -> None:
     """Project immutable /skills revisions into Codex's native Skill path."""
+    selection = (request.message.get("additional_kwargs") or {}).get("skill_use")
+    if isinstance(selection, dict):
+        selected = next((item for item in request.skills if item.skill_id == selection.get("skill_id")), None)
+        if selected is None or not os.path.isfile(os.path.join(selected.root_path, "SKILL.md")):
+            raise RuntimeError("selected_skill_unmounted: the selected Skill is not available in this sandbox; select it again and retry")
     skills_root = os.path.join(_chat_home(request.chat_id), ".agents", "skills")
     os.makedirs(skills_root, mode=0o700, exist_ok=True)
     if not os.path.isdir(skills_root):
@@ -1264,7 +1269,7 @@ def _turn_input(
     instructions = [
         item
         for item in request.instructions
-        if item.kind == "command_context" and item.activated_this_turn
+        if item.kind == "skill_selection" or (item.kind == "command_context" and item.activated_this_turn)
     ]
     if request.runtime_state_ref is None or recovered_native_history:
         # A prior attempt may have persisted sticky capability activation but
@@ -1273,7 +1278,7 @@ def _turn_input(
         instructions = [
             item
             for item in request.instructions
-            if item.kind == "command_context"
+            if item.kind in {"command_context", "skill_selection"}
         ]
     contexts = [item.content for item in instructions]
     if recovered_native_history:

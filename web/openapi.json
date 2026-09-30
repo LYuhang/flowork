@@ -10677,6 +10677,64 @@
         }
       }
     },
+    "/api/v1/skills/{skill_id}/bundle": {
+      "put": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Update Custom Skill Bundle",
+        "description": "Replace an owned custom package and publish its next version atomically.",
+        "operationId": "update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/skills/{skill_id}/versions/{revision_id}": {
       "get": {
         "tags": [
@@ -16538,6 +16596,20 @@
         ],
         "title": "Body_import_kb_api_v1_kb_import_post"
       },
+      "Body_update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put": {
+        "properties": {
+          "bundle": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Bundle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bundle"
+        ],
+        "title": "Body_update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put"
+      },
       "Body_upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post": {
         "properties": {
           "file": {
@@ -20573,6 +20645,16 @@
             "title": "Content",
             "default": ""
           },
+          "skill_use": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillUseSelection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "control": {
             "anyOf": [
               {
@@ -24383,6 +24465,28 @@
           "provenance"
         ],
         "title": "SkillRevisionOut"
+      },
+      "SkillUseSelection": {
+        "properties": {
+          "skill_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Skill Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "skill_id",
+          "name"
+        ],
+        "title": "SkillUseSelection"
       },
       "SkillVersionCreate": {
         "properties": {

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import shutil
 import tempfile
@@ -22,9 +23,18 @@ from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_skills import SkillsRepo
 
 
+def runtime_skill_scope(chat_id: str) -> str:
+    return hashlib.sha256(chat_id.encode()).hexdigest()[:32]
+
+
+def runtime_skill_root(chat_id: str, skill_id: str) -> str:
+    return f"/skills/{runtime_skill_scope(chat_id)}/{skill_id}"
+
+
 async def runtime_skill_descriptors(
     *,
     session: AsyncSession,
+    chat_id: str,
     service: AuthzService,
     principal: PrincipalRef,
     context: AuthzRequestContext,
@@ -47,7 +57,7 @@ async def runtime_skill_descriptors(
             name=str(row["name"]),
             description=str(row.get("description") or ""),
             revision_hash=revision_hash,
-            root_path=f"/skills/{row['skill_id']}",
+            root_path=runtime_skill_root(chat_id, str(row["skill_id"])),
             allowed_tools=list(row.get("allowed_tools") or []),
         ))
     return result

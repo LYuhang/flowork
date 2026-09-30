@@ -39,7 +39,7 @@ def test_parse_document_strips_token():
     )
 
 
-@pytest.mark.parametrize("name", ["task", "deployment", "knowledge"])
+@pytest.mark.parametrize("name", ["task", "deployment", "knowledge", "skill"])
 def test_parse_resource_command_strips_token(name):
     assert parse_command(f"/{name} inspect resources") == (
         name,

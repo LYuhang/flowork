@@ -52,9 +52,9 @@ def safe_path(path):
     return path
 
 
-def validate_files(files):
+def validate_files(files, *, entrypoint="README.md"):
     if not isinstance(files, list) or not files:
-        raise ValueError("The package must contain a root README.md and regular files.")
+        raise ValueError(f"The package must contain a root {entrypoint} and regular files.")
     paths = set()
     for item in files:
         if not isinstance(item, dict) or set(item) != {"path", "data"}:
@@ -69,8 +69,8 @@ def validate_files(files):
     for path in paths:
         if any("/".join(path.split("/")[:i]) in paths for i in range(1, len(path.split("/")))):
             raise ValueError("A package path cannot be both a file and a directory.")
-    if "readme.md" not in paths:
-        raise ValueError("Knowledge package root must contain README.md.")
+    if entrypoint.casefold() not in paths:
+        raise ValueError(f"Package root must contain {entrypoint}.")
     return files
 
 
@@ -127,7 +127,7 @@ def validate(operation, arguments):
     return value
 
 
-def collect(source):
+def collect(source, *, entrypoint="README.md"):
     files = []
     def walk(fd, prefix):
         for name in sorted(os.listdir(fd)):
@@ -149,12 +149,12 @@ def collect(source):
         walk(fd, "")
     finally:
         os.close(fd)
-    return validate_files(files)
+    return validate_files(files, entrypoint=entrypoint)
 
 
-def materialize(root, files):
+def materialize(root, files, *, entrypoint="README.md"):
     # Use directory descriptors throughout: never follow a replaced path/symlink.
-    validate_files(files)
+    validate_files(files, entrypoint=entrypoint)
     root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         for item in files:

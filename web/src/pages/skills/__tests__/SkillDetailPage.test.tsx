@@ -106,6 +106,7 @@ vi.mock('@/lib/api/queries/skills', () => ({
   usePublishSkillVersion: vi.fn(() => ({ mutateAsync: mutations.publish, isPending: false })),
 }));
 
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { SkillDetailPage } from '@/pages/skills/SkillDetailPage';
 
 const testI18n = i18n.createInstance();
@@ -133,7 +134,7 @@ function renderAt(id: string, suffix = '') {
   return render(
     <QueryClientProvider client={client}>
       <I18nextProvider i18n={testI18n}>
-        <RouterProvider router={router} />
+        <TooltipProvider><RouterProvider router={router} /></TooltipProvider>
       </I18nextProvider>
     </QueryClientProvider>,
   );

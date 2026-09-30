@@ -129,6 +129,9 @@ class CliGateway:
             browser_module = Path(directory) / "browser_cli.py"
             browser_module.write_text(Path(cli.__file__).with_name("browser_cli.py").read_text(encoding="utf-8"), encoding="utf-8")
             browser_module.chmod(0o400)
+            skill_module = Path(directory) / "skill_cli.py"
+            skill_module.write_text(Path(cli.__file__).with_name("skill_cli.py").read_text(encoding="utf-8"), encoding="utf-8")
+            skill_module.chmod(0o400)
             resource_module = Path(directory) / "resource_cli.py"
             resource_module.write_text(Path(cli.__file__).with_name("resource_cli.py").read_text(encoding="utf-8"), encoding="utf-8")
             resource_module.chmod(0o400)

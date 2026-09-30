@@ -156,6 +156,7 @@ export type ChatStreamEvent =
  * no scrolling back through history, no re-typing.
  */
 export interface LastInput {
+  skillUse?: import('@/lib/api/sse/agent-stream').SkillUseSelection;
   content: string;
   projectId?: string | null;
   control?: import('@/lib/api/sse/agent-stream').HitlContinueControl;

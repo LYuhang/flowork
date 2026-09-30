@@ -38,7 +38,7 @@ import { toast } from 'sonner';
 import type { components } from '@/lib/api/schema';
 import { errorMessage } from '@/lib/api/mutations/error-message';
 import { useChatStreamStore } from '@/stores/chat-stream';
-import { streamAgentTurn, type HitlContinueControl } from './agent-stream';
+import { streamAgentTurn, type HitlContinueControl, type SkillUseSelection } from './agent-stream';
 import { getApprovalMode, type AgentSettings, type ApprovalMode } from '@/stores/agent-settings';
 
 type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
@@ -50,6 +50,7 @@ export interface RunAgentTurnArgs {
   content: string;
   control?: HitlContinueControl;
   attachments?: Attachment[];
+  skillUse?: SkillUseSelection;
   /** Forwarded to the SSE body for browser-routed or ordinary Chat turns. */
   mode?: 'chat' | 'browser';
   /** Where the chat lives — "sidepanel" in the extension embed, "main" (default)
@@ -71,6 +72,7 @@ export async function runAgentTurn({
   content,
   control,
   attachments,
+  skillUse,
   mode,
   surface,
   agentSurface,
@@ -85,6 +87,7 @@ export async function runAgentTurn({
     content,
     control,
     attachments,
+    skillUse,
     mode,
     surface,
     agentSurface,
@@ -109,6 +112,7 @@ export async function runAgentTurn({
       content,
       control,
       attachments,
+      skillUse,
       mode,
       surface,
       agentSurface,

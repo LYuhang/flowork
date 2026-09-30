@@ -17,3 +17,11 @@ describe('slashCommandsFromCatalog', () => {
     ]);
   });
 });
+
+
+it('offers use and management separately when Skill management is available', () => {
+  expect(slashCommandsFromCatalog([' SKILL ', 'skill'])).toEqual([
+    { trigger: '/skill-use', descKey: 'composer.cmd.skill-use' },
+    { trigger: '/skill', descKey: 'composer.cmd.skill' },
+  ]);
+});

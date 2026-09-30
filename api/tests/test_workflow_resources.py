@@ -82,7 +82,8 @@ def test_resource_references_reject_versions_and_duplicates():
 
 @pytest.mark.skipif(os.environ.get("FLOWORK_TEST_SKILL_MOUNT") != "1" or not shutil.which("bwrap"),
                     reason="explicit native Bubblewrap Skill mount check")
-def test_live_sandbox_sees_new_skill_without_restart_but_cannot_write(tmp_path, monkeypatch):
+@pytest.mark.parametrize("new_installation", [False, True])
+def test_live_sandbox_sees_new_skill_without_restart_but_cannot_write(tmp_path, monkeypatch, new_installation):
     from vibecanvas_api.services.sandbox.bubblewrap import BubblewrapProvider
 
     root, work, runs = (tmp_path / name for name in ("skills", "work", "runs"))
@@ -128,7 +129,8 @@ while time.monotonic()<until:
         raise AssertionError("sandbox did not publish mount verification")
     try:
         assert wait_file(work / "initial.json") == {"readonly": True, "first": "first"}
-        resources.publish_skill_files(str(root), skill_id=identifier, revision_hash="b" * 64,
+        second_identifier = str(uuid4()) if new_installation else identifier
+        resources.publish_skill_files(str(root), skill_id=second_identifier, revision_hash="b" * 64,
                                      files=[("SKILL.md", "text/plain", b"second")])
         assert wait_file(work / "updated.json") == ["first", "second"]
         import asyncio
@@ -136,7 +138,8 @@ while time.monotonic()<until:
         monkeypatch.setattr(cache, '_workflow_execution_is_active', AsyncMock(return_value=True))
         asyncio.run(cache.reconcile_skill_cache(session=object(), root=str(root), snapshot={
             'execution': {'execution_id': 'native-running'}, 'lease_id': 'native',
-            'skills': [{'id': identifier, 'revision_hash': letter * 64} for letter in ('a', 'b')]}))
+            'skills': [{'id': identifier, 'revision_hash': 'a' * 64},
+                       {'id': second_identifier, 'revision_hash': 'b' * 64}]}))
         inode = root.stat().st_ino
         asyncio.run(cache.reconcile_skill_cache(session=object(), root=str(root),
             authorize=AsyncMock(return_value=[])))

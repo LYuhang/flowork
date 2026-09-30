@@ -98,3 +98,32 @@ async def test_service_account_revocation_fences_stale_graph_allow(monkeypatch):
     assert denied.value.status_code == 403
     service.check.assert_not_awaited()
     hydrate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_each_call_resolves_rotated_credentials_and_rejects_expired_auth(monkeypatch):
+    tools = [{'name': 'add', 'input_schema': {'type': 'object'}}]
+    fingerprint = hashlib.sha256(json.dumps(tools, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    capability = SimpleNamespace(server_id=str(uuid4()), tools_fingerprint=fingerprint)
+    row = {'last_tool_names': tools}
+    monkeypatch.setattr(broker, 'authorize_selected_server', AsyncMock(return_value=row))
+    hydrate = AsyncMock(side_effect=[{'auth_config': {'token': 'first'}},
+                                    {'auth_config': {'token': 'rotated'}},
+                                    {'auth_config': {'token': 'expired'}}])
+    monkeypatch.setattr(broker, 'hydrate_connection_credentials', hydrate)
+    monkeypatch.setattr(broker, 'resolve_oauth_auth_config', AsyncMock(side_effect=[{'token': 'first'}, {'token': 'rotated'}, None]))
+    monkeypatch.setattr(broker, 'server_descriptor', lambda hydrated: {'connection': hydrated})
+    destination = AsyncMock(return_value=[])
+    monkeypatch.setattr(broker, 'validate_mcp_connection_destination', destination)
+    kwargs = dict(session=object(), service=object(), principal=object(), authz_context=object(),
+                  capability=capability, body={'tool_name': 'add', 'arguments': {}})
+    first, _ = await broker.resolve_call(**kwargs)
+    second, _ = await broker.resolve_call(**kwargs)
+    assert first['connection']['auth_config']['token'] == 'first'
+    assert second['connection']['auth_config']['token'] == 'rotated'
+    with pytest.raises(HTTPException) as expired:
+        await broker.resolve_call(**kwargs)
+    assert expired.value.status_code == 403
+    assert expired.value.detail['code'] == 'workflow_mcp_authorization_required'
+    assert hydrate.await_count == 3
+    assert destination.await_count == 2

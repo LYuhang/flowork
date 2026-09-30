@@ -91,6 +91,11 @@ export function FileWorkbenchPreview({
     : null);
   const textPending = needsText && loadedText === null && Boolean(blob);
   const isPdf = capability.mime === 'application/pdf' || /\.pdf$/i.test(fileName);
+  // Keep package metadata readable instead of interpreting the closing YAML
+  // delimiter as a Markdown setext heading. Preserve the original file text.
+  const frontmatter = capability.kind === 'markdown'
+    ? loadedText?.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/)
+    : null;
 
   let content;
   if (loading || textPending) {
@@ -110,6 +115,11 @@ export function FileWorkbenchPreview({
     content = (
       <article className="markdown-document" data-role="markdown-document">
         <div className="markdown-document-content">
+          {frontmatter ? (
+            <div className="markdown-document-code-panel">
+              <pre className="whitespace-pre-wrap break-words"><code>{frontmatter[0].trim()}</code></pre>
+            </div>
+          ) : null}
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -121,7 +131,7 @@ export function FileWorkbenchPreview({
               table: ({ children }) => <div className="markdown-document-table-wrap"><table>{children}</table></div>,
             }}
           >
-            {loadedText}
+            {frontmatter ? loadedText.slice(frontmatter[0].length) : loadedText}
           </ReactMarkdown>
         </div>
       </article>

@@ -166,7 +166,6 @@ export function SkillDetailPage() {
         backTo="/skills"
         backLabel={t('skills.back', 'Back')}
         title={viewed.name}
-        description={viewed.description}
         icon={BookOpenText}
         status={<div className="flex items-center gap-2">
           <StatusBadge status="success">{t('skills.installed_button', 'Installed')}</StatusBadge>
@@ -229,7 +228,10 @@ export function SkillDetailPage() {
             <TabsTrigger value="requirements">{t('skills.detail.tab.requirements', 'Requirements')}</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="page-scroll-region mt-0 min-h-0 w-full flex-1 pr-2">
-            <SectionBlock title={t('skills.detail.packageDetails', 'Package details')}>
+            <SectionBlock title={t('skills.detail.about', 'About this Skill')}>
+              <p className="text-sm leading-6 text-muted-foreground">{viewed.description}</p>
+            </SectionBlock>
+            <SectionBlock className="mt-4" title={t('skills.detail.packageDetails', 'Package details')}>
               <DetailSummary items={[
                 { label: t('skills.detail.id', 'Skill ID'), value: <span className="flex min-w-0 items-center gap-2"><code className="min-w-0 break-all text-xs">{skill.id}</code><CopyButton value={skill.id} className="shrink-0" /></span>, wide: true },
                 { label: t('skills.detail.source', 'Source'), value: sourceName },

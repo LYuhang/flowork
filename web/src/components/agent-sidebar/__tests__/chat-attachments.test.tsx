@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -28,14 +29,14 @@ vi.mock('@/lib/api/queries/chats', async (importOriginal) => {
   return { ...actual, uploadChatAttachment: uploadChatAttachmentMock };
 });
 
-function renderComposer(persisted = false) {
+function renderComposer(persisted = false, options: { path?: string; historyReady?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <ChatComposer wfId={SCOPE} chatId={CHAT} chatPersisted={persisted} />
+      <MemoryRouter initialEntries={[options.path ?? "/chat"]}>
+        <ChatComposer wfId={SCOPE} chatId={CHAT} chatPersisted={persisted} historyReady={options.historyReady} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -68,6 +69,32 @@ describe('chat attachments', () => {
         mcp_config_revision: 0,
       })),
     );
+  });
+
+  it.each([
+    {path:'/workflow/example/version/v1.sv1', historyReady:true},
+    {path:'/chat', historyReady:false},
+  ])('explains rejected file drops when the composer is unavailable: %o', async options => {
+    const error = vi.spyOn(toast, 'error');
+    const {container} = renderComposer(false, options);
+    fireEvent.drop(container.querySelector('[data-role="agent-composer-dropzone"]')!, {
+      dataTransfer:{files:[new File(['text'],'unavailable.txt',{type:'text/plain'})],types:['Files']},
+    });
+    expect(uploadChatAttachmentMock).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('not ready for attachments'));
+    error.mockRestore();
+  });
+
+  it('keeps a file dropped during streaming in the next draft', async () => {
+    useChatStreamStore.getState().setState('streaming', CHAT);
+    const {container} = renderComposer();
+    fireEvent.drop(container.querySelector('[data-role="agent-composer-dropzone"]')!, {
+      dataTransfer:{files:[new File(['next turn'],'next.txt',{type:'text/plain'})],types:['Files']},
+    });
+    await waitFor(() => expect(container.querySelector('[data-role="agent-composer-attachment-chip"]')).toHaveTextContent('next.txt'));
+    expect(uploadChatAttachmentMock).toHaveBeenCalledOnce();
+    expect(useChatStreamStore.getState().state).toBe('streaming');
+    expect(useChatStreamStore.getState().lastInput).toBeFalsy();
   });
 
   it('uses one upload pipeline for picker, paste, and drag/drop, then completes @ mentions', async () => {

@@ -387,6 +387,7 @@ def build_app() -> FastAPI:
     from .routes import resource_access as _resource_access_routes
     from .routes import privileged_access as _privileged_access_routes
     from .routes import runtime_mcp_broker as _runtime_mcp_broker_routes
+    from .routes import workflow_mcp_broker as _workflow_mcp_broker_routes
     from .routes import runtime_model_broker as _runtime_model_broker_routes
     from .routes import scim as _scim_routes
     from .routes import skills as _skills_routes
@@ -427,6 +428,7 @@ def build_app() -> FastAPI:
     app.include_router(_browser_routes.router)
     app.include_router(_agent_runtime_routes.router)
     app.include_router(_runtime_mcp_broker_routes.router)
+    app.include_router(_workflow_mcp_broker_routes.router)
     app.include_router(_runtime_model_broker_routes.router)
     app.include_router(_enterprise_identity_routes.router)
     app.include_router(_scim_routes.router)

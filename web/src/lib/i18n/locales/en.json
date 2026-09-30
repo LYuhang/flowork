@@ -3568,5 +3568,21 @@
   "deployments.detail.copyField": "Copy {{field}}",
   "deployments.detail.deploymentId": "Deployment ID",
   "deployments.detail.createdAt": "Created",
-  "deployments.detail.updatedAt": "Updated"
+  "deployments.detail.updatedAt": "Updated",
+  "subagent.resources.refreshSkills": "Refresh Skills",
+  "subagent.resources.refreshMcp": "Refresh MCP servers",
+  "subagent.resources.skillHint": "Each run uses the latest published content. Selected Skills are introduced in the prompt; other authorized Skills remain readable in the shared, read-only folder.",
+  "subagent.resources.mcpHint": "Only selected servers provide tools to this node. Credentials stay on the platform.",
+  "subagent.resources.details": "Resource details",
+  "subagent.resources.unavailable": "Resource missing or unavailable. Remove it or restore access before running.",
+  "subagent.resources.searchSkills": "Search Skills",
+  "subagent.resources.searchMcp": "Search MCP servers",
+  "subagent.resources.loadError": "Could not load resources. Use Refresh to retry.",
+  "subagent.resources.cannotUse": "Not available for execution",
+  "subagent.resources.noSkills": "No installed Skills. Add one on the Skills page.",
+  "subagent.resources.noMcp": "No MCP servers. Add one on the MCP page.",
+  "subagent.resources.tools": "Tool definitions",
+  "subagent.resources.toolCount": "{{count}} tools",
+  "skills.detail.id": "Skill ID",
+  "mcp.detail.id": "MCP ID"
 }

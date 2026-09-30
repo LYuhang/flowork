@@ -64,7 +64,9 @@ async def test_stale_instance_metrics_are_unknown_not_zero(pg_engine, app_engine
 
 
 @pytest.mark.asyncio
-async def test_failed_candidate_preserves_active_and_backs_off(pg_engine, app_engine):
+@pytest.mark.parametrize('reason,expected', [('capacity exhausted', 'waiting_capacity'),
+                                           ('workflow_skill_unavailable_or_unpublished', 'failed')])
+async def test_failed_candidate_preserves_active_and_backs_off(pg_engine, app_engine, reason, expected):
     controller, dep, _ = await setup_rollout(pg_engine, app_engine)
     dep['mount_enabled'] = not dep['mount_enabled']
     async with short_session_scope(tenant_id=str(dep['tenant_id'])) as db:
@@ -73,7 +75,7 @@ async def test_failed_candidate_preserves_active_and_backs_off(pg_engine, app_en
     async def prepare(**kwargs):
         active_calls.append(kwargs['revision_id'])
         if kwargs['revision_id'] != str(dep['active_revision_id']):
-            raise RuntimeError('capacity exhausted')
+            raise RuntimeError(reason)
     controller.manager.deployments.prepare.side_effect = prepare
     await controller.reconcile(dep)
     await controller.reconcile(dep)
@@ -82,7 +84,7 @@ async def test_failed_candidate_preserves_active_and_backs_off(pg_engine, app_en
     async with short_session_scope(tenant_id=str(dep['tenant_id'])) as db:
         current = (await db.execute(text('SELECT active_revision_id, rollout_status FROM deployments WHERE id=:id'), {'id': dep['id']})).one()
         count = (await db.execute(text("SELECT count(*) FROM deployment_runtime_revisions WHERE deployment_id=:id AND state='preparing'"), {'id': dep['id']})).scalar_one()
-    assert current == (dep['active_revision_id'], 'waiting_capacity')
+    assert current == (dep['active_revision_id'], expected)
     assert count == 1
 
 

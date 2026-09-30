@@ -203,3 +203,25 @@ async def test_execution_identity_query_and_membership_with_real_database(client
     async with session_scope(tenant) as session:
         with pytest.raises(PermissionError, match="identity_unavailable"):
             await deps._refresh(session=session, **args)
+
+
+@pytest.mark.asyncio
+async def test_resource_only_change_grants_selected_dependencies_after_execution_check(setup, monkeypatch):
+    s = setup
+    from vibecanvas_api.services import service_account_resources
+    identifier = str(uuid.uuid4())
+    s.args['names'] = set()
+    s.args['workflow'] = {'worker': {'node_type': 'SubAgentNode', 'node_config': {
+        'mcp_servers': [{'id': identifier, 'name': 'Selected MCP'}]}}}
+    s.accounts.resource_refs = AsyncMock(return_value=())
+    bind = AsyncMock(return_value=(('mcp_installation', identifier),))
+    monkeypatch.setattr(service_account_resources, 'bind_workflow_resources', bind)
+    assert await deps._refresh(**s.args) == s.enqueue.return_value
+    assert [call.args[1] for call in s.service.check.call_args_list] == [Action.EXECUTE, Action.EXECUTE]
+    assert {edge.object_id for edge in s.enqueue.call_args.kwargs['after']} == {identifier}
+    s.accounts.resource_refs.return_value = (('mcp_installation', identifier),)
+    bind.reset_mock()
+    s.enqueue.reset_mock()
+    assert await deps._refresh(**s.args) == ()
+    bind.assert_not_awaited()
+    s.enqueue.assert_not_awaited()

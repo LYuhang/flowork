@@ -1047,3 +1047,17 @@ async def test_submit_node_job_stages_in_requested_workflow_run(tmp_path):
     assert response["result"]["final_outputs"]["node_1"] == {"x": 3}
     assert not (chat_dir / "__exec__" / "job.json").exists()
     session.writeback_vfs.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_idle_sweep_maintains_resident_skill_views_without_touching_activity():
+    manager = SandboxManager(max_resident=1, idle_ttl_s=60)
+    session = SandboxSession(tenant_id='tenant', wf_id='resident', run_dir=None,
+        overlay_dir=None, provider=MagicMock(), base_binds=[], expose_run=False)
+    session.lease = 'resident'
+    session.maintain_workflow_skills = AsyncMock()
+    last_used = session.last_used
+    manager._sessions[('tenant', 'resident')] = session
+    assert await manager.sweep_idle() == 0
+    session.maintain_workflow_skills.assert_awaited_once()
+    assert session.last_used == last_used

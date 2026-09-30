@@ -1,3 +1,4 @@
+import { SubAgentResources, type SkillReference, type McpReference } from './SubAgentResources';
 /** SubAgentNode editor. Uses the same authorized manual API picker as PromptNode. */
 import { Label } from '@/components/ui/label';
 import {
@@ -47,11 +48,15 @@ export function SubAgentNodeEditor({
     typeof config.max_iterations === 'number'
       ? (config.max_iterations as number)
       : DEFAULT_MAX_ITERATIONS;
+  const skills = Array.isArray(config.skills) ? config.skills as SkillReference[] : [];
+  const servers = Array.isArray(config.mcp_servers) ? config.mcp_servers as McpReference[] : [];
   const emitConfig = (patch: Record<string, unknown>) => {
     const next: Record<string, unknown> = {
       task_template: taskTemplate,
       model_name: modelName,
       max_iterations: maxIterations,
+      ...(config.skills !== undefined ? { skills } : {}),
+      ...(config.mcp_servers !== undefined ? { mcp_servers: servers } : {}),
       ...patch,
     };
     onChange(next);
@@ -60,6 +65,8 @@ export function SubAgentNodeEditor({
 
   return (
     <div className="space-y-3">
+      <SubAgentResources skills={skills} servers={servers} readOnly={readOnly}
+        onSkills={next => emitConfig({ skills: next })} onServers={next => emitConfig({ mcp_servers: next })} />
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <Label className="text-xs font-medium">

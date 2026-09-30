@@ -31,6 +31,13 @@ vi.mock('@/lib/api/queries/llm-credentials', () => ({
   useWorkflowModels: () => ({ data: { models: { 'manual-model': { provider: 'openai' } } }, isPending: false, isError: false }),
 }));
 
+vi.mock('@/lib/api/queries/skills', () => ({
+  useSkills: () => ({ data: [], isSuccess: true, refetch: vi.fn() }),
+}));
+vi.mock('@/lib/api/queries/mcp-servers', () => ({
+  useMcpServers: () => ({ data: [], isSuccess: true, refetch: vi.fn() }),
+}));
+
 vi.mock('../CodeMirrorField', () => ({
   CodeMirrorField: ({
     value,
@@ -65,6 +72,8 @@ describe('SubAgentNodeEditor', () => {
           task_template: 'Read {{file_path}}.',
           model_name: 'm1',
           max_iterations: 5,
+          skills: [{ id: 'skill-1', name: 'Audit' }],
+          mcp_servers: [{ id: 'mcp-1', name: 'Orders' }],
         }}
         onChange={onChange}
         outputFieldNames={['answer']}
@@ -76,6 +85,8 @@ describe('SubAgentNodeEditor', () => {
     fireEvent.blur(textarea);
     const last = onChange.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(last).toEqual(expect.objectContaining({ task_template: 'Summarize {{file_path}}.' }));
+    expect(last.skills).toEqual([{ id: 'skill-1', name: 'Audit' }]);
+    expect(last.mcp_servers).toEqual([{ id: 'mcp-1', name: 'Orders' }]);
     expect(last).not.toHaveProperty('system_prompt');
     expect(last).not.toHaveProperty('agent_tools');
   });

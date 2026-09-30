@@ -832,6 +832,16 @@ async def revoke_workflow_access(
     )
 
 
+async def _canonicalize_resources(workflow, *, session, service, auth, request):
+    from ..services.workflow_resources import canonicalize_resource_names
+    try:
+        return await canonicalize_resource_names(session=session, workflow=workflow,
+            service=service, principal=principal_for_auth(auth),
+            context=context_for_auth(auth, request, consistency=ConsistencyPreference.HIGHER_CONSISTENCY))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, detail="invalid_workflow_resource_references") from exc
+
+
 @router.post("/{wf_id}/edits", response_model=EditsResponse)
 async def apply_edits(
     wf_id: str,
@@ -877,6 +887,7 @@ async def apply_edits(
             wf_id=wf_id,
             action=Action.UPDATE,
         )
+        wf = await _canonicalize_resources(wf, session=session, service=service, auth=auth, request=request)
         await repo.commit(
             wf_id, wf,
             note=f"edits +{len(applied)}/{len(body.updates)}",
@@ -936,9 +947,10 @@ async def commit_workflow(
         wf_id=wf_id,
         action=Action.UPDATE,
     )
+    workflow = await _canonicalize_resources(body.workflow, session=session, service=service, auth=auth, request=request)
     try:
         await repo.commit(
-            wf_id, body.workflow, note=body.note,
+            wf_id, workflow, note=body.note,
             target_major=body.target_major,
         )
     except ValueError as e:
@@ -1406,6 +1418,7 @@ async def submit_batch(
                 owner_resource_id=str(task_id),
                 workflow_id=wf_id,
                 credential_ids=credential_ids,
+                resource_refs=await ServiceAccountsRepo(session).resource_refs(service_account_id),
             )
         ),
         operation_id=uuid.uuid4().hex,

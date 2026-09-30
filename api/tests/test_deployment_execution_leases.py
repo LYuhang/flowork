@@ -98,3 +98,32 @@ async def test_claim_fences_duplicates_and_lost_lease_stops_owner(pg_engine, app
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_resident_invocations_prepare_fresh_resources(pg_engine, app_engine, monkeypatch):
+    from vibecanvas_api.services import workflow_resources
+    monkeypatch.setattr(db_module, '_admin_engine', pg_engine)
+    _, dep, _ = await setup_rollout(pg_engine, app_engine)
+    runtime = DeploymentRuntime(SimpleNamespace(close_session=AsyncMock()))
+    resident_session = SimpleNamespace()
+    monkeypatch.setattr(runtime, 'prepare', AsyncMock(return_value=resident_session))
+    snapshots = [{'nodes': {'worker': {'version': version}}} for version in (1, 2)]
+    prepare = AsyncMock(side_effect=snapshots)
+    monkeypatch.setattr(workflow_resources, 'prepare_execution_resources', prepare)
+    execute = AsyncMock(return_value={'status': 'success', 'outputs': {}})
+    monkeypatch.setattr(runtime, '_execute_request', execute)
+    graph = {'worker': {'node_type': 'SubAgentNode', 'node_config': {
+        'skills': [{'id': str(uuid.uuid4()), 'name': 'Latest Skill'}]}}}
+    for index in range(2):
+        invocation = await create_invocation(dep)
+        claims = dict(tenant_id=str(dep['tenant_id']), user_id=str(dep['user_id']),
+            workflow_id=dep['wf_id'], execution_id=str(invocation),
+            execution_resource_type='deployment_invocation')
+        await runtime.run(tenant_id=claims['tenant_id'], deployment_id=str(dep['id']),
+            revision_id=str(dep['active_revision_id']), workflow=graph, inputs={},
+            run_id=str(invocation), resource_claims=claims,
+            extra={'workflow_resources': {'untrusted': True}})
+        assert execute.await_args.kwargs['extra']['workflow_resources'] == snapshots[index]
+        assert prepare.await_args.kwargs == dict(sandbox_session=resident_session, workflow=graph, **claims)
+    assert prepare.await_count == 2

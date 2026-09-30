@@ -115,6 +115,9 @@ export async function streamExecution(args: StreamExecutionArgs): Promise<void> 
     if (cachesRefreshed) return;
     cachesRefreshed = true;
     void queryClient.invalidateQueries({
+      queryKey: ['executions', 'workflow-status', args.wfId],
+    });
+    void queryClient.invalidateQueries({
       queryKey: ['vfs', 'run-node-result', args.wfId],
     });
     void queryClient.invalidateQueries({
@@ -165,6 +168,11 @@ export async function streamExecution(args: StreamExecutionArgs): Promise<void> 
       }
       execStreamDebug('sse frame', { event: ev.event, id: ev.id, payload });
       if (ev.event === 'started') {
+        // A previous persisted run must not replace the new stream's rows
+        // during terminal hydration, even when it failed and this run succeeds.
+        const statusKey = ['executions', 'workflow-status', args.wfId];
+        void queryClient.cancelQueries({ queryKey: statusKey });
+        queryClient.setQueryData(statusKey, null);
         useExecStreamStore.getState().begin(args.wfId, args.ac);
         // The server has now cleared the stable /run tier. Refresh the one
         // shared directory listing that gates every canvas node preview.

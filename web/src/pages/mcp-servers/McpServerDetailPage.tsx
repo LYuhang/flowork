@@ -390,6 +390,7 @@ export function McpServerDetailPage() {
           <TabsContent value="basic" className="page-scroll-region mt-0 min-h-0 flex-1 p-5 data-[state=inactive]:hidden">
             <SectionBlock title={t('mcp.detail.summary', 'Server summary')}>
               <DetailSummary items={[
+                { label: t('mcp.detail.id', 'MCP ID'), value: <span className="flex min-w-0 items-center gap-2"><code className="min-w-0 break-all text-xs">{server.id}</code><CopyButton value={server.id} className="shrink-0" /></span>, wide: true },
                 { label: t('mcp.transport', 'Transport'), value: server.transport },
                 { label: t('mcp.detail.status', 'Status'), value: statusText },
                 { label: t('mcp.tool_prefix', 'Tool prefix'), value: <code>{server.tool_prefix}</code> },

@@ -128,3 +128,14 @@ def test_organization_auditor_is_metadata_only_for_every_resource_type():
                 model_relations[relation],
                 "can_view_audit",
             ), (resource_type, action)
+
+
+def test_workflow_resource_delegates_get_use_without_management_or_secret_access():
+    types = _model_types()
+    for kind in ("skill_installation", "mcp_installation"):
+        model = types[kind]
+        assert model["metadata"]["relations"]["consumer"]["directly_related_user_types"] == [{"type": "service_account"}]
+        assert _references_relation(model["relations"]["can_use"], "consumer")
+        for name, relation in model["relations"].items():
+            if name.startswith("can_") and name != "can_use":
+                assert not _references_relation(relation, "consumer")

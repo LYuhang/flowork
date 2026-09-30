@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.audit import actions as audit_actions
@@ -272,3 +272,29 @@ class ServiceAccountsRepo:
                 (service_account_id, credential_id),
             )
         ) is not None
+
+    async def resource_refs(self, service_account_id: uuid.UUID, *, include_revoked: bool = False) -> tuple[tuple[str, str], ...]:
+        rows = (await self.session.execute(text(
+            "SELECT resource_type, resource_id::text FROM service_account_resources "
+            "WHERE service_account_id=:id " + ("" if include_revoked else "AND revoked_at IS NULL ")
+            + "ORDER BY resource_type,resource_id"), {"id": service_account_id})).all()
+        return tuple((row[0], row[1]) for row in rows)
+
+    async def bind_resource(self, *, tenant_id: uuid.UUID, service_account_id: uuid.UUID,
+                            resource_type: str, resource_id: uuid.UUID) -> None:
+        if resource_type not in {"skill_installation", "mcp_installation"}:
+            raise ValueError("Unsupported service account resource")
+        # Existing revocations are tombstones: dependency refresh must not
+        # silently restore a grant that an administrator explicitly removed.
+        await self.session.execute(text("""INSERT INTO service_account_resources
+            (tenant_id,service_account_id,resource_type,resource_id)
+            SELECT :tenant,:account,:kind,:resource FROM service_accounts
+            WHERE service_account_id=:account AND tenant_id=:tenant AND status='active'
+            ON CONFLICT DO NOTHING"""), {"tenant": tenant_id, "account": service_account_id,
+                "kind": resource_type, "resource": resource_id})
+
+    async def revoke_resource(self, *, service_account_id: uuid.UUID,
+                              resource_type: str, resource_id: uuid.UUID) -> None:
+        await self.session.execute(text("""UPDATE service_account_resources SET revoked_at=now()
+            WHERE service_account_id=:account AND resource_type=:kind AND resource_id=:resource"""),
+            {"account": service_account_id, "kind": resource_type, "resource": resource_id})

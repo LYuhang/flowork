@@ -97,6 +97,7 @@ class WarmGvisorPool:
         fileops: bool = False,
         fileop_binds: "list[tuple[str, str]] | None" = None,
         fileop_roots: "list[str] | None" = None,
+        readonly_binds: "list[tuple[str, str]] | None" = None,
         tenant: "str | None" = None,
         materialized_runs_root: "str | None" = None,
     ) -> None:
@@ -129,6 +130,7 @@ class WarmGvisorPool:
         # ``VIBECANVAS_FILEOP_ROOTS``), NOT ``/runs``. ``None`` → Task 4a behavior
         # (bind only ``/runs``, roots default to runs_root).
         self.fileop_binds = fileop_binds
+        self.readonly_binds = list(readonly_binds or [])
         # Binds can contain runtime-private mounts (for example /runtime) that
         # the sandbox process needs but Agent filesystem tools must not access.
         # Root confinement therefore has its own explicit list.
@@ -291,6 +293,7 @@ class WarmGvisorPool:
                 command=command,
                 network=network,
                 extra_rw_binds=self.fileop_binds,
+                **({"extra_ro_dest_binds": self.readonly_binds} if self.readonly_binds else {}),
                 egress_socket=self._egress_socket,
             )
             # Catch immediate mount/import failures at boot time instead of
@@ -451,6 +454,7 @@ class WarmGvisorPool:
                 command=command,
                 network="none" if self._egress_socket is not None else None,
                 extra_rw_binds=self.fileop_binds,
+                **({"extra_ro_dest_binds": self.readonly_binds} if self.readonly_binds else {}),
                 egress_socket=self._egress_socket,
             )
             self._handles = [handle]
@@ -541,6 +545,7 @@ class WarmGvisorPool:
             command=command,
             network=network,
             extra_rw_binds=self.fileop_binds,
+            **({"extra_ro_dest_binds": self.readonly_binds} if self.readonly_binds else {}),
             egress_socket=self._egress_socket,
         )
         if self.fileops and isinstance(getattr(handle.proc, "pid", None), int):

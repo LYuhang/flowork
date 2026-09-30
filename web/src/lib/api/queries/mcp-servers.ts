@@ -35,11 +35,15 @@ const LIST_KEY = ['mcp-servers', 'list'] as const;
 const itemKey = (id: string) => ['mcp-servers', 'item', id] as const;
 
 /** Tenant-scoped MCP server list. */
-export const useMcpServers = (opts?: { enabled?: boolean }) =>
+export const useMcpServers = (opts?: { enabled?: boolean; refreshOnReturn?: boolean }) =>
   useQuery({
     queryKey: LIST_KEY,
     queryFn: () => listMcpServers(),
     enabled: opts?.enabled ?? true,
+    ...(opts?.refreshOnReturn ? {
+      refetchOnWindowFocus: 'always' as const,
+      refetchOnMount: 'always' as const,
+    } : {}),
   });
 
 export const useMcpCatalog = (

@@ -3568,5 +3568,21 @@
   "deployments.detail.copyField": "复制{{field}}",
   "deployments.detail.deploymentId": "部署 ID",
   "deployments.detail.createdAt": "创建时间",
-  "deployments.detail.updatedAt": "更新时间"
+  "deployments.detail.updatedAt": "更新时间",
+  "subagent.resources.refreshSkills": "刷新 Skills",
+  "subagent.resources.refreshMcp": "刷新 MCP 服务",
+  "subagent.resources.skillHint": "每次运行使用最新发布内容。提示词只介绍所选 Skill；共享只读目录中的其他已授权 Skill 仍可读取。",
+  "subagent.resources.mcpHint": "仅所选服务为此节点提供工具，凭据由平台保管。",
+  "subagent.resources.details": "资源详情",
+  "subagent.resources.unavailable": "资源不存在、尚未发布或无使用权限。请移除或恢复访问后运行。",
+  "subagent.resources.searchSkills": "搜索 Skills",
+  "subagent.resources.searchMcp": "搜索 MCP 服务",
+  "subagent.resources.loadError": "资源加载失败，请点击刷新重试。",
+  "subagent.resources.cannotUse": "当前不可用于执行",
+  "subagent.resources.noSkills": "暂无已安装 Skill，请前往 Skills 页面添加。",
+  "subagent.resources.noMcp": "暂无 MCP 服务，请前往 MCP 页面添加。",
+  "subagent.resources.tools": "工具定义",
+  "subagent.resources.toolCount": "{{count}} 个工具",
+  "skills.detail.id": "Skill ID",
+  "mcp.detail.id": "MCP ID"
 }

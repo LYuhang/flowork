@@ -21,11 +21,15 @@ const itemKey = (id: string) => ['skills', 'item', id] as const;
 const draftKey = (id: string) => ['skills', 'draft', id] as const;
 const versionsKey = (id: string) => ['skills', 'versions', id] as const;
 
-export const useSkills = (opts?: { enabled?: boolean }) =>
+export const useSkills = (opts?: { enabled?: boolean; refreshOnReturn?: boolean }) =>
   useQuery({
     queryKey: LIST_KEY,
     queryFn: listSkills,
     enabled: opts?.enabled ?? true,
+    ...(opts?.refreshOnReturn ? {
+      refetchOnWindowFocus: 'always' as const,
+      refetchOnMount: 'always' as const,
+    } : {}),
   });
 
 export const useSkill = (id: string | undefined) =>

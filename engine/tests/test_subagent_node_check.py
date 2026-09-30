@@ -105,3 +105,23 @@ def test_subagent_call_exposes_declared_fields_without_nested_envelope(monkeypat
 
     assert result["status"] == "success"
     assert result["output"] == {"summary": "verified"}
+
+
+def test_subagent_accepts_named_latest_resources_and_rejects_ambiguous_refs():
+    config = {"task_template": "Audit", "model_name": "manual",
+              "skills": [{"id": "skill-1", "name": "Audit"}],
+              "mcp_servers": [{"id": "server-1", "name": "Database"}]}
+    assert SubAgentNode.check(_subagent_node(config))["status"] == "success"
+    config["skills"].append({**config["skills"][0], "name": "Another name"})
+    assert SubAgentNode.check(_subagent_node(config))["status"] == "error"
+    config["skills"].pop()
+    config["mcp_servers"][0]["api_key"] = "must-not-be-stored"
+    assert SubAgentNode.check(_subagent_node(config))["status"] == "error"
+
+
+def test_subagent_skill_reference_does_not_require_or_accept_a_version():
+    config = {"task_template": "Audit", "model_name": "manual",
+              "skills": [{"id": "skill-1", "name": "Audit"}]}
+    assert SubAgentNode.check(_subagent_node(config))["status"] == "success"
+    config["skills"][0]["revision_hash"] = "a" * 64
+    assert SubAgentNode.check(_subagent_node(config))["status"] == "error"

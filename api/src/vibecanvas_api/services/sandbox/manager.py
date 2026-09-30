@@ -42,6 +42,8 @@ from vibecanvas_engine.sandbox_bus import (
     MSG_RUNTIME_RESULT,
 )
 
+from vibecanvas_api.services.deployment_completion import complete_before_cancelling
+
 from vibecanvas_api.config import config
 from vibecanvas_api.services.agent_runtime.codex_account import (
     codex_account_auth_file,
@@ -451,6 +453,7 @@ class SandboxSession:
         self.runtime_volume = runtime_volume
         self.account_auth_file = account_auth_file
         self.skills_dir = skills_dir
+        self._workflow_skills_lock = asyncio.Lock()
         self.mount_scope_id = mount_scope_id
         self.user_id = user_id
         self.base_binds = base_binds
@@ -707,6 +710,7 @@ class SandboxSession:
             "session_scope": hashlib.sha256(self.wf_id.encode()).hexdigest(),
             "rw": sorted((str(dest), os.path.abspath(src)) for dest, src in self._rw_binds),
             "ro": sorted(map(os.path.abspath, self.base_binds)),
+            "skills_mount": os.path.abspath(self.skills_dir) if self.skills_dir else None,
             "workers": int(pool.size) if pool is not None else 0,
         }
         return hashlib.sha256(
@@ -1041,6 +1045,66 @@ class SandboxSession:
                 await asyncio.to_thread(pool.release_egress_hosts, lease_id)
         finally:
             self._end_activity()
+
+    async def prepare_workflow_skills(self, snapshot: dict) -> dict:
+        """Materialize a host-authorized snapshot under the stable RO mount.
+
+        The internal RPC accepts identifiers, never a host filesystem path.
+        Publishing adds immutable versions and does not replace a mounted root.
+        """
+        if not snapshot.get("skills") and not snapshot.get("execution"):
+            return {"prepared": 0}
+        if not self.skills_dir:
+            raise RuntimeError("Workflow sandbox has no Skill mount")
+        from vibecanvas_api.services.workflow_resources import materialize_workflow_skills
+        from vibecanvas_api.storage.db import session_scope
+
+        self._begin_activity()
+        try:
+            from vibecanvas_api.services.workflow_skill_cache import reconcile_skill_cache
+            claims = snapshot.get("execution") or {}
+            if claims and claims.get("organization_id") != self.tenant_id:
+                raise PermissionError("workflow_skill_tenant_mismatch")
+            async with self._workflow_skills_lock:
+                async with session_scope(tenant_id=self.tenant_id) as session:
+                    await materialize_workflow_skills(session=session, root=self.skills_dir, snapshot=snapshot)
+                    await reconcile_skill_cache(session=session, root=self.skills_dir, snapshot=snapshot)
+            return {"prepared": len(snapshot["skills"])}
+        finally:
+            self._end_activity()
+
+    async def maintain_workflow_skills(self) -> None:
+        """Reclaim inactive/revoked views without keeping a sandbox awake."""
+        if self.closed or not self.skills_dir:
+            return
+        from pathlib import Path
+        root = Path(self.skills_dir)
+        if not (root.parent / ("." + root.name + "-workflow-leases")).exists():
+            return
+        from types import SimpleNamespace
+        from starlette.requests import Request
+        from vibecanvas_api.authorization.openfga_client import openfga_client_from_config
+        from vibecanvas_api.services.workflow_skill_cache import authorized_lease_skills, reconcile_skill_cache
+        from vibecanvas_api.storage.db import session_scope
+
+        client = openfga_client_from_config()
+        request = Request({"type": "http", "method": "POST", "path": "/internal/workflow-skills",
+            "headers": [], "query_string": b"",
+            "app": SimpleNamespace(state=SimpleNamespace(openfga_client=client))})
+
+        async def authorize(claims, skills):
+            if claims.get("organization_id") != self.tenant_id:
+                return []
+            return await authorized_lease_skills(request, claims, skills)
+
+        try:
+            async with self._workflow_skills_lock:
+                if self.closed:
+                    return
+                async with session_scope(tenant_id=self.tenant_id) as session:
+                    await reconcile_skill_cache(session=session, root=self.skills_dir, authorize=authorize)
+        finally:
+            await client.close()
 
     async def mcp_manifest(self, server: dict, *, timeout_s: float = 30.0) -> dict:
         """Return a serializable MCP tool manifest from inside this Project sandbox."""
@@ -2032,6 +2096,7 @@ class SandboxSession:
                 fileops=True,
                 fileop_binds=fileop_binds,
                 fileop_roots=fileop_roots,
+                readonly_binds=[("/skills", self.skills_dir)] if self.skills_dir else [],
                 materialized_runs_root=self.pool_runs_root,
             )
             await asyncio.to_thread(pool.start)
@@ -3149,13 +3214,34 @@ class SandboxManager:
         """Run an untrusted MCP handshake inside a daemon-owned one-shot sandbox."""
         if not tenant_id:
             raise ValueError("tenant scope is required for an MCP probe")
+        import threading
         provider = get_sandbox_provider(trust="untrusted")
-        return await asyncio.to_thread(
-            provider.run_mcp_probe,
-            request=request,
-            timeout=timeout,
-            allow_hosts=set(allow_hosts),
-        )
+        # Separate from workflow admission: a workflow awaiting its MCP must
+        # never deadlock waiting for the workflow slot it already owns.
+        if not hasattr(self, "_mcp_probe_slots"):
+            self._mcp_probe_slots = asyncio.Semaphore(4)
+        async with self._mcp_probe_slots:
+            cancel_event = threading.Event()
+            worker = asyncio.create_task(asyncio.to_thread(
+                provider.run_mcp_probe, request=request, timeout=timeout,
+                allow_hosts=set(allow_hosts), cancel_event=cancel_event,
+            ))
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                cancel_event.set()
+                # Keep ownership until process-group death and credential-file
+                # cleanup, even if RPC shutdown cancels this task repeatedly.
+                while not worker.done():
+                    try:
+                        await asyncio.shield(worker)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        break
+                if not worker.cancelled():
+                    worker.exception()
+                raise
 
     async def run_deployment(self, **kwargs) -> dict:
         return await self.deployments.run(**kwargs)
@@ -3163,6 +3249,7 @@ class SandboxManager:
     async def deployment_terminal(self, **kwargs) -> dict:
         return await self.deployments.terminal(**kwargs)
 
+    @complete_before_cancelling
     async def run_workflow_once(
         self,
         *,
@@ -3176,6 +3263,7 @@ class SandboxManager:
         allow_hosts: list[str],
         requirements: str | None = None,
         expose_mount: bool = True,
+        resource_claims: dict | None = None,
     ) -> dict:
         """Execute a one-shot deployment run entirely in sandboxd.
 
@@ -3199,50 +3287,65 @@ class SandboxManager:
                 )
             lib_overlay = prepared.get("path")
 
-        async with RunWorkspace(
-            run_id,
-            tenant_id,
-            wf_id=workflow_id,
-            user_id=user_id if expose_mount else None,
-            keep_run=True,
-        ) as workspace:
-            run_dir = workspace.run_dir
-            if not run_dir:
-                raise RuntimeError(
-                    "workflow execution requires an object store that can be "
-                    "materialized on the sandbox node"
-                )
-            extra_path = os.path.join(run_dir, "__exec__", "extra.json")
-            if extra:
-                os.makedirs(os.path.dirname(extra_path), mode=0o700, exist_ok=True)
-                with open(extra_path, "w", encoding="utf-8") as file:
-                    json.dump(extra, file, ensure_ascii=False, default=str)
-                os.chmod(extra_path, 0o600)
-            try:
-                async with sandbox_admission():
-                    result = await asyncio.to_thread(
-                        get_sandbox_provider().run_workflow,
-                        run_dir=run_dir,
-                        workflow=workflow,
-                        inputs=inputs,
-                        run_id=run_id,
-                        tenant=tenant_id,
-                        allow_hosts=set(allow_hosts),
-                        lib_overlay=lib_overlay,
-                        mount_dir=workspace.mount_dir,
+        from tempfile import TemporaryDirectory
+        from vibecanvas_api.services.workflow_resources import collect_subagent_resources, prepare_ephemeral_resources
+        with TemporaryDirectory(prefix="flowork-run-skills-") as skills_root:
+            async with RunWorkspace(
+                run_id,
+                tenant_id,
+                wf_id=workflow_id,
+                user_id=user_id if expose_mount else None,
+                keep_run=True,
+            ) as workspace:
+                run_dir = workspace.run_dir
+                if not run_dir:
+                    raise RuntimeError(
+                        "workflow execution requires an object store that can be "
+                        "materialized on the sandbox node"
                     )
-            finally:
-                # Credential capabilities are runtime-only. They must not enter
-                # retained VFS run artifacts during RunWorkspace writeback.
+                extra = dict(extra or {})
+                extra.pop("workflow_resources", None)
+                skills_dir = None
+                if collect_subagent_resources(workflow):
+                    claims = dict(resource_claims or {})
+                    if (claims.get("tenant_id") != tenant_id or claims.get("execution_id") != run_id
+                            or claims.get("workflow_id") != workflow_id or claims.get("user_id") != user_id):
+                        raise PermissionError("workflow_resource_identity_missing")
+                    extra["workflow_resources"] = await prepare_ephemeral_resources(
+                        root=skills_root, workflow=workflow, claims=claims)
+                    skills_dir = skills_root
+                extra_path = os.path.join(run_dir, "__exec__", "extra.json")
+                if extra:
+                    os.makedirs(os.path.dirname(extra_path), mode=0o700, exist_ok=True)
+                    with open(extra_path, "w", encoding="utf-8") as file:
+                        json.dump(extra, file, ensure_ascii=False, default=str)
+                    os.chmod(extra_path, 0o600)
                 try:
-                    os.remove(extra_path)
-                except FileNotFoundError:
-                    pass
-            return {
-                "final_outputs": result.final_outputs,
-                "error_dict": result.error_dict,
-                "execution_time": result.execution_time,
-            }
+                    async with sandbox_admission():
+                        result = await asyncio.to_thread(
+                            get_sandbox_provider().run_workflow,
+                            run_dir=run_dir,
+                            workflow=workflow,
+                            inputs=inputs,
+                            run_id=run_id,
+                            tenant=tenant_id,
+                            allow_hosts=set(allow_hosts),
+                            lib_overlay=lib_overlay,
+                            mount_dir=workspace.mount_dir,
+                            **({"skills_dir": skills_dir} if skills_dir else {}),
+                        )
+                finally:
+                    # Credential capabilities are runtime-only. They must not enter
+                    # retained VFS run artifacts during RunWorkspace writeback.
+                    try:
+                        os.remove(extra_path)
+                    except FileNotFoundError:
+                        pass
+                return {
+                    "final_outputs": result.final_outputs,
+                    "error_dict": result.error_dict,
+                    "execution_time": result.execution_time,
+                }
 
     async def ensure_workflow_dependencies(self, requirements: str) -> dict:
         """Prepare one content-addressed dependency layer on the sandbox node.
@@ -4044,7 +4147,7 @@ class SandboxManager:
                 os.close(descriptor)
 
         skills_dir = (
-            os.path.join(config.agent_runtime_root, tenant_id, user_id, ".skills-vfs")
+            os.path.join(config.agent_runtime_root, tenant_id, user_id, ".skills-vfs", hashlib.sha256(wf_id.encode()).hexdigest())
             if user_id else None
         )
         if skills_dir:
@@ -4136,6 +4239,12 @@ class SandboxManager:
                 self._closed_markers.pop(k, None)
                 victims.append(victim)
                 reaped += 1
+            skill_sessions = list(self._sessions.values())
+        for session in skill_sessions:
+            try:
+                await session.maintain_workflow_skills()
+            except Exception:
+                logger.error("sandbox_workflow_skill_maintenance_failed", wf_id=session.wf_id, exc_info=True)
         for victim in victims:
             self._schedule_close(victim, reason="idle_sweep")
         for session in hibernate:

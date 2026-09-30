@@ -600,6 +600,60 @@ behavior are implemented in
 [`egress_policy.py`](../api/src/vibecanvas_api/services/sandbox/egress_policy.py)
 and [`egress_broker.py`](../api/src/vibecanvas_api/services/sandbox/egress_broker.py).
 
+## SubAgent Workflow resources
+
+SubAgent nodes declare optional `skills` and `mcp_servers` arrays. Each reference
+contains only an installation `id` and a display `name`; IDs determine execution.
+The editor supports multiple selections. The constructing Agent can discover
+resources through `flowork-cli skill list/get/files/read` and
+`flowork-cli mcp list/get/tools` before writing a Workflow.
+
+Every execution resolves the latest published Skill contents once. A batch
+shares one dependency snapshot. Read-only files are published atomically under
+`/skills/<installation-id>/<content-hash>/` without replacing the mount root.
+An existing execution keeps its immutable content while subsequent invocations,
+including invocations of a resident deployment, resolve new publications.
+The node prompt describes selected Skills; the mount is a soft isolation view
+of resources authorized for that execution identity. Selection is not a file
+access boundary. Task and deployment identities require explicit delegation.
+
+Before a deployment candidate becomes ready, its persisted service account and
+resource grants are checked, new authorized dependencies are delegated, and
+Skill packages are decrypted and published into the resident read-only mount.
+A private preparation lease retains these files until the first invocation
+replaces it with a freshly resolved execution snapshot. Periodic maintenance
+checks preparation permissions as well; it does not create execution tokens or
+regrant revoked dependencies. A preparation failure keeps the old instance
+serving traffic.
+
+Private host lease records retain versions used by active executions. Sandbox
+maintenance checks execution state and current resource authorization, then
+removes obsolete or revoked files from the mounted view. It also runs for
+resident sandboxes and does not extend their activity lifetime. The normal
+maintenance interval is `SANDBOX_ACTIVITY_POLL_INTERVAL_S` (default 5 seconds),
+plus authorization and scheduling latency. An authorization infrastructure
+failure is logged and retried; it does not count as proof that access was
+revoked. This is not instantaneous revocation of bytes a process already read
+or copied. Other authorized concurrent executions retain their files.
+
+Selected MCP tools become LangChain tools with stable namespaced names. Each
+call uses a scoped execution capability to reach the host broker, which checks
+live execution, resource permissions and the expected tool contract before
+resolving credentials. API keys and OAuth tokens are not Workflow fields or
+SubAgent prompt content. The broker uses the existing MCP Python SDK and
+sandbox MCP client for stdio, Streamable HTTP and SSE transport. A stdio server
+requires its executable and dependencies in the runtime environment.
+
+MCP calls currently use isolated, short-lived sessions, with a separate limit
+of four concurrent probes/calls per sandbox manager. Connections are closed
+and temporary files reclaimed when the call completes or is cancelled; a
+node cannot close another node's connection. The broker monitors cancellation
+and authorization during a call. It does not automatically retry business
+tools after failures. Connection configuration and tool contracts are checked
+against the execution snapshot: changed contracts require a new execution.
+The implementation uses existing `mcp`, `langchain-core` and `jsonschema`
+dependencies from `api/pyproject.toml`; it adds no separate MCP daemon.
+
 ## Repository map
 
 | Path | Responsibility |

@@ -1,3 +1,4 @@
+import { CopyButton } from '@/components/ui/copy-button';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
@@ -230,6 +231,7 @@ export function SkillDetailPage() {
           <TabsContent value="overview" className="page-scroll-region mt-0 min-h-0 flex-1 max-w-3xl pr-2">
             <SectionBlock title={t('skills.detail.packageDetails', 'Package details')}>
               <DetailSummary items={[
+                { label: t('skills.detail.id', 'Skill ID'), value: <span className="flex min-w-0 items-center gap-2"><code className="min-w-0 break-all text-xs">{skill.id}</code><CopyButton value={skill.id} className="shrink-0" /></span>, wide: true },
                 { label: t('skills.detail.source', 'Source'), value: sourceName },
                 { label: t('skills.detail.version', 'Version'), value: `v${viewed.version}` },
                 { label: t('skills.detail.created', 'Installed'), value: formatTime(viewingHistory ? selectedVersion?.created_at ?? null : skill.created_at) },

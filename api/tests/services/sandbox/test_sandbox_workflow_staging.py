@@ -413,7 +413,56 @@ def test_sync_workflow_runner_delegates_logical_job_to_sandbox_service(
                 "managed": {"api_key": "short-lived-broker-capability"}
             }
         },
+        "resource_claims": {
+            "tenant_id": "tenant-a", "user_id": "user-a", "workflow_id": "workflow-1",
+            "execution_id": "run-1", "execution_resource_type": "deployment_invocation",
+        },
         "allow_hosts": ["models.example.test"],
         "requirements": "httpx==0.28.1",
         "expose_mount": True,
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fail', [False, True])
+async def test_one_shot_resources_are_scoped_and_cleaned_before_writeback(tmp_path, monkeypatch, fail):
+    from uuid import uuid4
+    from vibecanvas_api.services.sandbox import manager as module
+    from vibecanvas_api.services import workflow_resources
+    run = tmp_path / 'run'
+    run.mkdir()
+    observed = []
+    @asynccontextmanager
+    async def workspace(*args, **kwargs):
+        yield SimpleNamespace(run_dir=str(run), mount_dir=None)
+        assert not (run / '__exec__/extra.json').exists()
+    @asynccontextmanager
+    async def admission():
+        yield
+    async def prepare(*, root, workflow, claims):
+        assert claims['execution_id'] == 'request'
+        Path(root, 'SKILL.md').write_text('current')
+        return {'nodes': {'worker': {'skills': ['current']}}}
+    def execute(**kwargs):
+        root = Path(kwargs['skills_dir'])
+        observed.append(root)
+        assert root.joinpath('SKILL.md').read_text() == 'current'
+        assert json.loads((run / '__exec__/extra.json').read_text())['workflow_resources']['nodes']
+        if fail:
+            raise RuntimeError('worker failed')
+        return SimpleNamespace(final_outputs={}, error_dict={}, execution_time=1)
+    monkeypatch.setattr(module, 'RunWorkspace', workspace)
+    monkeypatch.setattr(module, 'sandbox_admission', admission)
+    monkeypatch.setattr(module, 'get_sandbox_provider', lambda: SimpleNamespace(run_workflow=execute))
+    monkeypatch.setattr(workflow_resources, 'prepare_ephemeral_resources', prepare)
+    call = module.SandboxManager.run_workflow_once(object(), workflow_id='wf',
+        workflow={'worker': {'node_type': 'SubAgentNode', 'node_config': {'skills': [{'id': str(uuid4()), 'name': 'Skill'}]}}},
+        inputs={}, tenant_id='tenant', user_id='user', run_id='request', extra={}, allow_hosts=[],
+        resource_claims=dict(tenant_id='tenant', user_id='user', workflow_id='wf', execution_id='request', execution_resource_type='workflow_execution'))
+    if fail:
+        with pytest.raises(RuntimeError, match='worker failed'):
+            await call
+    else:
+        await call
+    assert observed and not observed[0].exists()
+    assert not (run / '__exec__/extra.json').exists()

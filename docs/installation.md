@@ -564,6 +564,33 @@ Do not resolve an encryption or authentication error by replacing `.env` or
 - Review data protection and retention in
   [Security and data lifecycle](security-and-data-lifecycle.md).
 
+### SubAgent Skills and MCP runtime
+
+SubAgent resources use the API runtime dependencies already installed by the
+native bootstrap and API image: the locked requirements include `mcp==1.28.1`,
+`langchain-core==1.5.3` and `jsonschema==4.26.0`. No additional background service
+or Docker container is required. Rebuild the API image after upgrading source;
+copying only frontend assets does not update the Workflow resource broker or CLI.
+Database migration 145 adds explicit Skill/MCP grants for task and deployment
+service accounts. Use the normal migration and OpenFGA bootstrap on upgrade.
+
+For a custom **stdio** MCP, install its executable and dependencies in the
+sandbox runtime environment and configure a path available there. A path from
+a developer's laptop is not portable to the Linux host or container. For remote
+HTTP/SSE MCPs, configure the server URL and credentials in the MCP resource;
+ensure the sandbox egress policy permits the destination. Do not place secrets
+in Workflow JSON, prompts or Docker build arguments.
+
+In the node editor select installed resources by ID. Publish Skill changes to
+make them available to the next execution; a draft is not executable content.
+Publishing a Skill does not require rebuilding an image or restarting a
+resident deployment. The backend updates the existing read-only `/skills`
+view and preserves each active execution's content snapshot. Task/deployment
+resource grants are separate from the creator's interactive Chat session.
+
+See [SubAgent Workflow resources](architecture.md#subagent-workflow-resources)
+for connection lifetime, cancellation and permission-revocation behavior.
+
 ### Browser runtime installation and diagnostics
 
 The native bootstrap installs `flowork-browser-runtime` 0.4.0 and its pinned

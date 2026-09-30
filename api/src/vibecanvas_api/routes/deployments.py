@@ -503,6 +503,7 @@ async def create_deployment(
                 owner_resource_id=str(dep_id),
                 workflow_id=body.wf_id,
                 credential_ids=credential_ids,
+                resource_refs=await ServiceAccountsRepo(session).resource_refs(service_account_id),
             )
         ),
         operation_id=uuid.uuid4().hex,
@@ -856,6 +857,7 @@ async def delete_deployment(
             owner_resource_id=str(dep_id),
             workflow_id=str(dep["wf_id"]),
             credential_ids=credential_ids,
+            resource_refs=await account_repo.resource_refs(account_id),
         )
         await account_repo.set_status(account_id, status="deleted")
     await repo.soft_delete(dep_id)

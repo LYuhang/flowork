@@ -613,6 +613,7 @@ async def create_scheduled_run(
                 owner_resource_id=str(task_id),
                 workflow_id=body.workflow_id,
                 credential_ids=credential_ids,
+                resource_refs=await ServiceAccountsRepo(session).resource_refs(service_account_id),
             )
         ),
         operation_id=uuid.uuid4().hex,
@@ -1001,6 +1002,7 @@ async def _delete_task_record(task_id, task, request, ctx, session):
             owner_resource_id=str(task_id),
             workflow_id=str(task.workflow_id),
             credential_ids=credential_ids,
+            resource_refs=await account_repo.resource_refs(task.service_account_id),
         )
         await account_repo.set_status(
             task.service_account_id,

@@ -15,7 +15,7 @@ import tempfile
 from uuid import uuid4
 
 try:
-    from . import task_cli, deployment_cli, knowledge_cli, document_cli, diagram_cli, browser_cli
+    from . import task_cli, deployment_cli, knowledge_cli, document_cli, diagram_cli, browser_cli, resource_cli
 except ImportError:  # Standalone launcher with the adjacent stdlib-only module.
     import task_cli
     import deployment_cli
@@ -23,11 +23,12 @@ except ImportError:  # Standalone launcher with the adjacent stdlib-only module.
     import document_cli
     import diagram_cli
     import browser_cli
+    import resource_cli
 
 
 READ_OPERATIONS = frozenset({"config.get", "workflow.list", "workflow.get", "workflow.download", "workflow.check", "workflow.version.list", "workflow.get-spec"}) | task_cli.READ_OPERATIONS | deployment_cli.READ_OPERATIONS
 READ_OPERATIONS = READ_OPERATIONS | knowledge_cli.READ_OPERATIONS | document_cli.OPERATIONS | diagram_cli.OPERATIONS
-READ_OPERATIONS = READ_OPERATIONS | browser_cli.READ_OPERATIONS
+READ_OPERATIONS = READ_OPERATIONS | browser_cli.READ_OPERATIONS | resource_cli.OPERATIONS
 RUN_OPERATIONS = frozenset({"workflow.run", "workflow.run-batch"})
 RUN_CONTROLS = frozenset({"workflow.run.poll", "workflow.run.cancel"})
 WRITE_OPERATIONS = frozenset({"workflow.create", "workflow.update", "workflow.upload", "workflow.operation", "workflow.layout", "workflow.version.create"}) | RUN_OPERATIONS
@@ -109,6 +110,7 @@ def parser() -> Parser:
     document_cli.add_parser(groups)
     diagram_cli.add_parser(groups)
     browser_cli.add_parser(groups)
+    resource_cli.add_parser(groups)
     configuration = groups.add_parser("config", help="Read Workflow settings or eligible manually added model APIs.")
     config_actions = configuration.add_subparsers(dest="action", required=True)
     getting = config_actions.add_parser("get", help="Read one configuration scope without secrets.",
@@ -244,6 +246,8 @@ def parse_tags(values: list[str]) -> list[str]:
 
 def validate_arguments(operation: str, arguments: dict) -> dict:
     """Shared syntax validation; runtime/Host repeat it for socket requests."""
+    if operation in resource_cli.OPERATIONS:
+        return resource_cli.validate(operation, arguments)
     if operation.startswith("browser."):
         try:
             return browser_cli.validate(operation, arguments)
@@ -574,7 +578,7 @@ def request(socket_path: str, arguments: dict, *, operation: str = "workflow.lis
         if not response.endswith(b"\n"):
             raise ValueError("incomplete CLI response")
         result = json.loads(response)
-        if operation in task_cli.OPERATIONS | deployment_cli.OPERATIONS | knowledge_cli.OPERATIONS | document_cli.OPERATIONS | diagram_cli.OPERATIONS | browser_cli.OPERATIONS and isinstance(result, dict):
+        if operation in task_cli.OPERATIONS | deployment_cli.OPERATIONS | knowledge_cli.OPERATIONS | document_cli.OPERATIONS | diagram_cli.OPERATIONS | browser_cli.OPERATIONS | resource_cli.OPERATIONS and isinstance(result, dict):
             return result
         if not isinstance(result, dict) or not ("workflows" in result or "error" in result or "connected" in result or (operation == "workflow.delete" and result.get("deleted") is True) or ("id" in result and "version" in result) or (operation == "config.get" and arguments.get("scope") == "model_api" and isinstance(result.get("models"), dict)) or (operation == "workflow.check" and type(result.get("valid")) is bool) or (operation == "workflow.get-spec" and isinstance(result.get("types" if arguments.get("list_types") else "specs"), list))):
             raise ValueError("invalid CLI response")
@@ -710,6 +714,8 @@ def main(argv: list[str] | None = None, *, socket_path: str | None = None) -> in
     args = None
     try:
         args = parser().parse_args(argv)
+        if args.resource in {"skill", "mcp"}:
+            return resource_cli.execute(args, socket_path or os.environ.get("FLOWORK_CLI_SOCKET", ""), sys.modules[__name__])
         if args.resource == "browser":
             return browser_cli.execute(args, socket_path or os.environ.get("FLOWORK_CLI_SOCKET", ""), sys.modules[__name__])
         if args.resource == "diagram":

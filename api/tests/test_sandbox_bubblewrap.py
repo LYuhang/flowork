@@ -302,8 +302,13 @@ def test_run_serve_returns_handle_without_waiting(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     provider = _provider()
 
-    handle = provider.run_serve(runs_root=runs_root, work_dir=work_dir)
+    skills_dir = str(tmp_path / "skills")
+    os.makedirs(skills_dir)
+    handle = provider.run_serve(runs_root=runs_root, work_dir=work_dir,
+                                extra_ro_dest_binds=[("/skills", skills_dir)])
 
+    mount = captured["argv"].index(skills_dir)
+    assert captured["argv"][mount - 1:mount + 2] == ["--ro-bind", skills_dir, "/skills"]
     assert handle.proc.pid == 4343
     assert handle.run_id  # non-empty identifier, even if unused for teardown
     assert captured["kwargs"]["start_new_session"] is True
@@ -369,11 +374,13 @@ def test_restore_serve_reboots_via_run_serve(monkeypatch, tmp_path):
 
     result = provider.restore_serve(
         snapshot=snapshot, runs_root=runs_root, work_dir=work_dir,
+        extra_ro_dest_binds=[("/skills", str(tmp_path / "skills"))],
     )
 
     assert result is sentinel
     assert calls["runs_root"] == runs_root
     assert calls["work_dir"] == work_dir
+    assert calls["extra_ro_dest_binds"] == [("/skills", str(tmp_path / "skills"))]
 
 
 def test_get_sandbox_provider_resolves_bubblewrap_when_configured(monkeypatch):

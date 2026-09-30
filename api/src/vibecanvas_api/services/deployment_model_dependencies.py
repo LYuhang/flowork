@@ -46,7 +46,8 @@ async def refresh_deployment_model_dependencies(
     service_account_id: str, generation: int, workflow: dict,
 ) -> None:
     names = collect_referenced_credential_names(workflow)
-    if not names:
+    from vibecanvas_api.services.workflow_resources import collect_subagent_resources
+    if not names and not collect_subagent_resources(workflow):
         return
     client = openfga_client_from_config()
     coordinator = AuthzMutationCoordinator(client=client, organization_id=tenant_id)
@@ -56,7 +57,7 @@ async def refresh_deployment_model_dependencies(
                 session=session, client=client, coordinator=coordinator,
                 tenant_id=tenant_id, user_id=user_id, workflow_id=workflow_id,
                 execution_id=execution_id, service_account_id=service_account_id,
-                generation=generation, names=names,
+                generation=generation, names=names, workflow=workflow,
             )
         # The dependency facts and durable projection intents must commit before
         # the broker sees a capability; never issue a token on projection failure.
@@ -67,7 +68,7 @@ async def refresh_deployment_model_dependencies(
 
 async def _refresh(
     *, session, client, coordinator, tenant_id, user_id, workflow_id,
-    execution_id, service_account_id, generation, names,
+    execution_id, service_account_id, generation, names, workflow=None,
 ):
     account_id = uuid.UUID(service_account_id)
     # Serialize dependency additions with disable/rotation and concurrent calls.
@@ -90,6 +91,35 @@ async def _refresh(
            "generation": generation, "user_id": uuid.UUID(user_id)})).first()
     if identity is None:
         raise PermissionError("deployment_execution_identity_unavailable")
+    resource_mutations = ()
+    if workflow:
+        from vibecanvas_api.services.workflow_resources import collect_subagent_resources
+        from vibecanvas_api.services.service_account_resources import bind_workflow_resources
+        repo = ServiceAccountsRepo(session)
+        existing_resources = set(await repo.resource_refs(account_id, include_revoked=True))
+        wanted = {(kind, ref["id"]) for node in collect_subagent_resources(workflow).values()
+                  for collection, kind in (("skills", "skill_installation"), ("mcp_servers", "mcp_installation"))
+                  for ref in node[collection]}
+        if wanted - existing_resources:
+            service = authz_service_for_session(session=session, organization_id=tenant_id, openfga_client=client)
+            context = AuthzRequestContext(active_organization_id=tenant_id,
+                consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+            principal = PrincipalRef(PrincipalType.SERVICE_ACCOUNT, service_account_id)
+            for kind, identifier in ((ResourceType.WORKFLOW, workflow_id),
+                                     (ResourceType.DEPLOYMENT_INVOCATION, execution_id)):
+                decision = await service.check(principal, Action.EXECUTE,
+                    ResourceRef(kind, identifier, tenant_id), context)
+                if not decision.allowed:
+                    raise PermissionError("deployment_execution_access_revoked")
+            bound = set(await bind_workflow_resources(session, tenant_id=uuid.UUID(tenant_id),
+                service_account_id=account_id, created_by=user_id, workflow=workflow))
+            resource_mutations = await enqueue_structural_delta(
+                session=session, coordinator=coordinator, actor_type="service_account",
+                actor_id=service_account_id, before=frozenset(),
+                after={MutationEdge(tenant_id, kind, identifier, "consumer", "service_account", service_account_id)
+                       for kind, identifier in bound - existing_resources},
+                operation_id=uuid.uuid4().hex, source="deployment-resource-dependencies",
+            )
     rows = await LlmCredentialsRepo(session).list_for_user(user_id)
     eligible = {row["name"]: row for row in rows if is_workflow_credential(row)}
     if names - eligible.keys():
@@ -98,7 +128,7 @@ async def _refresh(
     existing = {str(value) for value in await repo.credential_ids(account_id)}
     additions = {str(eligible[name]["id"]) for name in names} - existing
     if not additions:
-        return ()
+        return resource_mutations
 
     # New delegation requires the creator's CURRENT active membership and USE
     # permission, not merely a matching credential name or tenant identifier.
@@ -137,10 +167,12 @@ async def _refresh(
             service_account_id=account_id, credential_id=uuid.UUID(credential_id))
     # Keep old bindings for accepted calls on older snapshots. Their permission
     # is still checked live; never grant every credential in the user's catalog.
-    return await enqueue_structural_delta(
+    model_mutations = await enqueue_structural_delta(
         session=session, coordinator=coordinator, actor_type="service_account",
         actor_id=service_account_id, before=frozenset(),
         after={MutationEdge(tenant_id, "llm_credential", credential_id,
             "consumer", "service_account", service_account_id) for credential_id in additions},
         operation_id=uuid.uuid4().hex, source="deployment-model-dependencies",
     )
+
+    return (*resource_mutations, *model_mutations)

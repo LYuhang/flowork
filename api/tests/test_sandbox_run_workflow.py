@@ -656,7 +656,7 @@ async def test_sandboxed_sync_raises_when_sandbox_unavailable(
 
     with pytest.raises(SandboxUnavailable) as ei:
         await _asyncio.to_thread(_call)
-    assert "gVisor sandbox" in str(ei.value)
+    assert "configured sandbox backend" in str(ei.value)
     assert "no in-process fallback" in str(ei.value)
 
 

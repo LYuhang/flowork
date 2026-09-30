@@ -129,6 +129,9 @@ class CliGateway:
             browser_module = Path(directory) / "browser_cli.py"
             browser_module.write_text(Path(cli.__file__).with_name("browser_cli.py").read_text(encoding="utf-8"), encoding="utf-8")
             browser_module.chmod(0o400)
+            resource_module = Path(directory) / "resource_cli.py"
+            resource_module.write_text(Path(cli.__file__).with_name("resource_cli.py").read_text(encoding="utf-8"), encoding="utf-8")
+            resource_module.chmod(0o400)
             source = source.replace("sys.exit(main())", f"sys.exit(main(socket_path={endpoint!r}))")
             launcher = Path(directory) / "flowork-cli"
             launcher.write_text(f"#!{sys.executable}\n" + source, encoding="utf-8")

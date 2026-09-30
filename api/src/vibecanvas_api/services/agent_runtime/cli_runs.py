@@ -131,13 +131,13 @@ async def _close_pool(run: Run) -> bool:
         return False
 
 
-async def _execute_one(run: Run, workflow: dict, row: dict, index: int, code_pythonpath):
+async def _execute_one(run: Run, workflow: dict, row: dict, index: int, code_pythonpath, resources=None):
     ctx = await _authorize(run)
     injected = await inject_into_run_context_async(
         {}, workflow, ctx.tenant_id, user_id=ctx.username, workflow_id=run.workflow_id,
         execution_id=ctx.turn_id, execution_resource_type=ResourceType.AGENT_RUN.value,
     )
-    extra = {}
+    extra = {"workflow_resources": resources} if resources else {}
     if injected.get("llm_credentials"):
         extra["llm_credentials"] = injected["llm_credentials"]
     if code_pythonpath:
@@ -209,13 +209,19 @@ async def _work(run: Run, arguments: dict):
             run.reference["name"] = arguments["name"]
         await run.emit(status="running", total=run.total, completed=0, failed=0)
         code_pythonpath = await prepare_code_pythonpath(workflow, session=run.session)
+        from vibecanvas_api.services.workflow_resources import prepare_execution_resources
+        resources = await prepare_execution_resources(
+            sandbox_session=run.session, workflow=workflow, tenant_id=ctx.tenant_id,
+            user_id=ctx.username, workflow_id=run.workflow_id, execution_id=ctx.turn_id,
+            execution_resource_type=ResourceType.AGENT_RUN.value,
+        )
         iterator = iter(enumerate(rows))
 
         async def worker():
             for index, row in iterator:
                 if run.stopping:
                     return
-                record = await _execute_one(run, workflow, row, index, code_pythonpath)
+                record = await _execute_one(run, workflow, row, index, code_pythonpath, resources)
                 run.completed += 1
                 run.failed += int(record["status"] == "error")
                 if run.operation == "workflow.run-batch":

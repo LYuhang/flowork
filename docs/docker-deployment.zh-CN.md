@@ -164,3 +164,22 @@ Project 共享工作目录和沙盒；各 Chat 的 Codex 会话、MCP 回调及�
 ## 常驻部署的资源配额
 
 常驻部署需要 cgroup v2 委派。CPU、内存配额、切流期间容量检查、原生 systemd 启动方式与 Docker 配置见 [Resident deployment resources](resident-deployments.md)。
+
+
+## SubAgent 的 Skill / MCP 环境
+
+API 镜像已通过锁定的 `requirements-runtime.txt` 安装 MCP SDK、LangChain
+和 JSON Schema。此功能不需要新增常驻容器；更新源码后应重建 API 镜像，并按正常
+升级流程执行数据库迁移和 OpenFGA 引导。迁移 145 保存任务、部署身份的资源委托。
+
+- Skill 由平台发布并物化到只读 `/skills` 目录，不需要把用户 Skill 打进镜像。
+  发布新内容后，下一次执行使用最新版，已有执行继续使用自己的快照。
+- stdio MCP 的命令及依赖必须存在于容器内的沙盒运行环境。
+  开发者电脑上的绝对路径不能直接作为容器内命令使用。
+- HTTP/SSE MCP 使用资源页面中保存的连接配置与凭据；出口策略必须允许目标地址。
+  凭据不要放入 Workflow JSON、Prompt 或 Docker 构建参数。
+- SubAgent 只加载节点所选 MCP。任务与部署以自己的执行身份访问资源，
+  不依赖创建者的浏览器会话或 Chat 连接。
+
+连接生命周期和撤权清理见[架构说明](architecture.md#subagent-workflow-resources)。
+此节说明环境要求，不代表已重新完成本次功能的整套 Docker 实测。

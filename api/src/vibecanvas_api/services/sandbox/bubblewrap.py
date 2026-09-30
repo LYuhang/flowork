@@ -103,6 +103,8 @@ class BubblewrapProvider(RootlessGvisorProvider):
         egress_socket: str | None = None,
         lib_overlay: str | None = None,
         run_mount: str = "/run",
+        cancel_event=None,
+        extra_ro_dest_binds: list[tuple[str, str]] | None = None,
     ) -> SandboxResult:
         rw_binds: list[tuple[str, str]] = [(run_mount, run_dir)]
         for dest, source in extra_rw_binds or []:
@@ -121,7 +123,7 @@ class BubblewrapProvider(RootlessGvisorProvider):
             rw_binds.append((IN_SANDBOX_EGRESS_DIR, egress_host_dir))
             env[_EGRESS_SOCK_ENV] = IN_SANDBOX_EGRESS_SOCK
             env[_EGRESS_PORT_ENV] = str(_EGRESS_PROXY_PORT)
-        ro_dest_binds: list[tuple[str, str]] = []
+        ro_dest_binds: list[tuple[str, str]] = list(extra_ro_dest_binds or [])
         if lib_overlay is not None:
             ro_dest_binds.append((IN_SANDBOX_LIB_OVERLAY, lib_overlay))
             env[_LIB_OVERLAY_ENV] = IN_SANDBOX_LIB_OVERLAY
@@ -138,6 +140,8 @@ class BubblewrapProvider(RootlessGvisorProvider):
             ro_dest_binds=ro_dest_binds,
         )
 
+        from .process_wait import communicate
+
         started = time.monotonic()
         # Same process-group timeout/kill contract as
         # ``RootlessGvisorProvider.run`` (gvisor.py) — bwrap has no bundle or
@@ -150,7 +154,7 @@ class BubblewrapProvider(RootlessGvisorProvider):
             start_new_session=True,
         )
         try:
-            stdout, stderr = proc.communicate(timeout=timeout)
+            stdout, stderr = communicate(proc, timeout=timeout, cancel_event=cancel_event)
             exit_code = proc.returncode
         except subprocess.TimeoutExpired:
             try:
@@ -254,6 +258,7 @@ class BubblewrapProvider(RootlessGvisorProvider):
         network: "str | None" = None,
         command: "list[str] | None" = None,
         extra_rw_binds: "list[tuple[str, str]] | None" = None,
+        extra_ro_dest_binds: "list[tuple[str, str]] | None" = None,
         egress_socket: str | None = None,
     ) -> ServeHandle:
         """Boot the long-lived warm worker WarmGvisorPool serves jobs through.
@@ -291,7 +296,7 @@ class BubblewrapProvider(RootlessGvisorProvider):
             network=network,
             rw_binds=rw_binds,
             extra_ro_binds=ro_binds,
-            ro_dest_binds=[],
+            ro_dest_binds=list(extra_ro_dest_binds or []),
         )
         # start_new_session so stop_serve can kill the whole process group,
         # matching RootlessGvisorProvider.run_serve.
@@ -366,6 +371,7 @@ class BubblewrapProvider(RootlessGvisorProvider):
         network: "str | None" = None,
         command: "list[str] | None" = None,
         extra_rw_binds: "list[tuple[str, str]] | None" = None,
+        extra_ro_dest_binds: "list[tuple[str, str]] | None" = None,
         egress_socket: str | None = None,
     ) -> ServeHandle:
         """Nothing was checkpointed (see ``checkpoint_serve``): "restoring" is
@@ -381,6 +387,7 @@ class BubblewrapProvider(RootlessGvisorProvider):
             network=network,
             command=command,
             extra_rw_binds=extra_rw_binds,
+            extra_ro_dest_binds=extra_ro_dest_binds,
             egress_socket=egress_socket,
         )
 

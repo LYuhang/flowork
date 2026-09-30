@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import structlog
@@ -176,7 +177,10 @@ def run_workflow_sandboxed_sync(
             allow_hosts = set()
         manager = get_sandbox_manager()
         execute = manager.run_deployment if deployment_id and revision_id else manager.run_workflow_once
-        revision_args = {"deployment_id": deployment_id, "revision_id": revision_id} if deployment_id and revision_id else {}
+        revision_args = {
+            "deployment_id": deployment_id, "revision_id": revision_id,
+            "resource_claims": injection_claims,
+        } if deployment_id and revision_id else {"resource_claims": injection_claims}
         response = asyncio.run(execute(
             **revision_args,
             workflow_id=workflow_id,
@@ -223,7 +227,7 @@ def run_workflow_sandboxed_sync(
         ) from exc
 
     # ``keep_run=True`` preserves the existing result-viewer metadata contract.
-    with RunWorkspace(
+    with TemporaryDirectory(prefix="flowork-run-skills-") as skills_root, RunWorkspace(
         run_id,
         tenant_id,
         wf_id=workflow_id,
@@ -270,12 +274,19 @@ def run_workflow_sandboxed_sync(
                 "into the sandbox"
             )
 
-        if creds:
+        from vibecanvas_api.services.workflow_resources import collect_subagent_resources, prepare_ephemeral_resources
+        runtime_extra = {"llm_credentials": creds} if creds else {}
+        skills_dir = None
+        if collect_subagent_resources(workflow_dict):
+            runtime_extra["workflow_resources"] = asyncio.run(prepare_ephemeral_resources(
+                root=skills_root, workflow=workflow_dict, claims=injection_claims))
+            skills_dir = skills_root
+        if runtime_extra:
             exec_dir = os.path.join(run_dir, "__exec__")
             os.makedirs(exec_dir, exist_ok=True)
             with open(os.path.join(exec_dir, "extra.json"), "w",
                       encoding="utf-8") as f:
-                json.dump({"llm_credentials": creds}, f, ensure_ascii=False)
+                json.dump(runtime_extra, f, ensure_ascii=False)
 
         # Plan B B6: per-run egress allowlist (auto-derived LLM + MCP hosts ∪
         # user-declared). Only consumed in ``proxy`` mode (ignored in the default
@@ -305,6 +316,7 @@ def run_workflow_sandboxed_sync(
                     allow_hosts=allow_hosts,
                     lib_overlay=lib_overlay,
                     mount_dir=ws.mount_dir,
+                    **({"skills_dir": skills_dir} if skills_dir else {}),
                 )
         except EngineNeedsHostNode as exc:
             # SANDBOX-ONLY: a non-pure (host-only) node — re-raised with a clear
@@ -313,6 +325,11 @@ def run_workflow_sandboxed_sync(
             raise EngineNeedsHostNode(
                 f"node type not supported in the sandbox: {exc}"
             ) from exc
+        finally:
+            try:
+                os.remove(os.path.join(run_dir, "__exec__", "extra.json"))
+            except FileNotFoundError:
+                pass
 
         return (result.final_outputs, result.error_dict, result.execution_time)
 

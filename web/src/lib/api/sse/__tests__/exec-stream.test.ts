@@ -70,3 +70,19 @@ describe('streamExecution', () => {
     expect(store.perNode.node_1.status).toBe('completed');
   });
 });
+
+it('clears the previous failed run at start and refreshes persisted results at completion', async () => {
+  const { queryClient } = await import('@/app/query-client');
+  const key = ['executions', 'workflow-status', 'wf_retry'];
+  queryClient.setQueryData(key, { status: 'error', result: { node_2: { status: 'error', error: 'old failure' } } });
+  vi.mocked(fetchEventSource).mockImplementationOnce(async (_url, opts) => {
+    opts.onmessage?.({ id: '1', event: 'started', data: '{"turn_id":"wf_retry"}' });
+    expect(queryClient.getQueryData(key)).toBeNull();
+    opts.onmessage?.({ id: '2', event: 'EXEC_UPDATE', data: '{"node_id":"node_2","status":"completed","result":"new result"}' });
+    opts.onmessage?.({ id: '3', event: 'done', data: '{}' });
+  });
+  await streamExecution({ wfId: 'wf_retry', input: {}, ac: new AbortController() });
+  expect(useExecStreamStore.getState().perNode.node_2.error).toBeUndefined();
+  expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+  queryClient.removeQueries({ queryKey: key });
+});

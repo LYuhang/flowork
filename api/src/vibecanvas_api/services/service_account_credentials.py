@@ -28,6 +28,9 @@ async def bind_workflow_credentials(
     per-resource binding. Unknown names remain unbound and fail closed during
     model resolution instead of expanding the account's authority.
     """
+    from vibecanvas_api.services.service_account_resources import bind_workflow_resources
+    await bind_workflow_resources(session, tenant_id=tenant_id,
+        service_account_id=service_account_id, created_by=created_by, workflow=workflow)
     names = (
         collect_referenced_credential_names(workflow)
         - platform_default_model_aliases()

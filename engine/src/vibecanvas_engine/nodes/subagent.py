@@ -38,6 +38,30 @@ class SubAgentNode(BaseNode):
                     "Agent model, a provider model id, or a guessed name."
                 ),
             },
+            "skills": {
+                "type": "array", "default": [], "uniqueItems": True,
+                "description": "Installed Skill references discovered through flowork-cli skill; use the latest published content at the start of each execution.",
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["id", "name"],
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1},
+                        "name": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
+            "mcp_servers": {
+                "type": "array", "default": [], "uniqueItems": True,
+                "description": "Installed MCP references discovered through flowork-cli mcp; credentials are resolved by the host.",
+                "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["id", "name"],
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1},
+                        "name": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
             "max_iterations": {
                 "type": "integer",
                 "minimum": 1,
@@ -60,6 +84,8 @@ class SubAgentNode(BaseNode):
             "Never use the chat Agent's runtime model id, a provider model id, or a guessed/familiar model name. If global config returns no model, do not create this node; ask the user to configure an API model first.",
         ],
         "config_guide": {
+            "skills": "Optional list of {id,name} installed Skill references from flowork-cli skill list/get/read. No revision field: each execution resolves latest published content once. Do not freeze discovered version numbers, hashes, or Skill paths in task_template; read the runtime-provided Skill instructions.",
+            "mcp_servers": "Optional list of {id,name} installed MCP references from flowork-cli mcp list/get/tools. Only selected servers supply tools; never include credentials.",
             "model_name": (
                 "Exact enabled key from flowork-cli config get --scope model_api. Fetch it in "
                 "this build turn and copy it verbatim; never guess or substitute "
@@ -122,6 +148,9 @@ class SubAgentNode(BaseNode):
             },
         )
         assert node_dict.get("output_fields"), "SubAgentNode requires at least one output field."
+        for collection, key in (("skills", "id"), ("mcp_servers", "id")):
+            refs = node_dict["node_config"].get(collection, [])
+            assert len({ref[key] for ref in refs}) == len(refs), f"Duplicate {collection} resource ID."
 
     @staticmethod
     def _agent_cfg(model_name: str, extra: dict | None) -> dict:
@@ -185,7 +214,12 @@ class SubAgentNode(BaseNode):
         from vibecanvas_api.agents.tools.subagent.core import run_bounded_agent
         from vibecanvas_api.agents.tools.subagent.toolset import build_agent_subagent_tools
 
+        from vibecanvas_api.agents.tools.subagent.resources import (
+            resolved_node_resources, resource_tools, skill_instructions,
+        )
+
         cfg = self.node_config
+        resource_snapshot = resolved_node_resources(self.node_id, cfg, extra)
         task, _images, _videos, _audios = PromptNode.format_prompt_template(
             cfg["task_template"], inputs, unpack_multimodal=False
         )
@@ -197,17 +231,18 @@ class SubAgentNode(BaseNode):
             agent_cfg=agent_cfg,
             stop_event=(extra or {}).get("stop_event"),
         )
-        result = await run_bounded_agent(
-            model=model,
-            tools=build_agent_subagent_tools(working_dir=(extra or {}).get("run_dir")),
-            system_prompt=self._system_prompt(),
-            user_input=task,
-            output_fields=self.output_fields,
-            max_iterations=int(cfg.get("max_iterations") or 25),
-            context=ctx,
-            checkpointer=None,
-            thread_id=None,
-        )
+        async with resource_tools(resource_snapshot) as selected_tools:
+            result = await run_bounded_agent(
+                model=model,
+                tools=build_agent_subagent_tools(working_dir=(extra or {}).get("run_dir")) + selected_tools,
+                system_prompt=self._system_prompt() + "\n\n" + skill_instructions(resource_snapshot),
+                user_input=task,
+                output_fields=self.output_fields,
+                max_iterations=int(cfg.get("max_iterations") or 25),
+                context=ctx,
+                checkpointer=None,
+                thread_id=None,
+            )
         if result.status != "done":
             raise RuntimeError(result.error or f"SubAgentNode ended with status {result.status}")
         return result.output

@@ -43,6 +43,7 @@ _STREAM_METHODS = {
     "submit_workflow_stream",
 }
 _SESSION_METHODS = {
+    "prepare_workflow_skills",
     "run_code",
     "run_install",
     "run_command",
@@ -191,6 +192,9 @@ class RemoteSandboxSession:
         self._workflow_dependency_lock = asyncio.Lock()
         self._workflow_dependency_key: str | None = None
         self._workflow_dependency_pythonpath: str | None = None
+
+    async def prepare_workflow_skills(self, snapshot: dict) -> dict:
+        return await self._call("prepare_workflow_skills", snapshot)
 
     async def _call(self, method: str, *args: Any, **kwargs: Any) -> Any:
         return await self._manager._request(

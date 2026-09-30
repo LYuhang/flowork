@@ -409,6 +409,7 @@ describe('WorkflowRunTab', () => {
     renderTab();
     expect(screen.getByTestId('exec-node-duration').textContent).toContain('0.42s');
     expect(screen.getByTestId('exec-total-duration').textContent).toContain('1.23s');
+    expect(screen.queryByText('__end__')).not.toBeInTheDocument();
   });
 
   it('labels a named node card as node_name(node_id)', () => {

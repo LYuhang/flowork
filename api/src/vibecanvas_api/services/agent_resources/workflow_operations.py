@@ -10,6 +10,8 @@ from vibecanvas_api.authorization.types import Action, ConsistencyPreference
 from vibecanvas_api.flowork_cli.cli import error, validate_arguments
 from vibecanvas_api.services.agent_resources.authorization import (
     _decision,
+    _principal,
+    _request_context,
     _require_active_chat_write,
     _service,
     _workflow_resource,
@@ -179,6 +181,10 @@ async def operate_workflow(ctx, arguments: dict) -> dict:
             applied += 1
             results.append({"index": index, "op": operation["op"], "status": "saved"})
         if applied:
+            from vibecanvas_api.services.workflow_resources import canonicalize_resource_names
+            graph = await canonicalize_resource_names(session=session, workflow=graph,
+                service=_service(ctx, session), principal=_principal(ctx),
+                context=_request_context(ctx, consistency=ConsistencyPreference.HIGHER_CONSISTENCY))
             pointer = await repo.commit(workflow_id, graph, note=arguments["note"] or f"agent: workflow operation {applied}/{len(operations)}",
                                         target_major=major, stamp_metadata=True)
             sub = pointer.sv

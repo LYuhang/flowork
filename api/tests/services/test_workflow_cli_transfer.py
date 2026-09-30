@@ -120,3 +120,24 @@ async def test_preview_distinguishes_missing_version_from_empty_draft(state):
     state.session.get.return_value = None
     with pytest.raises(ToolError, match="version_not_found"):
         await transfer.read_workflow_snapshot(state.ctx, workflow_id="live", version="v8.sv4")
+
+
+@pytest.mark.asyncio
+async def test_upload_refreshes_skill_name_without_changing_reference_or_input(state, monkeypatch):
+    from uuid import uuid4
+    from vibecanvas_api.services import workflow_resources
+    identifier = str(uuid4())
+    graph = {'worker': {'node_type': 'SubAgentNode', 'node_config': {
+        'skills': [{'id': identifier, 'name': 'old name'}]}}}
+    original = deepcopy(graph)
+    monkeypatch.setattr(transfer, '_principal', lambda ctx: object())
+    monkeypatch.setattr(transfer, '_request_context', lambda *args, **kwargs:
+                        SimpleNamespace(active_organization_id='tenant'))
+    monkeypatch.setattr(transfer, '_service', lambda *args:
+                        SimpleNamespace(check=AsyncMock(return_value=SimpleNamespace(allowed=True))))
+    monkeypatch.setattr(workflow_resources, 'SkillsRepo', lambda session:
+                        SimpleNamespace(get=AsyncMock(return_value={'name': 'current name'})))
+    await transfer.upload_workflow(state.ctx, graph, workflow_id='live', major='v2')
+    saved = state.repo.commit.await_args.args[1]
+    assert saved['worker']['node_config']['skills'] == [{'id': identifier, 'name': 'current name'}]
+    assert graph == original

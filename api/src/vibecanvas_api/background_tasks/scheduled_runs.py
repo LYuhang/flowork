@@ -432,6 +432,11 @@ async def _execute_owned_scheduled_run(
         input_snapshot, workflow, mount_enabled = run_in_short_session(_input_snapshot)
         if workflow is None:  # Legacy execution queued before snapshot support.
             workflow = SyncWorkflowRepo(username=user_id).get_current_workflow(workflow_id)
+        from vibecanvas_api.services.service_account_resources import refresh_scheduled_resources
+        await refresh_scheduled_resources(tenant_id=tenant_id, user_id=user_id,
+            workflow_id=workflow_id, execution_id=str(execution_id),
+            service_account_id=str(lease.service_account_id), generation=lease.generation,
+            workflow=workflow)
         session = await manager.get_session(
             tenant_id,
             execution_scope,
@@ -453,6 +458,17 @@ async def _execute_owned_scheduled_run(
                 principal_generation=lease.generation,
             )
         ).get("llm_credentials")
+        from vibecanvas_api.services.workflow_resources import prepare_execution_resources
+        resources = await prepare_execution_resources(
+            sandbox_session=session, workflow=workflow, tenant_id=tenant_id,
+            user_id=user_id, workflow_id=workflow_id, execution_id=str(execution_id),
+            execution_resource_type=ResourceType.TASK_EXECUTION.value,
+            principal_type="service_account", principal_id=str(lease.service_account_id),
+            principal_generation=lease.generation,
+        )
+        runtime_extra = {"llm_credentials": creds} if creds else {}
+        if resources:
+            runtime_extra["workflow_resources"] = resources
         node_events = 0
         workflow_stream = stream_workflow_job(
             stop=stop,
@@ -463,9 +479,7 @@ async def _execute_owned_scheduled_run(
             session=session,
             exec_id=str(execution_id),
             timeout=None,
-            runtime_extra=(
-                {"llm_credentials": creds} if creds else None
-            ),
+            runtime_extra=runtime_extra or None,
             clear_run=True,
         )
         async for msg in workflow_stream:

@@ -444,6 +444,14 @@ async def _produce_execution_sandbox(
             execution_id=exec_id,
             execution_resource_type=ResourceType.WORKFLOW_EXECUTION.value,
         )
+        from vibecanvas_api.services.workflow_resources import prepare_execution_resources
+        resources = await prepare_execution_resources(
+            sandbox_session=session, workflow=wf_dict, tenant_id=tenant_id,
+            user_id=creator_user_id, workflow_id=wf_id, execution_id=exec_id,
+            execution_resource_type=ResourceType.WORKFLOW_EXECUTION.value,
+        )
+        if resources:
+            _cred_rc["workflow_resources"] = resources
         _creds = _cred_rc.get("llm_credentials")
         logger.warning(
             "workflow_execution_stage",
@@ -497,9 +505,7 @@ async def _produce_execution_sandbox(
             session=session,
             exec_id=exec_id,
             install_dependencies=True,
-            runtime_extra=(
-                {"llm_credentials": _creds} if _creds else None
-            ),
+            runtime_extra=_cred_rc or None,
             allow_hosts=sorted(_allow_hosts),
         ):
             if not first_msg_seen:
@@ -1098,12 +1104,21 @@ async def _produce_node_execution(
         session = await get_sandbox_manager().get_session(
             tenant_id,
             workflow_run_id,
+            user_id=creator_user_id,
             expose_run=True,
         )
         if stop.is_set():
             yield "EXEC_UPDATE", await _record_cancelled()
             return
 
+        from vibecanvas_api.services.workflow_resources import prepare_execution_resources
+        resources = await prepare_execution_resources(
+            sandbox_session=session, workflow={nid: node_dict}, tenant_id=tenant_id,
+            user_id=creator_user_id, workflow_id=wf_id, execution_id=exec_id,
+            execution_resource_type=ResourceType.WORKFLOW_EXECUTION.value,
+        )
+        if resources:
+            extra["workflow_resources"] = resources
         run_task = asyncio.create_task(
             run_node_once(
                 session,

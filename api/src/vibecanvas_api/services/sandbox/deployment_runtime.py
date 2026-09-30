@@ -56,6 +56,9 @@ class DeploymentRuntime:
                 # sibling Chat or another instance through the shared provider.
                 session.provider = copy.copy(session.provider)
                 session.provider.resource_group = group
+                from vibecanvas_api.services.deployment_resource_preflight import validate_deployment_resources
+                await validate_deployment_resources(tenant_id=tenant_id, revision_id=revision_id,
+                                                    spec=spec, workflow=workflow, sandbox_session=session)
                 await prepare_code_pythonpath(workflow, session=session)
                 await session.prewarm_fileops()
                 # Warm the actual reusable engine process, without invoking the
@@ -75,7 +78,7 @@ class DeploymentRuntime:
 
     async def run(self, *, tenant_id: str, deployment_id: str, revision_id: str,
                   workflow: dict, inputs: dict, run_id: str, extra: dict | None = None,
-                  **unused) -> dict:
+                  resource_claims: dict | None = None, **unused) -> dict:
         # A disconnected RPC may cause the API's durable invocation to become
         # terminal before its sandbox worker exits. Keep an independent local
         # drain lease until execution and credential cleanup are confirmed.
@@ -85,6 +88,7 @@ class DeploymentRuntime:
             return await self._run_admitted(
                 tenant_id=tenant_id, deployment_id=deployment_id, revision_id=revision_id,
                 workflow=workflow, inputs=inputs, run_id=run_id, extra=extra,
+                resource_claims=resource_claims,
             )
         finally:
             remaining = self._active_requests[key] - 1
@@ -94,7 +98,8 @@ class DeploymentRuntime:
                 self._active_requests.pop(key, None)
 
     async def _run_admitted(self, *, tenant_id: str, deployment_id: str, revision_id: str,
-                            workflow: dict, inputs: dict, run_id: str, extra: dict | None) -> dict:
+                            workflow: dict, inputs: dict, run_id: str, extra: dict | None,
+                            resource_claims: dict | None = None) -> dict:
         from sqlalchemy import text
         from vibecanvas_api.storage.db import short_session_scope
         claim = uuid.uuid4()
@@ -125,6 +130,21 @@ class DeploymentRuntime:
                                          spec=row["spec"], workflow=workflow)
             subpath = f"requests/{uuid.UUID(run_id).hex}"
             runtime_extra = dict(extra or {})
+            from vibecanvas_api.services.workflow_resources import (
+                collect_subagent_resources, prepare_execution_resources,
+            )
+            # Host execution claims are fenced against the durable invocation by
+            # prepare_execution_resources; caller-supplied snapshots are ignored.
+            runtime_extra.pop("workflow_resources", None)
+            if collect_subagent_resources(workflow):
+                claims = dict(resource_claims or {})
+                if (claims.get("tenant_id") != tenant_id
+                        or claims.get("execution_id") != run_id
+                        or claims.get("execution_resource_type") != "deployment_invocation"):
+                    raise PermissionError("deployment_resource_identity_missing")
+                runtime_extra["workflow_resources"] = await prepare_execution_resources(
+                    sandbox_session=session, workflow=workflow, **claims,
+                )
             path = getattr(session, "_workflow_dependency_pythonpath", None)
             if path:
                 runtime_extra["code_pythonpath"] = path

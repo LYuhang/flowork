@@ -76,7 +76,7 @@ function RunOutput({ wfId }: { wfId: string }) {
   const status = owns ? rawStatus : 'idle';
   const liveTotalDuration = owns ? rawTotalDuration : null;
 
-  const liveEntries = owns ? Object.entries(perNode) : [];
+  const liveEntries = owns ? Object.entries(perNode).filter(([id]) => id !== '__end__' || !!draft?.[id]) : [];
   const isStreaming = status === 'running';
   const hasLive = liveEntries.length > 0;
 
@@ -106,7 +106,7 @@ function RunOutput({ wfId }: { wfId: string }) {
       return persistedRows;
     }
     if (hasLive) {
-      return (owns ? Object.entries(perNode) : []).map(([nid, e]) => [
+      return (owns ? Object.entries(perNode) : []).filter(([id]) => id !== '__end__' || !!draft?.[id]).map(([nid, e]) => [
         nid,
         { status: e.status, result: e.result, error: e.error, duration: e.duration },
       ]);
@@ -115,7 +115,7 @@ function RunOutput({ wfId }: { wfId: string }) {
       return [];
     }
     return [];
-  }, [hasLive, isStreaming, owns, perNode, persisted.data]);
+  }, [draft, hasLive, isStreaming, owns, perNode, persisted.data]);
 
   const displayStatus =
     status !== 'idle' ? status : (persisted.data?.status ?? 'idle');

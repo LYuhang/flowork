@@ -26,10 +26,10 @@ def _jsonable(value: Any) -> Any:
         return [_jsonable(item) for item in value]
     if isinstance(value, dict):
         return {str(key): _jsonable(item) for key, item in value.items()}
-    if hasattr(value, "model_json_schema"):
-        return _jsonable(value.model_json_schema())
-    if hasattr(value, "model_dump"):
+    if not isinstance(value, type) and hasattr(value, "model_dump"):
         return _jsonable(value.model_dump())
+    if isinstance(value, type) and hasattr(value, "model_json_schema"):
+        return _jsonable(value.model_json_schema())
     return str(value)
 
 
@@ -40,6 +40,29 @@ async def _probe(request: dict[str, Any]) -> dict[str, Any]:
     timeout_s = float(request.get("timeout_s") or 60.0)
     if not isinstance(connection, dict) or not connection:
         raise ValueError("missing MCP connection config")
+
+    if request.get("action") == "call":
+        from datetime import timedelta
+        from jsonschema import Draft202012Validator
+
+        async def call_tool():
+            async with mcp_client_session(connection) as session:
+                # Recheck the live contract before a potentially mutating call.
+                listed = await session.list_tools()
+                tool = next((item for item in listed.tools if item.name == request["tool_name"]), None)
+                if tool is None:
+                    raise ValueError("Selected MCP tool is no longer available")
+                schema = tool.inputSchema or {"type": "object", "properties": {}}
+                if schema != request["input_schema"]:
+                    raise ValueError("MCP tool schema changed; refresh resource definitions before running")
+                Draft202012Validator(schema).validate(request["arguments"])
+                result = await session.call_tool(request["tool_name"], request["arguments"],
+                    read_timeout_seconds=timedelta(seconds=timeout_s))
+                return {"status": "ok", "result": _jsonable(result)}
+
+        return await asyncio.wait_for(call_tool(), timeout=timeout_s)
+    if request.get("action", "manifest") != "manifest":
+        raise ValueError("Unsupported MCP operation")
 
     async def list_tools():
         async with mcp_client_session(connection) as session:

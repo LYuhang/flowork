@@ -387,6 +387,16 @@ async def run_batch_workflow(
             raise RuntimeError("Batch worker pool shutdown was not confirmed.")
 
     try:
+        from vibecanvas_api.services.workflow_resources import prepare_execution_resources
+        resources = await prepare_execution_resources(
+            sandbox_session=session, workflow=workflow, tenant_id=tenant_id,
+            user_id=user_id, workflow_id=workflow_id, execution_id=task_id,
+            execution_resource_type=ResourceType.TASK.value,
+            principal_type=execution_principal_type, principal_id=execution_principal_id,
+            principal_generation=execution_principal_generation,
+        )
+        if resources:
+            run_extra["workflow_resources"] = resources
         for i, (orig, mapped) in enumerate(zip(original_rows, mapped_rows)):
             prev = previous.get(i)
             if _should_reuse(prev, mapped):

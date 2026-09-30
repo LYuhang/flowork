@@ -441,3 +441,23 @@ async def test_scheduled_worker_requires_matching_active_account(app_engine):
             schedule_id=schedule_id,
             workflow_id=workflow_id,
         )
+
+
+@pytest.mark.asyncio
+async def test_resource_delegation_revocation_survives_dependency_refresh(app_engine):
+    tenant_id, user_id, account_id, skill_id = (uuid.uuid4() for _ in range(4))
+    await _seed_identity(app_engine, tenant_id=tenant_id, user_id=user_id)
+    async with session_scope(str(tenant_id)) as session:
+        repo = ServiceAccountsRepo(session)
+        await repo.create_for_owner(service_account_id=account_id, tenant_id=tenant_id,
+            name="Resource consumer", kind="task", owner_resource_type="task",
+            owner_resource_id=str(uuid.uuid4()), created_by=user_id)
+        grant = dict(tenant_id=tenant_id, service_account_id=account_id,
+                     resource_type="skill_installation", resource_id=skill_id)
+        await repo.bind_resource(**grant)
+        assert await repo.resource_refs(account_id) == (("skill_installation", str(skill_id)),)
+        await repo.revoke_resource(service_account_id=account_id,
+            resource_type="skill_installation", resource_id=skill_id)
+        await repo.bind_resource(**grant)
+        assert await repo.resource_refs(account_id) == ()
+        assert await repo.resource_refs(account_id, include_revoked=True) == (("skill_installation", str(skill_id)),)

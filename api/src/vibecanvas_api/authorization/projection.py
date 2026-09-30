@@ -217,6 +217,7 @@ def service_account_edges(
     workflow_id: str,
     status: str = "active",
     credential_ids: tuple[str, ...] = (),
+    resource_refs: tuple[tuple[str, str], ...] = (),
 ) -> frozenset[MutationEdge]:
     """Canonical identity and execution grants for one Service Account.
 
@@ -271,6 +272,11 @@ def service_account_edges(
         )
         for credential_id in credential_ids
     )
+    for resource_type, resource_id in resource_refs:
+        if resource_type not in {"skill_installation", "mcp_installation"}:
+            raise ValueError("Unsupported service account dependency")
+        result.add(MutationEdge(organization_id, resource_type, resource_id,
+                               "consumer", "service_account", service_account_id))
     return frozenset(result)
 
 
@@ -718,6 +724,8 @@ async def collect_structural_projection(
     ).mappings()
     for row in service_accounts:
         source = _source_revision("service-account", row)
+        from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
+        dependency_refs = await ServiceAccountsRepo(session).resource_refs(uuid.UUID(row["service_account_id"]))
         for edge in service_account_edges(
             organization_id=organization_id,
             service_account_id=row["service_account_id"],
@@ -727,6 +735,7 @@ async def collect_structural_projection(
             workflow_id=row["workflow_id"],
             status=row["status"],
             credential_ids=tuple(row["credential_ids"] or ()),
+            resource_refs=dependency_refs,
         ):
             result[edge] = DesiredProjection(edge, source)
 

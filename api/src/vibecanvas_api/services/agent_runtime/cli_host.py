@@ -1,4 +1,4 @@
-"""Host-only CLI dispatch. No MCP discovery or user credentials in the CLI."""
+"""Host-only CLI dispatch. Resource discovery is authorized here; the CLI holds no user credentials."""
 
 from __future__ import annotations
 
@@ -72,6 +72,9 @@ async def invoke_workflow_command(*, operation: str, identity_token: str, argume
             from .cli_runs import command
             return await command(capability, operation, arguments)
         context = await agent_context.resolve_context(capability)
+        if operation.startswith(("skill.", "mcp.")):
+            from .cli_resources import read
+            return await read(context, operation, arguments)
         if operation == "config.get":
             from .cli_config import get_config
             return await get_config(context, arguments)

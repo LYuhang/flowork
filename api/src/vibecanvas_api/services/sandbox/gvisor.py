@@ -793,6 +793,8 @@ class RootlessGvisorProvider:
         egress_socket: str | None = None,
         lib_overlay: str | None = None,
         run_mount: str = "/run",
+        cancel_event=None,
+        extra_ro_dest_binds: list[tuple[str, str]] | None = None,
     ) -> SandboxResult:
         # The run channel is first so ``cwd`` stays there (build_oci_config uses
         # ``rw_binds[0][0]``). Workflow runs keep the public ``/run`` contract;
@@ -837,7 +839,7 @@ class RootlessGvisorProvider:
         # ``/opt/agent-overlay``) and set ``VC_LIB_OVERLAY`` so the in-sandbox
         # engine places the Workflow overlay before the explicitly mounted base
         # third-party packages. ``None`` means only the platform base is used.
-        ro_dest_binds: "list[tuple[str, str]]" = []
+        ro_dest_binds: "list[tuple[str, str]]" = list(extra_ro_dest_binds or [])
         if lib_overlay is not None:
             ro_dest_binds.append((IN_SANDBOX_LIB_OVERLAY, lib_overlay))
             env[_LIB_OVERLAY_ENV] = IN_SANDBOX_LIB_OVERLAY
@@ -863,6 +865,8 @@ class RootlessGvisorProvider:
             run_id,
         ]
 
+        from .process_wait import communicate
+
         started = time.monotonic()
         # Popen + start_new_session so the runsc sentry is its own process
         # group; on timeout we kill the GROUP, not just the leader (N6).
@@ -875,7 +879,7 @@ class RootlessGvisorProvider:
         )
         try:
             try:
-                stdout, stderr = proc.communicate(timeout=timeout)
+                stdout, stderr = communicate(proc, timeout=timeout, cancel_event=cancel_event)
                 exit_code = proc.returncode
             except subprocess.TimeoutExpired:
                 try:
@@ -909,6 +913,7 @@ class RootlessGvisorProvider:
         *,
         request: dict,
         timeout: float,
+        cancel_event=None,
         allow_hosts: "set[str]",
     ) -> dict:
         """Probe one MCP server in a fresh, teardown-guaranteed gVisor process.
@@ -941,7 +946,7 @@ class RootlessGvisorProvider:
                 f"mcp-probe-{uuid.uuid4().hex}",
                 allow_hosts,
             )
-            kwargs: dict = {}
+            kwargs: dict = {"cancel_event": cancel_event} if cancel_event is not None else {}
             if egress is not None:
                 loop_thread, egress_socket, proxy_env = egress
                 env.update(proxy_env)
@@ -1005,6 +1010,7 @@ class RootlessGvisorProvider:
         kind: str = "workflow",
         lib_overlay: str | None = None,
         mount_dir: str | None = None,
+        skills_dir: str | None = None,
     ) -> EngineRunResult:
         """Run a sandbox-runnable ``workflow`` INSIDE one gVisor sandbox.
 
@@ -1057,6 +1063,8 @@ class RootlessGvisorProvider:
         # the prior ``run(...)`` signature (back-compat for callers that stub run).
         if lib_overlay is not None:
             bus_kwargs["lib_overlay"] = lib_overlay
+        if skills_dir is not None:
+            bus_kwargs["extra_ro_dest_binds"] = [("/skills", skills_dir)]
         if mount_dir is not None:
             bus_kwargs["extra_rw_binds"] = [("/mount", mount_dir)]
 
@@ -1769,6 +1777,7 @@ class RootlessGvisorProvider:
         network: "str | None" = None,
         command: "list[str] | None" = None,
         extra_rw_binds: "list[tuple[str, str]] | None" = None,
+        extra_ro_dest_binds: "list[tuple[str, str]] | None" = None,
         egress_socket: str | None = None,
     ) -> ServeHandle:
         """Boot a LONG-LIVED warm worker (RE-6 Warm T2) — lifecycle INVERTED vs
@@ -1818,6 +1827,7 @@ class RootlessGvisorProvider:
             env=env,
             rw_binds=rw_binds,
             ro_binds=ro_binds,
+            ro_dest_binds=extra_ro_dest_binds,
         )
 
         argv = [
@@ -1905,6 +1915,7 @@ class RootlessGvisorProvider:
         network: "str | None" = None,
         command: "list[str] | None" = None,
         extra_rw_binds: "list[tuple[str, str]] | None" = None,
+        extra_ro_dest_binds: "list[tuple[str, str]] | None" = None,
         egress_socket: str | None = None,
     ) -> ServeHandle:
         """Create a fresh OCI container and restore a rootful serve snapshot."""
@@ -1942,6 +1953,7 @@ class RootlessGvisorProvider:
             env=env,
             rw_binds=rw_binds,
             ro_binds=ro_binds,
+            ro_dest_binds=extra_ro_dest_binds,
         )
         base = [
             *self._runtime_flags(network, host_uds=egress_socket is not None),

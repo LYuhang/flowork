@@ -328,10 +328,15 @@ async def run_workflow_once(
     run_context = await inject_into_run_context_async(
         {}, workflow, tenant_id, **injection_claims,
     )
-    runtime_extra = (
-        {"llm_credentials": run_context["llm_credentials"]}
-        if run_context.get("llm_credentials") else None
+    from vibecanvas_api.services.workflow_resources import prepare_execution_resources
+    resources = await prepare_execution_resources(
+        sandbox_session=session, workflow=workflow, tenant_id=tenant_id, **injection_claims,
     )
+    runtime_extra = {}
+    if run_context.get("llm_credentials"):
+        runtime_extra["llm_credentials"] = run_context["llm_credentials"]
+    if resources:
+        runtime_extra["workflow_resources"] = resources
     stop = asyncio.Event()
     async for msg in stream_workflow_job(
         stop=stop,

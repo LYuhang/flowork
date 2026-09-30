@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,7 @@ from vibecanvas_api.authorization.service import AuthzService
 from vibecanvas_api.authorization.types import (
     Action,
     AuthzRequestContext,
+    ConsistencyPreference,
     PrincipalRef,
     ResourceType,
 )
@@ -44,7 +46,7 @@ async def runtime_skill_descriptors(
         principal,
         Action.USE,
         ResourceType.SKILL_INSTALLATION,
-        context,
+        replace(context, consistency=ConsistencyPreference.HIGHER_CONSISTENCY),
     )
     rows = await SkillsRepo(session).list_authorized(authorized_ids)
     result = []

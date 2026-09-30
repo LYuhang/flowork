@@ -115,13 +115,15 @@ def test_skill_management_is_advertised_on_both_chat_surfaces():
 async def test_selection_uses_the_same_chat_scoped_path_as_sandbox_mount(monkeypatch):
     from unittest.mock import AsyncMock
     from vibecanvas_api.services import runtime_skills
+    from vibecanvas_api.authorization.types import AuthzRequestContext, ConsistencyPreference
     identifier=uuid4()
     repo=SimpleNamespace(list_authorized=AsyncMock(return_value=[{
         'skill_id':identifier,'name':'research','revision_hash':'a'*64,
     }]))
     monkeypatch.setattr(runtime_skills,'SkillsRepo',lambda session:repo)
     service=SimpleNamespace(list_authorized_ids=AsyncMock(return_value=[identifier]))
-    descriptors=await runtime_skills.runtime_skill_descriptors(session=None,chat_id='chat-a',service=service,principal=None,context=None)
+    descriptors=await runtime_skills.runtime_skill_descriptors(session=None,chat_id='chat-a',service=service,principal=None,context=AuthzRequestContext(active_organization_id='org'))
+    assert service.list_authorized_ids.await_args.args[-1].consistency==ConsistencyPreference.HIGHER_CONSISTENCY
     root=runtime_skills.runtime_skill_root('chat-a',str(identifier))
     assert root!=runtime_skills.runtime_skill_root('chat-b',str(identifier))
     assert root==f'/skills/{runtime_skills.runtime_skill_scope("chat-a")}/{identifier}'

@@ -3589,5 +3589,11 @@
   "title": "资源与工具使用记录",
   "note": "展示声明的资源和观察到的工具调用。仅引用文件路径不代表已读取文件。",
   "truncated": "记录已达到数量上限，后续内容未保存。"
-}
+},
+  "subagent.resources.noMatches": "没有匹配的资源。",
+  "subagent.resources.more": "显示更多",
+  "subagent.resources.selectedCount_other": "已选 {{count}} 项",
+  "subagent.resources.selectedCount": "已选 {{count}} 项",
+  "subagent.resources.skillCompactHint": "使用最新发布的说明。",
+  "subagent.resources.mcpCompactHint": "仅所选服务提供工具。"
 }

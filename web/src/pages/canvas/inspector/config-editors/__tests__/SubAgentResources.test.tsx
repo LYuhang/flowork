@@ -26,7 +26,9 @@ describe('SubAgent resource selection', () => {
   it('saves only id/name for both resource types, without a revision', () => {
     const onSkills = vi.fn(), onServers = vi.fn();
     render(<SubAgentResources skills={[]} servers={[]} onSkills={onSkills} onServers={onServers} />);
+    fireEvent.focus(screen.getByRole('textbox', { name: 'Search Skills' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /^Audit/ }));
+    fireEvent.focus(screen.getByRole('textbox', { name: 'Search MCP servers' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Orders/ }));
     expect(onSkills).toHaveBeenCalledWith([{ id: 'skill-1', name: 'Audit' }]);
     expect(onServers).toHaveBeenCalledWith([{ id: 'mcp-1', name: 'Orders' }]);
@@ -41,6 +43,7 @@ describe('SubAgent resource selection', () => {
     queries.skills.data = [{ ...queries.skills.data[0], version: 2, revision_hash: 'b'.repeat(64) },
       { ...queries.skills.data[0], id: 'skill-2', name: 'Invoices' }];
     rerender(<SubAgentResources {...props} />);
+    fireEvent.focus(screen.getByRole('textbox', { name: 'Search Skills' }));
     expect(screen.getByRole('checkbox', { name: /^Audit/ })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Invoices/ })).not.toBeChecked();
     expect(screen.queryByRole('button', { name: /latest published version/i })).not.toBeInTheDocument();
@@ -64,3 +67,26 @@ describe('SubAgent resource selection', () => {
     expect(onSkills).toHaveBeenCalledWith([]);
   });
 });
+
+ it('hides candidates until search opens and links candidate details without selecting', () => {
+    const onSkills = vi.fn();
+    render(<SubAgentResources skills={[]} servers={[]} onSkills={onSkills} onServers={vi.fn()} />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    fireEvent.focus(screen.getByRole('textbox', { name: 'Search Skills' }));
+    expect(screen.getByRole('checkbox', { name: /^Audit/ })).toBeVisible();
+    const link = screen.getByRole('link', { name: 'Resource details: Audit' });
+    expect(link).toHaveAttribute('href', '/skills/skill-1');
+    expect(link).toHaveAttribute('target', '_blank');
+    fireEvent.click(link);
+    expect(onSkills).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search Skills' }), { target: { value: 'not-found' } });
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.getByText('No matching resources.')).toBeVisible();
+  });
+
+ it('does not allow opening candidates in read-only mode', () => {
+    render(<SubAgentResources skills={[{ id: 'skill-1', name: 'Audit' }]} servers={[]} readOnly onSkills={vi.fn()} onServers={vi.fn()} />);
+    expect(screen.getByRole('textbox', { name: 'Search Skills' })).toBeDisabled();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove: Audit' })).not.toBeInTheDocument();
+  });

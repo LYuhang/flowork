@@ -3589,5 +3589,11 @@
   "title": "Resource and tool activity",
   "note": "Declared resources and observed tool calls. A referenced path alone does not prove that a file was read.",
   "truncated": "Activity was truncated at the recording limit."
-}
+},
+  "subagent.resources.noMatches": "No matching resources.",
+  "subagent.resources.more": "Show more",
+  "subagent.resources.selectedCount_one": "{{count}} selected",
+  "subagent.resources.selectedCount_other": "{{count}} selected",
+  "subagent.resources.skillCompactHint": "Uses the latest published instructions.",
+  "subagent.resources.mcpCompactHint": "Only selected servers provide tools."
 }

@@ -423,7 +423,12 @@ class SandboxSession:
         pool_runs_root: str | None = None,
         materialized_projection_root: str | None = None,
         expose_mount: bool = True,
+        workspace_profile: str = "chat",
     ) -> None:
+        if workspace_profile not in {"chat", "execution"}:
+            raise ValueError("invalid_workspace_profile")
+        self.workspace_profile = workspace_profile
+        self.workspace_folders = _RUN_WRITEBACK_FOLDERS if workspace_profile == "chat" else ()
         self.tenant_id = tenant_id
         self.wf_id = wf_id
         # Chat/workspace-owned host dir. It backs /data, /memory, and /logs.
@@ -462,7 +467,7 @@ class SandboxSession:
             [("/opt/agent-overlay", overlay_dir)] if overlay_dir else []
         )
         if run_dir:
-            for _f in _RUN_WRITEBACK_FOLDERS:
+            for _f in self.workspace_folders:
                 self._rw_binds.append((f"/{_f}", os.path.join(run_dir, _f)))
         if mount_dir:
             self._rw_binds.append(("/mount", mount_dir))
@@ -1990,7 +1995,7 @@ class SandboxSession:
             )
             # The agent's file mounts: the writeback folders from ``_rw_binds``
             # (excluding /opt/agent-overlay from the roots) plus /mount.
-            writeback_dests = {f"/{f}" for f in _RUN_WRITEBACK_FOLDERS}
+            writeback_dests = {f"/{f}" for f in self.workspace_folders}
             if self.mount_dir:
                 writeback_dests.add("/mount")
             fileop_binds: list[tuple[str, str]] = [
@@ -2220,7 +2225,7 @@ class SandboxSession:
         ``/data`` ``/memory`` ``/logs`` live under ``run_dir`` and are mirrored
         with the SAME diff-and-upsert shape via :meth:`_sync_run_folder`. Never
         raises — a write-back failure must never break the agent turn."""
-        for folder in _RUN_WRITEBACK_FOLDERS:
+        for folder in self.workspace_folders:
             try:
                 await self._sync_run_folder(folder)
             except Exception:  # pragma: no cover - fail-soft
@@ -2236,7 +2241,7 @@ class SandboxSession:
                 exc_info=True,
             )
         try:
-            if self.expose_run and self.workflow_run_dir and self.workflow_run_id:
+            if self.workspace_profile == "chat" and self.expose_run and self.workflow_run_dir and self.workflow_run_id:
                 await sync_run_back(
                     self.workflow_run_id,
                     self.tenant_id,
@@ -2263,7 +2268,7 @@ class SandboxSession:
         folder = next(
             (
                 candidate
-                for candidate in _RUN_WRITEBACK_FOLDERS
+                for candidate in self.workspace_folders
                 if normalized.startswith(f"/{candidate}/")
             ),
             None,
@@ -2418,7 +2423,7 @@ class SandboxSession:
             root = self.mount_dir
             relative = norm[len("/mount/"):]
         else:
-            for folder in _RUN_WRITEBACK_FOLDERS:
+            for folder in self.workspace_folders:
                 prefix = f"/{folder}/"
                 if norm.startswith(prefix) and self.run_dir:
                     root = os.path.join(self.run_dir, folder)
@@ -2525,7 +2530,7 @@ class SandboxSession:
             rel = norm[len("/mount/"):]
             target = os.path.join(self.mount_dir, *rel.split("/"))
         else:
-            for folder in _RUN_WRITEBACK_FOLDERS:
+            for folder in self.workspace_folders:
                 prefix = f"/{folder}/"
                 if norm.startswith(prefix) and self.run_dir:
                     rel = norm[len(prefix):]
@@ -3315,7 +3320,8 @@ class SandboxManager:
                           user_id: str | None = None,
                           expose_run: bool = True,
                           expose_runtime: bool = False,
-                          lease: str = "interactive", expose_mount: bool = True) -> SandboxSession:
+                          lease: str = "interactive", expose_mount: bool = True,
+                          workspace_profile: str = "chat") -> SandboxSession:
         """Return the resident session for ``(tenant_id, wf_id)``, creating it
         (and evicting the LRU on overflow) on first use.
 
@@ -3326,6 +3332,8 @@ class SandboxManager:
         falls back to the per-wf overlay. The session itself is still cached per
         ``(tenant, wf)``; multiple of a user's wf sessions just bind the one shared
         overlay dir."""
+        if workspace_profile not in {"chat", "execution"}:
+            raise ValueError("invalid_workspace_profile")
         acquire_started = time.perf_counter()
         key = (tenant_id, wf_id)
         # Restore outside the manager-wide registry lock. The Session's own
@@ -3363,6 +3371,7 @@ class SandboxManager:
                     existing.expose_run == expose_run
                     and bool(existing.runtime_dir) == expose_runtime
                     and getattr(existing, "expose_mount", True) == expose_mount
+                    and getattr(existing, "workspace_profile", "chat") == workspace_profile
                 ):
                     existing.last_used = time.monotonic()
                     if lease == "resident":
@@ -3408,6 +3417,7 @@ class SandboxManager:
                 expose_run=expose_run,
                 expose_runtime=expose_runtime,
                 expose_mount=expose_mount,
+                workspace_profile=workspace_profile,
             )
             session.lease = lease if lease in {"interactive", "resident"} else "interactive"
             self._sessions[key] = session
@@ -3891,7 +3901,8 @@ class SandboxManager:
                              user_id: str | None = None,
                              expose_run: bool = True,
                              expose_runtime: bool = False,
-                             expose_mount: bool = True) -> SandboxSession:
+                             expose_mount: bool = True,
+                             workspace_profile: str = "chat") -> SandboxSession:
         """Materialize Chat/user VFS mounts and construct the session.
 
         ``build_run_context`` (blocking DB+ObjectStore+FS, run off-loop) gives
@@ -3907,54 +3918,63 @@ class SandboxManager:
             wf_id=wf_id,
             expose_run=expose_run,
         )
-        stage_started = time.perf_counter()
-        ctx = await asyncio.to_thread(
-            build_run_context, wf_id, tenant_id)
-        logger.warning(
-            "agent_sandbox_session_build_stage_done",
-            stage="chat_workspace_context",
-            wf_id=wf_id,
-            elapsed_ms=int((time.perf_counter() - stage_started) * 1000),
-        )
-        run_dir = ctx["run_dir"]
-        projection_root = None
-        pool_runs_root = os.path.dirname(run_dir) if run_dir else None
-        store = get_object_store()
-        if run_dir and (not isinstance(store, FilesystemObjectStore)
-                        or not expose_mount or wf_id.startswith(("schedule-", "batch-", "deployment-"))):
-            # Task execution and no-mount sessions must not see neighbouring
-            # tenant workspaces (or their hydrated mounts) through /runs.
-            # Object-backed projections also need a logical directory name.
+        if workspace_profile not in {"chat", "execution"}:
+            raise ValueError("invalid_workspace_profile")
+        if workspace_profile == "execution":
             safe_scope_id = _runtime_identity_component(wf_id, field="scope_id")
             projection_root = tempfile.mkdtemp(prefix="vcsbx-projection-")
             pool_runs_root = os.path.join(projection_root, "runs")
-            os.makedirs(pool_runs_root, mode=0o700, exist_ok=True)
-            projected_run_dir = os.path.join(pool_runs_root, safe_scope_id)
-            shutil.move(run_dir, projected_run_dir)
-            run_dir = projected_run_dir
-
-        # Pre-create the workspace folders under run_dir so a bare write to
-        # ``/data`` (etc.) just works without a manual ``mkdir -p`` first.
-        for f in _RUN_WRITEBACK_FOLDERS:
-            os.makedirs(os.path.join(run_dir, f), exist_ok=True)
-
-        # Boot-hydrate: the run dir is fresh per (re)build, but the durable VFS
-        # holds the agent's prior /data /memory /logs. Re-materialize them so an
-        # LRU evict + rebuild does NOT lose the working FS (inverse of the run
-        # write-back). Fail-soft — never block session creation. DB reads stay on
-        # the loop; blocking writes are offloaded inside the helper.
-        try:
+            run_dir = os.path.join(pool_runs_root, safe_scope_id)
+            os.makedirs(run_dir, mode=0o700, exist_ok=True)
+        else:
             stage_started = time.perf_counter()
-            await _hydrate_run_folders(run_dir, wf_id, tenant_id)
+            ctx = await asyncio.to_thread(
+                build_run_context, wf_id, tenant_id)
             logger.warning(
                 "agent_sandbox_session_build_stage_done",
-                stage="hydrate_chat_workspace",
+                stage="chat_workspace_context",
                 wf_id=wf_id,
                 elapsed_ms=int((time.perf_counter() - stage_started) * 1000),
             )
-        except Exception:  # pragma: no cover - fail-soft
-            logger.warning("agent_hydrate_run_folders_failed", wf_id=wf_id,
-                           tenant_id=tenant_id, exc_info=True)
+            run_dir = ctx["run_dir"]
+            projection_root = None
+            pool_runs_root = os.path.dirname(run_dir) if run_dir else None
+            store = get_object_store()
+            if run_dir and (not isinstance(store, FilesystemObjectStore)
+                            or not expose_mount or wf_id.startswith(("schedule-", "batch-", "deployment-"))):
+                # Task execution and no-mount sessions must not see neighbouring
+                # tenant workspaces (or their hydrated mounts) through /runs.
+                # Object-backed projections also need a logical directory name.
+                safe_scope_id = _runtime_identity_component(wf_id, field="scope_id")
+                projection_root = tempfile.mkdtemp(prefix="vcsbx-projection-")
+                pool_runs_root = os.path.join(projection_root, "runs")
+                os.makedirs(pool_runs_root, mode=0o700, exist_ok=True)
+                projected_run_dir = os.path.join(pool_runs_root, safe_scope_id)
+                shutil.move(run_dir, projected_run_dir)
+                run_dir = projected_run_dir
+
+            # Pre-create the workspace folders under run_dir so a bare write to
+            # ``/data`` (etc.) just works without a manual ``mkdir -p`` first.
+            for f in _RUN_WRITEBACK_FOLDERS:
+                os.makedirs(os.path.join(run_dir, f), exist_ok=True)
+
+            # Boot-hydrate: the run dir is fresh per (re)build, but the durable VFS
+            # holds the agent's prior /data /memory /logs. Re-materialize them so an
+            # LRU evict + rebuild does NOT lose the working FS (inverse of the run
+            # write-back). Fail-soft — never block session creation. DB reads stay on
+            # the loop; blocking writes are offloaded inside the helper.
+            try:
+                stage_started = time.perf_counter()
+                await _hydrate_run_folders(run_dir, wf_id, tenant_id)
+                logger.warning(
+                    "agent_sandbox_session_build_stage_done",
+                    stage="hydrate_chat_workspace",
+                    wf_id=wf_id,
+                    elapsed_ms=int((time.perf_counter() - stage_started) * 1000),
+                )
+            except Exception:  # pragma: no cover - fail-soft
+                logger.warning("agent_hydrate_run_folders_failed", wf_id=wf_id,
+                               tenant_id=tenant_id, exc_info=True)
 
         mount_scope_id = user_mount_scope_id(user_id) if expose_mount else None
         mount_dir = (run_dir.rstrip("/") + ".mount") if run_dir and mount_scope_id else None
@@ -4059,6 +4079,7 @@ class SandboxManager:
             expose_run=expose_run,
             pool_runs_root=pool_runs_root,
             materialized_projection_root=projection_root,
+            workspace_profile=workspace_profile,
         )
         logger.warning(
             "agent_sandbox_session_build_done",

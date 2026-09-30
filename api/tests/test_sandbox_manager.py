@@ -62,7 +62,7 @@ async def test_purge_user_storage_removes_daemon_owned_runtime_trees(
 async def test_lazy_create_and_reuse():
     manager = SandboxManager(max_resident=8, idle_ttl_s=600)
 
-    def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False, expose_mount=True):
+    def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False, expose_mount=True, workspace_profile="chat"):
         return MagicMock(
             tenant_id=tenant,
             wf_id=workspace,
@@ -70,6 +70,7 @@ async def test_lazy_create_and_reuse():
             last_used=0.0,
             expose_run=expose_run,
             expose_mount=expose_mount,
+            workspace_profile=workspace_profile,
             runtime_dir="/runtime" if expose_runtime else None,
             _requires_rehydrate=False,
             close=AsyncMock(),
@@ -143,7 +144,7 @@ async def test_session_rebuilds_when_exposed_roots_change():
     manager = SandboxManager(max_resident=8, idle_ttl_s=600)
     sessions = []
 
-    def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False, expose_mount=True):
+    def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False, expose_mount=True, workspace_profile="chat"):
         session = MagicMock(
             tenant_id=tenant,
             wf_id=workspace,
@@ -151,6 +152,7 @@ async def test_session_rebuilds_when_exposed_roots_change():
             last_used=0.0,
             expose_run=expose_run,
             expose_mount=expose_mount,
+            workspace_profile=workspace_profile,
             runtime_dir="/runtime" if expose_runtime else None,
             close=AsyncMock(),
         )

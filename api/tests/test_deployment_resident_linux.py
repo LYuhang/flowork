@@ -62,6 +62,9 @@ async def test_resident_workflows_reuse_instance_and_isolate_concurrent_requests
     try:
         session = await asyncio.wait_for(runtime.prepare(tenant_id=tenant, revision_id=revision,
             spec=spec, workflow=workflow), 90)
+        assert session.workspace_profile == "execution"
+        assert not any((Path(session.run_dir) / name).exists() for name in ("chats", "data", "logs", "memory"))
+        assert not any(dest in {"/chats", "/data", "/logs", "/memory"} for dest, _ in session._rw_binds)
         pid = session._fileop_pool._handles[0].proc.pid
         terminal_id = str(uuid.uuid4())
         async def terminal(action, **fields):
@@ -77,16 +80,16 @@ async def test_resident_workflows_reuse_instance_and_isolate_concurrent_requests
             with pytest.raises(RuntimeError, match='terminal_scope_mismatch'):
                 await manager.deployment_terminal(**scope, terminal_id=terminal_id, action='read')
         await terminal('resize', columns=101, rows=29)
-        await terminal('write', data=base64.b64encode(b"test -t 0 && stty size; printf proof > /data/terminal-proof\r").decode())
+        await terminal('write', data=base64.b64encode(b"test -t 0 && stty size; printf proof > /run/terminal-proof\r").decode())
         output = ''
         for _ in range(100):
             response = await terminal('read')
             output += base64.b64decode(response['data']).decode(errors='replace')
-            if '29 101' in output and (Path(session.run_dir) / 'data/terminal-proof').exists():
+            if '29 101' in output and (Path(session.run_dir) / 'terminal-proof').exists():
                 break
             await asyncio.sleep(0.05)
         assert '29 101' in output, output
-        assert (Path(session.run_dir) / 'data/terminal-proof').read_text() == 'proof'
+        assert (Path(session.run_dir) / 'terminal-proof').read_text() == 'proof'
         first = await asyncio.wait_for(invoke(117), 60)
         second, third = await asyncio.wait_for(asyncio.gather(invoke(223), invoke(337)), 60)
         assert 337 not in numbers(second['final_outputs'])

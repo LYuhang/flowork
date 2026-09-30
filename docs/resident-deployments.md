@@ -6,6 +6,13 @@ and terminal processes. A limit is not a reservation of physical RAM.
 The 256 MiB starting size leaves room for rolling overlap on small hosts;
 increase it for workflows with larger in-memory datasets.
 
+Deployment terminals start in `/run`, an instance-local scratch directory.
+Deployment instances use an execution workspace profile: they do not initialize,
+hydrate, mount or write back the Chat-specific `/chats`, `/data`, `/logs` and
+`/memory` roots. Each invocation still has its own isolated execution directory.
+Use `/mount` for durable user files when explicitly enabled; files placed in
+`/run` are temporary and disappear when the instance is replaced or restarted.
+
 ## Configuration changes and rollout
 
 The Settings page shows a confirmation with the previous and proposed values

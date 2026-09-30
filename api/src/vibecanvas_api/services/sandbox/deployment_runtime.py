@@ -48,6 +48,7 @@ class DeploymentRuntime:
                     tenant_id, revision_scope(revision_id), user_id=spec["user_id"],
                     expose_run=True, expose_runtime=False,
                     expose_mount=spec["mount_enabled"], lease="resident",
+                    workspace_profile="execution",
                 )
                 if not isinstance(session.provider, BubblewrapProvider):
                     raise RuntimeError('deployment_resource_provider_unsupported')

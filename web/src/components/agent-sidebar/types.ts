@@ -30,7 +30,7 @@
 /** Raw tool-call shape observed on the wire (both nested + flat). */
 import type { components } from '@/lib/api/schema';
 
-type Attachment = components['schemas']['Attachment'];
+type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 
 interface RawToolCall {
   id?: string;

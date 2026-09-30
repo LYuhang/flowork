@@ -8,7 +8,7 @@ const state = vi.hoisted(() => ({
   options: {} as Record<string, unknown>,
   flow: {} as Record<string, unknown>,
 }));
-vi.mock('@tanstack/react-query', () => ({ useQuery: (options: Record<string, unknown>) => { state.options = options; return state.result; } }));
+vi.mock('@tanstack/react-query', async (importOriginal) => ({ ...await importOriginal<typeof import('@tanstack/react-query')>(), useQuery: (options: Record<string, unknown>) => { state.options = options; return state.result; } }));
 vi.mock('@/lib/api/queries/workflow', () => ({ workflowAtQuery: (id: string, v: number, sv: number) => ({ queryKey: ['workflow-at', id, v, sv] }) }));
 vi.mock('@xyflow/react', () => ({
   ReactFlowProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -35,6 +35,14 @@ describe('WorkflowPreviewRenderer', () => {
     state.result = { isFetching: false, isPending: false, isError: false,
       data: { meta: { workflow_name: 'Flow' }, workflow: { start: { node_type: 'StartNode', node_config: { example: 'detail' } } } } };
     state.flow = {};
+  });
+
+  it('highlights the referenced node in its pinned snapshot and reports missing targets', () => {
+    const { rerender } = render(<WorkflowPreviewRenderer workflowId="wf" version="v2.sv3" focus={{ nodeIds: ['start'], edges: [] }} />);
+    expect(state.flow.nodes).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'start', selected: true })]));
+    expect(screen.getByTestId('shared-inspector')).toBeInTheDocument();
+    rerender(<WorkflowPreviewRenderer workflowId="wf" version="v2.sv3" focus={{ nodeIds: ['deleted'], edges: [] }} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Some referenced objects are unavailable in this version.');
   });
 
   it('pins the query but links to the latest canvas without changing the global editor', () => {

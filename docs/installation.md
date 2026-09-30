@@ -629,3 +629,32 @@ submissions. For a public deployment, preserve WebSocket Upgrade headers on
 ## 常驻部署的资源配额
 
 常驻部署需要 cgroup v2 委派。CPU、内存配额、切流期间容量检查、原生 systemd 启动方式与 Docker 配置见 [Resident deployment resources](resident-deployments.md)。
+
+### Prepare native frontend updates before restarting
+
+Frontend changes must include both `web/package.json` and `web/pnpm-lock.yaml`.
+The lockfile now includes `remark-math`, `rehype-katex` and KaTeX for message
+formulas; KaTeX CSS/fonts are bundled in the web build, with no external math CDN
+or additional operating-system package required. Docker builds already install
+this same lockfile in `web/Dockerfile`.
+
+For a native systemd installation, install dependencies and build as its service
+account **before** stopping the running service:
+
+```bash
+sudo python3 scripts/prepare_native_web.py --repo /opt/flowork --user flowork
+```
+
+If an earlier root-run pnpm command left root-owned dependencies, repair their
+ownership and prepare the build in one step:
+
+```bash
+sudo python3 scripts/prepare_native_web.py --repo /opt/flowork --user flowork --repair-ownership
+```
+
+This command runs frozen-lockfile installation, the production frontend build,
+and the deployment-path check. It exits on failure and does not restart the
+service. After it succeeds, drain active work and restart the existing service.
+Use the actual deployment checkout, not a staging directory whose `node_modules`
+is a symlink into a different checkout; pnpm records both its package store and
+virtual-store locations. Do not install into a service-owned checkout as root.

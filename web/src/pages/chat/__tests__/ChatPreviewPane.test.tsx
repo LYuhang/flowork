@@ -89,17 +89,19 @@ describe('ChatPreviewPane dirty-file leave protocol', () => {
     expect(document.querySelector('[data-role="interactive-artifact-preview-surface"]')).toHaveClass('h-full');
   });
 
-  it('defers tab selection until the active file viewer allows leaving', async () => {
+  it('defers resource selection until the active file viewer allows leaving', async () => {
     fileViewer.requestLeave.mockReset();
     const props = renderPane();
     await screen.findByText('Active file');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review workflow' }));
+    expect(document.querySelector('.chat-pane-subheader')).toBeNull();
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Preview resources' }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Review workflow/ }));
     expect(fileViewer.requestLeave).toHaveBeenCalledOnce();
-    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(props.onOpenResource).not.toHaveBeenCalled();
 
     fileViewer.requestLeave.mock.calls[0]?.[0]();
-    expect(props.onSelect).toHaveBeenCalledWith('workflow-1');
+    expect(props.onOpenResource).toHaveBeenCalledWith(items[1]);
   });
 
   it('uses the same guard before closing the whole preview pane', async () => {

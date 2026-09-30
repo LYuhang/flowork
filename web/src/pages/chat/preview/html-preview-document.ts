@@ -131,6 +131,11 @@ export function buildFilePreviewHtmlDocument(
     event.preventDefault();
     window.parent.postMessage({ channel: CHANNEL, type: 'preview.open', path: raw }, '*');
   }, true);
+  document.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    window.parent.postMessage({channel: CHANNEL, type: 'preview.context', x: event.clientX, y: event.clientY,
+      text: (window.getSelection()?.toString() || '').slice(0, 32769)}, '*');
+  });
   window.addEventListener('DOMContentLoaded', () => rewrite(document.documentElement), { once: true });
 })();
 </script>`;

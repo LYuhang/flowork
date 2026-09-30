@@ -8,7 +8,7 @@ import type { components } from '@/lib/api/schema';
 
 const KEY = 'vibecanvas.activeTurn';
 const MANY_KEY = 'vibecanvas.activeTurns';
-type Attachment = components['schemas']['Attachment'];
+type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 
 export interface ActiveTurn {
   wfId: string;

@@ -1,3 +1,4 @@
+import { PreviewContextMenu } from './PreviewContextMenu';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Ban,
@@ -22,6 +23,7 @@ import {
   type BackgroundJob,
   type BackgroundJobFilter,
   useBackgroundJobs,
+  useReferencedBackgroundJob,
 } from '@/lib/api/queries/chats';
 import {
   type BackgroundJobEvent,
@@ -87,7 +89,7 @@ function BackgroundJobsPreviewContent({
 }) {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<BackgroundJobFilter>(
-    deliveryBatchId ? 'all' : 'current',
+    deliveryBatchId || initialJobId ? 'all' : 'current',
   );
   const [selectedJobId, setSelectedJobId] = useState<string | null>(
     initialJobId ?? null,
@@ -98,6 +100,7 @@ function BackgroundJobsPreviewContent({
     Record<string, BackgroundJobEvent[]>
   >({});
   const jobsQuery = useBackgroundJobs(scopeId, chatId, filter);
+  const referencedJob = useReferencedBackgroundJob(scopeId, chatId, initialJobId);
   const queryClient = useQueryClient();
   const cancel = useMutation({
     mutationFn: (jobId: string) => cancelBackgroundJob(scopeId, chatId, jobId),
@@ -109,7 +112,12 @@ function BackgroundJobsPreviewContent({
       ]);
     },
   });
-  const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
+  const jobs = useMemo(() => {
+    const recent = jobsQuery.data ?? [];
+    const referenced = referencedJob.data;
+    if (!referenced) return recent;
+    return [referenced, ...recent.filter(job => job.job_id !== referenced.job_id)];
+  }, [jobsQuery.data, referencedJob.data]);
   const onJobEvent = useCallback((event: BackgroundJobEvent) => {
     setEventsByJob((current) => {
       const previous = current[event.job_id] ?? [];
@@ -137,17 +145,17 @@ function BackgroundJobsPreviewContent({
     issues: jobs.filter((job) => job.status === 'failed' || job.status === 'cancelled').length,
   }), [jobs]);
 
-  if (jobsQuery.isLoading) {
+  if (jobsQuery.isLoading || (initialJobId && referencedJob.isLoading)) {
     return <AsyncState kind="loading" title={t('chat.background.loading', 'Loading background tasks…')} className="h-full rounded-none border-0" />;
   }
-  if (jobsQuery.isError) {
+  if (jobsQuery.isError || referencedJob.isError) {
     return (
       <AsyncState
         kind="error"
         title={t('chat.background.loadError', 'Unable to load background tasks')}
         description={t('chat.background.loadErrorHint', 'Check the connection and refresh this view.')}
         actionLabel={t('refresh', 'Refresh')}
-        onAction={() => void jobsQuery.refetch()}
+        onAction={() => { void jobsQuery.refetch(); if (initialJobId) void referencedJob.refetch(); }}
         className="h-full rounded-none border-0"
       />
     );
@@ -155,6 +163,11 @@ function BackgroundJobsPreviewContent({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface-work">
+      {initialJobId && !jobs.some(job => job.job_id === initialJobId) && (
+        <div role="status" className="px-3 py-2 text-xs text-muted-foreground">
+          {t('chat.background.sourceUnavailable', 'The referenced task is unavailable or you no longer have access.')}
+        </div>
+      )}
       <div className="grid shrink-0 grid-cols-3 gap-2 border-b border-edge-subtle p-3">
         {[
           { label: t('chat.background.summary.active', 'Active'), value: summary.active, icon: LoaderCircle },
@@ -224,8 +237,11 @@ function BackgroundJobsPreviewContent({
                 ? Math.min(100, Math.round((job.progress.current / total) * 100))
                 : null;
               return (
+                <PreviewContextMenu key={job.job_id}
+                  label={t('preview.reference.job', 'Quote this task')}
+                  build={() => ({ schema_version: 1, id: crypto.randomUUID(), type: 'resource', label: job.title || job.tool_name,
+                    resource: { kind: 'job', chat_id: chatId, job_id: job.job_id } })}>
                 <details
-                  key={job.job_id}
                   open={selectedJobId === job.job_id}
                   onToggle={(event) => {
                     if (event.currentTarget.open) {
@@ -373,6 +389,7 @@ function BackgroundJobsPreviewContent({
                     ) : null}
                   </div>
                 </details>
+                </PreviewContextMenu>
               );
             })}
           </div>

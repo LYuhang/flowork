@@ -66,6 +66,7 @@ const CanvasPage = lazy(() =>
 const AppLayout = lazy(() =>
   loadAppLayout().then((m) => ({ default: m.AppLayout })),
 );
+const OpenReferencedChatPage = lazy(() => import('@/pages/chat/OpenReferencedChatPage').then(m => ({ default: m.OpenReferencedChatPage })));
 const ChatPage = lazy(() =>
   loadChatPage().then((m) => ({ default: m.ChatPage })),
 );
@@ -199,6 +200,10 @@ export const router = createBrowserRouter([
           {
             index: true,
             element: <Navigate to="/chat" replace />,
+          },
+          {
+            path: 'chat/open/:chatId',
+            element: routeElement(OpenReferencedChatPage),
           },
           {
             path: 'chat',

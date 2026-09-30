@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { PreviewDescriptorV1 } from '@/lib/preview/protocol';
@@ -107,6 +107,30 @@ describe('DrawioPreviewRenderer', () => {
       'drawio-canvas',
     );
     expect(screen.getByRole('button', { name: 'Continue editing in draw.io' })).toBeVisible();
+  });
+
+  it('distinguishes renderer failure from missing content and retries rendering', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(XML)));
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:retry');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const reload = vi.fn();
+    render(<DrawioPreviewRenderer descriptor={descriptor()} loadAllowed onDirtyChange={() => undefined} onReload={reload} />);
+    const frame = await waitFor(() => {
+      const element = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]');
+      expect(element).not.toBeNull();return element!;
+    });
+    window.dispatchEvent(new MessageEvent('message', {origin:'https://embed.diagrams.net',source:frame.contentWindow,data:JSON.stringify({event:'export',data:'invalid'})}));
+    await waitFor(() => expect(document.querySelector('[data-preview-error="render_failed"]')).not.toBeNull());
+    expect(document.querySelector('[data-preview-error="content_unavailable"]')).toBeNull();
+    vi.mocked(fetch).mockResolvedValue(new Response(XML));
+    fireEvent.click(screen.getByRole('button', {name:'Try again'}));
+    expect(reload).toHaveBeenCalledOnce();
+    const retryFrame = await waitFor(() => {
+      const element = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]');
+      expect(element).not.toBeNull(); expect(element).not.toBe(frame); return element!;
+    });
+    window.dispatchEvent(new MessageEvent('message', {origin:'https://embed.diagrams.net',source:retryFrame.contentWindow,data:JSON.stringify({event:'export',data:'data:image/svg+xml;base64,PHN2Zy8+'})}));
+    expect(await screen.findByRole('img', {name:'example.drawio'})).toBeVisible();
   });
 
   it('sends SVG export through the official diagrams.net embed protocol', async () => {

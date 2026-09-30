@@ -1,3 +1,6 @@
+import { PreviewToolbar } from './PreviewToolbar';
+import { PreviewContextMenu } from './PreviewContextMenu';
+import { fileTextReference, textSelectionFromOffsets, type PreviewTextSelection } from '@/lib/preview/text-reference';
 import {
   isValidElement,
   lazy,
@@ -10,7 +13,7 @@ import {
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from 'react';
-import { Code2, Columns2, Eye, LogOut, RotateCcw, Save } from 'lucide-react';
+import { Code2, Columns2, Eye, Pencil, LogOut, RotateCcw, Save } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
@@ -69,14 +72,17 @@ async function loadText(descriptor: PreviewDescriptorV1, signal?: AbortSignal): 
 function HtmlDocument({
   descriptor,
   html,
+  unsaved = false,
   onOpenFile,
 }: {
   descriptor: PreviewDescriptorV1;
   html: string;
+  unsaved?: boolean;
   onOpenFile?: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const contextText = useRef('');
   const [documentHtml, setDocumentHtml] = useState<string | null>(null);
   const [documentRevision, setDocumentRevision] = useState(0);
   const [error, setError] = useState<PreviewErrorInfo | null>(null);
@@ -112,6 +118,20 @@ function HtmlDocument({
         return;
       }
       const message = event.data as Record<string, unknown> | null;
+      if (message?.channel === FILE_PREVIEW_CHANNEL && message.type === 'preview.context'
+          && typeof message.x === 'number' && Number.isFinite(message.x)
+          && typeof message.y === 'number' && Number.isFinite(message.y)
+          && typeof message.text === 'string' && message.text.length <= 32769) {
+        const frame = iframeRef.current;
+        if (!frame) return;
+        const rect = frame.getBoundingClientRect();
+        contextText.current = message.text;
+        frame.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,cancelable:true,
+          clientX:rect.left + Math.max(0, Math.min(rect.width, message.x)),
+          clientY:rect.top + Math.max(0, Math.min(rect.height, message.y))}));
+        return;
+      }
+
       if (
         message?.channel === FILE_PREVIEW_CHANNEL
         && message.type === 'preview.open'
@@ -128,6 +148,10 @@ function HtmlDocument({
   if (error) return <PreviewErrorState descriptor={descriptor} error={error} />;
   if (!documentHtml) return <div className="p-4 text-sm text-muted-foreground">{t('preview.html.loading', 'Loading HTML preview…')}</div>;
   return (
+    <PreviewContextMenu className="h-full" build={() => contextText.current.trim()
+      ? fileTextReference(descriptor, {text:contextText.current}, unsaved)
+      : {schema_version:1,id:crypto.randomUUID(),type:'file',label:descriptor.name,
+        resource:{kind:'file',file_ref:descriptor.fileRef,revision:descriptor.revision}}}>
     <iframe
       key={`${descriptor.revision}:${documentRevision}`}
       ref={iframeRef}
@@ -137,16 +161,19 @@ function HtmlDocument({
       onLoad={loadSandboxDocument}
       className="h-full min-h-[360px] w-full border-0 bg-white"
     />
+    </PreviewContextMenu>
   );
 }
 
 function RenderedText({
+  unsaved,
   kind,
   descriptor,
   value,
   onOpenFile,
 }: {
   kind: TextKind;
+  unsaved?: boolean;
   descriptor: PreviewDescriptorV1;
   value: string;
   onOpenFile?: (path: string) => void;
@@ -157,7 +184,7 @@ function RenderedText({
     );
   }
   if (kind === 'html') {
-    return <HtmlDocument descriptor={descriptor} html={value} onOpenFile={onOpenFile} />;
+    return <HtmlDocument descriptor={descriptor} html={value} unsaved={unsaved} onOpenFile={onOpenFile} />;
   }
   return <pre className="min-h-full whitespace-pre-wrap break-words p-4 font-mono text-xs">{value}</pre>;
 }
@@ -357,6 +384,16 @@ function TextDocumentRenderer({
   const { t } = useTranslation();
   const write = useWritePreviewFile(descriptor.fileRef);
   const [source, setSource] = useState('');
+  const [quoteSelection, setQuoteSelection] = useState<PreviewTextSelection | null>(null);
+  const captureRenderedSelection = (root: HTMLElement) => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return;
+    // Rendered Markdown offsets are not source offsets.
+    setQuoteSelection({ text: selection.toString() });
+  };
+  useEffect(() => setQuoteSelection(null), [descriptor.revision]);
   const [savedSource, setSavedSource] = useState('');
   const [mode, setMode] = useState<DisplayMode>(kind === 'text' ? 'source' : 'preview');
   const [editing, setEditing] = useState(false);
@@ -463,46 +500,46 @@ function TextDocumentRenderer({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-10 shrink-0 items-center gap-1 border-b border-edge-subtle px-2">
+      <PreviewToolbar>
         {modes.map(({ id, label, Icon }) => (
           <Button
             key={id}
             type="button"
-            size="sm"
+            size="icon-sm"
+            title={label}
+            aria-label={label}
             variant={mode === id ? 'secondary' : 'ghost'}
-            onClick={() => setMode(id)}
+            onClick={() => { setMode(id); setQuoteSelection(null); }}
           >
-            <Icon className="mr-1 h-3.5 w-3.5" />
-            {label}
+            <Icon className="h-3.5 w-3.5" />
           </Button>
         ))}
         <div className="flex-1" />
+
         {descriptor.text?.mixedNewlines ? (
           <span className="text-xs text-amber-600">{t('preview.text.mixedNewlines', 'Mixed newlines will be normalized')}</span>
         ) : null}
         {descriptor.capabilities.edit && !editing ? (
-          <Button size="sm" variant="outline" onClick={() => {
+          <Button size="icon-sm" variant="ghost" title={t('preview.action.edit', 'Edit')} aria-label={t('preview.action.edit', 'Edit')} onClick={() => {
             editRevisionRef.current = descriptor.revision;
             setEditRevision(descriptor.revision);
             setEditing(true);
             setMode('source');
           }}>
-            {t('preview.action.edit', 'Edit')}
+            <Pencil className="h-3.5 w-3.5" />
           </Button>
         ) : null}
         {editing ? (
           <div className="flex items-center gap-1">
-            <Button size="sm" variant="ghost" onClick={requestExitEditing}>
-              <LogOut className="mr-1 h-3.5 w-3.5" />
-              {t('preview.action.exitEditing', 'Exit editing')}
+            <Button size="icon-sm" variant="ghost" title={t('preview.action.exitEditing', 'Exit editing')} aria-label={t('preview.action.exitEditing', 'Exit editing')} onClick={requestExitEditing}>
+              <LogOut className="h-3.5 w-3.5" />
             </Button>
-            <Button size="sm" disabled={!dirty || write.isPending} onClick={() => void save()}>
-              <Save className="mr-1 h-3.5 w-3.5" />
-              {t('preview.action.save', 'Save')}
+            <Button size="icon-sm" title={t('preview.action.save', 'Save')} aria-label={t('preview.action.save', 'Save')} disabled={!dirty || write.isPending} onClick={() => void save()}>
+              <Save className="h-3.5 w-3.5" />
             </Button>
           </div>
         ) : null}
-      </div>
+      </PreviewToolbar>
       {conflict ? (
         <div role="alert" className="flex items-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
           <span className="min-w-0 flex-1">
@@ -525,7 +562,20 @@ function TextDocumentRenderer({
           {write.error.message}
         </div>
       ) : null}
-      <div className={cn(
+      <PreviewContextMenu build={event => {
+        let selected = (event.target as Element).closest('.cm-editor,textarea') ? quoteSelection : null;
+        const native = window.getSelection();
+        if (native && !native.isCollapsed && native.rangeCount) {
+          const range = native.getRangeAt(0);
+          if (event.currentTarget.contains(range.startContainer) && event.currentTarget.contains(range.endContainer)) {
+            selected = { text: native.toString() };
+          }
+        }
+        if (selected?.text.trim()) return fileTextReference({ ...descriptor, revision: loadedRevision || descriptor.revision }, selected, dirty);
+        return { schema_version: 1, id: crypto.randomUUID(), type: 'file', label: descriptor.name,
+          resource: { kind: 'file', file_ref: descriptor.fileRef, revision: descriptor.revision },
+          content_type: descriptor.contentType, size_bytes: descriptor.sizeBytes };
+      }} className={cn(
         'grid min-h-0 flex-1 overflow-hidden',
         mode === 'split' ? 'grid-cols-2 divide-x divide-edge-subtle' : 'grid-cols-1',
       )}>
@@ -544,22 +594,28 @@ function TextDocumentRenderer({
                 readOnly={!editing}
                 ariaLabel={`${descriptor.name} source`}
                 onChange={setSource}
+                onSelectionChange={setQuoteSelection}
               />
             </Suspense>
           ) : editing ? (
             <Textarea
               aria-label={`${descriptor.name} source`}
               value={source}
-              onChange={(event) => setSource(event.target.value)}
+              onChange={(event) => { setSource(event.target.value); setQuoteSelection(null); }}
+              onSelect={event => setQuoteSelection(textSelectionFromOffsets(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd))}
               className="h-full min-h-0 resize-none rounded-none border-0 font-mono text-xs focus-visible:ring-0"
             />
           ) : (
-            <pre className="h-full overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs">{source}</pre>
+            <pre onMouseUp={event => captureRenderedSelection(event.currentTarget)}
+              onKeyUp={event => { if (event.shiftKey) captureRenderedSelection(event.currentTarget); }}
+              className="h-full overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs">{source}</pre>
           )
         ) : null}
         {mode !== 'source' ? (
-          <div className="min-h-0 overflow-auto">
+          <div className="min-h-0 overflow-auto" onMouseUp={event => captureRenderedSelection(event.currentTarget)}
+            onKeyUp={event => { if (event.shiftKey) captureRenderedSelection(event.currentTarget); }}>
             <RenderedText
+              unsaved={dirty}
               kind={kind}
               descriptor={descriptor}
               value={source}
@@ -567,7 +623,7 @@ function TextDocumentRenderer({
             />
           </div>
         ) : null}
-      </div>
+      </PreviewContextMenu>
       <ConfirmationDialog
         open={confirmExitEditing}
         onOpenChange={setConfirmExitEditing}

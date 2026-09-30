@@ -10,9 +10,11 @@ import {
   emphasizeUserText,
   findAttachmentMention,
   insertAttachmentMention,
+  isFileAttachment,
 } from '@/components/agent-sidebar/chat-attachments';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { server } from '@/__tests__/msw-handlers';
+import { addContextToChat, fetchContextDraft } from '@/lib/api/context-draft';
 
 const SCOPE = '__chat_test';
 const CHAT = 'chat_attachment_test';
@@ -26,14 +28,14 @@ vi.mock('@/lib/api/queries/chats', async (importOriginal) => {
   return { ...actual, uploadChatAttachment: uploadChatAttachmentMock };
 });
 
-function renderComposer() {
+function renderComposer(persisted = false) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <ChatComposer wfId={SCOPE} chatId={CHAT} />
+        <ChatComposer wfId={SCOPE} chatId={CHAT} chatPersisted={persisted} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -143,8 +145,37 @@ describe('chat attachments', () => {
     });
     expect(Object.values(useChatStreamStore.getState().pendingAttachments)
       .flat()
-      .map((item) => item.name))
+      .filter(isFileAttachment).map((item) => item.name))
       .toEqual(['first.csv', 'second.md']);
+  });
+
+  it('retains a failed file for retry and holds later files in selection order', async () => {
+    uploadChatAttachmentMock.mockRejectedValueOnce(new Error('temporary network failure'));
+    const { container } = renderComposer();
+    const picker = container.querySelector('[data-role="agent-composer-file-input"]')!;
+    fireEvent.change(picker, { target: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')] } });
+    const retry = await screen.findByRole('button', { name: 'Retry upload' });
+    expect(uploadChatAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll('[data-role="agent-composer-attachment-uploading"]')).toHaveLength(2);
+    fireEvent.click(retry);
+    await waitFor(() => expect(container.querySelectorAll('[data-role="agent-composer-attachment-chip"]')).toHaveLength(2));
+    expect(Object.values(useChatStreamStore.getState().pendingAttachments).flat().filter(isFileAttachment).map(item => item.name)).toEqual(['a.txt', 'b.txt']);
+  });
+
+  it('aborts an in-flight upload without attaching its late result and continues the queue', async () => {
+    let release!: (value: unknown) => void;
+    uploadChatAttachmentMock.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const { container } = renderComposer();
+    const picker = container.querySelector('[data-role="agent-composer-file-input"]')!;
+    fireEvent.change(picker, { target: { files: [new File(['a'], 'cancel.txt')] } });
+    fireEvent.change(picker, { target: { files: [new File(['b'], 'keep.txt')] } });
+    await waitFor(() => expect(uploadChatAttachmentMock).toHaveBeenCalledTimes(1));
+    const signal = uploadChatAttachmentMock.mock.calls[0][0].signal as AbortSignal;
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel upload' })[0]);
+    expect(signal.aborted).toBe(true);
+    release({ type: 'file', name: 'cancel.txt', path: '/data/cancel.txt', content_type: 'text/plain' });
+    await waitFor(() => expect(container.querySelectorAll('[data-role="agent-composer-attachment-chip"]')).toHaveLength(1));
+    expect(Object.values(useChatStreamStore.getState().pendingAttachments).flat().filter(isFileAttachment).map(item => item.name)).toEqual(['keep.txt']);
   });
 
   it('renders commands as ordinary text and emphasizes only durable attachments', () => {
@@ -186,4 +217,49 @@ describe('chat attachments', () => {
       query: 'pho',
     });
   });
+  it('preserves native text drop instead of treating it as an upload', () => {
+    const { container } = renderComposer();
+    const target = container.querySelector('[data-role="agent-composer-dropzone"]')!;
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: {types:['text/plain'],files:[]} });
+    target.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(uploadChatAttachmentMock).not.toHaveBeenCalled();
+  });
+
+  it('does not silently upload a directory as an empty file', () => {
+    const { container } = renderComposer();
+    const target = container.querySelector('[data-role="agent-composer-dropzone"]')!;
+    fireEvent.drop(target, {dataTransfer:{types:['Files'],files:[new File([], 'folder')],
+      items:[{webkitGetAsEntry:() => ({isDirectory:true})}]}});
+    expect(uploadChatAttachmentMock).not.toHaveBeenCalled();
+  });
+
+  it('opens a saved quote on demand and preserves its line breaks', async () => {
+    const text = 'first line\n    code indentation\n' + 'long excerpt '.repeat(60);
+    render(<MessageItem message={{role:'user',content:'Explain this',tool_calls:[],attachments:[{
+      schema_version:1,type:'quote',id:'quote-one',label:'Selected message',
+      source:{kind:'message',chat_id:CHAT,message_id:'m1'},snapshot:{text},
+    }]}} />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await userEvent.click(screen.getByRole('button', {name:'View context: Selected message'}));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.querySelector('pre')?.textContent).toBe(text);
+  });
+
+  it('merges an external Preview reference into a persisted draft without sending or replacing its text', async () => {
+    const {container}=renderComposer(true);
+    const input=screen.getByRole('textbox');
+    fireEvent.change(input,{target:{value:'Keep this question'}});
+    await waitFor(async () => expect((await fetchContextDraft(CHAT)).text).toBe('Keep this question'),{timeout:2500});
+    await addContextToChat(CHAT,[{schema_version:1,type:'quote',id:'external',label:'Preview excerpt',
+      source:{kind:'message',chat_id:CHAT,message_id:'source'},snapshot:{text:'specific context'}}]);
+    await screen.findByRole('button',{name:'View context: Preview excerpt'});
+    expect(input).toHaveValue('Keep this question');
+    expect(useChatStreamStore.getState().runtimes[CHAT]?.state).not.toBe('streaming');
+    fireEvent.click(container.querySelector('[data-action="agent-composer-attachment-remove"]')!);
+    await waitFor(async () => expect((await fetchContextDraft(CHAT)).attachments).toHaveLength(0));
+    expect(input).toHaveValue('Keep this question');
+  });
+
 });

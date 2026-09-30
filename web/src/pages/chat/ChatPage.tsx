@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router';
 import { openProjectChatDraft } from '@/lib/chat/project-draft';
 import {
   Group as ResizableGroup,
@@ -74,6 +75,7 @@ import {
   useChatProjects,
   useCreateChatProject,
   useChatSessions,
+  useChatWorkspace,
   useChatState,
   useProjectWorkspace,
   useGeneralChatBootstrap,
@@ -196,6 +198,10 @@ export function ChatPage() {
   const qc = useQueryClient();
   const account = useAuthStore((state) => state.user);
   const activeChatId = useUIStore((s) => s.activeChatIds.chat);
+  const [searchParams] = useSearchParams();
+  // Empty persisted chats are intentionally absent from conversation history.
+  // A source deep link verifies their workspace independently, including reloads.
+  const resumedChat = useChatWorkspace(searchParams.get('resumeChat') === activeChatId ? activeChatId : null);
   const activeProjectId = useUIStore((s) => s.activeProjectId);
   const setActiveChatId = useUIStore((s) => s.setActiveChatId);
   const setActiveProjectId = useUIStore((s) => s.setActiveProjectId);
@@ -373,6 +379,19 @@ export function ChatPage() {
     setActivePreviewId(item.id);
     setPreviewOpen(true);
   }, [setActivePreviewId, setPreviewItems, setPreviewOpen]);
+  const focusedJobKey = useRef('');
+  const focusJob = searchParams.get('focusJob')?.slice(0, 512);
+  useEffect(() => {
+    if (!activeChatId || !focusJob || searchParams.get('resumeChat') !== activeChatId || !resumedChat.data) return;
+    const key = `${activeChatId}:${focusJob}`;
+    if (focusedJobKey.current === key) return;
+    focusedJobKey.current = key;
+    openPreviewItem({
+      id: `background_jobs:${activeChatId}:${focusJob}`,
+      title: t('chat.background.title', 'Background tasks'),
+      resource: { schemaVersion: 1, kind: 'background_jobs', chatId: activeChatId, jobId: focusJob },
+    });
+  }, [activeChatId, focusJob, searchParams, resumedChat.data, openPreviewItem, t]);
   const closePreviewItem = useCallback((id: string) => {
     setPreviewItems((prev) => {
       const index = prev.findIndex((item) => item.id === id);
@@ -460,10 +479,10 @@ export function ChatPage() {
   }, [activeChatId, carrierScopeId]);
   const activeChatIsPersisted = useMemo(
     () =>
-      ((chatSessions.data?.items ?? []) as ChatListItem[]).some(
+      (resumedChat.isSuccess && resumedChat.data.chat_id === activeChatId) || ((chatSessions.data?.items ?? []) as ChatListItem[]).some(
         (s) => s.chat_id === activeChatId,
       ),
-    [activeChatId, chatSessions.data?.items],
+    [activeChatId, chatSessions.data?.items, resumedChat.isSuccess, resumedChat.data],
   );
   useEffect(() => {
     if (activeChatId && activeChatIsPersisted) {
@@ -1265,6 +1284,7 @@ export function ChatPage() {
                   </div>
                 ) : showConversation ? (
                   <ChatMessageList
+                    focusMessageId={searchParams.get('resumeChat') === activeChatId ? searchParams.get('focusMessage') : null}
                     wfId={carrierScopeId}
                     vfsScopeId={workspaceScopeId || carrierScopeId}
                     activeChatId={activeChatId}
@@ -1405,6 +1425,7 @@ export function ChatPage() {
                       )}
                     >
                       <ChatPreviewPane
+                        originChatId={activeChatId}
                         open
                         scopeId={carrierScopeId}
                         items={previewItems}

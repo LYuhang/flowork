@@ -155,6 +155,7 @@ export interface ChatMessageListProps {
   compact?: boolean;
   workflowViewerId?: string | null;
   onOpenWorkflowPreview?: (workflowId: string) => void;
+  focusMessageId?: string | null;
   historyItems?: RawChunk[];
   historyLoading?: boolean;
   historyFetching?: boolean;
@@ -310,18 +311,13 @@ function ToolActivityGroup({
             ) : (
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-state-success" />
             )}
-            <span className="min-w-0 flex-1 truncate font-medium text-content-secondary">
-              {isActiveGroup
-                ? t('agent.tool_activity.running', 'Running tools')
-                : hasFailedCall
-                  ? t('agent.tool_activity.failed', 'Tool activity needs attention')
-                  : count === 1
-                    ? t('agent.tool_activity.complete_one', '{{count}} tool used', { count })
-                    : t('agent.tool_activity.complete_other', '{{count}} tools used', { count })}
+            <span className="min-w-0 truncate font-medium text-content-secondary" title={currentToolName}>
+              {count === 1
+                ? t('agent.tool_activity.complete_one', '{{count}} tool used', { count })
+                : t('agent.tool_activity.complete_other', '{{count}} tools used', { count })}
+              {' '}<span className="font-normal text-muted-foreground">({currentToolName})</span>
             </span>
-            <span className="text-meta hidden max-w-48 truncate sm:block">
-              {currentToolName}
-            </span>
+            {hasFailedCall && !isActiveGroup ? <span className="sr-only">{t('agent.tool_activity.failed', 'Tool activity needs attention')}</span> : null}
           </button>
           {open && (
             <div
@@ -408,6 +404,7 @@ export function ChatMessageList({
   compact = false,
   workflowViewerId,
   onOpenWorkflowPreview,
+  focusMessageId,
   historyItems: historyItemsProp,
   historyLoading: historyLoadingProp,
   hasOlderHistory = false,
@@ -685,9 +682,41 @@ export function ChatMessageList({
     requestAnimationFrame(() => scrollToBottom('auto'));
   }, [isStreaming, streamBuffer.length, merged.length, scrollToBottom]);
 
+  const focusKey = `${activeChatId ?? ''}:${focusMessageId ?? ''}`;
+  const focusedKey = useRef('');
+  const focusLoading = useRef(false);
+  const [focusErrorKey, setFocusErrorKey] = useState('');
+  useEffect(() => {
+    if (!focusMessageId || focusedKey.current === focusKey || focusErrorKey === focusKey || historyIsLoading || olderHistoryLoading) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const target = Array.from(container.querySelectorAll<HTMLElement>('[data-quotable-message]'))
+      .find(element => element.dataset.quotableMessage === focusMessageId);
+    if (target) {
+      shouldStickToBottomRef.current = false;
+      setShowJumpToBottom(true);
+      const frame = requestAnimationFrame(() => {
+        focusedKey.current = focusKey;
+        container.querySelectorAll('[data-reference-highlight]').forEach(element => element.removeAttribute('data-reference-highlight'));
+        target.setAttribute('data-reference-highlight', 'true');
+        container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 32;
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+    if (hasOlderHistory && onLoadOlderHistory) {
+      if (focusLoading.current) return;
+      focusLoading.current = true;
+      Promise.resolve(onLoadOlderHistory()).catch(() => setFocusErrorKey(focusKey))
+        .finally(() => { focusLoading.current = false; });
+    } else if (historyItems.length > 0) {
+      setFocusErrorKey(focusKey);
+    }
+  }, [focusMessageId, focusKey, focusErrorKey, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems]);
+
   return (
     <ChatRenderProvider value={{ chatId: activeChatId, surface }}>
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {focusMessageId && focusErrorKey === focusKey && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{t('composer.context.sourceMissing', 'The referenced message could not be located. Your saved excerpt is unchanged.')}</div>}
       <div
         className="sr-only"
         role="status"

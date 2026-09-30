@@ -1,12 +1,18 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PreviewOriginProvider } from '@/lib/preview/context-origin';
 import { BackgroundJobsPreview } from '../BackgroundJobsPreview';
 
 const mocks = vi.hoisted(() => ({
+  referencedJob: vi.fn(),
+  addContext: vi.fn().mockResolvedValue({}),
+  fetchDraft: vi.fn().mockResolvedValue({}),
   cancelBackgroundJob: vi.fn().mockResolvedValue({}),
 }));
+
+vi.mock('@/lib/api/context-draft', () => ({ addContextToChat: mocks.addContext, fetchContextDraft: mocks.fetchDraft }));
 
 vi.mock('@/lib/api/queries/chats', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/queries/chats')>(
@@ -15,6 +21,7 @@ vi.mock('@/lib/api/queries/chats', async () => {
   return {
     ...actual,
     cancelBackgroundJob: mocks.cancelBackgroundJob,
+    useReferencedBackgroundJob: mocks.referencedJob,
     useBackgroundJobs: () => ({
       data: [
         {
@@ -49,6 +56,46 @@ vi.mock('@/lib/api/sse/background-job-events', () => ({
 }));
 
 describe('BackgroundJobsPreview', () => {
+  beforeEach(() => mocks.referencedJob.mockReturnValue({data:null,isLoading:false,isError:false,refetch:vi.fn()}));
+  it('opens a referenced task outside the recent list', () => {
+    mocks.referencedJob.mockReturnValue({data:{job_id:'old-job', title:'Older task',status:'completed',progress:{},result:{},error:{},input:{},delivery_status:'delivered'},isLoading:false,isError:false});
+    render(<QueryClientProvider client={new QueryClient()}>
+      <BackgroundJobsPreview scopeId="scope-1" chatId="chat-1" initialJobId="old-job" />
+    </QueryClientProvider>);
+    expect(mocks.referencedJob).toHaveBeenCalledWith('scope-1','chat-1','old-job');
+    expect(screen.getByText('Older task').closest('details')).toHaveAttribute('open');
+    expect(screen.queryByText(/referenced task is unavailable/)).toBeNull();
+  });
+  it('does not misreport a transport error as a missing task', () => {
+    mocks.referencedJob.mockReturnValue({data:null,isLoading:false,isError:true,refetch:vi.fn()});
+    render(<QueryClientProvider client={new QueryClient()}>
+      <BackgroundJobsPreview scopeId="scope-1" chatId="chat-1" initialJobId="old-job" />
+    </QueryClientProvider>);
+    expect(screen.getByText('Unable to load background tasks')).toBeInTheDocument();
+    expect(screen.queryByText(/referenced task is unavailable/)).toBeNull();
+  });
+  it('explains when a directly referenced task is unavailable', () => {
+    render(<QueryClientProvider client={new QueryClient()}>
+      <BackgroundJobsPreview scopeId="scope-1" chatId="chat-1" initialJobId="missing" />
+    </QueryClientProvider>);
+    expect(screen.getByRole('status')).toHaveTextContent('The referenced task is unavailable');
+  });
+  it('quotes the right-clicked task without a permanent Quote button', async () => {
+    render(<QueryClientProvider client={new QueryClient()}>
+      <PreviewOriginProvider origin={{ chatId: 'chat-1' }}>
+        <BackgroundJobsPreview scopeId="scope-1" chatId="chat-1" />
+      </PreviewOriginProvider>
+    </QueryClientProvider>);
+    expect(screen.queryByText('Quote this task')).toBeNull();
+    fireEvent.contextMenu(screen.getByText('Research competitors'));
+    const item = await screen.findByRole('menuitem', { name: 'Quote this task' });
+    await waitFor(() => expect(item).not.toHaveAttribute('aria-disabled', 'true'));
+    fireEvent.click(item);
+    await waitFor(() => expect(mocks.addContext).toHaveBeenCalledOnce());
+    expect(mocks.addContext.mock.calls[0][0]).toBe('chat-1');
+    expect(mocks.addContext.mock.calls[0][1][0].resource).toEqual({ kind: 'job', chat_id: 'chat-1', job_id: 'job_live_1' });
+  });
+
   it('shows durable detail, opens result files, and confirms cancellation', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

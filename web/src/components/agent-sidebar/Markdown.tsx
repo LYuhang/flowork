@@ -1,3 +1,5 @@
+import { lazy, Suspense } from 'react';
+import { hasMarkdownMath, normalizeMathDelimiters } from './markdown-math';
 /**
  * Minimal Markdown renderer for chat-message bubbles.
  *
@@ -21,6 +23,8 @@ import remarkGfm from 'remark-gfm';
 import { agentFilePathFromHref } from '@/lib/preview/protocol';
 import { cn } from '@/lib/utils';
 
+const MathMarkdown = lazy(() => import('./MathMarkdown'));
+
 export interface MarkdownProps {
   children: string;
   className?: string;
@@ -36,13 +40,16 @@ export function Markdown({
   publicView = false,
   onOpenFilePreview,
 }: MarkdownProps) {
+  const math = hasMarkdownMath(children);
+  const Renderer = math ? MathMarkdown : ReactMarkdown;
   return (
     <div
       className={cn('chat-message-copy chat-markdown', className)}
       data-role="markdown"
       data-streaming={streaming || undefined}
     >
-      <ReactMarkdown
+      <Suspense fallback={<span className="whitespace-pre-wrap">{children}</span>}>
+      <Renderer
         remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => <p>{children}</p>,
@@ -117,8 +124,9 @@ export function Markdown({
           td: ({ children }) => <td>{children}</td>,
         }}
       >
-        {children}
-      </ReactMarkdown>
+        {math ? normalizeMathDelimiters(children) : children}
+      </Renderer>
+      </Suspense>
     </div>
   );
 }

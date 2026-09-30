@@ -1,3 +1,4 @@
+import { textSelectionFromOffsets, type PreviewTextSelection } from '@/lib/preview/text-reference';
 import { useCallback, useMemo, type KeyboardEvent } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { indentWithTab } from '@codemirror/commands';
@@ -21,6 +22,7 @@ export interface CodePreviewEditorProps {
   readOnly: boolean;
   ariaLabel: string;
   onChange: (next: string) => void;
+  onSelectionChange?: (selection: PreviewTextSelection | null) => void;
 }
 
 /** Professional code surface shared by every file opened through Preview. */
@@ -30,6 +32,7 @@ export function CodePreviewEditor({
   readOnly,
   ariaLabel,
   onChange,
+  onSelectionChange,
 }: CodePreviewEditorProps) {
   const { resolvedTheme } = useTheme();
   const [loadedLanguage, setLoadedLanguage] = useState<{
@@ -86,6 +89,11 @@ export function CodePreviewEditor({
         readOnly={readOnly}
         aria-label={ariaLabel}
         onChange={handleChange}
+        onUpdate={update => {
+          if (!onSelectionChange || (!update.selectionSet && !update.docChanged)) return;
+          const { from, to } = update.state.selection.main;
+          onSelectionChange(textSelectionFromOffsets(update.state.doc.toString(), from, to));
+        }}
         extensions={extensions}
         basicSetup={basicSetup}
         height="100%"

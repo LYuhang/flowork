@@ -96,3 +96,18 @@ describe('MediaPreviewRenderer', () => {
     expect(screen.getByText('Preview unavailable')).toBeInTheDocument();
   });
 });
+
+describe('media time references', () => {
+  it('captures the player position at click time rather than the last render', async () => {
+    const { MediaPreviewSurface } = await import('../MediaPreviewSurface');
+    const capture = vi.fn();
+    const { container } = render(<MediaPreviewSurface url="/audio.mp3" name="sample" kind="audio" onError={() => undefined}
+      renderTimeReference={(getTime, ready) => <button disabled={!ready} onClick={() => capture(getTime())}>Capture time</button>} />);
+    const player = container.querySelector('audio')!;
+    expect(screen.getByRole('button', { name: 'Capture time' })).toBeDisabled();
+    fireEvent.loadedMetadata(player);
+    player.currentTime = 42.125;
+    fireEvent.click(screen.getByRole('button', { name: 'Capture time' }));
+    expect(capture).toHaveBeenCalledWith(42.125);
+  });
+});

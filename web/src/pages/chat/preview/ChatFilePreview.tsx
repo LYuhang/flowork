@@ -1,3 +1,6 @@
+import { PreviewToolbarHost } from './PreviewToolbar';
+import { PreviewContextMenu } from './PreviewContextMenu';
+import { usePreviewOrigin } from '@/lib/preview/context-origin';
 import {
   forwardRef,
   lazy,
@@ -10,7 +13,7 @@ import {
   type ComponentType,
   type LazyExoticComponent,
 } from 'react';
-import { Download, ExternalLink, RefreshCw } from 'lucide-react';
+import { PreviewFileActions } from './PreviewFileActions';
 import { useTranslation } from 'react-i18next';
 
 import { AsyncState } from '@/components/ui/async-state';
@@ -82,18 +85,24 @@ export interface ChatFilePreviewHandle {
 export const ChatFilePreview = forwardRef<ChatFilePreviewHandle, {
   fileRef: FileRefV1;
   fileType?: string;
+  expectedRevision?: string | null;
+  initialPage?: number;
   allowEditing?: boolean;
   allowOpenInNewPage?: boolean;
   onOpenFile?: (path: string) => void;
 }>(function ChatFilePreview({
   fileRef,
   fileType = 'auto',
+  expectedRevision,
+  initialPage,
   allowEditing = true,
   allowOpenInNewPage = true,
   onOpenFile,
 }, forwardedRef) {
   const { t } = useTranslation();
+  const origin = usePreviewOrigin();
   const descriptorQuery = usePreviewDescriptor(fileRef);
+  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
   const [dirty, setDirty] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [manualLoadRevision, setManualLoadRevision] = useState<string | null>(null);
@@ -154,47 +163,30 @@ export const ChatFilePreview = forwardRef<ChatFilePreviewHandle, {
     );
   }
 
+  if (expectedRevision && descriptor.revision !== expectedRevision) return <AsyncState kind="error"
+    title={t('preview.reference.fileChanged', 'The source file has changed since this reference was created.')}
+    description={t('preview.reference.fileChangedHelp', 'The saved excerpt remains in the conversation. This preview cannot reproduce the original file version.')} />;
   const Renderer = rendererRegistry[descriptor.renderer];
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface-work">
-      <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-edge-subtle px-3">
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+    <PreviewToolbarHost.Provider value={toolbarHost}><div className="preview-file-container flex h-full min-h-0 flex-col bg-surface-work">
+      <div data-role="preview-file-toolbar" className="flex h-10 shrink-0 items-center gap-1 border-b border-edge-subtle px-2">
+        <div ref={setToolbarHost} className="min-w-0 flex-1 overflow-x-auto" />
+        <span className="preview-file-metadata max-w-36 truncate text-xs text-muted-foreground">
           {descriptor.contentType} · {formatBytes(descriptor.sizeBytes)}
         </span>
-        {allowOpenInNewPage ? (
-          <Button asChild variant="ghost" size="sm">
-            <a
-              href={standalonePreviewHref(descriptor.fileRef, fileType)}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={t('preview.action.openInNewPage', 'Open in new page')}
-              title={t('preview.action.openInNewPage', 'Open in new page')}
-            >
-              <ExternalLink className="mr-1 h-3.5 w-3.5" />
-              <span className="hidden sm:inline">
-                {t('preview.action.openInNewPage', 'Open in new page')}
-              </span>
-            </a>
-          </Button>
-        ) : null}
-        {descriptor.capabilities.download && descriptor.content?.url ? (
-          <Button asChild variant="ghost" size="sm">
-            <a href={descriptor.content.url} download={descriptor.name}>
-              <Download className="mr-1 h-3.5 w-3.5" />
-              {t('preview.action.download', 'Download')}
-            </a>
-          </Button>
-        ) : null}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t('preview.action.refresh', 'Refresh preview')}
-          onClick={() => void descriptorQuery.refetch()}
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-        </Button>
+
+        <PreviewFileActions
+          openHref={allowOpenInNewPage ? standalonePreviewHref(descriptor.fileRef, fileType, origin) : undefined}
+          downloadHref={descriptor.capabilities.download ? descriptor.content?.url ?? undefined : undefined}
+          filename={descriptor.name}
+          onRefresh={() => requestLeave(() => { void descriptorQuery.refetch(); })}
+        />
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <PreviewContextMenu className="min-h-0 flex-1 overflow-hidden" build={() => ({
+        schema_version: 1, id: crypto.randomUUID(), type: 'file', label: descriptor.name,
+        resource: { kind: 'file', file_ref: descriptor.fileRef, revision: descriptor.revision },
+        content_type: descriptor.contentType, size_bytes: descriptor.sizeBytes,
+      })}>
         {descriptor.loadPolicy === 'manual' && !loadAllowed ? (
           <AsyncState
             kind="empty"
@@ -227,6 +219,7 @@ export const ChatFilePreview = forwardRef<ChatFilePreviewHandle, {
               )}
             >
               <Renderer
+                initialPage={initialPage}
                 descriptor={descriptor}
                 loadAllowed={loadAllowed}
                 onDirtyChange={setDirty}
@@ -236,7 +229,7 @@ export const ChatFilePreview = forwardRef<ChatFilePreviewHandle, {
             </Suspense>
           </RendererErrorBoundary>
         )}
-      </div>
+      </PreviewContextMenu>
       <Dialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -267,6 +260,6 @@ export const ChatFilePreview = forwardRef<ChatFilePreviewHandle, {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </div></PreviewToolbarHost.Provider>
   );
 });

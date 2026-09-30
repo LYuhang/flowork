@@ -257,6 +257,7 @@ class RuntimeDurableAttachment(BaseModel):
     name: str = Field(default="", max_length=512)
     path: str = Field(default="", max_length=2_048)
     media_type: str = Field(default="", max_length=256)
+    context: dict[str, Any] | None = None
 
 
 class RuntimeDurableHistoryMessage(BaseModel):

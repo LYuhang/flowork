@@ -62,7 +62,8 @@ def _attachments(value: Any) -> list[RuntimeDurableAttachment]:
         if not isinstance(raw, dict):
             continue
         result.append(RuntimeDurableAttachment(
-            name=_bounded_text(raw.get("name") or raw.get("filename"), 512),
+            name=_bounded_text(raw.get("label") or raw.get("name") or raw.get("filename"), 512),
+            context=raw if raw.get("schema_version") == 1 else None,
             path=_bounded_text(raw.get("path"), 2_048),
             media_type=_bounded_text(
                 raw.get("media_type") or raw.get("type") or raw.get("mime_type"),

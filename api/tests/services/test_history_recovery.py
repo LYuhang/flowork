@@ -79,3 +79,17 @@ def test_history_projection_reports_rows_omitted_by_tail_query():
 
     assert snapshot.truncated is True
     assert snapshot.omitted_message_count == 599
+
+
+def test_recovery_keeps_quote_and_resource_snapshot_without_paths():
+    quote = {'schema_version': 1, 'type': 'quote', 'id': 'q', 'label': 'Excerpt',
+             'source': {'kind': 'message', 'chat_id': 'c', 'message_id': 'm'},
+             'snapshot': {'text': 'quoted\n    code'}}
+    resource = {'schema_version': 1, 'type': 'resource', 'id': 'r', 'label': 'Node',
+                'resource': {'kind': 'workflow', 'workflow_id': 'w', 'version': 'v1.sv2'},
+                'snapshot': {'text': 'resolved node configuration'}}
+    row = _row(1, role='user', text='')
+    row['content']['attachments'] = [quote, resource]
+    recovered = build_durable_history_snapshot([row])
+    assert recovered.messages[0].attachments[0].context == quote
+    assert recovered.messages[0].attachments[1].context == resource

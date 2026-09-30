@@ -1296,16 +1296,17 @@ def _turn_input(
             + "\n</user-message>"
         )
     result: list[dict[str, Any]] = [{"type": "text", "text": content}]
+    from .context_attachments import context_text
     for attachment in request.attachments:
+        reference = context_text(attachment)
+        if reference:
+            result.append({"type": "text", "text": "<user-context>\n" + reference + "\n</user-context>"})
         path = attachment.get("path")
-        name = attachment.get("name")
         kind = attachment.get("type")
         if not isinstance(path, str) or not path.startswith("/"):
             continue
-        if kind == "image":
+        if kind == "image" or str(attachment.get("content_type") or "").startswith("image/"):
             result.append({"type": "localImage", "path": path})
-        elif isinstance(name, str) and name:
-            result.append({"type": "mention", "name": name, "path": path})
     return result
 
 

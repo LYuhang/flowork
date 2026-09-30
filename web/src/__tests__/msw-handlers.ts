@@ -1,3 +1,5 @@
+import { contextAttachmentKey } from '@/components/agent-sidebar/chat-attachments';
+import type { DraftOperation, ServerDraft } from '@/lib/chat/context-draft';
 /**
  * MSW (Mock Service Worker) handler registry for vitest.
  *
@@ -62,7 +64,31 @@ export const fixtureWorkflow = (
   ...overrides,
 });
 
+const draftFixtures = new Map<string, ServerDraft>();
+const draftReceipts = new Set<string>();
+export function resetDraftFixtures() { draftFixtures.clear(); draftReceipts.clear(); }
+function draftFixture(chatId: string): ServerDraft {
+  const draft = draftFixtures.get(chatId) ?? {chat_id:chatId,version:0,generation:0,text:'',attachments:[]};
+  draftFixtures.set(chatId,draft); return draft;
+}
+
 export const handlers = [
+  http.get('*/api/v1/chats/:chatId/draft', ({params}) => HttpResponse.json(draftFixture(String(params.chatId)))),
+  http.post('*/api/v1/chats/:chatId/draft/operations', async ({params,request}) => {
+    const draft = draftFixture(String(params.chatId));
+    const operation = await request.json() as DraftOperation;
+    const receipt = `${params.chatId}:${operation.operation_id}`;
+    if (!draftReceipts.has(receipt)) {
+      if (operation.kind === 'text') {
+        if (draft.text !== operation.previous_text && draft.text !== operation.text) return HttpResponse.json({detail:'draft_text_changed_in_another_window'},{status:409});
+        draft.text = operation.text;
+      } else if (operation.kind === 'append') {
+        for (const item of operation.attachments) if (!draft.attachments.some(a => contextAttachmentKey(a) === contextAttachmentKey(item))) draft.attachments.push(item);
+      } else draft.attachments = draft.attachments.filter(a => !operation.attachment_keys.includes(contextAttachmentKey(a)));
+      draft.version++; draftReceipts.add(receipt);
+    }
+    return HttpResponse.json(draft);
+  }),
   http.get('*/api/v1/me', () =>
     HttpResponse.json({ username: 'test-user' }),
   ),

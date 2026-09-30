@@ -6,7 +6,8 @@ from datetime import datetime
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+from vibecanvas_api.schemas.context_attachments import ContextAttachment
 
 from vibecanvas_api.schemas.access import ResourceAccessOut
 
@@ -161,6 +162,8 @@ class Attachment(BaseModel):
     live in the chat VFS; only durable metadata is copied into the message.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     type: Literal["node", "edge", "ref", "file", "image", "video"]
     id: str | None = None
     source: str | None = None
@@ -180,6 +183,9 @@ class Attachment(BaseModel):
             if any(part in {"", ".", ".."} for part in self.path.split("/")[1:]):
                 raise ValueError("file attachment path contains an invalid segment")
         return self
+
+
+ChatAttachment = Attachment | ContextAttachment
 
 
 class AgentSettings(BaseModel):
@@ -300,7 +306,7 @@ class MessagePostBody(BaseModel):
     # Client-generated idempotency key. A retried POST with the same key must
     # resolve to the same durable Agent Run instead of duplicating the message.
     client_request_id: str | None = None
-    attachments: list[Attachment] = Field(default_factory=list)
+    attachments: list[ChatAttachment] = Field(default_factory=list, max_length=32)
     # Browser mode adds the extension-backed toolset. Workflow construction
     # uses the ordinary command registry (`/workflow`).
     mode: Literal["chat", "browser"] = "chat"
@@ -357,7 +363,7 @@ class HistoryMessage(BaseModel):
     id: str | None = None
     role: Literal["user", "assistant", "system", "tool"]
     content: str
-    attachments: list[Attachment] = Field(default_factory=list)
+    attachments: list[ChatAttachment] = Field(default_factory=list)
     ts: float | None = None
     tool_calls: list[dict] | None = None
     # For a ``role: "tool"`` message, the id of the tool_call it answers. The

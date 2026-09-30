@@ -1,3 +1,5 @@
+import { MessageQuoteSelection } from './MessageQuoteSelection';
+import { ContextAttachmentList } from './ContextAttachmentList';
 /**
  * One merged chat-message row.
  *
@@ -19,9 +21,7 @@ import { useChatRenderIdentity } from './chat-render-context';
 import type { MergedMessage } from './types';
 import { useAuthStore } from '@/stores/auth';
 import {
-  attachmentEmoji,
   emphasizeUserText,
-  isFileAttachment,
 } from './chat-attachments';
 
 export interface MessageItemProps {
@@ -82,7 +82,7 @@ function MessageItemComponent({
   const isSystemNotice = message.role === 'system';
   const hasContent = message.content.length > 0;
   const userInitial = getUserInitial();
-  const fileAttachments = (message.attachments ?? []).filter(isFileAttachment);
+  const attachments = message.attachments ?? [];
   const userTextParts = isUser
     ? emphasizeUserText(message.content, message.attachments ?? [])
     : [];
@@ -166,20 +166,9 @@ function MessageItemComponent({
         data-message-surface={isUser ? 'bubble' : 'plain'}
         data-message-content-rail={!isUser ? 'assistant' : undefined}
       >
-        {isUser && fileAttachments.length > 0 ? (
-          <div className="mb-2 flex max-w-full flex-wrap gap-1.5" data-role="message-attachments">
-            {fileAttachments.map((attachment) => (
-              <span
-                key={attachment.path}
-                className="flex h-8 max-w-[190px] items-center gap-1.5 rounded-md border border-focus/10 bg-background/65 px-2 text-xs"
-                title={`${attachment.name}\n${attachment.path}`}
-              >
-                <span aria-hidden="true">{attachmentEmoji(attachment.type)}</span>
-                <span className="truncate font-medium">{attachment.name}</span>
-              </span>
-            ))}
-          </div>
-        ) : null}
+        <MessageQuoteSelection chatId={identity?.chatId ?? null} messageId={message.id ?? undefined}
+          label={isUser ? t('composer.context.userExcerpt','Your message excerpt') : t('composer.context.assistantExcerpt','Assistant message excerpt')}
+          enabled={actionsEnabled && !streaming}>
         {hasContent &&
           (isUser ? (
             <div className={cn('chat-message-copy whitespace-pre-wrap', compact && 'chat-message-copy-compact')}>
@@ -206,9 +195,15 @@ function MessageItemComponent({
               {message.content}
             </Markdown>
           ))}
+        </MessageQuoteSelection>
+        {isUser && attachments.length > 0 ? (
+          <ContextAttachmentList attachments={attachments} />
+        ) : null}
+        <div className="flex flex-wrap items-center gap-1">
         {message.role === 'assistant' && hasContent && !streaming && actionsEnabled && identity?.chatId && message.id ? (
           <MessageActions chatId={identity.chatId} messageId={message.id} content={message.content} />
         ) : null}
+        </div>
       </div>
       {!compact && isUser && <MessageAvatar label={userInitial} tone="user" />}
     </div>
@@ -238,9 +233,7 @@ function sameVisibleMessage(previous: MessageItemProps, next: MessageItemProps):
   return aAttachments.every((attachment, index) => {
     const other = bAttachments[index];
     return other != null &&
-      attachment.path === other.path &&
-      attachment.name === other.name &&
-      attachment.type === other.type;
+      (attachment === other || JSON.stringify(attachment) === JSON.stringify(other));
   });
 }
 

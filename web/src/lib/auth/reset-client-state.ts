@@ -1,3 +1,4 @@
+import { CONTEXT_DRAFT_RESET_EVENT } from '@/lib/chat/context-draft';
 import { queryClient } from '@/app/query-client';
 import { clearActiveTurn } from '@/lib/api/sse/active-turn';
 import { useAgentSettingsStore } from '@/stores/agent-settings';
@@ -17,6 +18,7 @@ import { clearProjectDraftMemory } from '@/lib/chat/project-draft';
  * cursors, and selected credential ids in memory.
  */
 function resetRuntimeScopedClientState(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(CONTEXT_DRAFT_RESET_EVENT));
   queryClient.clear();
   clearRecentChatSelections();
   clearProjectDraftMemory();

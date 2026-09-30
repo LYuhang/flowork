@@ -1,3 +1,6 @@
+import { cn } from '@/lib/utils';
+import { PreviewContextMenu } from './preview/PreviewContextMenu';
+import { PreviewOriginProvider } from '@/lib/preview/context-origin';
 import { lazy, Suspense, useCallback, useRef, useState } from 'react';
 import { ChevronDown, MessageSquare, PanelRightClose, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -17,7 +20,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { ChatPreviewItem } from '@/lib/chat/preview-state';
-import { cn } from '@/lib/utils';
 import type { ChatFilePreviewHandle } from './preview/ChatFilePreview';
 
 const ChatFilePreview = lazy(() =>
@@ -31,6 +33,7 @@ const BackgroundJobsPreview = lazy(() =>
 );
 export interface ChatPreviewPaneProps {
   scopeId: string;
+  originChatId?: string | null;
   open: boolean;
   items: ChatPreviewItem[];
   resources: ChatPreviewItem[];
@@ -45,12 +48,12 @@ export interface ChatPreviewPaneProps {
 
 export function ChatPreviewPane({
   scopeId,
+  originChatId,
   open,
   items,
   resources,
   activeId,
   onToggleOpen,
-  onSelect,
   onOpenResource,
   onOpenInteractiveFile,
   onCloseItem,
@@ -58,6 +61,7 @@ export function ChatPreviewPane({
 }: ChatPreviewPaneProps) {
   const { t } = useTranslation();
   const [resourcesOpen, setResourcesOpen] = useState(false);
+  const selectableResources = [...items, ...resources.filter(resource => !items.some(item => item.id === resource.id))];
   const active = items.find((item) => item.id === activeId) ?? items[0] ?? null;
   const activeInteractive = active?.resource.kind === 'interactive'
     ? active as Extract<ChatPreviewItem, { artifact: unknown }>
@@ -91,6 +95,7 @@ export function ChatPreviewPane({
         : t('chat.preview.type.empty', 'No resource');
 
   return (
+    <PreviewOriginProvider origin={originChatId ? { chatId: originChatId } : null}>
     <aside
       className="chat-preview-pane flex h-full w-full min-w-0 flex-col bg-surface-work"
       data-role="chat-preview-pane"
@@ -111,11 +116,11 @@ export function ChatPreviewPane({
           <DropdownMenuContent align="start" className="w-72">
             <DropdownMenuLabel>{t('chat.preview.resources', 'Preview resources')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {resources.length === 0 ? (
+            {selectableResources.length === 0 ? (
               <DropdownMenuItem disabled>
                 {t('chat.preview.noResources', 'No preview resources yet')}
               </DropdownMenuItem>
-            ) : resources.map((item) => (
+            ) : selectableResources.map((item) => (
               <DropdownMenuItem
                 key={item.id}
                 className="min-w-0"
@@ -142,6 +147,11 @@ export function ChatPreviewPane({
             </span>
           </button>
         </div>
+
+        {active ? <Button variant="ghost" size="icon-sm"
+          title={t('chat.preview.closeItem', 'Close preview item')}
+          aria-label={t('chat.preview.closeItem', 'Close preview item')}
+          onClick={() => runWithActiveLeaveGuard(() => onCloseItem(active.id))}><X className="h-4 w-4" /></Button> : null}
         <Button
           variant="ghost"
           size="icon"
@@ -152,51 +162,6 @@ export function ChatPreviewPane({
           <PanelRightClose className="h-4 w-4" />
         </Button>
       </div>
-      {items.length > 1 ? (
-        <div className="chat-pane-subheader app-scrollbar flex h-9 shrink-0 gap-1 overflow-x-auto px-2 py-1">
-          {items.map((item) => {
-            const selected = active?.id === item.id;
-            return (
-              <div
-                key={item.id}
-                className={cn(
-                  'group flex min-w-0 max-w-[180px] items-center gap-1.5 border-b-2 px-2 text-left text-xs transition-colors duration-feedback',
-                  selected
-                    ? 'border-focus bg-surface-work text-foreground'
-                    : 'border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-                )}
-                title={item.title}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 truncate text-left"
-                  onClick={() => {
-                    if (item.id === active?.id) return;
-                    runWithActiveLeaveGuard(() => onSelect(item.id));
-                  }}
-                >
-                  {item.title}
-                </button>
-                <button
-                  type="button"
-                  className="rounded p-0.5 opacity-55 hover:bg-background hover:opacity-100"
-                  aria-label={t('chat.preview.closeItem', 'Close preview item')}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (item.id === active?.id) {
-                      runWithActiveLeaveGuard(() => onCloseItem(item.id));
-                    } else {
-                      onCloseItem(item.id);
-                    }
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
       <div
         className="min-h-0 flex-1 overflow-hidden bg-surface-work"
         data-role="chat-preview-content"
@@ -221,7 +186,11 @@ export function ChatPreviewPane({
         ) : active.resource.kind === 'interactive' ? (
           <div className="flex h-full flex-col bg-surface-work">
             <div className={cn('min-h-0 flex-1', isFullPanePreview ? 'overflow-hidden' : 'overflow-auto p-4')}>
-              <div className={cn(
+              <PreviewContextMenu build={() => {
+                if (!activeInteractive?.artifact.artifact_id || !originChatId) throw new Error('artifact_unavailable');
+                return { schema_version: 1, id: crypto.randomUUID(), type: 'resource', label: activeInteractive.title,
+                  resource: { kind: 'artifact', chat_id: originChatId, artifact_id: activeInteractive.artifact.artifact_id } };
+              }} className={cn(
                 'overflow-hidden bg-surface-raised',
                 isFullPanePreview ? 'h-full min-h-0' : 'rounded-lg border border-edge-subtle',
               )}>
@@ -232,7 +201,7 @@ export function ChatPreviewPane({
                   onSubmitAsNewMessage={onSubmitInteractiveAsNewMessage}
                   onOpenFilePreview={openFileWithActiveLeaveGuard}
                 />
-              </div>
+              </PreviewContextMenu>
             </div>
           </div>
         ) : (
@@ -248,5 +217,6 @@ export function ChatPreviewPane({
         )}
       </div>
     </aside>
+    </PreviewOriginProvider>
   );
 }

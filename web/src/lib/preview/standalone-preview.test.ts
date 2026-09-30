@@ -1,3 +1,4 @@
+import { previewOriginFromSearch } from './context-origin';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -8,6 +9,16 @@ import {
 } from '@/lib/preview/standalone-preview';
 
 describe('standalone Preview links', () => {
+  it('preserves source conversation independently of file ownership through a refreshed URL', () => {
+    const origin = { chatId: 'chat-original', messageId: 'message-2', artifactId: 'artifact-3' };
+    const hrefs = [
+      standalonePreviewHref({ schemaVersion: 1, scope: 'project', projectId: 'different-owner', path: '/data/test.txt' }, 'text', origin),
+      standaloneWorkflowPreviewHref('workflow-1', 'v2.sv4', origin),
+    ];
+    for (const href of hrefs) expect(previewOriginFromSearch(new URL(href, 'https://flowork.test').searchParams)).toEqual(origin);
+    expect(previewOriginFromSearch(new URLSearchParams('projectId=owner'))).toBeNull();
+    expect(previewOriginFromSearch(new URLSearchParams({ originChatId: 'x'.repeat(513) }))).toBeNull();
+  });
   it('uses the runtime deployment prefix for file and workflow links', () => {
     const previous = window.__VIBECANVAS_RUNTIME_CONFIG__;
     window.__VIBECANVAS_RUNTIME_CONFIG__ = { basePath: '/team/studio/' };

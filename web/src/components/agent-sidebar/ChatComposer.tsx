@@ -1,3 +1,6 @@
+import { CONTEXT_DRAFT_RESET_EVENT } from '@/lib/chat/context-draft';
+import { discardReloadedDraft, useContextDraft } from '@/lib/chat/use-context-draft';
+import { ContextAttachmentCard } from './ContextAttachmentCard';
 /**
  * Bottom-half composer in the agent sidebar.
  *
@@ -34,7 +37,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
 import { acceptProjectChatDraft } from '@/lib/chat/project-draft';
-import { Blocks, BrainCircuit, FileText, Image, Loader2, Paperclip, RotateCcw, Send, SlidersHorizontal, Square, Video, X } from 'lucide-react';
+import { Blocks, BrainCircuit, FileText, Image, Loader2, Paperclip, RotateCcw, Send, SlidersHorizontal, Square, Video } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -90,6 +93,7 @@ import {
 } from '@/lib/api/queries/chats';
 import {
   attachmentEmoji,
+  contextAttachmentKey,
   findAttachmentMention,
   inferredAttachmentType,
   insertAttachmentMention,
@@ -114,16 +118,23 @@ import { RuntimeModelPicker } from './RuntimeModelPicker';
 const PINNED_VERSION_PATHNAME_RE =
   /^\/workflow\/[^/]+\/version\/v\d+\.sv\d+$/;
 
-type Attachment = components['schemas']['Attachment'];
+type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 const EMPTY_ATTACHMENTS: Attachment[] = [];
 
-const MAX_ATTACHMENTS_PER_TURN = 12;
+const MAX_ATTACHMENTS_PER_TURN = 32;
 
 interface PendingUpload {
   id: string;
   composerKey: string;
   name: string;
   type: ChatFileAttachmentType;
+  file: File;
+  chatId: string;
+  scopeId: string;
+  projectId?: string | null;
+  controller: AbortController;
+  status: 'queued' | 'uploading' | 'failed';
+  error?: string;
 }
 
 export interface ChatComposerProps {
@@ -275,6 +286,17 @@ export function ChatComposer({
   const [mentionActiveIdx, setMentionActiveIdx] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
+  const uploadQueue = useRef<PendingUpload[]>([]);
+  const uploadQueueBusy = useRef(false);
+  useEffect(() => {
+    const clear = () => {
+      for (const item of uploadQueue.current) item.controller.abort();
+      uploadQueue.current = [];
+    };
+    const reset = () => { clear(); setUploads([]); };
+    window.addEventListener(CONTEXT_DRAFT_RESET_EVENT, reset);
+    return () => { window.removeEventListener(CONTEXT_DRAFT_RESET_EVENT, reset); clear(); };
+  }, []);
   const [dragActive, setDragActive] = useState(false);
   // Soft inline notice (e.g. "no extension connected") shown under the
   // composer when a `/browser` send can't reach an extension. Cleared on the
@@ -355,17 +377,69 @@ export function ChatComposer({
   // submission. This lets the textarea clear immediately without losing text
   // if the request is rejected before it acquires the Chat turn lease.
   const optimisticSubmissionRef = useRef(false);
+  const preparationRef = useRef(false);
+  const [draftPreparing, setDraftPreparing] = useState(false);
+  const [attachmentCreatedChat, setAttachmentCreatedChat] = useState<string | null>(null);
+
+  const processUploadQueue = useCallback(async () => {
+    if (uploadQueueBusy.current) return;
+    uploadQueueBusy.current = true;
+    try {
+      while (uploadQueue.current.length) {
+        const item = uploadQueue.current[0];
+        if (item.status === 'failed') break;
+        item.status = 'uploading';
+        setUploads([...uploadQueue.current]);
+        try {
+          const attachment = await uploadChatAttachment({ scopeId: item.scopeId, chatId: item.chatId,
+            projectId: item.projectId, file: item.file, type: item.type, signal: item.controller.signal });
+          if (!item.controller.signal.aborted) {
+            useChatStreamStore.getState().addAttachment(item.composerKey, attachment);
+            setAttachmentCreatedChat(item.chatId);
+          }
+          uploadQueue.current = uploadQueue.current.filter(candidate => candidate.id !== item.id);
+        } catch (error) {
+          if (item.controller.signal.aborted) {
+            uploadQueue.current = uploadQueue.current.filter(candidate => candidate.id !== item.id);
+          } else {
+            item.status = 'failed';
+            item.error = error instanceof Error ? error.message : String(error);
+            toast.error(t('composer.attachment_upload_failed', { name: item.name, reason: item.error,
+              defaultValue: `Could not upload ${item.name}.` }));
+          }
+        }
+        setUploads([...uploadQueue.current]);
+      }
+    } finally { uploadQueueBusy.current = false; }
+  }, [t]);
+  const cancelUpload = (item: PendingUpload) => {
+    item.controller.abort();
+    uploadQueue.current = uploadQueue.current.filter(candidate => candidate.id !== item.id);
+    setUploads([...uploadQueue.current]);
+    void processUploadQueue();
+  };
+  const retryUpload = (item: PendingUpload) => {
+    item.controller = new AbortController(); item.status = 'queued'; item.error = undefined;
+    setUploads([...uploadQueue.current]);
+    void processUploadQueue();
+  };
 
   const uploadFiles = useCallback(async (
     inputFiles: readonly File[],
     requestedType?: ChatFileAttachmentType,
   ) => {
-    if (!chatId || !composerStateKey || inputFiles.length === 0 || isStreaming || readOnly || !historyReady) return;
+    if (inputFiles.length === 0) return;
+    if (!chatId || !composerStateKey || readOnly || !historyReady) {
+      toast.error(t('composer.attachments_not_ready', 'This conversation is not ready for attachments. Please wait or open an editable conversation.'));
+      return;
+    }
+    // Uploads during a running turn belong to the next draft.
+
     const capacity = Math.max(
       0,
       MAX_ATTACHMENTS_PER_TURN -
         (useChatStreamStore.getState().pendingAttachments[composerStateKey]?.length ?? 0) -
-        activeUploads.length,
+        uploadQueue.current.filter(item => item.composerKey === composerStateKey).length,
     );
     const files = inputFiles.slice(0, capacity);
     if (files.length === 0) {
@@ -382,42 +456,15 @@ export function ChatComposer({
       }));
     }
 
-    const batch = files.map((file) => ({
-      file,
-      pending: {
-        id: crypto.randomUUID(),
-        composerKey: composerStateKey,
-        name: file.name,
-        type: requestedType ?? inferredAttachmentType(file),
-      } satisfies PendingUpload,
+    const batch: PendingUpload[] = files.map(file => ({
+      id: crypto.randomUUID(), composerKey: composerStateKey, name: file.name,
+      type: requestedType ?? inferredAttachmentType(file), file, chatId, scopeId: wfId, projectId,
+      controller: new AbortController(), status: 'queued',
     }));
-    setUploads((current) => [...current, ...batch.map((item) => item.pending)]);
-
-    // Preserve selection order and avoid making every file compete to create
-    // a brand-new Chat. The API also serializes first creation across workers,
-    // but a short client-side queue avoids redundant authorization/projection
-    // work and gives attachment chips a deterministic order.
-    for (const { file, pending } of batch) {
-      try {
-        const attachment = await uploadChatAttachment({
-          scopeId: wfId,
-          chatId,
-          projectId,
-          file,
-          type: pending.type,
-        });
-        useChatStreamStore.getState().addAttachment(composerStateKey, attachment);
-      } catch (error) {
-        toast.error(t('composer.attachment_upload_failed', {
-          name: file.name,
-          reason: error instanceof Error ? error.message : String(error),
-          defaultValue: `Could not upload ${file.name}.`,
-        }));
-      } finally {
-        setUploads((current) => current.filter((item) => item.id !== pending.id));
-      }
-    }
-  }, [activeUploads.length, chatId, composerStateKey, historyReady, isStreaming, projectId, readOnly, t, wfId]);
+    uploadQueue.current.push(...batch);
+    setUploads([...uploadQueue.current]);
+    await processUploadQueue();
+  }, [chatId, composerStateKey, historyReady, projectId, readOnly, t, wfId, processUploadQueue]);
 
   const handleFileInput = useCallback((
     event: ChangeEvent<HTMLInputElement>,
@@ -449,17 +496,38 @@ export function ChatComposer({
   }, []);
 
   const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
     event.preventDefault();
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) setDragActive(false);
   }, []);
 
   const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
     dragDepthRef.current = 0;
     setDragActive(false);
-    void uploadFiles(Array.from(event.dataTransfer.files ?? []));
-  }, [uploadFiles]);
+    const types = Array.from(event.dataTransfer.types);
+    if (!types.includes('Files')) {
+      // Native text drops retain their caret/selection behavior. URL/image
+      // drags without bytes must not masquerade as successful file uploads.
+      if (types.includes('text/uri-list')) {
+        event.preventDefault();
+        toast.info(t('composer.drop_link_hint', 'This drag contains a link, not a file. Paste the link into your message or download the file before attaching it.'));
+      }
+      return;
+    }
+    event.preventDefault();
+    const items = Array.from(event.dataTransfer.items ?? []);
+    if (items.some(item => item.webkitGetAsEntry?.()?.isDirectory)) {
+      toast.error(t('composer.drop_directory', 'Folders cannot be attached directly. Select individual files or upload an archive.'));
+      return;
+    }
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (files.length === 0) {
+      toast.error(t('composer.drop_empty', 'No readable file was provided by this drag. Please use the file picker.'));
+      return;
+    }
+    void uploadFiles(files);
+  }, [t, uploadFiles]);
 
   useEffect(() => {
     if (!composerStorageKey || !composerStateKey || !account) {
@@ -467,7 +535,7 @@ export function ChatComposer({
       return;
     }
     try {
-      const raw = window.localStorage.getItem(composerStorageKey);
+      const raw = discardReloadedDraft(composerStateKey) ? null : window.localStorage.getItem(composerStorageKey);
       const current = useChatStreamStore.getState();
       if (raw && !current.composerInputs[composerStateKey] && !current.pendingAttachments[composerStateKey]?.length) {
         const parsed = JSON.parse(raw) as { text?: unknown; attachments?: unknown };
@@ -489,22 +557,9 @@ export function ChatComposer({
     hydratedComposerKeyRef.current = composerStateKey;
   }, [account, composerStateKey, composerStorageKey]);
 
-  useEffect(() => {
-    if (!composerStorageKey || hydratedComposerKeyRef.current !== composerStateKey) return;
-    if (optimisticSubmissionRef.current) return;
-    try {
-      if (!value && pendingAttachments.length === 0) {
-        window.localStorage.removeItem(composerStorageKey);
-      } else {
-        window.localStorage.setItem(
-          composerStorageKey,
-          JSON.stringify({ text: value, attachments: pendingAttachments }),
-        );
-      }
-    } catch {
-      // Draft editing remains functional if device-local storage is unavailable.
-    }
-  }, [composerStateKey, composerStorageKey, pendingAttachments, value]);
+  const draftSyncEnabled = historyReady && !readOnly && (chatPersisted || attachmentCreatedChat === chatId);
+  const contextDraft = useContextDraft(composerStateKey, chatId, draftSyncEnabled);
+
 
   useEffect(() => {
     let active = true;
@@ -559,6 +614,8 @@ export function ChatComposer({
     !externallyDisabled;
   const canSend =
     !!chatId &&
+    !draftPreparing &&
+    !contextDraft?.conflict &&
     !updateProjectMcp.isPending &&
     (value.trim().length > 0 || pendingAttachments.length > 0) &&
     activeUploads.length === 0 &&
@@ -608,7 +665,7 @@ export function ChatComposer({
   };
 
   const handleSend = async () => {
-    if (!canSend) return;
+    if (!canSend || preparationRef.current) return;
     // The backend's atomic Chat claim is the sole authority for concurrent
     // Turns. A preflight active-turn GET used to block the optimistic bubble
     // and textarea clear on every send, while still being inherently racy.
@@ -637,6 +694,27 @@ export function ChatComposer({
       content = value.trim();
       mode = undefined;
     }
+
+    preparationRef.current = true;
+    setDraftPreparing(true);
+    try {
+      if (draftSyncEnabled && contextDraft) {
+        setValue(content);
+        await contextDraft.flush();
+        const latest = composerStateKey ? useChatStreamStore.getState().composerInputs[composerStateKey] : content;
+        if ((latest ?? '').trim() !== content) {
+          toast.info(t('composer.context.changedBeforeSend', 'Your draft changed while syncing. Review it and send again.'));
+          return;
+        }
+      }
+    } catch (error) {
+      toast.error(t('composer.context.syncFailed', 'Could not sync the draft. Your message is preserved; retry before sending.'));
+      return;
+    } finally {
+      preparationRef.current = false;
+      setDraftPreparing(false);
+    }
+    contextDraft?.beginSend();
 
     // Read pending attachments via getState so we always capture the
     // freshest value (the chips list may have shifted between renders
@@ -667,7 +745,7 @@ export function ChatComposer({
     // first: otherwise the newly-mounted conversation composer would hydrate
     // the just-sent text back into its textarea. The in-memory `content` and
     // `attachments` snapshots below remain the rollback source of truth.
-    if (composerStorageKey) localStorage.removeItem(composerStorageKey);
+    contextDraft?.save();
     onSendStart?.();
     let accepted = false;
     await doSend(
@@ -679,22 +757,8 @@ export function ChatComposer({
       () => {
         accepted = true;
         optimisticSubmissionRef.current = false;
-        // The user can already be drafting a follow-up while acceptance is
-        // pending. Persist that newer draft instead of deleting it.
-        if (composerStorageKey && composerStateKey) {
-          const current = useChatStreamStore.getState();
-          const nextText = current.composerInputs[composerStateKey] ?? '';
-          const nextAttachments = current.pendingAttachments[composerStateKey] ?? [];
-          try {
-            if (nextText || nextAttachments.length) {
-              localStorage.setItem(composerStorageKey, JSON.stringify({ text: nextText, attachments: nextAttachments }));
-            } else {
-              localStorage.removeItem(composerStorageKey);
-            }
-          } catch {
-            // The in-memory draft remains editable when storage is unavailable.
-          }
-        }
+        setAttachmentCreatedChat(chatId);
+        void contextDraft?.finishSend(true).catch(() => undefined);
         void runtimeCapabilitiesQuery.refetch();
         if (projectId && agentSurface !== 'browser') {
           acceptProjectChatDraft(account, projectId, wfId, chatId as string);
@@ -713,9 +777,19 @@ export function ChatComposer({
       // A 409 race, pre-accept disconnect, or malformed success response must
       // never eat the user's text or attachments.
       optimisticSubmissionRef.current = false;
-      setValue((current) => current ? `${content}\n\n${current}` : content);
-      if (composerStateKey) {
-        useChatStreamStore.getState().setAttachments(composerStateKey, attachments);
+      if (draftSyncEnabled && contextDraft) {
+        // A missing acceptance event does not prove the server rejected the
+        // message. The durable draft controller owns conditional restoration.
+        void contextDraft.finishSend(false).catch(() => undefined);
+      } else {
+        setValue((current) => current ? `${content}\n\n${current}` : content);
+        if (composerStateKey) {
+          const currentAttachments = useChatStreamStore.getState().pendingAttachments[composerStateKey] ?? [];
+          const keys = new Set(attachments.map(contextAttachmentKey));
+          useChatStreamStore.getState().setAttachments(composerStateKey,
+            [...attachments, ...currentAttachments.filter(item => !keys.has(contextAttachmentKey(item)))]);
+        }
+        if (contextDraft) { contextDraft.sending = false; contextDraft.submission = undefined; contextDraft.save(); }
       }
       textareaRef.current?.focus();
     }
@@ -977,6 +1051,19 @@ export function ChatComposer({
           )}
           data-role="agent-composer-dropzone"
         >
+          {draftSyncEnabled && (contextDraft?.error || contextDraft?.conflict) && (
+            <div className="m-2 rounded-lg border border-state-warning/25 bg-state-warning/5 p-2 text-xs" role="status">
+              <p>{contextDraft.conflict
+                ? t('composer.context.conflict', 'The draft was edited in another window. Choose which text to keep; attachments are merged.')
+                : t('composer.context.syncFailed', 'Could not sync the draft. Your message is preserved; retry before sending.')}</p>
+              <div className="mt-1 flex flex-wrap gap-3">
+                {contextDraft.conflict ? <>
+                  <button type="button" className="font-medium underline" onClick={() => void contextDraft.chooseText(true).catch(() => undefined)}>{t('composer.context.keepLocal','Keep my text')}</button>
+                  <button type="button" className="font-medium underline" onClick={() => void contextDraft.chooseText(false).catch(() => undefined)}>{t('composer.context.useRemote','Use saved text')}</button>
+                </> : <button type="button" className="font-medium underline" onClick={() => void contextDraft.refresh().then(() => contextDraft.flush()).catch(() => undefined)}>{t('retry','Retry')}</button>}
+              </div>
+            </div>
+          )}
           {(pendingAttachments.length > 0 || activeUploads.length > 0) && (
             <div
               className={cn(
@@ -985,42 +1072,14 @@ export function ChatComposer({
               )}
               data-role="agent-composer-attachments"
             >
-              {pendingAttachments.map((attachment, index) => {
-                const isFile = isFileAttachment(attachment);
-                const label = isFile
-                  ? attachment.name
-                  : attachment.type === 'edge'
-                    ? `${attachment.source ?? '?'}→${attachment.target ?? '?'}`
-                    : (attachment.id ?? '?');
-                return (
-                  <span
-                    key={isFile ? attachment.path : `${attachment.type}:${label}:${index}`}
-                    className="group relative flex h-11 w-[164px] shrink-0 items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken/65 px-2.5 pr-7 text-xs"
-                    title={isFile ? `${attachment.name}\n${attachment.path}` : label}
-                    data-role="agent-composer-attachment-chip"
-                    data-attachment-type={attachment.type}
-                  >
-                    <span className="text-base" aria-hidden="true">
-                      {attachmentEmoji(attachment.type)}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium text-foreground">{label}</span>
-                      <span className="block truncate text-xs uppercase text-muted-foreground">
-                        {attachment.type}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => composerStateKey && removeAttachmentAt(composerStateKey, index)}
-                      className="absolute right-1.5 top-1.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                      aria-label={t('composer.remove_attachment', 'Remove attachment')}
-                      data-action="agent-composer-attachment-remove"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                );
-              })}
+              {pendingAttachments.map((attachment, index) => (
+                <ContextAttachmentCard key={contextAttachmentKey(attachment)} attachment={attachment} originChatId={chatId}
+                  onRemove={() => {
+                    if (!composerStateKey) return;
+                    removeAttachmentAt(composerStateKey,index);
+                    if (draftSyncEnabled) void contextDraft?.remove(attachment).catch(() => undefined);
+                  }} />
+              ))}
               {activeUploads.map((upload) => (
                 <span
                   key={upload.id}
@@ -1031,10 +1090,15 @@ export function ChatComposer({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{upload.name}</span>
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                      {t('composer.uploading', 'Uploading…')}
+                      {upload.status === 'uploading' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
+                      <span title={upload.error}>{upload.status === 'failed' ? t('composer.uploadFailed', 'Upload failed')
+                        : upload.status === 'queued' ? t('composer.uploadQueued', 'Waiting…') : t('composer.uploading', 'Uploading…')}</span>
                     </span>
                   </span>
+                  {upload.status === 'failed' ? <button type="button" className="shrink-0 rounded px-1 hover:bg-surface-hover"
+                    aria-label={t('composer.retryUpload', 'Retry upload')} onClick={() => retryUpload(upload)}>↻</button> : null}
+                  <button type="button" className="shrink-0 rounded px-1 hover:bg-surface-hover"
+                    aria-label={t('composer.cancelUpload', 'Cancel upload')} onClick={() => cancelUpload(upload)}>×</button>
                 </span>
               ))}
             </div>
@@ -1081,6 +1145,7 @@ export function ChatComposer({
             )}
             aria-autocomplete="list"
             data-role="agent-composer-input"
+            data-context-chat={chatId ?? undefined}
             data-chat-id={chatId ?? undefined}
             data-history-ready={historyReady ? 'true' : 'false'}
           />

@@ -1,3 +1,4 @@
+import { PreviewToolbar } from './PreviewToolbar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, ExternalLink, Focus, ZoomIn, ZoomOut } from 'lucide-react';
 import { toast } from 'sonner';
@@ -41,8 +42,10 @@ export function DrawioPreviewRenderer({
   descriptor,
   fitRequest = 0,
   surface = 'full',
+  onReload,
 }: DrawioPreviewRendererProps) {
   const { t } = useTranslation();
+  const [retry, setRetry] = useState(0);
   const resourceUrl = descriptor.content?.url ?? null;
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -81,7 +84,7 @@ export function DrawioPreviewRenderer({
         }
       });
     return () => controller.abort();
-  }, [descriptor.revision, resourceUrl]);
+  }, [descriptor.revision, resourceUrl, retry]);
 
   const currentSource = source?.url === resourceUrl ? source : null;
   const xml = currentSource?.xml ?? null;
@@ -120,7 +123,7 @@ export function DrawioPreviewRenderer({
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [descriptor, xml]);
+  }, [xml, retry]);
 
   const currentRender = rendered?.xml === xml ? rendered : null;
   const currentImageSize = imageSize?.url === currentRender?.url ? imageSize : null;
@@ -170,14 +173,18 @@ export function DrawioPreviewRenderer({
     });
   }, []);
 
+  const retryPreview = () => {
+    setSource(null); setRendered(null); setRetry(value => value + 1); onReload?.();
+  };
   if (failed) {
-    return <PreviewErrorState descriptor={descriptor} error={{ code: 'content_unavailable', params: {} }} />;
+    return <PreviewErrorState descriptor={descriptor} error={{ code: 'content_unavailable', params: {} }} onRetry={retryPreview} />;
   }
   if (invalid) {
     return <PreviewErrorState descriptor={descriptor} error={{ code: 'invalid_file', params: {} }} />;
   }
   if (currentRender?.failed) {
-    return <PreviewErrorState descriptor={descriptor} error={{ code: 'content_unavailable', params: {} }} />;
+    return <PreviewErrorState descriptor={descriptor} error={{ code: 'render_failed', params: {} }}
+      message={t('preview.drawio.renderUnavailable', 'The file was read, but the draw.io renderer could not finish. Check your connection to diagrams.net and try again.')} onRetry={retryPreview} />;
   }
   if (!currentRender?.url || !xml) {
     return <AsyncState kind="loading" title={t('preview.drawio.loading', 'Loading draw.io preview…')} className="h-full rounded-none border-0" />;
@@ -186,20 +193,20 @@ export function DrawioPreviewRenderer({
   return (
     <div className="relative h-full min-h-72 w-full bg-white" data-role="drawio-preview">
       {surface === 'full' ? (
-        <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-edge-structural bg-background/95 p-1 shadow-sm backdrop-blur">
-          <Button size="icon" variant="ghost" title={t('preview.action.zoomOut', 'Zoom out')} onClick={() => zoomAtCenter(0.8)}>
+        <PreviewToolbar>
+          <Button size="icon-sm" variant="ghost" aria-label={t('preview.action.zoomOut', 'Zoom out')} title={t('preview.action.zoomOut', 'Zoom out')} onClick={() => zoomAtCenter(0.8)}>
             <ZoomOut className="h-3.5 w-3.5" />
           </Button>
-          <Button size="icon" variant="ghost" title={t('preview.action.zoomIn', 'Zoom in')} onClick={() => zoomAtCenter(1.25)}>
+          <Button size="icon-sm" variant="ghost" aria-label={t('preview.action.zoomIn', 'Zoom in')} title={t('preview.action.zoomIn', 'Zoom in')} onClick={() => zoomAtCenter(1.25)}>
             <ZoomIn className="h-3.5 w-3.5" />
           </Button>
-          <Button size="icon" variant="ghost" title={t('preview.drawio.fit', 'Fit diagram')} onClick={() => fitToViewport()}>
+          <Button size="icon-sm" variant="ghost" title={t('preview.drawio.fit', 'Fit diagram')} aria-label={t('preview.drawio.fit', 'Fit diagram')} onClick={() => fitToViewport()}>
             <Focus className="h-3.5 w-3.5" />
           </Button>
           <Button
-            size="sm"
+            size="icon-sm"
             variant="ghost"
-            title={t('preview.drawio.continueEditing', 'Continue editing in draw.io')}
+            title={t('preview.drawio.continueEditing', 'Continue editing in draw.io')} aria-label={t('preview.drawio.continueEditing', 'Continue editing in draw.io')}
             onClick={() => {
               void openDrawioEditor(xml, descriptor.name).catch((error: unknown) => {
                 toast.error(error instanceof Error
@@ -208,15 +215,13 @@ export function DrawioPreviewRenderer({
               });
             }}
           >
-            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-            {t('preview.drawio.continueEditing', 'Continue editing in draw.io')}
+            <ExternalLink className="h-3.5 w-3.5" />
           </Button>
           {descriptor.capabilities.download ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" disabled={exporting !== null}>
-                  <Download className="mr-1.5 h-3.5 w-3.5" />
-                  {exporting ? 'Exporting…' : 'Export'}
+                <Button size="icon-sm" variant="ghost" disabled={exporting !== null} title={t('common.export', 'Export')} aria-label={t('common.export', 'Export')}>
+                  <Download className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -238,7 +243,7 @@ export function DrawioPreviewRenderer({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-        </div>
+        </PreviewToolbar>
       ) : null}
       <div
         ref={viewportRef}

@@ -28,7 +28,7 @@ import type {
 import type { TodoItem } from '@/stores/chat-stream';
 import type { components } from '@/lib/api/schema';
 
-export type ChatAttachment = components['schemas']['Attachment'];
+export type ChatAttachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 export type ChatFileAttachmentType = 'file' | 'image' | 'video';
 
 export interface ChatBootstrap {
@@ -224,6 +224,7 @@ export async function uploadChatAttachment(args: {
   projectId?: string | null;
   file: File;
   type: ChatFileAttachmentType;
+  signal?: AbortSignal;
 }): Promise<ChatAttachment> {
   const body = new FormData();
   body.append('file', args.file, args.file.name);
@@ -233,7 +234,7 @@ export async function uploadChatAttachment(args: {
   const res = await fetch(
     `${base}/api/v1/chat-scopes/${encodeURIComponent(args.scopeId)}` +
       `/chats/${encodeURIComponent(args.chatId)}/attachments?${params.toString()}`,
-    { method: 'POST', headers: authHeaders(), body },
+    { method: 'POST', headers: authHeaders(), body, signal: args.signal },
   );
   if (res.status === 401) {
     useAuthStore.getState().handle401();
@@ -268,7 +269,7 @@ async function fetchGeneralChatBootstrap(surface: 'chat' | 'browser' = 'chat'): 
   return (await res.json()) as ChatBootstrap;
 }
 
-async function fetchChatWorkspace(chatId: string): Promise<ChatWorkspace> {
+export async function fetchChatWorkspace(chatId: string): Promise<ChatWorkspace> {
   const base = getApiBase();
   const params = new URLSearchParams({ chat_id: chatId });
   const res = await fetch(`${base}/api/v1/chats/workspace?${params.toString()}`, {
@@ -792,6 +793,22 @@ export async function fetchBackgroundJobs(
       ].includes(job.status)
     ))
     : jobs;
+}
+
+/** Resolve a referenced task independently of the bounded recent-task list. */
+export function useReferencedBackgroundJob(scopeId: string, chatId: string, jobId?: string) {
+  return useQuery({
+    queryKey: ['background-jobs', scopeId, chatId, 'reference', jobId],
+    enabled: !!scopeId && !!chatId && !!jobId,
+    retry: false,
+    queryFn: async (): Promise<BackgroundJob | null> => {
+      const response = await fetch(`${getApiBase()}/api/v1/chat-scopes/${encodeURIComponent(scopeId)}/chats/${encodeURIComponent(chatId)}/background-jobs/${encodeURIComponent(jobId!)}`, { headers: authHeaders() });
+      if (response.status === 401) useAuthStore.getState().handle401();
+      if (response.status === 404 || response.status === 403) return null;
+      if (!response.ok) throw new Error(`background task lookup failed: ${response.status}`);
+      return response.json() as Promise<BackgroundJob>;
+    },
+  });
 }
 
 export function useBackgroundJobs(

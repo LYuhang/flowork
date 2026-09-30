@@ -1,3 +1,5 @@
+import { parseWorkflowFocus } from '@/lib/preview/workflow-reference';
+import { PreviewOriginProvider, previewOriginFromSearch, originChatHref } from '@/lib/preview/context-origin';
 import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { FileText, Network, X } from 'lucide-react';
 import { useSearchParams } from 'react-router';
@@ -17,8 +19,11 @@ function fileName(path: string): string {
 export function StandalonePreviewPage() {
   const { t } = useTranslation();
   const [search] = useSearchParams();
+  const origin = useMemo(() => previewOriginFromSearch(search), [search]);
   const target = useMemo(() => standalonePreviewTarget(search), [search]);
   const workflow = useMemo(() => standaloneWorkflowPreviewTarget(search), [search]);
+  const requestedPage = Number(search.get('page'));
+  const initialPage = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : undefined;
   const name = workflow ? `${workflow.workflowId} · ${workflow.version}` : target ? fileName(target.fileRef.path) : '';
 
   useEffect(() => {
@@ -47,6 +52,7 @@ export function StandalonePreviewPage() {
   }
 
   return (
+    <PreviewOriginProvider origin={origin}>
     <main className="flex h-dvh min-h-0 flex-col bg-surface-work" data-page="standalone-preview">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-edge-structural bg-surface-raised px-3 sm:px-4">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-subtle text-accent-strong">
@@ -58,6 +64,9 @@ export function StandalonePreviewPage() {
             {t('preview.standalone.title', 'Preview')}
           </p>
         </div>
+        {origin ? <Button asChild variant="outline" size="sm"><a href={originChatHref(origin.chatId)}>
+          {t('preview.reference.returnChat', 'Return to conversation')}
+        </a></Button> : null}
         <Button
           type="button"
           variant="ghost"
@@ -72,14 +81,17 @@ export function StandalonePreviewPage() {
       <section className="min-h-0 flex-1" aria-label={t('preview.standalone.title', 'Preview')}>
         {workflow ? (
           <Suspense fallback={<AsyncState kind="loading" title={t('chat.preview.loadingWorkflow', 'Loading workflow...')} />}>
-            <WorkflowPreviewRenderer key={`${workflow.workflowId}:${workflow.version}`} {...workflow} allowOpenInNewPage={false} inspectorPlacement="right" />
+            <WorkflowPreviewRenderer key={`${workflow.workflowId}:${workflow.version}`} {...workflow} focus={parseWorkflowFocus(search.get('focus'))} allowOpenInNewPage={false} inspectorPlacement="right" />
           </Suspense>
         ) : target ? <ChatFilePreview
           fileRef={target.fileRef}
           fileType={target.fileType}
+          expectedRevision={search.get('expectedRevision')}
+          initialPage={initialPage}
           allowOpenInNewPage={false}
         /> : null}
       </section>
     </main>
+    </PreviewOriginProvider>
   );
 }

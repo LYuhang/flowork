@@ -1,7 +1,11 @@
+import { downloadFilename, serializeWorkflow } from '@/lib/workflow/io';
+import { workflowReference, type WorkflowFocus } from '@/lib/preview/workflow-reference';
+import { PreviewReferenceButton } from './PreviewReferenceButton';
+import { usePreviewOrigin } from '@/lib/preview/context-origin';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { applyNodeChanges, ReactFlowProvider, useNodesInitialized, useReactFlow, useStore } from '@xyflow/react';
-import { Maximize2, X } from 'lucide-react';
+import { applyEdgeChanges, applyNodeChanges, ReactFlowProvider, useNodesInitialized, useReactFlow, useStore } from '@xyflow/react';
+import { Download, Maximize2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '@xyflow/react/dist/style.css';
 import { workflowAtQuery } from '@/lib/api/queries/workflow';
@@ -28,13 +32,29 @@ function SnapshotViewport() {
 }
 
 /** Same canvas and Inspector as the editor, with a private selection/snapshot. */
-function SnapshotCanvas({ graph, workflowId, inspectorPlacement }: { graph: Record<string, unknown>; workflowId: string; inspectorPlacement: 'bottom' | 'right' }) {
+function SnapshotCanvas({ graph, workflowId, version, focus, inspectorPlacement }: { focus?: WorkflowFocus | null; graph: Record<string, unknown>; workflowId: string; version: string; inspectorPlacement: 'bottom' | 'right' }) {
   const { t } = useTranslation();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [selected, setSelected] = useState<string | null>(focus?.nodeIds[0] ?? null);
+  const [inspectorOpen, setInspectorOpen] = useState(!!focus?.nodeIds.length);
   const projection = useMemo(() => workflowDictToNodesEdges(graph), [graph]);
-  const [measuredNodes, setMeasuredNodes] = useState(projection.nodes);
-  const nodes = useMemo(() => measuredNodes.map((node) => ({ ...node, selected: node.id === selected })), [measuredNodes, selected]);
+  const [measuredNodes, setMeasuredNodes] = useState(() => projection.nodes.map(node => ({ ...node, selected: focus?.nodeIds.includes(node.id) ?? false })));
+  const nodes = measuredNodes;
+  const [edges, setEdges] = useState(() => projection.edges.map(edge => ({ ...edge, selected: edge.selectable !== false && !!focus?.edges.some(item => item.source === edge.source && item.target === edge.target) })));
+  const [menu, setMenu] = useState<{ x: number; y: number; nodes: string[]; edges: { source: string; target: string }[] } | null>(null);
+  const selectedNodes = nodes.filter(node => node.selected).map(node => node.id);
+  const selectedEdges = edges.filter(edge => edge.selected && edge.selectable !== false);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
+    window.addEventListener('resize', close); window.addEventListener('scroll', close, true);
+    document.addEventListener('keydown', key);
+    return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); document.removeEventListener('keydown', key); };
+  }, [menu]);
+  const openMenu = (event: { preventDefault(): void; clientX: number; clientY: number }, nodeIds: string[], connections: {source: string; target: string}[]) => {
+    event.preventDefault();
+    setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 240)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 70)), nodes: nodeIds, edges: connections });
+  };
 
   return (
     <WorkflowSnapshotContext.Provider value={graph}>
@@ -43,23 +63,39 @@ function SnapshotCanvas({ graph, workflowId, inspectorPlacement }: { graph: Reco
         <div className={`flex min-h-0 flex-1 flex-col ${inspectorPlacement === 'right' ? 'md:flex-row' : ''}`}>
         <div className="relative min-h-0 flex-1">
           {nodes.length ? (
-            <WorkflowGraph nodes={nodes} edges={projection.edges}
+            <WorkflowGraph nodes={nodes} edges={edges}
               showMiniMap={false} showInteractiveControls={false}
               nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false}
-              edgesFocusable={false} deleteKeyCode={null} selectionKeyCode={null} multiSelectionKeyCode={null}
+              edgesFocusable nodesFocusable elementsSelectable selectionOnDrag
+              deleteKeyCode={null} selectionKeyCode="Shift" multiSelectionKeyCode={['Meta', 'Control']}
+              onNodeContextMenu={(event, node) => openMenu(event, node.selected ? selectedNodes : [node.id], node.selected ? selectedEdges : [])}
+              onEdgeContextMenu={(event, edge) => { if (edge.selectable !== false) openMenu(event, edge.selected ? selectedNodes : [], edge.selected ? selectedEdges : [edge]); }}
+              onPaneContextMenu={event => openMenu(event, [], [])}
+              onSelectionContextMenu={event => openMenu(event, selectedNodes, selectedEdges)}
+              onEdgesChange={changes => setEdges(current => applyEdgeChanges(changes.filter(change => change.type === 'select'), current))}
               onNodeClick={(_, node) => { setSelected(node.id); if (inspectorPlacement === 'right') setInspectorOpen(true); }}
               onNodeDoubleClick={(_, node) => { setSelected(node.id); setInspectorOpen(true); }}
               onNodesChange={(changes) => {
                 // Measurements are presentation state, not graph edits. Keep
                 // them so xyflow can initialize and fit the resized viewport.
-                const dimensions = changes.filter((change) => change.type === 'dimensions');
+                const dimensions = changes.filter((change) => change.type === 'dimensions' || change.type === 'select');
                 if (dimensions.length) setMeasuredNodes((current) => applyNodeChanges(dimensions, current));
                 const selection = changes.find((change) => change.type === 'select' && change.selected);
                 if (selection?.type === 'select') setSelected(selection.id);
               }}
-              onPaneClick={() => { setSelected(null); setInspectorOpen(false); }}
+              onPaneClick={() => { setSelected(null); setInspectorOpen(false); setMenu(null); }}
             />
           ) : <div className="p-4 text-sm text-muted-foreground">{t('canvas.emptyReadOnly', 'This workflow version has no nodes.')}</div>}
+          {selectedNodes.length + selectedEdges.length > 0 ? (
+            <div className="absolute bottom-3 right-3 z-10 flex items-center gap-2 rounded-lg border bg-popover p-1 shadow-sm">
+              <span className="px-2 text-xs">{t('preview.reference.selectionCount', '{{count}} selected', { count: selectedNodes.length + selectedEdges.length })}</span>
+            </div>
+          ) : null}
+          {menu ? <div role="dialog" aria-label={t('composer.context.selectionActions', 'Selected text actions')}
+            className="fixed z-50 flex items-center rounded-lg border bg-popover p-1 shadow-lg" style={{ left: menu.x, top: menu.y }}>
+            <PreviewReferenceButton build={() => workflowReference(workflowId, version, workflowId, menu.nodes, menu.edges)} />
+            <Button size="icon" variant="ghost" aria-label={t('close', 'Close')} onClick={() => setMenu(null)}><X className="h-4 w-4" /></Button>
+          </div> : null}
           {selected && !inspectorOpen ? (
             <Button variant="outline" size="sm" className="absolute right-3 top-3" onClick={() => setInspectorOpen(true)}>
               {t('preview.workflow.nodeDetails', 'Node details')}
@@ -83,8 +119,9 @@ function SnapshotCanvas({ graph, workflowId, inspectorPlacement }: { graph: Reco
 }
 
 /** Opening-time authorization is separate from the editor's cached draft. */
-export function WorkflowPreviewRenderer({ workflowId, version, allowOpenInNewPage = true, inspectorPlacement = 'bottom' }: { workflowId: string; version: string; allowOpenInNewPage?: boolean; inspectorPlacement?: 'bottom' | 'right' }) {
+export function WorkflowPreviewRenderer({ workflowId, version, focus, allowOpenInNewPage = true, inspectorPlacement = 'bottom' }: { workflowId: string; version: string; focus?: WorkflowFocus | null; allowOpenInNewPage?: boolean; inspectorPlacement?: 'bottom' | 'right' }) {
   const { t } = useTranslation();
+  const origin = usePreviewOrigin();
   const match = /^v([1-9]\d*)\.sv(\d+)$/.exec(version);
   const query = useQuery({
     ...workflowAtQuery(workflowId, Number(match?.[1]), Number(match?.[2])),
@@ -105,14 +142,26 @@ export function WorkflowPreviewRenderer({ workflowId, version, allowOpenInNewPag
       <Button variant="outline" onClick={() => void query.refetch()}>{t('retry', 'Retry')}</Button>
     </div>
   );
+  const missingFocus = focus && (focus.nodeIds.some(id => !Object.hasOwn(graph, id)) || focus.edges.some(edge => {
+    const node = graph[edge.source] as { children?: unknown } | undefined;
+    return !Array.isArray(node?.children) || !node.children.includes(edge.target);
+  }));
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col" data-role="workflow-preview">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge-subtle px-3 py-2 text-sm">
         <span className="min-w-0 flex-1 truncate">{String(query.data?.meta?.workflow_name || workflowId)}</span>
         <span className="shrink-0 text-muted-foreground">{version} · {t('preview.workflow.readOnly', 'Read only')}</span>
+
+        <Button variant="ghost" size="icon" aria-label={t('io.download', 'Download JSON')}
+          onClick={() => {
+            const url = URL.createObjectURL(new Blob([serializeWorkflow(graph)], { type: 'application/json' }));
+            const anchor = document.createElement('a');
+            anchor.href = url; anchor.download = downloadFilename(String(query.data?.meta?.workflow_name || workflowId), version);
+            document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+          }}><Download className="h-4 w-4" /></Button>
         {allowOpenInNewPage ? (
           <Button asChild variant="ghost" size="icon">
-            <a href={standaloneWorkflowPreviewHref(workflowId, version)} target="_blank" rel="noopener noreferrer"
+            <a href={standaloneWorkflowPreviewHref(workflowId, version, origin)} target="_blank" rel="noopener noreferrer"
               aria-label={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')} title={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')}>
               <Maximize2 className="h-4 w-4" />
             </a>
@@ -123,7 +172,8 @@ export function WorkflowPreviewRenderer({ workflowId, version, allowOpenInNewPag
           {t('preview.workflow.openLatest', 'Open latest canvas')}
         </a>
       </div>
-      <SnapshotCanvas key={workflowId + ':' + version} graph={graph} workflowId={workflowId} inspectorPlacement={inspectorPlacement} />
+      {missingFocus ? <p role="alert" className="px-3 py-2 text-sm text-destructive">{t('preview.reference.missingObjects', 'Some referenced objects are unavailable in this version.')}</p> : null}
+      <SnapshotCanvas key={workflowId + ':' + version + ':' + JSON.stringify(focus ?? null)} graph={graph} workflowId={workflowId} version={version} focus={focus} inspectorPlacement={inspectorPlacement} />
     </div>
   );
 }

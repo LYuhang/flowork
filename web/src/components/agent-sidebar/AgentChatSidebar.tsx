@@ -207,11 +207,11 @@ export function AgentChatSidebar({
     const fileRef = fileRefFromAgentPath(path, { projectId: workspace.data?.project_id });
     if (!fileRef) return;
     window.open(
-      standalonePreviewHref(fileRef),
+      standalonePreviewHref(fileRef, 'auto', activeChatId ? { chatId: activeChatId } : null),
       '_blank',
       'noopener,noreferrer',
     );
-  }, [workspace.data?.project_id]);
+  }, [workspace.data?.project_id, activeChatId]);
   const selectedHistory = useChatHistory(
     lastWfId,
     selectedChatIsPersisted ? activeChatId : null,

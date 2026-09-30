@@ -1,3 +1,4 @@
+import { PreviewToolbar } from './PreviewToolbar';
 import { useEffect, useMemo, useState } from 'react';
 import {
   AllCommunityModule,
@@ -132,13 +133,11 @@ export function StructuredTablePreview({ descriptor, loadAllowed }: PreviewRende
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-10 shrink-0 items-center gap-1 border-b border-edge-subtle px-2">
-        <span className="px-2 text-xs text-muted-foreground">{descriptor.name}</span>
-        <div className="flex-1" />
+      <PreviewToolbar>
         <span className="text-xs text-muted-foreground">
           {t('preview.table.readOnly', 'Read only')}
         </span>
-      </div>
+      </PreviewToolbar>
       <div className="min-h-0 flex-1">
         <AgGridReact<GridRow>
           theme={themeQuartz}

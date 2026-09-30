@@ -41,7 +41,7 @@ import { useChatStreamStore } from '@/stores/chat-stream';
 import { streamAgentTurn, type HitlContinueControl } from './agent-stream';
 import { getApprovalMode, type AgentSettings, type ApprovalMode } from '@/stores/agent-settings';
 
-type Attachment = components['schemas']['Attachment'];
+type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 
 export interface RunAgentTurnArgs {
   wfId: string;

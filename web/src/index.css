@@ -1169,3 +1169,46 @@
   .resource-table-workflows td[data-col="sandbox"], .resource-table-workflows td[data-col="progress"], .resource-table-workflows td[data-col="created"], .resource-table-workflows td[data-col="lastActivity"], .resource-table-workflows td[data-col="updated"] { grid-column: 1 / -1; }
   .resource-table-workflows td[colspan] { grid-column: 1 / -1; }
 }
+
+/* Preview affordances: paint-only feedback avoids moving the conversation. */
+.preview-click-card, .preview-click-target {
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+.preview-card-hit-area, .preview-click-target { cursor: pointer; }
+.preview-card-hit-area:focus-visible { outline: 2px solid oklch(var(--focus)); outline-offset: -3px; }
+.preview-click-card:focus-within {
+  border-color: oklch(var(--focus));
+  box-shadow: 0 0 0 2px color-mix(in srgb, oklch(var(--focus)) 18%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .preview-click-card:hover, .preview-click-target:hover {
+    border-color: oklch(var(--focus));
+    background-color: oklch(var(--surface-hover));
+    box-shadow: 0 0 0 1px color-mix(in srgb, oklch(var(--focus)) 20%, transparent), 0 4px 12px rgb(0 0 0 / 8%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-click-card, .preview-click-target { transition: none; }
+}
+
+[data-quotable-message][data-reference-highlight="true"] {
+  border-radius: 0.5rem;
+  outline: 2px solid var(--color-ring, #818cf8);
+  outline-offset: 5px;
+  background-color: color-mix(in srgb, #818cf8 10%, transparent);
+}
+
+/* Preview has one resource header and one shared action row at every width. */
+.preview-file-container { container: preview-file / inline-size; }
+.preview-file-actions-expanded, .preview-file-metadata { display: none; }
+@container preview-file (min-width: 520px) {
+  .preview-file-actions-expanded { display: flex; }
+  .preview-file-actions-more { display: none; }
+}
+@container preview-file (min-width: 640px) {
+  .preview-file-metadata { display: block; }
+}
+
+/* Long formulas scroll inside the message instead of widening the transcript. */
+.chat-markdown .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-block: 0.2em; }
+.chat-markdown .katex { font-size: 1.05em; }

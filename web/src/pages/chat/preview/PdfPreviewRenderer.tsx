@@ -1,3 +1,6 @@
+import { PreviewToolbar } from './PreviewToolbar';
+import { PreviewContextMenu } from './PreviewContextMenu';
+import { filePageReference } from '@/lib/preview/file-reference';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Minus, Plus } from 'lucide-react';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
@@ -17,7 +20,7 @@ import type { PreviewRendererProps } from './renderer-types';
 const PDF_WORKER_CACHE_REVISION = 'module-mime-v1';
 const PREVIEW_WIDTH_SAMPLE_PAGES = 64;
 
-export function PdfPreviewRenderer({ descriptor }: PreviewRendererProps) {
+export function PdfPreviewRenderer({ descriptor, initialPage }: PreviewRendererProps) {
   const rendition = descriptor.rendition?.format === 'pdf'
     ? descriptor.rendition
     : null;
@@ -32,9 +35,10 @@ export function PdfPreviewRenderer({ descriptor }: PreviewRendererProps) {
   }
   return (
     <PdfPreviewContent
-      key={`${descriptor.revision}:${url}`}
+      key={`${descriptor.revision}:${url}:${initialPage ?? 1}`}
       url={url}
       authenticated={Boolean(rendition)}
+      initialPage={initialPage}
       descriptor={descriptor}
     />
   );
@@ -44,9 +48,11 @@ function PdfPreviewContent({
   url,
   authenticated,
   descriptor,
+  initialPage = 1,
 }: {
   url: string;
   authenticated: boolean;
+  initialPage?: number;
   descriptor: PreviewRendererProps['descriptor'];
 }) {
   const { t } = useTranslation();
@@ -54,7 +60,7 @@ function PdfPreviewContent({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const documentRef = useRef<PDFDocumentProxy | null>(null);
   const pageRef = useRef<PDFPageProxy | null>(null);
-  const [pageNumber, setPageNumber] = useState(1);
+  const [pageNumber, setPageNumber] = useState(initialPage);
   const [pageCount, setPageCount] = useState(0);
   const [zoom, setZoom] = useState(1.25);
   const [naturalWidth, setNaturalWidth] = useState(0);
@@ -84,6 +90,10 @@ function PdfPreviewContent({
       const document = await task.promise;
       if (disposed) return;
       documentRef.current = document;
+      if (!Number.isSafeInteger(initialPage) || initialPage < 1 || initialPage > document.numPages) {
+        setError({ code: 'content_unavailable', params: {} });
+        return;
+      }
       setPageCount(document.numPages);
       let maximumNaturalWidth = 0;
       const sampledPages = Math.min(document.numPages, PREVIEW_WIDTH_SAMPLE_PAGES);
@@ -110,7 +120,7 @@ function PdfPreviewContent({
       documentRef.current = null;
       if (task) void task.destroy();
     };
-  }, [authenticated, url]);
+  }, [authenticated, url, initialPage]);
 
   useEffect(() => {
     const container = scrollAreaRef.current;
@@ -157,10 +167,11 @@ function PdfPreviewContent({
   if (error) return <PreviewErrorState descriptor={descriptor} error={error} />;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center justify-center gap-1 border-b border-edge-subtle">
+      <PreviewToolbar>
+
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           disabled={pageNumber <= 1}
           aria-label={t('preview.pdf.previousPage', 'Previous page')}
           onClick={() => setPageNumber((value) => Math.max(1, value - 1))}
@@ -172,7 +183,7 @@ function PdfPreviewContent({
         </span>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           disabled={!pageCount || pageNumber >= pageCount}
           aria-label={t('preview.pdf.nextPage', 'Next page')}
           onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}
@@ -182,7 +193,7 @@ function PdfPreviewContent({
         <span className="mx-1 h-4 w-px bg-edge-subtle" />
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           aria-label={t('preview.action.zoomOut', 'Zoom out')}
           onClick={() => {
             setFitToWidth(false);
@@ -194,7 +205,7 @@ function PdfPreviewContent({
         <span className="min-w-12 text-center text-xs">{Math.round(zoom * 100)}%</span>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           aria-label={t('preview.action.zoomIn', 'Zoom in')}
           onClick={() => {
             setFitToWidth(false);
@@ -205,7 +216,7 @@ function PdfPreviewContent({
         </Button>
         <Button
           variant={fitToWidth ? 'secondary' : 'ghost'}
-          size="icon"
+          size="icon-sm"
           aria-label={t('preview.pdf.fitWidth', 'Fit width')}
           aria-pressed={fitToWidth}
           onClick={() => {
@@ -218,13 +229,16 @@ function PdfPreviewContent({
         >
           <Maximize2 className="h-4 w-4" />
         </Button>
-      </div>
+      </PreviewToolbar>
       <div
         ref={scrollAreaRef}
         className="min-h-0 flex-1 overflow-auto bg-surface-sunken p-4 text-center"
       >
         {loading ? <div className="p-4 text-sm text-muted-foreground">{t('preview.pdf.loading', 'Loading PDF…')}</div> : null}
-        <canvas ref={canvasRef} className="mx-auto bg-white shadow-sm" />
+        <PreviewContextMenu className="mx-auto w-fit" label={t('preview.reference.currentPage', 'Quote current page')}
+          build={() => { if (loading || !pageCount) throw new Error('page_not_ready'); return filePageReference(descriptor, pageNumber); }}>
+          <canvas ref={canvasRef} className="mx-auto bg-white shadow-sm" data-page-number={pageNumber} />
+        </PreviewContextMenu>
       </div>
     </div>
   );

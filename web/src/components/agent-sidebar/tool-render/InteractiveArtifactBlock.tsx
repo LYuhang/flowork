@@ -1,3 +1,4 @@
+import { PreviewCardContextMenu } from '../PreviewCardContextMenu';
 import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Archive,
@@ -977,7 +978,7 @@ function ResolvedInteractiveFilePreview({
       </span>
     </>
   );
-  const className = 'flex min-h-24 w-full items-center gap-3 px-4 py-3 transition-colors';
+  const className = 'preview-click-target flex min-h-24 w-full items-center gap-3 px-4 py-3 transition-colors';
 
   return onOpenFilePreview ? (
     <button
@@ -1443,6 +1444,7 @@ export function InteractiveArtifactBlock({
   onSubmitAsNewMessage,
 }: InteractiveArtifactBlockProps) {
   const { t } = useTranslation();
+  const previewChatId = useChatRenderIdentity()?.chatId;
   const parsed = useMemo(() => readInteractiveArtifact(call), [call]);
   const [hydration, setHydration] = useState<{
     artifactId: string;
@@ -1515,7 +1517,7 @@ export function InteractiveArtifactBlock({
   const FileSummaryIcon = fileSummaryAppearance.Icon;
   const canOpenFilePreview = !renderError && !!filePreviewPath && !!onOpenFilePreview;
   const standaloneWorkflowHref = compact && !renderError && artifact?.component_type === 'workflow_preview'
-    ? standaloneWorkflowPreviewHref(stringFrom(artifact.props?.workflow_id), stringFrom(artifact.props?.version))
+    ? standaloneWorkflowPreviewHref(stringFrom(artifact.props?.workflow_id), stringFrom(artifact.props?.version), previewChatId ? { chatId: previewChatId, artifactId: artifact.artifact_id } : null)
     : null;
   const canOpenInteractivePreview = Boolean(
     !renderError &&
@@ -1616,13 +1618,27 @@ export function InteractiveArtifactBlock({
         )}
         data-message-content-rail="assistant"
       >
-        <div className="overflow-hidden rounded-xl border border-edge-structural bg-surface-raised shadow-sm">
+        <PreviewCardContextMenu chatId={previewChatId} artifactId={artifact?.artifact_id}
+          filePath={filePreviewPath || undefined}
+          workflow={artifact?.component_type === 'workflow_preview' ? { id: stringFrom(artifact.props?.workflow_id), version: stringFrom(artifact.props?.version) } : undefined}
+          label={artifact?.title || fileSummaryName || t('preview.standalone.title', 'Preview')}>
+        <div className={cn("overflow-hidden rounded-xl border border-edge-structural bg-surface-raised shadow-sm", (canOpenFilePreview || canOpenInteractivePreview || standaloneWorkflowHref) && "preview-click-card")}>
           <div className={cn(
-            'flex items-center gap-3 px-4 py-3',
+            'relative flex items-center gap-3 px-4 py-3',
             isFilePreviewSummary
               ? 'bg-surface-raised'
               : 'border-b border-edge-subtle bg-surface-sunken/45',
           )}>
+            {standaloneWorkflowHref ? (
+              <a href={standaloneWorkflowHref} target="_blank" rel="noopener noreferrer"
+                className="preview-card-hit-area absolute inset-0 rounded-t-xl"
+                aria-label={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')} />
+            ) : canOpenFilePreview || canOpenInteractivePreview ? (
+              <button type="button" className="preview-card-hit-area absolute inset-0 rounded-t-xl"
+                aria-label={t('tool.interactive.open_preview', 'Open in preview')}
+                onClick={() => canOpenInteractivePreview && artifact
+                  ? onOpenInteractivePreview?.(artifact) : onOpenFilePreview?.(filePreviewPath)} />
+            ) : null}
             {isFilePreviewSummary ? (
               <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${fileSummaryAppearance.tone}`}>
                 <FileSummaryIcon className="h-5 w-5" aria-hidden="true" />
@@ -1653,7 +1669,7 @@ export function InteractiveArtifactBlock({
             </div>
             {standaloneWorkflowHref ? (
               <a href={standaloneWorkflowHref} target="_blank" rel="noopener noreferrer"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-edge-structural text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-edge-structural text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-action="interactive-open-workflow-tab"
                 title={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')}
                 aria-label={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')}>
@@ -1662,7 +1678,7 @@ export function InteractiveArtifactBlock({
             ) : canOpenInteractivePreview ? (
               <button
                 type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-edge-structural bg-background/85 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-edge-structural bg-background/85 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-action="interactive-open-artifact-preview"
                 title={t('tool.interactive.open_preview', 'Open in preview')}
                 aria-label={t('tool.interactive.open_preview', 'Open in preview')}
@@ -1673,7 +1689,7 @@ export function InteractiveArtifactBlock({
             ) : canOpenFilePreview ? (
               <button
                 type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-edge-structural bg-background/85 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-edge-structural bg-background/85 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-action="interactive-open-file-preview"
                 title={compact
                   ? t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')
@@ -1773,6 +1789,7 @@ export function InteractiveArtifactBlock({
             </div>
           )}
         </div>
+        </PreviewCardContextMenu>
       </div>
     </div>
   );

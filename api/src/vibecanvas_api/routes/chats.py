@@ -757,6 +757,43 @@ def _safe_attachment_name(filename: str | None) -> str:
     return f"{stem[:140]}{suffix[:20]}"
 
 
+# Drafts are Chat-scoped; Preview never chooses another destination implicitly.
+from ..schemas.chat_drafts import DraftOut, DraftMutation, DraftAppend
+from ..storage.chat_draft_repo import ChatDraftRepo, attachment_key
+
+
+@router.get('/chats/{chat_id}/draft', response_model=DraftOut)
+async def get_context_draft(
+    chat_id: str, request: Request,
+    session: AsyncSession = Depends(tenant_db),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_chat(request=request, auth=auth, service=service,
+        chat_id=chat_id, action=Action.UPDATE)
+    return await ChatDraftRepo(session, auth.user_id).get(chat_id)
+
+
+@router.post('/chats/{chat_id}/draft/operations', response_model=DraftOut)
+async def mutate_context_draft(
+    chat_id: str, body: DraftMutation, request: Request,
+    session: AsyncSession = Depends(tenant_db),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_chat(request=request, auth=auth, service=service,
+        chat_id=chat_id, action=Action.UPDATE,
+        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    if isinstance(body, DraftAppend):
+        from ..services.context_attachments import ContextResolver
+        # Validate original source access now and again at dispatch. Keep the
+        # request stable for idempotency; derived snapshots are made on send.
+        await ContextResolver(session=session, auth=auth, request=request,
+            service=service, chat_id=chat_id).resolve(body.attachments)
+    return await ChatDraftRepo(session, auth.user_id).mutate(
+        chat_id, body.model_dump(mode='json', exclude_none=True))
+
+
 @router.post(
     "/chat-scopes/{scope_id}/chats/{chat_id}/attachments",
     response_model=Attachment,
@@ -2982,7 +3019,11 @@ async def post_message(
                 "trigger": getattr(cfg, "trigger", f"/{cmd}") if cfg else f"/{cmd}",
             }
         }
-    attachments = [a.model_dump(exclude_none=True) for a in body.attachments]
+    from ..services.context_attachments import ContextResolver
+    context_resolver = ContextResolver(session=session, auth=auth, request=http_request,
+        service=authz_service, chat_id=chat_id)
+    runtime_attachments = await context_resolver.resolve(body.attachments, materialize=True)
+    attachments = context_resolver.durable
     if attachments:
         user_message.setdefault("additional_kwargs", {})["attachments"] = attachments
     if control_projection is not None:
@@ -3376,7 +3417,7 @@ async def post_message(
             else {}
         ),
         message=user_message,
-        attachments=attachments,
+        attachments=runtime_attachments,
         model=runtime_model,
         reasoning_effort=(
             settings.reasoning_effort if settings is not None else None
@@ -3667,6 +3708,14 @@ async def post_message(
             },
         },
     )
+
+    if body.control is None:
+        await ChatDraftRepo(session, auth.user_id).mutate(chat_id, {
+            'kind': 'consume', 'operation_id': reserved_run.run_id,
+            'text': body.content,
+            'attachment_keys': [attachment_key(a.model_dump(mode='json', exclude_none=True))
+                                for a in body.attachments],
+        }, internal=True)
 
     # Make the Chat row, metadata, and Agent Run durable NOW, before streaming.
     # Dependency teardown happens only after the whole SSE response is sent.

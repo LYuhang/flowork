@@ -1,3 +1,4 @@
+import { appendPreviewOrigin, type PreviewOrigin } from './context-origin';
 import { getBasePath } from '@/lib/base-path';
 import type { FileRefV1 } from '@/lib/preview/protocol';
 
@@ -6,8 +7,10 @@ export interface StandalonePreviewTarget {
   fileType: string;
 }
 
-export function standaloneWorkflowPreviewHref(workflowId: string, version: string): string {
-  return `${getBasePath()}/preview?${new URLSearchParams({ type: 'workflow', workflowId, version })}`;
+export function standaloneWorkflowPreviewHref(workflowId: string, version: string, origin?: PreviewOrigin | null): string {
+  const query = new URLSearchParams({ type: 'workflow', workflowId, version });
+  appendPreviewOrigin(query, origin);
+  return `${getBasePath()}/preview?${query}`;
 }
 
 export function standaloneWorkflowPreviewTarget(search: URLSearchParams): { workflowId: string; version: string } | null {
@@ -31,12 +34,14 @@ function safePath(path: string, prefix: string): boolean {
 export function standalonePreviewHref(
   fileRef: FileRefV1,
   fileType = 'auto',
+  origin?: PreviewOrigin | null,
 ): string {
   const query = new URLSearchParams({
     scope: fileRef.scope,
     path: fileRef.path,
     fileType,
   });
+  appendPreviewOrigin(query, origin);
   if (fileRef.scope === 'project') query.set('projectId', fileRef.projectId);
   if (fileRef.scope === 'run') query.set('runId', fileRef.runId);
   return `${getBasePath()}/preview?${query.toString()}`;

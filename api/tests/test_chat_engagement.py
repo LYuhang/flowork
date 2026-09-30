@@ -122,3 +122,18 @@ def test_public_messages_strip_internal_thinking_and_controls():
             {'message_id': 'b', 'role': 'assistant', 'content': {'text': '<think_never_used_x>unfinished secret'}},
             {'message_id': 'c', 'role': 'user', 'content': {'text': 'control secret', 'message_type': 'control'}}]
     assert public_messages(rows, None) == [{'id': 'a', 'role': 'assistant', 'content': 'Public answer'}]
+
+
+def test_public_messages_do_not_publish_attachment_context():
+    """Public transcripts contain only visible text, never private references."""
+    private = [
+        {'type': 'quote', 'source': {'chat_id': 'private-chat'},
+         'snapshot': {'text': 'private excerpt'}},
+        {'type': 'file', 'resource': {'file_ref': {'path': '/data/private.pdf'}},
+         'snapshot': {'text': 'private resolved metadata'}},
+    ]
+    rows = [{'message_id': 'user-message', 'role': 'user', 'attachments': private,
+             'content': {'text': 'Please review the references', 'attachments': private}}]
+    assert public_messages(rows, None) == [
+        {'id': 'user-message', 'role': 'user', 'content': 'Please review the references'},
+    ]

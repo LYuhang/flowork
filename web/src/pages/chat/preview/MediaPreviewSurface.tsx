@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { PreviewToolbar } from './PreviewToolbar';
+import { useRef, useState, type ReactNode } from 'react';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +14,7 @@ export interface MediaPreviewSurfaceProps {
   name: string;
   kind: 'image' | 'audio' | 'video';
   onError: () => void;
+  renderTimeReference?: (getTime: () => number, ready: boolean) => ReactNode;
 }
 
 /** Shared media content surface for the unified Preview renderer. */
@@ -21,18 +23,18 @@ export function MediaPreviewSurface({
   name,
   kind,
   onError,
+  renderTimeReference,
 }: MediaPreviewSurfaceProps) {
   const { t } = useTranslation();
   const [zoom, setZoom] = useState(1);
+  const mediaRef = useRef<HTMLMediaElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const reference = renderTimeReference?.(() => mediaRef.current?.currentTime ?? 0, ready);
 
   if (kind === 'image') {
     return (
       <div className="relative flex h-full min-h-0 flex-col bg-surface-sunken">
-        <div
-          className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border border-edge-subtle bg-surface-raised p-1"
-          role="toolbar"
-          aria-label={t('preview.media.zoomControls', 'Image zoom controls')}
-        >
+        <PreviewToolbar>
           <Button
             type="button"
             variant="ghost"
@@ -69,8 +71,8 @@ export function MediaPreviewSurface({
           >
             <RotateCcw />
           </Button>
-        </div>
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6 pt-16">
+        </PreviewToolbar>
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6">
           <img
             src={url}
             alt={name}
@@ -86,8 +88,11 @@ export function MediaPreviewSurface({
 
   if (kind === 'audio') {
     return (
-      <div className="flex h-full items-center justify-center p-6">
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
+        {reference}
         <audio
+          ref={element => { mediaRef.current = element; }}
+          onLoadedMetadata={() => setReady(true)}
           controls
           preload="metadata"
           src={url}
@@ -99,8 +104,12 @@ export function MediaPreviewSurface({
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-black p-4">
+    <div className="flex h-full min-h-0 flex-col bg-surface-sunken">
+      <div className="flex shrink-0 justify-end border-b px-2">{reference}</div>
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-4">
       <video
+        ref={element => { mediaRef.current = element; }}
+        onLoadedMetadata={() => setReady(true)}
         controls
         preload="metadata"
         src={url}
@@ -109,6 +118,7 @@ export function MediaPreviewSurface({
       >
         {t('preview.media.videoUnsupported', 'Your browser cannot play this video.')}
       </video>
+      </div>
     </div>
   );
 }

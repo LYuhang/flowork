@@ -83,13 +83,13 @@ function ChatQueryWrapper({ children }: { children: ReactNode }) {
 
 describe('agent sidebar i18n keys', () => {
   it('reuses existing new_chat + chat_history', () => {
-    const e = en as Record<string, string>;
+    const e = en;
     expect(e['new_chat']).toBeTruthy();
     expect(e['chat_history']).toBeTruthy();
   });
   it('adds flat no_chats / no_messages (en + zh)', () => {
-    const e = en as Record<string, string>;
-    const z = zh as Record<string, string>;
+    const e = en;
+    const z = zh;
     expect(e['no_chats']).toBe('No chats yet.');
     expect(e['no_messages']).toBe('No messages yet.');
     expect(z['no_chats']).toBe('暂无对话');
@@ -599,7 +599,7 @@ describe('ChatMessageList', () => {
     const { container } = render(<ChatMessageList wfId="wf" activeChatId="c1" />);
     const groups = Array.from(container.querySelectorAll('[data-action="tool-activity-toggle"]'));
     expect(groups).toHaveLength(1);
-    expect(groups[0]).toHaveTextContent('Running tools');
+    expect(groups[0]).toHaveTextContent(/\d+ tools? used \([^)]+\)/);
     expect(groups[0].querySelector('.animate-spin')).toBeInTheDocument();
   });
 
@@ -642,7 +642,7 @@ describe('ChatMessageList', () => {
     expect(screen.getByText('I will update the file and record the todo.')).toBeInTheDocument();
     const groups = Array.from(container.querySelectorAll('[data-action="tool-activity-toggle"]'));
     expect(groups).toHaveLength(1);
-    expect(groups[0]).toHaveTextContent('2 tools used');
+    expect(groups[0]).toHaveTextContent('2 tools used (todo)');
     expect(groups[0]).toHaveTextContent('todo');
     expect(groups[0]).not.toHaveTextContent('write_file -> todo');
   });

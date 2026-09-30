@@ -1102,3 +1102,6 @@ from . import models_skills  # noqa: F401,E402  -- side-effect: model registrati
 # content-addressed overlay registry; NO tenant_id / NO RLS (deliberate
 # exception). Table also self-created in migration 026. See models_env_builds.py.
 from . import models_env_builds  # noqa: F401,E402  -- side-effect: model registration
+
+# Durable Chat draft operations share the Chat encryption and tenant boundary.
+from .models_chat_drafts import ChatContextDraft, ChatContextDraftOperation  # noqa: E402,F401

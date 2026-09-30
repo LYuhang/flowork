@@ -24,7 +24,8 @@
 import '@testing-library/jest-dom/vitest';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
-import { server } from '@/__tests__/msw-handlers';
+import { server, resetDraftFixtures } from '@/__tests__/msw-handlers';
+import { CONTEXT_DRAFT_RESET_EVENT } from '@/lib/chat/context-draft';
 import i18n from 'i18next';
 
 // With `test.isolate: false` (see vitest.config.ts), RTL would otherwise
@@ -33,6 +34,8 @@ import i18n from 'i18next';
 // test). Explicit per-test cleanup makes the contract deterministic
 // regardless of pool config.
 function resetBrowserPreferences() {
+  resetDraftFixtures();
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(CONTEXT_DRAFT_RESET_EVENT));
   if (typeof localStorage === 'undefined') return;
   localStorage.clear();
   // Seed the product's canonical key before each test module imports the app

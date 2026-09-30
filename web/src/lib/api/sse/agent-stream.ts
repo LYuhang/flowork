@@ -56,7 +56,7 @@ export function buildAgentSettings(settings: AgentSettings = getAgentSettings())
   return agentSettings;
 }
 
-type Attachment = components['schemas']['Attachment'];
+type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 
 export type HitlContinueControl = components['schemas']['HitlContinueControl'];
 

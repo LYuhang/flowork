@@ -29,7 +29,7 @@ import type { components } from '@/lib/api/schema';
 import type { ApprovalMode } from '@/stores/agent-settings';
 import type { ToolInvocationEnvelope } from '@/components/agent-sidebar/types';
 
-type Attachment = components['schemas']['Attachment'];
+type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 
 /** Completed/inactive turns stay warm for fast chat switching, but the
  * browser must not retain every transcript touched during a long session.

@@ -27,9 +27,13 @@ const ERROR_KEYS: Record<string, string> = {
 export function PreviewErrorState({
   descriptor,
   error,
+  message,
+  onRetry,
 }: {
   descriptor: PreviewDescriptorV1;
   error?: PreviewErrorInfo | null;
+  message?: string;
+  onRetry?: () => void;
 }) {
   const { t } = useTranslation();
   const details = error ?? descriptor.error ?? { code: 'render_failed', params: {} };
@@ -60,7 +64,7 @@ export function PreviewErrorState({
           {t('preview.error.title', 'Preview unavailable')}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          {t(messageKey, {
+          {message ?? t(messageKey, {
             ...translationParams,
             defaultValue: t(
               'preview.error.generic',
@@ -69,6 +73,7 @@ export function PreviewErrorState({
           })}
         </p>
       </div>
+      {onRetry ? <Button variant="outline" onClick={onRetry}>{t('preview.openError.action', 'Try again')}</Button> : null}
       {descriptor.capabilities.download && descriptor.content?.url ? (
         <Button asChild variant="outline">
           <a href={descriptor.content.url} download={descriptor.name}>

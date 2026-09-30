@@ -1529,6 +1529,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/{chat_id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Context Draft */
+        get: operations["get_context_draft_api_v1_chats__chat_id__draft_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/draft/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mutate Context Draft */
+        post: operations["mutate_context_draft_api_v1_chats__chat_id__draft_operations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/attachments": {
         parameters: {
             query?: never;
@@ -4759,6 +4793,18 @@ export interface components {
             /** Reasoning Effort */
             reasoning_effort?: string | null;
         };
+        /** ArtifactResource */
+        ArtifactResource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "artifact";
+            /** Chat Id */
+            chat_id: string;
+            /** Artifact Id */
+            artifact_id: string;
+        };
         /**
          * Attachment
          * @description Context carried by one user turn.
@@ -5042,6 +5088,24 @@ export interface components {
             source: "official" | "smithery";
             /** Source Id */
             source_id: string;
+        };
+        /** CellSelection */
+        CellSelection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "cells";
+            /** Sheet */
+            sheet: string;
+            /** First Row */
+            first_row: number;
+            /** Last Row */
+            last_row: number;
+            /** First Column */
+            first_column: number;
+            /** Last Column */
+            last_column: number;
         };
         /** ChatCreateBody */
         ChatCreateBody: {
@@ -5395,6 +5459,16 @@ export interface components {
              */
             mount_enabled: boolean;
             /**
+             * Cpu Millis
+             * @default 500
+             */
+            cpu_millis: number;
+            /**
+             * Memory Mb
+             * @default 256
+             */
+            memory_mb: number;
+            /**
              * Enabled
              * @default true
              */
@@ -5667,6 +5741,77 @@ export interface components {
              */
             detail: string;
         };
+        /** DraftAppend */
+        DraftAppend: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "append";
+            /** Operation Id */
+            operation_id: string;
+            /** Attachments */
+            attachments: (components["schemas"]["Attachment"] | (components["schemas"]["FileContextAttachment"] | components["schemas"]["QuoteContextAttachment"] | components["schemas"]["ResourceContextAttachment"]))[];
+        };
+        /** DraftOut */
+        DraftOut: {
+            /** Chat Id */
+            chat_id: string;
+            /**
+             * Version
+             * @default 0
+             */
+            version: number;
+            /**
+             * Generation
+             * @default 0
+             */
+            generation: number;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /** Attachments */
+            attachments?: (components["schemas"]["Attachment"] | (components["schemas"]["FileContextAttachment"] | components["schemas"]["QuoteContextAttachment"] | components["schemas"]["ResourceContextAttachment"]))[];
+        };
+        /** DraftRemove */
+        DraftRemove: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "remove";
+            /** Operation Id */
+            operation_id: string;
+            /** Attachment Keys */
+            attachment_keys: string[];
+        };
+        /** DraftText */
+        DraftText: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "text";
+            /** Operation Id */
+            operation_id: string;
+            /** Previous Text */
+            previous_text: string;
+            /** Text */
+            text: string;
+        };
+        /** EdgeSelection */
+        EdgeSelection: {
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+            /** Source Handle */
+            source_handle?: string | null;
+            /** Target Handle */
+            target_handle?: string | null;
+        };
         /** EditsRequest */
         EditsRequest: {
             /** Updates */
@@ -5757,6 +5902,42 @@ export interface components {
         FeedbackBody: {
             /** Rating */
             rating: ("up" | "down") | null;
+        };
+        /** FileContextAttachment */
+        FileContextAttachment: {
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "file";
+            resource: components["schemas"]["FileResource"];
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes?: number | null;
+            snapshot?: components["schemas"]["ResourceSnapshot"] | null;
+        };
+        /** FileResource */
+        FileResource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "file";
+            /** File Ref */
+            file_ref: components["schemas"]["ProjectFileRefV1"] | components["schemas"]["MountFileRefV1"] | components["schemas"]["RunFileRefV1"];
+            /** Revision */
+            revision?: string | null;
         };
         /** GroupListOut */
         GroupListOut: {
@@ -5878,7 +6059,7 @@ export interface components {
             /** Content */
             content: string;
             /** Attachments */
-            attachments?: components["schemas"]["Attachment"][];
+            attachments?: (components["schemas"]["Attachment"] | (components["schemas"]["FileContextAttachment"] | components["schemas"]["QuoteContextAttachment"] | components["schemas"]["ResourceContextAttachment"]))[];
             /** Ts */
             ts?: number | null;
             /** Tool Calls */
@@ -6148,6 +6329,20 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** JobResource */
+        JobResource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "job";
+            /** Chat Id */
+            chat_id: string;
+            /** Job Id */
+            job_id: string;
+            /** Execution Id */
+            execution_id?: string | null;
+        };
         /**
          * KbCreate
          * @description Body for ``POST /kb``. ``extra='forbid'`` blocks smuggled fields
@@ -6339,7 +6534,7 @@ export interface components {
             /** Client Request Id */
             client_request_id?: string | null;
             /** Attachments */
-            attachments?: components["schemas"]["Attachment"][];
+            attachments?: (components["schemas"]["Attachment"] | (components["schemas"]["FileContextAttachment"] | components["schemas"]["QuoteContextAttachment"] | components["schemas"]["ResourceContextAttachment"]))[];
             /**
              * Mode
              * @default chat
@@ -6369,6 +6564,18 @@ export interface components {
             project_id?: string | null;
             /** Timezone */
             timezone?: string | null;
+        };
+        /** MessageSource */
+        MessageSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "message";
+            /** Chat Id */
+            chat_id: string;
+            /** Message Id */
+            message_id: string;
         };
         /** MintIn */
         MintIn: {
@@ -6645,6 +6852,18 @@ export interface components {
             /** Session Generation */
             session_generation: number;
         };
+        /** PageSelection */
+        PageSelection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "pages";
+            /** Pages */
+            pages: number[];
+            /** Rendition Revision */
+            rendition_revision?: string | null;
+        };
         /** Page[ChatInventoryItem] */
         Page_ChatInventoryItem_: {
             /** Items */
@@ -6757,6 +6976,10 @@ export interface components {
             pinned_sub?: number | null;
             /** Mount Enabled */
             mount_enabled?: boolean | null;
+            /** Cpu Millis */
+            cpu_millis?: number | null;
+            /** Memory Mb */
+            memory_mb?: number | null;
         };
         /** PlatformEligibilityIn */
         PlatformEligibilityIn: {
@@ -7008,6 +7231,33 @@ export interface components {
             /** Current */
             current: string;
         };
+        /** QuoteContextAttachment */
+        QuoteContextAttachment: {
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "quote";
+            /** Source */
+            source: components["schemas"]["MessageSource"] | components["schemas"]["FileResource"] | components["schemas"]["ArtifactResource"] | components["schemas"]["JobResource"] | components["schemas"]["WebResource"];
+            snapshot: components["schemas"]["QuoteSnapshot"];
+            selector?: components["schemas"]["TextSelection"] | null;
+        };
+        /** QuoteSnapshot */
+        QuoteSnapshot: {
+            /** Text */
+            text: string;
+        };
         /** RegisterIn */
         RegisterIn: {
             /**
@@ -7071,6 +7321,29 @@ export interface components {
              */
             source: string;
         };
+        /** ResourceContextAttachment */
+        ResourceContextAttachment: {
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "resource";
+            /** Resource */
+            resource: components["schemas"]["FileResource"] | components["schemas"]["WorkflowResource"] | components["schemas"]["ArtifactResource"] | components["schemas"]["JobResource"] | components["schemas"]["WebResource"];
+            snapshot?: components["schemas"]["ResourceSnapshot"] | null;
+            /** Selector */
+            selector?: (components["schemas"]["TextSelection"] | components["schemas"]["PageSelection"] | components["schemas"]["CellSelection"] | components["schemas"]["TimeSelection"] | components["schemas"]["WorkflowSelection"]) | null;
+        };
         /** ResourcePartyOut */
         ResourcePartyOut: {
             /**
@@ -7095,6 +7368,11 @@ export interface components {
             origin_type: "created" | "uploaded" | "imported" | "catalog_install" | "derived" | "system";
             owner: components["schemas"]["ResourcePartyOut"];
             created_by?: components["schemas"]["ResourcePartyOut"] | null;
+        };
+        /** ResourceSnapshot */
+        ResourceSnapshot: {
+            /** Text */
+            text: string;
         };
         /**
          * ResourceType
@@ -7760,6 +8038,35 @@ export interface components {
              */
             organization_id: string;
         };
+        /** TextSelection */
+        TextSelection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "text";
+            /** Start Line */
+            start_line?: number | null;
+            /** End Line */
+            end_line?: number | null;
+            /**
+             * Unsaved
+             * @default false
+             */
+            unsaved: boolean;
+        };
+        /** TimeSelection */
+        TimeSelection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "time";
+            /** Start Seconds */
+            start_seconds: number;
+            /** End Seconds */
+            end_seconds?: number | null;
+        };
         /** TodoItem */
         TodoItem: {
             /** Id */
@@ -8007,6 +8314,16 @@ export interface components {
             /** Replaced */
             replaced: boolean;
         };
+        /** WebResource */
+        WebResource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "web";
+            /** Url */
+            url: string;
+        };
         /** WorkflowCreate */
         WorkflowCreate: {
             /** Name */
@@ -8048,6 +8365,30 @@ export interface components {
             description?: string | null;
             /** Tags */
             tags?: string[] | null;
+        };
+        /** WorkflowResource */
+        WorkflowResource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "workflow";
+            /** Workflow Id */
+            workflow_id: string;
+            /** Version */
+            version: string;
+        };
+        /** WorkflowSelection */
+        WorkflowSelection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "workflow_elements";
+            /** Node Ids */
+            node_ids?: string[];
+            /** Edges */
+            edges?: components["schemas"]["EdgeSelection"][];
         };
         /** WorkflowSnapshotOut */
         WorkflowSnapshotOut: {
@@ -11215,6 +11556,72 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_context_draft_api_v1_chats__chat_id__draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mutate_context_draft_api_v1_chats__chat_id__draft_operations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftAppend"] | components["schemas"]["DraftRemove"] | components["schemas"]["DraftText"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftOut"];
                 };
             };
             /** @description Validation Error */

@@ -8,7 +8,7 @@ import {
   type ActiveTurn,
 } from './active-turn';
 
-type Attachment = components['schemas']['Attachment'];
+type Attachment = NonNullable<components['schemas']['MessagePostBody']['attachments']>[number];
 
 interface ActiveRunResponse {
   run_id: string;

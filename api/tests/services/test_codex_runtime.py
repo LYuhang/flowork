@@ -3254,3 +3254,27 @@ async def test_codex_render_interactive_gate_ends_turn_at_completed_tool_boundar
         "hitl_"
     )
     assert "turn/interrupt" in instances[0].requests
+
+
+def test_turn_input_keeps_pathless_quotes_and_resource_context():
+    from vibecanvas_api.services.agent_runtime.codex import _turn_input
+    request = RuntimeTurnRequest(
+        tenant_id='tenant', user_id='user', chat_id='chat', turn_id='turn',
+        runtime_type='codex', runtime_session_id='session', runtime_root='/runtime/.codex',
+        model=_BROKER_MODEL, message={'role': 'user', 'content': 'Explain these'},
+        attachments=[
+            {'schema_version': 1, 'type': 'quote', 'id': 'q', 'label': 'Selection',
+             'source': {'kind': 'message', 'chat_id': 'chat', 'message_id': 'm'},
+             'snapshot': {'text': 'line one\n    indented line'}},
+            {'schema_version': 1, 'type': 'resource', 'id': 'r', 'label': 'Node',
+             'resolved_text': 'version v1.sv7: node_2 configuration'},
+            {'schema_version': 1, 'type': 'file', 'id': 'f', 'label': 'Photo',
+             'path': '/chats/chat/contexts/photo.png', 'content_type': 'image/png'},
+        ],
+    )
+    inputs = _turn_input(request)
+    assert inputs[0] == {'type': 'text', 'text': 'Explain these'}
+    assert json.loads(inputs[1]['text'].removeprefix('<user-context>\n').removesuffix('\n</user-context>'))['quoted_text'] == 'line one\n    indented line'
+    assert inputs[2]['text'] == '<user-context>\nversion v1.sv7: node_2 configuration\n</user-context>'
+    assert all(item['type'] != 'mention' for item in inputs)
+    assert inputs[-1] == {'type': 'localImage', 'path': '/chats/chat/contexts/photo.png'}

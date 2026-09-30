@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from vibecanvas_api.agents.tools.subagent.output import coerce_to_fields
+from vibecanvas_api.agents.tools.subagent.traces import chatml_messages
 from vibecanvas_api.agents.tool_runtime import AgentContext
 
 
@@ -24,6 +25,7 @@ class SubAgentResult:
     output: dict
     trace: list[dict] = field(default_factory=list)
     error: str | None = None
+    messages: list[dict] = field(default_factory=list)
 
 
 _TYPE_ALIASES = {"str": "string", "int": "integer", "float": "number", "bool": "boolean"}
@@ -52,11 +54,14 @@ def _messages_to_trace(messages: list) -> list[dict]:
         calls = []
         for call in getattr(message, "tool_calls", None) or []:
             calls.append({
+                "id": call.get("id", "") if isinstance(call, dict) else getattr(call, "id", ""),
                 "name": call.get("name", "") if isinstance(call, dict) else getattr(call, "name", ""),
                 "args": call.get("args", {}) if isinstance(call, dict) else getattr(call, "args", {}),
             })
         trace.append({
             "role": getattr(message, "type", None) or getattr(message, "role", ""),
+            "tool_call_id": getattr(message, "tool_call_id", None),
+            "status": getattr(message, "status", None),
             "text": _message_text(message),
             "tool_calls": calls,
         })
@@ -224,22 +229,25 @@ async def run_bounded_agent(
             status="incomplete",
             output=coerce_to_fields(holder.get("output") or {}, output_fields),
             trace=_messages_to_trace(list(result.get("messages") or [])),
+            messages=chatml_messages(list(result.get("messages") or [])),
             error="max_iterations reached" + _tool_diagnostics(list(result.get("messages") or [])),
         )
     except Exception as exc:
         if "output" in holder:
-            return SubAgentResult("done", holder["output"])
+            return SubAgentResult("done", holder["output"], messages=chatml_messages(list(result.get("messages") or [])))
         return SubAgentResult(
             status="error",
             output=coerce_to_fields({}, output_fields),
             error=f"{type(exc).__name__}: {exc}",
+            messages=chatml_messages(list(result.get("messages") or [])),
         )
 
     trace = _messages_to_trace(list(result.get("messages") or []))
     if "output" in holder:
-        return SubAgentResult("done", holder["output"], trace=trace)
+        return SubAgentResult("done", holder["output"], trace=trace, messages=chatml_messages(list(result.get("messages") or [])))
     return SubAgentResult(
         status="incomplete",
         output=coerce_to_fields({}, output_fields),
         trace=trace,
+        messages=chatml_messages(list(result.get("messages") or [])),
     )

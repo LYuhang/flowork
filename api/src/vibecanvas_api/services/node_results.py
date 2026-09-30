@@ -58,6 +58,7 @@ def build_node_payload(
     error: str | None = None,
     execution_time: float | None = None,
     ts: str | None = None,
+    resource_audit: dict | None = None,
 ) -> dict:
     """The per-node result JSON dict (spec shape). ``ts`` is stamped with the
     current UTC ISO timestamp when not supplied (plain ``datetime`` is fine in
@@ -73,6 +74,7 @@ def build_node_payload(
         "error": error,
         "execution_time": execution_time,
         "ts": ts or datetime.now(timezone.utc).isoformat(),
+        **({'resource_audit': resource_audit} if resource_audit is not None else {}),
     }
 
 
@@ -108,6 +110,7 @@ def persist_node_frame_payload(frame: dict) -> dict | None:
         output=output,
         error=frame.get("error"),
         execution_time=frame.get("duration"),
+        resource_audit=frame.get('resource_audit'),
     )
 
 

@@ -1,3 +1,4 @@
+import { parseResourceAudit, type ResourceAudit } from '@/lib/resource-audit';
 /**
  * State store for single-node debug execution.
  *
@@ -47,6 +48,7 @@ export function nodeInputsKey(wfId: string, nodeId: string): string {
 }
 
 export interface NodeExecState {
+  resource_audit?: ResourceAudit;
   /** The workflow the current run belongs to (node ids collide across
    * workflows, so gate the rendered output on BOTH wfId and nodeId). */
   wfId: string | null;
@@ -88,6 +90,7 @@ export const useNodeExecStore = create<NodeExecState>()(
     nodeId: null,
     status: 'idle',
     result: undefined,
+    resource_audit: undefined,
     error: undefined,
     abortController: null,
     inputsByNode: {},
@@ -99,6 +102,7 @@ export const useNodeExecStore = create<NodeExecState>()(
         abortController,
         status: 'running',
         result: undefined,
+        resource_audit: undefined,
         error: undefined,
       }),
 
@@ -115,11 +119,13 @@ export const useNodeExecStore = create<NodeExecState>()(
         // Map the synthesized frame status onto the panel's status enum.
         // 'running' keeps the spinner; 'completed'/'error' are terminal.
         const next: Partial<NodeExecState> = {};
+        if ('resource_audit' in update) next.resource_audit = parseResourceAudit(update.resource_audit);
         if (status === 'completed') {
           next.status = 'completed';
           if (result !== undefined) next.result = result;
         } else if (status === 'error') {
           next.status = 'error';
+          if (result !== undefined) next.result = result;
           if (error !== undefined) next.error = error;
         } else if (status === 'cancelled') {
           next.status = 'cancelled';
@@ -145,6 +151,7 @@ export const useNodeExecStore = create<NodeExecState>()(
         nodeId: null,
         status: 'idle',
         result: undefined,
+        resource_audit: undefined,
         error: undefined,
         abortController: null,
       }),

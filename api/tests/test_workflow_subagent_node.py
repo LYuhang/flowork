@@ -71,7 +71,8 @@ def test_subagent_node_populates_declared_output_fields(tmp_path):
         )
 
     assert envelope["status"] == "success", envelope
-    assert envelope["output"] == {"answer": "ok"}
+    assert envelope["output"] == {"answer": "ok", "__traces__": []}
+    assert "__traces__" not in run_mock.call_args.kwargs["output_fields"]
     assert model_mock.call_args.args[0]["model"] == "openai:gpt-test"
     assert run_mock.call_args.kwargs["user_input"] == "Summarize this task: summarize"
 

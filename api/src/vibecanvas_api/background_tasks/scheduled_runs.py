@@ -470,6 +470,7 @@ async def _execute_owned_scheduled_run(
         if resources:
             runtime_extra["workflow_resources"] = resources
         node_events = 0
+        resource_audits = {}
         workflow_stream = stream_workflow_job(
             stop=stop,
             workflow=workflow,
@@ -488,6 +489,8 @@ async def _execute_owned_scheduled_run(
                 node_events += 1
                 node_id = msg.get("node_id")
                 status = msg.get("status")
+                if node_id and isinstance(msg.get('resource_audit'), dict):
+                    resource_audits[node_id] = msg['resource_audit']
                 _emit(task_id, tenant_uuid, "progress", {
                     "schema_version": 1,
                     "level": "info",
@@ -505,6 +508,7 @@ async def _execute_owned_scheduled_run(
                         "node_name": msg.get("node_name"),
                         "status": status,
                         "event_index": node_events,
+                        **({'resource_audit': msg['resource_audit']} if isinstance(msg.get('resource_audit'), dict) else {}),
                     },
                     "error": None,
                 })
@@ -514,6 +518,7 @@ async def _execute_owned_scheduled_run(
                 error_message = None
                 result_payload = {
                     "final_outputs": msg.get("final_outputs") or {},
+                    **({'resource_audits': resource_audits} if resource_audits else {}),
                     "error_dict": error_dict,
                     "execution_time": msg.get("execution_time"),
                 }

@@ -1,3 +1,5 @@
+import { ExecutionTraces } from './ExecutionTraces';
+import { ResourceAuditPanel } from './ResourceAuditPanel';
 /**
  * Inspector panel for debugging a single node.
  *
@@ -108,6 +110,7 @@ function NodeExecuteForm({ wfId, nodeId, runner, canceller }: NodeExecuteFormPro
   const status = useNodeExecStore((s) => s.status);
   const result = useNodeExecStore((s) => s.result);
   const error = useNodeExecStore((s) => s.error);
+  const audit = useNodeExecStore((s) => s.resource_audit);
   const storeNodeId = useNodeExecStore((s) => s.nodeId);
   const storeWfId = useNodeExecStore((s) => s.wfId);
 
@@ -159,6 +162,7 @@ function NodeExecuteForm({ wfId, nodeId, runner, canceller }: NodeExecuteFormPro
         fileResult.inputs !== undefined)
         ? {
             status: fileResult.status,
+            resource_audit: fileResult.resource_audit,
             inputs: fileResult.inputs,
             result:
               fileResult.output !== undefined
@@ -427,6 +431,7 @@ function NodeExecuteForm({ wfId, nodeId, runner, canceller }: NodeExecuteFormPro
                 renderable={renderableFor(runData.result, wfId)}
               />
             )}
+            <ResourceAuditPanel audit={runData.resource_audit} />
             {runData.error !== undefined && (
               <pre
                 className="text-xs bg-destructive/10 text-destructive p-2 rounded max-h-64 overflow-auto whitespace-pre-wrap break-words select-text"
@@ -452,6 +457,7 @@ function NodeExecuteForm({ wfId, nodeId, runner, canceller }: NodeExecuteFormPro
               renderable={renderableFor(result, undefined)}
             />
           )}
+          <ResourceAuditPanel audit={audit} />
           {error !== undefined && (
             <pre
               className="text-xs bg-destructive/10 text-destructive p-2 rounded max-h-64 overflow-auto whitespace-pre-wrap break-words select-text"
@@ -517,8 +523,18 @@ function ExecResultBox({
   const [formatted, setFormatted] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const separated = useMemo(() => {
+    if (!result.includes('"__traces__"')) return { output: result, traces: null };
+    try {
+      const value = JSON.parse(result);
+      if (!value || Array.isArray(value) || !Array.isArray(value.__traces__)) return { output: result, traces: null };
+      const { __traces__, ...business } = value;
+      return { output: JSON.stringify(business), traces: __traces__ as unknown[] };
+    } catch { return { output: result, traces: null }; }
+  }, [result]);
+  const outputText = separated.output;
   // Cheap check (no parse); the Format toggle only PARSES on demand below.
-  const canFormat = useMemo(() => looksStructured(result), [result]);
+  const canFormat = useMemo(() => looksStructured(outputText), [outputText]);
   useEffect(() => {
     queueMicrotask(() => {
       setFormatted(false);
@@ -531,11 +547,11 @@ function ExecResultBox({
   // on every render/tab-switch (that was the big-result CPU hit).
   const shown = useMemo(() => {
     if (formatted && canFormat) {
-      const p = tryPrettyJson(result);
+      const p = tryPrettyJson(outputText);
       if (p != null) return p;
     }
-    return result;
-  }, [formatted, canFormat, result]);
+    return outputText;
+  }, [formatted, canFormat, outputText]);
 
   const truncated = !expanded && shown.length > MAX_INLINE_CHARS;
   const display = truncated ? shown.slice(0, MAX_INLINE_CHARS) : shown;
@@ -595,6 +611,7 @@ function ExecResultBox({
           })}
         </button>
       )}
+      {separated.traces && <ExecutionTraces messages={separated.traces} />}
       {renderable && rendering && <RenderedPreview {...renderable} />}
     </div>
   );

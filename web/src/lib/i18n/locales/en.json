@@ -3584,5 +3584,10 @@
   "subagent.resources.tools": "Tool definitions",
   "subagent.resources.toolCount": "{{count}} tools",
   "skills.detail.id": "Skill ID",
-  "mcp.detail.id": "MCP ID"
+  "mcp.detail.id": "MCP ID",
+  "subagent_audit": {
+  "title": "Resource and tool activity",
+  "note": "Declared resources and observed tool calls. A referenced path alone does not prove that a file was read.",
+  "truncated": "Activity was truncated at the recording limit."
+}
 }

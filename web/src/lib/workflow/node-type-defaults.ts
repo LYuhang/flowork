@@ -88,6 +88,10 @@ export function applyNodeTypeDefaults(node: NodeRec): NodeRec {
   }
 
   if (nodeType === 'SubAgentNode') {
+    node.output_fields = {
+      ...(node.output_fields as NodeRec ?? {}),
+      __traces__: { type: 'array', description: 'Runtime execution messages (ChatML)' },
+    };
     const hasConfig =
       node.node_config &&
       typeof node.node_config === 'object' &&

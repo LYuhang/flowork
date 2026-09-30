@@ -11,7 +11,8 @@ def _subagent_node(node_config: dict) -> dict:
             "file_path": {"type": "string", "value": "", "reference": "__start__.file_path"}
         },
         "output_fields": {
-            "summary": {"type": "string", "description": "Findings summary"}
+            "summary": {"type": "string", "description": "Findings summary"},
+            "__traces__": {"type": "array", "description": "Runtime execution messages"}
         },
         "node_config": node_config,
         "children": [],
@@ -125,3 +126,17 @@ def test_subagent_skill_reference_does_not_require_or_accept_a_version():
     assert SubAgentNode.check(_subagent_node(config))["status"] == "success"
     config["skills"][0]["revision_hash"] = "a" * 64
     assert SubAgentNode.check(_subagent_node(config))["status"] == "error"
+
+
+def test_subagent_requires_fixed_traces_array():
+    node = _subagent_node({"task_template": "Audit", "model_name": "manual"})
+    assert SubAgentNode.check(node)["status"] == "success"
+    del node["output_fields"]["__traces__"]
+    missing = SubAgentNode.check(node)
+    assert missing["status"] == "error"
+    assert "__traces__" in missing["error_message"]
+    for wrong_type in ("string", "object", "integer"):
+        node["output_fields"]["__traces__"] = {"type": wrong_type}
+        invalid = SubAgentNode.check(node)
+        assert invalid["status"] == "error"
+        assert "__traces__" in invalid["error_message"]

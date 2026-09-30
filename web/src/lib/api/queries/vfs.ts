@@ -1,3 +1,4 @@
+import { parseResourceAudit, type ResourceAudit } from '@/lib/resource-audit';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   deleteVfs,
@@ -61,6 +62,7 @@ export const useVfsRunContent = (runId: string | null, path: string | null) =>
 
 /** A node's persisted per-run result, as written to the run-tier file. */
 export interface RunNodeResult {
+  resource_audit?: ResourceAudit;
   inputs?: unknown;
   output?: unknown;
   status?: string;
@@ -91,6 +93,7 @@ export const useRunNodeResult = (
         if (typeof out.content !== 'string') return undefined;
         const parsed = JSON.parse(out.content) as Record<string, unknown>;
         return {
+          resource_audit: parseResourceAudit(parsed.resource_audit),
           inputs: parsed.inputs,
           output: parsed.output,
           status: typeof parsed.status === 'string' ? parsed.status : undefined,

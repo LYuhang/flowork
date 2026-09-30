@@ -1,3 +1,4 @@
+import { parseResourceAudit, type ResourceAudit } from '@/lib/resource-audit';
 /**
  * Execution-stream store — holds the in-flight workflow execution.
  *
@@ -86,6 +87,7 @@ export type ExecStatus =
  * populate `status` and the final frame's `result` / `error`.
  */
 export interface ExecNodeState {
+  resource_audit?: ResourceAudit;
   status: string;
   inputs?: unknown;
   result?: string;
@@ -194,6 +196,7 @@ export const useExecStreamStore = create<ExecStreamState>()(
                 result: result ?? prev?.result,
                 error: error ?? prev?.error,
                 duration: duration ?? prev?.duration,
+                resource_audit: parseResourceAudit(update.resource_audit) ?? (status === 'running' ? undefined : prev?.resource_audit),
                 inputs: 'inputs' in update ? update.inputs : prev?.inputs,
               },
             },

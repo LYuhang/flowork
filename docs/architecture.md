@@ -180,12 +180,19 @@ The selectable Chat Runtime does not use LangChain. The workflow
 inside the workflow sandbox. Its native tools are `bash` (files and scripts),
 `web_search` (source discovery), and `read_images` (image pixels), plus an
 internal `set_output` tool generated from the node's declared output fields.
-There is no second sandbox, Chat environment-flag requirement, MCP adapter,
-persistent checkpointer, or tool-definition conversion layer. Shell calls use
+Selected MCP servers supply host-authorized tools through the workflow resource
+adapter. There is no second sandbox, Chat environment-flag requirement, or
+persistent checkpointer. Shell calls use
 the run's working directory, return exit status and both output streams, and
 retain large output in files. Tool images are projected into multimodal model
 messages without a shared pending-image queue. Valid result submission ends
 the loop; invalid fields return feedback for correction.
+
+SubAgent output declarations include the reserved `__traces__` array. The
+runtime populates it with ChatML-style execution messages; the model's
+`set_output` schema includes only business fields. Saved trace copies omit
+image base64/data URLs without altering vision inputs. The node inspector
+shows this field read-only and displays message bodies on demand.
 
 ### Workers
 

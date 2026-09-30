@@ -39,6 +39,9 @@ in this turn. Copy an enabled models key exactly; the Chat model, remembered
 names and provider model IDs are not substitutes. If none are available, ask
 the user to manually add an API instead of fabricating a usable configuration.
 Workflow models cannot use OpenRouter account connections or platform defaults.
+SubAgentNode output_fields must include __traces__ with type array. The runtime
+fills this reserved ChatML message list; describe only business result fields
+in the delegated task, and never ask the model to manufacture execution traces.
 Do not silently replace requested semantic analysis, research or extraction with
 keyword rules, canned replies or invented results. If a prerequisite is missing,
 explain exactly what is missing and ask for it; offer a limited draft only as an

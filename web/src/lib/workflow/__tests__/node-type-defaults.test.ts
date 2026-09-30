@@ -73,3 +73,14 @@ describe('applyNodeTypeDefaults', () => {
     expect(n.node_config).toBeUndefined();
   });
 });
+
+it('adds reserved SubAgent traces without losing business outputs', () => {
+  const node = applyNodeTypeDefaults({
+    node_type: 'SubAgentNode',
+    output_fields: { answer: { type: 'string' } },
+  });
+  expect(node.output_fields).toEqual({
+    answer: { type: 'string' },
+    __traces__: { type: 'array', description: 'Runtime execution messages (ChatML)' },
+  });
+});

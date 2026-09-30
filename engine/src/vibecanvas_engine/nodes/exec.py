@@ -31,6 +31,16 @@ async def dispatch_node_call(node: BaseNode, inputs: dict, previous_outputs: dic
     Returns the node's ``{status, output, ...}`` result dict.
     """
     if getattr(node, "REQUIRES_THREAD_BRIDGE", False):
+        if getattr(node, 'node_type', None) == 'SubAgentNode':
+            local_extra = dict(extra or {})
+            result = await asyncio.to_thread(node, inputs, previous_outputs, extra=local_extra)
+            if '_subagent_resource_audit' in local_extra:
+                result['resource_audit'] = local_extra['_subagent_resource_audit']
+            if '_subagent_traces' in local_extra:
+                if not isinstance(result.get('output'), dict):
+                    result['output'] = {}
+                result['output']['__traces__'] = local_extra['_subagent_traces']
+            return result
         return await asyncio.to_thread(node, inputs, previous_outputs, extra=extra)
     return node(inputs, previous_outputs)
 

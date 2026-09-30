@@ -3584,5 +3584,10 @@
   "subagent.resources.tools": "工具定义",
   "subagent.resources.toolCount": "{{count}} 个工具",
   "skills.detail.id": "Skill ID",
-  "mcp.detail.id": "MCP ID"
+  "mcp.detail.id": "MCP ID",
+  "subagent_audit": {
+  "title": "资源与工具使用记录",
+  "note": "展示声明的资源和观察到的工具调用。仅引用文件路径不代表已读取文件。",
+  "truncated": "记录已达到数量上限，后续内容未保存。"
+}
 }

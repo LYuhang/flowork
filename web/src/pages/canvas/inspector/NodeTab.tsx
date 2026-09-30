@@ -149,6 +149,8 @@ function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) 
   // Template/TableRead/TableWrite). When set we PRESET these output fields +
   // render them read-only; the engine enforces the exact set (Node.check), so
   // the user neither authors nor edits them. See `fixedOutputs.ts`.
+  const isSubAgent = nodeType === 'SubAgentNode';
+  const traceField = { type: 'array', description: 'Runtime execution messages (ChatML)' };
   const fixedOutputs = fixedOutputFields(nodeType);
   const hasFixedOutputs = fixedOutputs !== undefined;
   const showInputFields = !isParallel && !isLoopBegin && !isLoopEnd;
@@ -197,7 +199,7 @@ function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) 
 
   const onOutputFieldsChange = (next: FieldsMap) =>
     editNode((entry) => {
-      entry.output_fields = next;
+      entry.output_fields = isSubAgent ? { ...next, __traces__: traceField } : next;
     });
 
   const onConfigChange = (next: Record<string, unknown>) =>
@@ -227,7 +229,13 @@ function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) 
   // never mutate a viewed-only version. The `outputsMatchFixed` guard keeps
   // this a no-op once the draft already carries the preset (no edit loop).
   useEffect(() => {
-    if (readOnly || !fixedOutputs) return;
+    if (readOnly) return;
+    if (isSubAgent && payload.output_fields?.__traces__?.type !== 'array') {
+      editNode((entry) => {
+        entry.output_fields = { ...(entry.output_fields as FieldsMap ?? {}), __traces__: traceField };
+      });
+    }
+    if (!fixedOutputs) return;
     if (outputsMatchFixed(payload.output_fields, fixedOutputs)) return;
     editNode((entry) => {
       entry.output_fields = structuredClone(fixedOutputs);
@@ -313,11 +321,20 @@ function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) 
             />
           )}
 
+          {isSubAgent && (
+            <FieldsEditor
+              title={t('inspector.node.execution_traces', 'Execution traces')}
+              mode="output"
+              fields={{ __traces__: traceField }}
+              readOnly
+              onChange={() => {}}
+            />
+          )}
           {showOutputFields && (
             <FieldsEditor
               title={t('inspector.node.output_fields', 'Output fields')}
               mode="output"
-              fields={outputFields}
+              fields={isSubAgent ? Object.fromEntries(Object.entries(outputFields).filter(([name]) => name !== '__traces__')) : outputFields}
               outputsFollowInputs={mirrors}
               readOnly={outputFieldsReadOnly}
               onChange={onOutputFieldsChange}

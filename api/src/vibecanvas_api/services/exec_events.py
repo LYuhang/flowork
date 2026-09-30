@@ -68,6 +68,7 @@ def to_exec_update(ev: dict, exec_id: str) -> tuple[str, dict] | None:
                 output, default=str, ensure_ascii=False
             ),
             "inputs": ev.get("inputs"),
+            **({'resource_audit': ev['resource_audit']} if 'resource_audit' in ev else {}),
             # Per-node wall-clock seconds — the engine stamps ``execution_time``
             # onto the success envelope (``utils.safe_call_with_args`` /
             # ``nodes/code.py``). Surface it so the Run output can show each
@@ -87,11 +88,14 @@ def to_exec_update(ev: dict, exec_id: str) -> tuple[str, dict] | None:
                 "node_type": ev.get("node_type"),
                 "status": "error",
                 "error": ev.get("error_message", ""),
+                **({"result": json.dumps(ev["output"], default=str, ensure_ascii=False)}
+                   if isinstance(ev.get("output"), dict) and "__traces__" in ev["output"] else {}),
                 # Failed nodes are the most important ones to reproduce in the
                 # isolated debugger.  The engine includes the resolved inputs
                 # on node-scoped error envelopes; carry them through to the
                 # live store and the durable __exec__/nodes result file.
                 "inputs": ev.get("inputs"),
+                **({'resource_audit': ev['resource_audit']} if 'resource_audit' in ev else {}),
             })
         # Engine-level critical error — not tied to a node → terminal error.
         return ("EXEC_UPDATE", {

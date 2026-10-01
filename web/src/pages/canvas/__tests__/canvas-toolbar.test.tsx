@@ -416,6 +416,9 @@ describe('New version button (UX-5 Part A)', () => {
     const btn = byAction('canvas-new-version');
     expect(btn).not.toBeNull();
     fireEvent.click(btn);
+    expect(commitMock.mutateAsync).not.toHaveBeenCalled();
+    expect(newMajorMock.mutateAsync).not.toHaveBeenCalled();
+    fireEvent.click(byAction('canvas-new-version-confirm'));
     await waitFor(() => expect(newMajorMock.mutateAsync).toHaveBeenCalled());
     // Dirty → saved first.
     expect(commitMock.mutateAsync).toHaveBeenCalled();

@@ -3727,5 +3727,9 @@
   "chat.examples.reports.weekly.prompt": "/document 请根据我提供的工作记录整理一份可编辑的 Word 周报，包含本周进展、已完成事项、风险与阻碍、下周计划。保留关键事实和来源，不编造进度或数字，对缺失信息明确标注。没有材料时，请先让我粘贴记录或上传文件。",
   "execution.failure.generic": "执行失败，请查看已记录的节点结果。",
   "execution.failure.execution_lost": "执行中断，沙箱或执行进程已停止。",
-  "execution.failure.execution_resume_failed": "原执行身份的权限校验未通过，执行已停止。"
+  "execution.failure.execution_resume_failed": "原执行身份的权限校验未通过，执行已停止。",
+  "toolbar.newVersionConfirmTitle": "确认新建版本？",
+  "toolbar.newVersionConfirmBody": "将基于当前工作流创建一个新的主版本，未保存的修改会先保存。",
+  "toolbar.newVersionConfirm": "确认创建",
+  "toolbar.newVersionCreating": "创建中…"
 }

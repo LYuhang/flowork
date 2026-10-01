@@ -233,6 +233,9 @@ export function CanvasToolbar({
   };
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newVersionOpen, setNewVersionOpen] = useState(false);
+  const [creatingVersion, setCreatingVersion] = useState(false);
+  const creatingVersionRef = useRef(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const onSettingsOpenChange = useCallback((nextOpen: boolean) => {
     setSettingsOpen(nextOpen);
@@ -271,14 +274,20 @@ export function CanvasToolbar({
   // the user's latest edits, then allocates a fresh major and lands the user on
   // the new active HEAD (`/workflow/:wfId`).
   const onNewVersion = async () => {
-    if (!draft || pinnedMajor != null) return;
+    if (!draft || pinnedMajor != null || readOnly || creatingVersionRef.current) return;
+    creatingVersionRef.current = true;
+    setCreatingVersion(true);
     try {
       if (dirty) await commit.mutateAsync(draft);
       await newMajor.mutateAsync(draft);
+      setNewVersionOpen(false);
       navigate(`/workflow/${wfId}`);
       toast.success(t('toolbar.newVersionCreated', 'New version created'));
     } catch {
       // Both mutations toast on error via their onError handlers.
+    } finally {
+      creatingVersionRef.current = false;
+      setCreatingVersion(false);
     }
   };
 
@@ -445,7 +454,7 @@ export function CanvasToolbar({
           data-action="canvas-new-version"
           disabled={readOnly || !draft || commit.isPending || newMajor.isPending}
           title={t('toolbar.newVersionHint', 'Save and start a new major version')}
-          onClick={() => void onNewVersion()}
+          onClick={() => setNewVersionOpen(true)}
         >
           <GitBranchPlus className="h-4 w-4 2xl:mr-2" />
           <span className="hidden 2xl:inline">{t('toolbar.newVersion', 'New version')}</span>
@@ -602,6 +611,24 @@ export function CanvasToolbar({
               }}
             >
               {t('io.replace', 'Replace')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={newVersionOpen} onOpenChange={(open) => { if (!creatingVersion) setNewVersionOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('toolbar.newVersionConfirmTitle')}</DialogTitle>
+            <DialogDescription>{t('toolbar.newVersionConfirmBody')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={creatingVersion} onClick={() => setNewVersionOpen(false)}>
+              {t('cancel', 'Cancel')}
+            </Button>
+            <Button data-action="canvas-new-version-confirm"
+              disabled={readOnly || !draft || creatingVersion || commit.isPending || newMajor.isPending}
+              onClick={() => void onNewVersion()}>
+              {t(creatingVersion ? 'toolbar.newVersionCreating' : 'toolbar.newVersionConfirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -3727,5 +3727,9 @@
   "chat.examples.reports.weekly.prompt": "/document Turn the work notes I provide into an editable Word weekly report covering progress, completed work, risks and blockers, and next steps. Preserve key facts and sources. Do not invent progress or numbers; mark missing information clearly. If I have not provided notes, ask me to paste them or upload a file.",
   "execution.failure.generic": "Execution failed. See the recorded node results for details.",
   "execution.failure.execution_lost": "Execution interrupted: the sandbox or execution process stopped.",
-  "execution.failure.execution_resume_failed": "Execution stopped because its original permissions could not be revalidated."
+  "execution.failure.execution_resume_failed": "Execution stopped because its original permissions could not be revalidated.",
+  "toolbar.newVersionConfirmTitle": "Create a new version?",
+  "toolbar.newVersionConfirmBody": "Create a new major version from the current workflow. Unsaved changes will be saved first.",
+  "toolbar.newVersionConfirm": "Create version",
+  "toolbar.newVersionCreating": "Creating…"
 }

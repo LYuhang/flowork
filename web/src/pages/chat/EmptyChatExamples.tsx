@@ -47,11 +47,6 @@ const CATEGORIES: readonly {
     example('presentation', '📊', '/document', 'chat.examples.office.presentation'),
     example('weekly', '📅', '/document', 'chat.examples.reports.weekly'),
   ] },
-  { id: 'web', labelKey: 'chat.examples.scenario.web', style: 'workflow', examples: [
-    example('compare', '⚖️', '', 'chat.examples.web.compare'),
-    example('digest', '🔎', '', 'chat.examples.web.digest'),
-    example('extract', '📋', '', 'chat.examples.web.extract'),
-  ] },
   { id: 'automation', labelKey: 'chat.examples.scenario.automation', style: 'automation', examples: [
     example('order-audit', '⚙️', '/workflow', 'chat.examples.automation.orderAudit'),
     example('schedule', '🗓️', '/task', 'chat.examples.operations.schedule'),

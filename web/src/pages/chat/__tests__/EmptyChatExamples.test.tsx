@@ -33,7 +33,6 @@ function renderExamples(visible: boolean, onSelect = vi.fn()) {
 const scenarios = [
   ['tables', ['tables.clean', 'tables.audit', 'office.spreadsheet']],
   ['reports', ['office.report', 'office.presentation', 'reports.weekly']],
-  ['web', ['web.compare', 'web.digest', 'web.extract']],
   ['automation', ['automation.orderAudit', 'operations.schedule', 'operations.deploy']],
   ['diagrams', ['diagram.architecture', 'diagram.process', 'diagram.sequence']],
   ['knowledge', ['knowledge.create', 'knowledge.explore', 'knowledge.update']],
@@ -63,7 +62,7 @@ describe('EmptyChatExamples', () => {
         );
       }
     }
-    expect(onSelect).toHaveBeenCalledTimes(21);
+    expect(onSelect).toHaveBeenCalledTimes(18);
   });
 
   it('renders only for an empty Chat', () => {
@@ -77,13 +76,12 @@ describe('EmptyChatExamples', () => {
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
   });
 
-  it('offers public web research without activating extension-only browser commands', async () => {
+  it('keeps knowledge examples under the materials scenario', async () => {
     const onSelect = renderExamples(true);
-    await userEvent.click(screen.getByRole('tab', { name: 'Web research' }));
+    expect(screen.queryByRole('tab', { name: 'Web research' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Organize knowledge' }));
     for (const card of screen.getAllByRole('button')) await userEvent.click(card);
-    for (const [prompt] of onSelect.mock.calls) {
-      expect(prompt).not.toMatch(/^\/browser/);
-      expect(prompt).toMatch(/public/i);
-    }
+    expect(onSelect).toHaveBeenCalledTimes(3);
+    for (const [prompt] of onSelect.mock.calls) expect(prompt).toMatch(/^\/knowledge /);
   });
 });

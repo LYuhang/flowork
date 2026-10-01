@@ -176,20 +176,20 @@ const EXAMPLES: Record<ExampleCategory, readonly ExampleDefinition[]> = {
   skill: [
     {
       id: 'template', icon: '🧩', command: '/skill',
-      titleKey: 'chat.examples.skill.template.title', title: "Create a Skill template",
-      descriptionKey: 'chat.examples.skill.template.description', description: "Start a local SKILL.md template without publishing.",
+      titleKey: 'chat.examples.skill.template.title', title: en['chat.examples.skill.template.title'],
+      descriptionKey: 'chat.examples.skill.template.description', description: en['chat.examples.skill.template.description'],
       promptKey: 'chat.examples.skill.template.prompt', prompt: en['chat.examples.skill.template.prompt'],
     },
     {
       id: 'download', icon: '📥', command: '/skill',
-      titleKey: 'chat.examples.skill.download.title', title: "Download an available Skill",
-      descriptionKey: 'chat.examples.skill.download.description', description: "Inspect available Skills and save a local copy.",
+      titleKey: 'chat.examples.skill.download.title', title: en['chat.examples.skill.download.title'],
+      descriptionKey: 'chat.examples.skill.download.description', description: en['chat.examples.skill.download.description'],
       promptKey: 'chat.examples.skill.download.prompt', prompt: en['chat.examples.skill.download.prompt'],
     },
     {
       id: 'update', icon: '🛠️', command: '/skill',
-      titleKey: 'chat.examples.skill.update.title', title: "Improve my custom Skill",
-      descriptionKey: 'chat.examples.skill.update.description', description: "Validate the complete package and publish a new version.",
+      titleKey: 'chat.examples.skill.update.title', title: en['chat.examples.skill.update.title'],
+      descriptionKey: 'chat.examples.skill.update.description', description: en['chat.examples.skill.update.description'],
       promptKey: 'chat.examples.skill.update.prompt', prompt: en['chat.examples.skill.update.prompt'],
     },
   ],
@@ -240,7 +240,7 @@ const CATEGORIES: readonly {
   { id: 'diagram', labelKey: 'chat.examples.tab.diagram', label: 'Diagram' },
   { id: 'workflow', labelKey: 'chat.examples.tab.workflow', label: 'Workflow' },
   { id: 'operations', labelKey: 'chat.examples.tab.operations', label: 'Tasks and deployments' },
-  { id: 'skill', labelKey: 'chat.examples.tab.skill', label: 'Skill' },
+  { id: 'skill', labelKey: 'chat.examples.tab.skill', label: en['chat.examples.tab.skill'] },
   { id: 'knowledge', labelKey: 'chat.examples.tab.knowledge', label: 'Knowledge' },
 ];
 
@@ -324,13 +324,13 @@ export function EmptyChatExamples({
         </TabsList>
         {CATEGORIES.map((category) => (
           <TabsContent key={category.id} value={category.id} className="mt-3">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-2">
               {EXAMPLES[category.id].map((example) => (
                 <button
                   key={example.id}
                   type="button"
                   className={cn(
-                    'group relative grid min-h-36 grid-rows-[auto_auto_1fr_auto] content-start items-stretch overflow-hidden rounded-2xl border border-edge-subtle bg-gradient-to-b from-surface-raised to-surface-sunken/35 p-4 text-left',
+                    'group relative grid min-w-0 min-h-36 grid-rows-[auto_auto_1fr_auto] content-start items-stretch overflow-hidden rounded-2xl border border-edge-subtle bg-gradient-to-b from-surface-raised to-surface-sunken/35 p-4 text-left',
                     'shadow-[0_1px_0_rgba(15,23,42,0.08),0_10px_24px_-18px_rgba(15,23,42,0.5)]',
                     'transition-[transform,border-color,box-shadow,background-color] duration-200 ease-out',
                     'hover:-translate-y-0.5 active:translate-y-px active:shadow-sm',
@@ -366,10 +366,10 @@ export function EmptyChatExamples({
                       {example.command}
                     </span>
                   </span>
-                  <span className="text-ui mt-3 block font-semibold text-content-primary">
+                  <span className="text-ui mt-3 block break-words font-semibold text-content-primary">
                     {t(example.titleKey, example.title)}
                   </span>
-                  <span className="text-meta mt-1.5 block text-content-secondary">
+                  <span className="text-meta mt-1.5 block break-words text-content-secondary">
                     {t(example.descriptionKey, example.description)}
                   </span>
                   <span

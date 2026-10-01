@@ -136,10 +136,13 @@ describe('Skill management examples', () => {
   it.each(['en', 'zh'])('offers editable template, download and update prompts in %s', async (language) => {
     await i18n.changeLanguage(language);
     const onSelect = renderExamples(true);
-    await userEvent.click(screen.getByRole('tab', { name: /^Skill$/ }));
+    await userEvent.click(screen.getByRole('tab', { name: language === 'zh' ? '技能' : 'Skills', exact: true }));
     expect(onSelect).not.toHaveBeenCalled();
     for (const id of ['template', 'download', 'update']) {
       await userEvent.click(document.querySelector(`[data-example-id="skill:${id}"]`)!);
+      const locale = language === 'zh' ? zh : en;
+      const key = `chat.examples.skill.${id}.prompt` as keyof typeof en;
+      expect(onSelect).toHaveBeenLastCalledWith(locale[key]);
       expect(onSelect).toHaveBeenLastCalledWith(expect.stringMatching(/^\/skill /));
     }
     expect(onSelect).toHaveBeenCalledTimes(3);

@@ -51,7 +51,7 @@ describe('EmptyChatExamples', () => {
     expect(screen.getAllByRole('tab')[0]).toHaveAttribute('aria-selected', 'true');
     expect(onSelect).not.toHaveBeenCalled();
     for (const [id, keys] of scenarios) {
-      await user.click(screen.getByRole('tab', { name: locale[`chat.examples.scenario.${id}`], exact: true }));
+      await user.click(screen.getByRole('tab', { name: locale[`chat.examples.scenario.${id}`] }));
       expect(screen.getAllByRole('button')).toHaveLength(3);
       for (const key of keys) {
         const card = screen.getByRole('button', { name: new RegExp(locale[`chat.examples.${key}.title`]) });

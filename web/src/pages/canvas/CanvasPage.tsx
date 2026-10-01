@@ -48,6 +48,8 @@ import { useUIStore } from '@/stores/ui';
 import { useExecStreamStore } from '@/stores/exec-stream';
 import { AsyncState } from '@/components/ui/async-state';
 import { WorkflowWorkbenchHeader } from './WorkflowWorkbenchHeader';
+import { CanvasExecutionHistory } from './CanvasExecutionHistory';
+import { useWorkflowExecutionStatus } from '@/lib/api/queries/executions';
 
 export function CanvasPage() {
   const { wfId, vKey } = useParams<{ wfId: string; vKey?: string }>();
@@ -93,7 +95,7 @@ export function CanvasPage() {
   // only remaining freeze is an active run. This single source is threaded as
   // the canvas/inspector/toolbar `readOnly` AND mirrored into `canvasReadOnly`
   // (window-level keyboard mutation gating).
-  const isRunning = useExecStreamStore((s) => s.status === 'running');
+  const localRunning = useExecStreamStore((s) => s.wfId === wfId && s.status === 'running');
   const workflowCapabilities = new Set(query.data?.meta.access?.capabilities ?? []);
   const canUpdate = workflowCapabilities.has('update');
   const canExecute = workflowCapabilities.has('execute');
@@ -101,6 +103,8 @@ export function CanvasPage() {
   const canMount = workflowCapabilities.has('mount');
   const canInspectRuns = workflowCapabilities.has('inspect_runs');
   const canCancel = workflowCapabilities.has('cancel');
+  const currentExecution = useWorkflowExecutionStatus(wfId, { enabled: canInspectRuns, running: localRunning });
+  const isRunning = localRunning || currentExecution.data?.status === 'running';
   const effectiveReadOnly = isRunning || !canUpdate;
   // The Explorer itself now lives in AppLayout (B1 shell); CanvasPage only
   // keeps the toolbar's "Files" toggle wiring, which flips the same shared
@@ -329,6 +333,7 @@ export function CanvasPage() {
   // strictly to its subtree and the inspector would crash.
   return (
     <ReactFlowProvider>
+      <CanvasExecutionHistory wfId={wfId!} enabled={canInspectRuns}>
       <div
         className="flex h-full w-full flex-col"
         data-page-archetype="editor-workspace"
@@ -357,6 +362,7 @@ export function CanvasPage() {
         onCancel={cancelNavigation}
         onSave={saveThenProceed}
       />
+      </CanvasExecutionHistory>
     </ReactFlowProvider>
   );
 }

@@ -146,7 +146,8 @@ async def test_projection_runs_after_commit_and_failure_propagates(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_execution_identity_query_and_membership_with_real_database(client, monkeypatch):
+@pytest.mark.parametrize("execution_status", ["running", "waiting_approval"])
+async def test_execution_identity_query_and_membership_with_real_database(pg_engine, monkeypatch, execution_status):
     from vibecanvas_api.storage.db import session_scope
     from vibecanvas_api.storage.repo_deployment_invocations import (
         DeploymentInvocationsRepo,
@@ -155,14 +156,12 @@ async def test_execution_identity_query_and_membership_with_real_database(client
     from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
     from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
-    response = await client.post("/api/v1/auth/register", json={
-        "email": f"dependency-{uuid.uuid4().hex}@example.com", "username": "dep-test",
-        "password": "pw12345678",
-    })
-    assert response.status_code == 201, response.text
-    registered = response.json()
-    tenant = registered["session"]["active_organization_id"]
-    user = registered["user"]["user_id"]
+    from vibecanvas_api.auth.repo import AuthRepo
+    async with session_scope() as session:
+        registered = await AuthRepo(session).register(
+            f"dependency-{uuid.uuid4().hex}@example.com", "unused-password-hash",
+        )
+        tenant, user = str(registered.tenant_id), str(registered.user_id)
     account, deployment, credential = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     workflow_id = f"dep-{uuid.uuid4().hex}"
     async with session_scope(tenant) as session:
@@ -175,7 +174,20 @@ async def test_execution_identity_query_and_membership_with_real_database(client
             wf_id=workflow_id, name="D", slug=f"dep-{deployment.hex}", trigger_type="api",
             version_pin="major", pinned_major=1, api_key_hash="test-only-hash")
         invocation = await DeploymentInvocationsRepo(session).create(tenant_id=uuid.UUID(tenant),
-            deployment_id=deployment, wf_id=workflow_id, trigger_type="api", source="sync_api", status="running")
+            deployment_id=deployment, wf_id=workflow_id, trigger_type="api", source="sync_api", status=execution_status)
+
+    from sqlalchemy import text
+    from vibecanvas_api.services.workflow_execution_authorization import _workflow_execution_is_active
+    from vibecanvas_api.services.workflow_deletion import check_dependencies
+    from vibecanvas_api.agents.tools.decorator import ToolError
+    capability = SimpleNamespace(execution_resource_type="deployment_invocation", principal_type="service_account",
+        principal_id=str(account), execution_id=str(invocation), workflow_id=workflow_id, user_id=user)
+    async with session_scope(tenant) as session:
+        assert await _workflow_execution_is_active(session, capability)
+        await session.execute(text("UPDATE deployments SET enabled=false WHERE id=:id"), {"id": deployment})
+        with pytest.raises(ToolError, match="workflow_in_use") as protected:
+            await check_dependencies(session, workflow_id)
+        assert "active deployment invocations" in protected.value.message
 
     monkeypatch.setattr(deps, "LlmCredentialsRepo", lambda _: Mock(list_for_user=AsyncMock(return_value=[{
         "id": credential, "name": "manual", "user_id": user, "enabled": True,

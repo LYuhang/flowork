@@ -86,6 +86,7 @@ import {
 } from "@/lib/api/tasks";
 import { useTaskStream, type TaskEventFrame } from "@/lib/api/sse/run-task-stream";
 import { useFormatDateTime } from "@/lib/timezone";
+import { ExecutionHistory } from "@/components/logs/execution-history";
 import { describeCronExpression, scheduleLocale } from "@/lib/cron-description";
 
 const POLL_INTERVAL_MS = 5_000;
@@ -1133,6 +1134,7 @@ export function TaskDetailPage() {
 
         {/* Live event log */}
         <TabsContent value="logs" className="mt-0">
+          {capabilities.has("inspect_runs") && <ExecutionHistory key={taskId} source="task" sourceId={taskId ?? ''} />}
           <SectionBlock
             variant="plain"
             title={t("taskDetail.events", "Events")}

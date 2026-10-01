@@ -207,7 +207,7 @@ class DeploymentInvocationsRepo:
                     latency_ms = :latency_ms,
                     error = :error,
                     result_summary = CAST(:result_summary AS jsonb)
-                WHERE id = :id AND status IN ('queued', 'running')
+                WHERE id = :id AND status IN ('queued', 'running', 'waiting_approval')
                     AND (runtime_claim IS NULL OR runtime_claim = :runtime_claim)
                 """
             ),

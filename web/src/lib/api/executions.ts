@@ -30,6 +30,7 @@ export interface ExecutionPerNodeRow {
 
 export interface ExecutionStatusOut {
   exec_id: string;
+  history_id?: string | null;
   wf_id: string;
   status: 'running' | 'completed' | 'stopped' | 'error';
   started_at: number;

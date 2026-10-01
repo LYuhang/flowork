@@ -2,7 +2,8 @@
 
 ``run_workflow_sandboxed_sync`` is the live sync runner, called from the
 background worker ``batch_exec`` worker body (a synchronous context: no running event
-loop) and the deployment-invoke path. Workflow loading goes through the
+loop). Deployments await ``run_workflow_sandboxed_async`` without retaining a
+thread during execution or human approval. Workflow loading goes through the
 ``SyncWorkflowRepo`` facade, which opens its own short NullPool async
 session per call. The workflow is executed inside the selected OS sandbox, which is
 the sole execution path; there is no in-process
@@ -55,6 +56,106 @@ from vibecanvas_api.storage.sync_repo import SyncWorkflowRepo
 from vibecanvas_api.storage.sync_session import current_sync_tenant_id
 
 logger = structlog.get_logger(__name__)
+
+
+def _prepare_service_workflow(
+    *, workflow_id, workflow_dict, inputs, tenant_id, user_id, run_id,
+    execution_resource_type, execution_principal_type, execution_principal_id,
+    execution_principal_generation, mount_enabled, deployment_id, revision_id,
+):
+    """Prepare short-lived host context; never wait for workflow completion here."""
+    current_sync_tenant_id.set(tenant_id)
+    settings = (workflow_dict.get("__meta__") or {}).get("settings") or {}
+    requirements = settings.get("code_requirements")
+    injection_claims = {
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+        "workflow_id": workflow_id,
+        "execution_id": run_id,
+        "execution_resource_type": execution_resource_type,
+    }
+    if execution_principal_type != "user":
+        injection_claims.update({
+            "principal_type": execution_principal_type,
+            "principal_id": execution_principal_id,
+            "principal_generation": execution_principal_generation,
+        })
+    run_context = inject_into_run_context_sync(
+        {"run_id": run_id, "run_dir": None},
+        workflow_dict,
+        **injection_claims,
+    )
+    try:
+        allow_hosts = compute_allow_hosts(
+            workflow_dict,
+            user_id=user_id,
+            creds_mapping=run_context.get("llm_credentials") or {},
+        )
+    except Exception:  # pragma: no cover - fail closed in proxy mode
+        logger.warning("egress_allowlist_compute_failed", exc_info=True)
+        allow_hosts = set()
+    manager = get_sandbox_manager()
+    execute = manager.run_deployment if deployment_id and revision_id else manager.run_workflow_once
+    revision_args = {
+        "deployment_id": deployment_id, "revision_id": revision_id,
+        "resource_claims": injection_claims,
+    } if deployment_id and revision_id else {"resource_claims": injection_claims}
+    return execute, dict(
+        **revision_args,
+        workflow_id=workflow_id,
+        workflow=workflow_dict,
+        inputs=inputs,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        run_id=run_id,
+        extra=({key: value for key, value in run_context.items() if key not in {"run_id", "run_dir"}} or None),
+        allow_hosts=sorted(allow_hosts),
+        requirements=(
+            requirements.strip()
+            if isinstance(requirements, str) and requirements.strip()
+            else None
+        ),
+        expose_mount=mount_enabled,
+    )
+
+
+async def run_workflow_sandboxed_async(
+    *, workflow_id: str, workflow_dict: dict, inputs: dict, tenant_id: str,
+    user_id: str, run_id: str, deployment_id: str, revision_id: str,
+    execution_resource_type: str = ResourceType.DEPLOYMENT_INVOCATION.value,
+    execution_principal_type: str = "user", execution_principal_id: str | None = None,
+    execution_principal_generation: int = 0, mount_enabled: bool = True,
+    wait_for_result: bool = True,
+) -> tuple[dict, dict, float] | None:
+    """Dispatch a resident workflow without holding a thread during human waits."""
+    if not deployment_id or not revision_id or config.sandbox_service_mode != "service":
+        raise RuntimeError("resident deployment execution requires the sandbox service and revision")
+    if execution_principal_type == "service_account":
+        from vibecanvas_api.services.deployment_model_dependencies import refresh_deployment_model_dependencies
+
+        await refresh_deployment_model_dependencies(
+            tenant_id=tenant_id, user_id=user_id, workflow_id=workflow_id,
+            execution_id=run_id, service_account_id=execution_principal_id,
+            generation=execution_principal_generation, workflow=workflow_dict,
+        )
+    execute, payload = await asyncio.to_thread(
+        _prepare_service_workflow,
+        workflow_id=workflow_id, workflow_dict=workflow_dict, inputs=inputs,
+        tenant_id=tenant_id, user_id=user_id, run_id=run_id,
+        execution_resource_type=execution_resource_type,
+        execution_principal_type=execution_principal_type,
+        execution_principal_id=execution_principal_id,
+        execution_principal_generation=execution_principal_generation,
+        mount_enabled=mount_enabled, deployment_id=deployment_id, revision_id=revision_id,
+    )
+    if not wait_for_result:
+        await get_sandbox_manager().start_deployment(**payload)
+        return None
+    response = await execute(**payload)
+    return (
+        response.get("final_outputs") or {}, response.get("error_dict") or {},
+        float(response.get("execution_time") or 0.0),
+    )
 
 
 def run_workflow_sandboxed_sync(
@@ -148,59 +249,16 @@ def run_workflow_sandboxed_sync(
     settings = (workflow_dict.get("__meta__") or {}).get("settings") or {}
     requirements = settings.get("code_requirements")
     if config.sandbox_service_mode == "service":
-        injection_claims = {
-            "tenant_id": tenant_id,
-            "user_id": user_id,
-            "workflow_id": workflow_id,
-            "execution_id": run_id,
-            "execution_resource_type": execution_resource_type,
-        }
-        if execution_principal_type != "user":
-            injection_claims.update({
-                "principal_type": execution_principal_type,
-                "principal_id": execution_principal_id,
-                "principal_generation": execution_principal_generation,
-            })
-        run_context = inject_into_run_context_sync(
-            {"run_id": run_id, "run_dir": None},
-            workflow_dict,
-            **injection_claims,
+        execute, payload = _prepare_service_workflow(
+            workflow_id=workflow_id, workflow_dict=workflow_dict, inputs=inputs,
+            tenant_id=tenant_id, user_id=user_id, run_id=run_id,
+            execution_resource_type=execution_resource_type,
+            execution_principal_type=execution_principal_type,
+            execution_principal_id=execution_principal_id,
+            execution_principal_generation=execution_principal_generation,
+            mount_enabled=mount_enabled, deployment_id=deployment_id, revision_id=revision_id,
         )
-        try:
-            allow_hosts = compute_allow_hosts(
-                workflow_dict,
-                user_id=user_id,
-                creds_mapping=run_context.get("llm_credentials") or {},
-            )
-        except Exception:  # pragma: no cover - fail closed in proxy mode
-            logger.warning("egress_allowlist_compute_failed", exc_info=True)
-            allow_hosts = set()
-        manager = get_sandbox_manager()
-        execute = manager.run_deployment if deployment_id and revision_id else manager.run_workflow_once
-        revision_args = {
-            "deployment_id": deployment_id, "revision_id": revision_id,
-            "resource_claims": injection_claims,
-        } if deployment_id and revision_id else {"resource_claims": injection_claims}
-        response = asyncio.run(execute(
-            **revision_args,
-            workflow_id=workflow_id,
-            workflow=workflow_dict,
-            inputs=inputs,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            run_id=run_id,
-            extra=(
-                {"llm_credentials": run_context["llm_credentials"]}
-                if run_context.get("llm_credentials") else None
-            ),
-            allow_hosts=sorted(allow_hosts),
-            requirements=(
-                requirements.strip()
-                if isinstance(requirements, str) and requirements.strip()
-                else None
-            ),
-            expose_mount=mount_enabled,
-        ))
+        response = asyncio.run(execute(**payload))
         return (
             response.get("final_outputs") or {},
             response.get("error_dict") or {},

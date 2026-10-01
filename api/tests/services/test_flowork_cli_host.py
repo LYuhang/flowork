@@ -60,6 +60,34 @@ async def test_get_spec_uses_canonical_registry_without_connection(authorized):
 
 
 @pytest.mark.asyncio
+async def test_human_approval_discovery_schema_and_example(authorized):
+    from vibecanvas_api.agents.prompts.node_definitions import core_build_node_types
+    from vibecanvas_engine import HumanApprovalNode
+    from vibecanvas_engine.node import HumanApprovalNode as CompatibilityNode
+    from vibecanvas_engine.nodes import ENGINE_PURE_NODE_TYPES
+
+    listing = await cli_host.invoke_workflow_command(
+        operation="workflow.get-spec", identity_token="host", arguments={"list_types": True},
+    )
+    assert "HumanApprovalNode" in listing["types"]
+    assert "HumanApprovalNode" in ENGINE_PURE_NODE_TYPES
+    assert "HumanApprovalNode" in core_build_node_types()
+    assert CompatibilityNode is HumanApprovalNode
+    result = await cli_host.invoke_workflow_command(
+        operation="workflow.get-spec", identity_token="host",
+        arguments={"node_types": ["HumanApprovalNode"]},
+    )
+    spec, = result["specs"]
+    assert spec["config_schema"] == HumanApprovalNode.CONFIG_SCHEMA
+    assert spec["examples"]
+    for example in spec["examples"]:
+        validation = HumanApprovalNode.check(example["node_dict"])
+        assert validation["status"] == "success", validation["error_message"]
+        assert set(example["node_dict"]["output_fields"]) == {"approved"}
+    authorized[1].assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_layout_dispatch_uses_live_identity(authorized, monkeypatch):
     command = AsyncMock(return_value={"id": "wf", "version": "v2.sv5", "changed": True})
     monkeypatch.setattr(cli_host, "layout_workflow", command)

@@ -21,9 +21,6 @@ export const NodeOutputPreview = memo(function NodeOutputPreview(props: NodeOutp
 });
 
 function WorkflowNodeOutputPreview({ nodeId, nodeType, format, wfId }: NodeOutputPreviewProps & { wfId: string }) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
-  const previewId = useId();
   const nodeStatus = useExecStreamStore((s) => s.wfId === wfId ? s.perNode[nodeId]?.status : undefined);
   const liveResult = useExecStreamStore((s) => s.wfId === wfId ? s.perNode[nodeId]?.result : undefined);
   const resultPath = `/run/__exec__/nodes/${nodeId}.json`;
@@ -44,6 +41,14 @@ function WorkflowNodeOutputPreview({ nodeId, nodeType, format, wfId }: NodeOutpu
     if (completedLiveResult === undefined) return savedOutput;
     try { return JSON.parse(completedLiveResult) as unknown; } catch { return completedLiveResult; }
   }, [completedLiveResult, savedOutput]);
+  return <NodeResultPreview nodeId={nodeId} nodeType={nodeType} format={format} wfId={wfId} runId={wfId} output={output} />;
+}
+
+/** Shared output presentation for the live editor and immutable run history. */
+export function NodeResultPreview({ nodeId, nodeType, format, wfId, runId, output }: NodeOutputPreviewProps & { wfId: string; runId: string; output: unknown }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(true);
+  const previewId = useId();
   const parsed = useMemo(() => nodeType === 'TemplateNode'
     ? parseRenderedResult(typeof output === 'string' ? output : JSON.stringify(output))
     : null, [nodeType, output]);
@@ -70,7 +75,7 @@ function WorkflowNodeOutputPreview({ nodeId, nodeType, format, wfId }: NodeOutpu
       {expanded ? (
         <div id={previewId} className="max-h-60 overflow-auto px-2.5 pb-2.5 [&_iframe]:h-52 [&_[data-testid=rendered-preview]]:max-h-none" onClick={(event) => event.stopPropagation()}>
           {parsed ? (
-            <RenderedPreview rendered={parsed.rendered} format={parsed.format || format || 'text'} wfId={wfId} runId={wfId} />
+            <RenderedPreview rendered={parsed.rendered} format={parsed.format || format || 'text'} wfId={wfId} runId={runId} />
           ) : <NodeJsonPreview value={output} />}
         </div>
       ) : null}

@@ -1,3 +1,4 @@
+import { useActiveHistoryExecution } from '../ExecutionHistoryContext';
 import { ExecutionTraces } from './ExecutionTraces';
 import { ResourceAuditPanel } from './ResourceAuditPanel';
 /**
@@ -268,6 +269,7 @@ function NodeExecuteForm({ wfId, nodeId, runner, canceller }: NodeExecuteFormPro
   // started on another workflow's same-numbered node never paints here).
   const isThisNode = storeWfId === wfId && storeNodeId === nodeId;
   const running = isThisNode && status === 'running';
+  const activeHistory = useActiveHistoryExecution(wfId);
 
   const requestServerStop = (execId: string): Promise<void> => {
     if (cancelPromiseRef.current) return cancelPromiseRef.current;
@@ -279,6 +281,7 @@ function NodeExecuteForm({ wfId, nodeId, runner, canceller }: NodeExecuteFormPro
   };
 
   const onRun = async () => {
+    if (running || activeHistory) return;
     const input: Record<string, unknown> = {};
     for (const name of fieldNames) input[name] = values[name] ?? '';
 
@@ -378,7 +381,7 @@ function NodeExecuteForm({ wfId, nodeId, runner, canceller }: NodeExecuteFormPro
         <Button
           size="sm"
           data-testid="node-exec-run"
-          disabled={running}
+          disabled={running || activeHistory !== null}
           onClick={onRun}
         >
           {running
@@ -523,15 +526,7 @@ function ExecResultBox({
   const [formatted, setFormatted] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const separated = useMemo(() => {
-    if (!result.includes('"__traces__"')) return { output: result, traces: null };
-    try {
-      const value = JSON.parse(result);
-      if (!value || Array.isArray(value) || !Array.isArray(value.__traces__)) return { output: result, traces: null };
-      const { __traces__, ...business } = value;
-      return { output: JSON.stringify(business), traces: __traces__ as unknown[] };
-    } catch { return { output: result, traces: null }; }
-  }, [result]);
+  const separated = useMemo(() => separateTraces(result), [result]);
   const outputText = separated.output;
   // Cheap check (no parse); the Format toggle only PARSES on demand below.
   const canFormat = useMemo(() => looksStructured(outputText), [outputText]);
@@ -615,4 +610,14 @@ function ExecResultBox({
       {renderable && rendering && <RenderedPreview {...renderable} />}
     </div>
   );
+}
+
+function separateTraces(result: string) {
+  if (!result.includes('"__traces__"')) return { output: result, traces: null };
+  try {
+    const value = JSON.parse(result);
+    if (!value || Array.isArray(value) || !Array.isArray(value.__traces__)) return { output: result, traces: null };
+    const { __traces__, ...business } = value;
+    return { output: JSON.stringify(business), traces: __traces__ as unknown[] };
+  } catch { return { output: result, traces: null }; }
 }

@@ -66,6 +66,7 @@ vi.mock('@/pages/canvas/WorkflowSettingsModal', () => ({
     open ? <div data-testid="workflow-settings-modal" /> : null,
 }));
 
+import { ExecutionHistoryContext, type ExecutionHistoryValue } from '../ExecutionHistoryContext';
 import { CanvasToolbar } from '@/pages/canvas/CanvasToolbar';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
 import { useExecStreamStore } from '@/stores/exec-stream';
@@ -79,9 +80,10 @@ void testI18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 });
 
-function renderToolbar(readOnly = false, pinnedMajor: number | null = null) {
+function renderToolbar(readOnly = false, pinnedMajor: number | null = null, history: ExecutionHistoryValue | null = null) {
   render(
     <I18nextProvider i18n={testI18n}>
+      <ExecutionHistoryContext.Provider value={history}>
       <ReactFlowProvider>
         <CanvasToolbar
           wfId="wf-1"
@@ -96,6 +98,7 @@ function renderToolbar(readOnly = false, pinnedMajor: number | null = null) {
           explorerOpen={false}
         />
       </ReactFlowProvider>
+      </ExecutionHistoryContext.Provider>
     </I18nextProvider>,
   );
 }
@@ -332,7 +335,7 @@ describe('serialize runs', () => {
     expect(byAction('execute')).not.toBeNull();
     expect(byAction('cancel')).toBeNull();
 
-    act(() => useExecStreamStore.getState().setStatus('running'));
+    act(() => useExecStreamStore.setState({ wfId: 'wf-1', status: 'running' }));
     rerender(
       <I18nextProvider i18n={testI18n}>
         <ReactFlowProvider>
@@ -361,7 +364,7 @@ describe('serialize runs', () => {
 describe('edit freeze', () => {
   it('does not render a toolbar Cancel while readOnly; cancellation lives in the Run tab', () => {
     useWorkflowEditStore.getState().setDraft({ node_1: startNode(), __meta__: {} });
-    act(() => useExecStreamStore.getState().setStatus('running'));
+    act(() => useExecStreamStore.setState({ wfId: 'wf-1', status: 'running' }));
     renderToolbar(true);
     expect(byAction('cancel')).toBeNull();
     expect((byAction('execute') as HTMLButtonElement).disabled).toBe(true);
@@ -462,4 +465,14 @@ describe('Editable historical version Save (UX-5 Part B)', () => {
     expect(commitMock.mutate).toHaveBeenCalled();
     expect(navigateSpy).toHaveBeenCalledWith('/workflow/wf-1/version/v3.sv5');
   });
+});
+
+
+it('disables Execute for a restored approval with no local stream', () => {
+  useWorkflowEditStore.getState().setDraft({ node_1: startNode(), __meta__: {} });
+  renderToolbar(false, null, {
+    detail: { id: 'restored', wf_id: 'wf-1', status: 'waiting_approval' },
+    latestNodeEvents: {},
+  } as ExecutionHistoryValue);
+  expect(byAction('execute')).toBeDisabled();
 });

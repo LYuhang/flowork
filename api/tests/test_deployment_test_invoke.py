@@ -12,9 +12,8 @@ Strategy mirrors ``test_deployment_invoke_sync.py``:
 * Seed workflow + workflow_versions + deployments via ``app_engine``
   under a ``set_config('app.tenant_id', ...)`` so RLS policies apply
   on INSERT.
-* Monkeypatch ``_admin_engine`` to ``None`` and ``ADMIN_DATABASE_URL``
-  to ``pg_url`` so ``load_workflow_version`` (which uses
-  ``session_scope_admin``) can find the row.
+* Bind ``_admin_engine`` directly to the isolated ``pg_engine`` so admin
+  lookups cannot select a database from inherited environment configuration.
 * Call the handler directly with a ``session_scope`` opened under the
   caller's tenant.
 
@@ -164,18 +163,10 @@ async def test_test_invoke_runs_and_returns_outputs(
     from vibecanvas_api.routes.deployments import test_invoke
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
-    # Orchestration test — MOCK the runner (a). This tests the dashboard
-    # test-invoke ROUTE contract (resolve → run → return {outputs, exec_time_ms}),
-    # NOT engine output. Replacing the sandbox runner with a canned echo
-    # decouples the test from the in-process host-fallback (removed in the
-    # sandbox-only cutover) and needs no gVisor.
     monkeypatch.setattr(
-        "vibecanvas_api.routes.deployments.run_workflow_sandboxed_sync",
-        lambda *, workflow_id, inputs, tenant_id, user_id, **kw: (
-            {"__end__": dict(inputs)}, {}, 0.0),
+        "vibecanvas_api.services.deployment_dispatch.dispatch_invocation", _complete_dispatch,
     )
 
     tenant_id, user_id, dep_id = await _seed_deployment(pg_engine, app_engine)
@@ -201,8 +192,7 @@ async def test_test_invoke_other_tenant_404(
     from vibecanvas_api.routes.deployments import test_invoke
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
     tenant_a, _, dep_a = await _seed_deployment(pg_engine, app_engine)
     # Seed a second tenant + user (no workflow/dep needed — they're
@@ -242,8 +232,7 @@ async def test_test_invoke_disabled_404(
     from vibecanvas_api.routes.deployments import test_invoke
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
     tenant_id, user_id, dep_id = await _seed_deployment(pg_engine, app_engine)
     async with app_engine.connect() as c:
@@ -275,3 +264,91 @@ def test_route_mounted():
     assert any("/deployments/{dep_id}/test-invoke" in p for p in paths), (
         f"test-invoke missing; got {sorted(paths)}"
     )
+
+
+async def _complete_dispatch(**kwargs):
+    """Persist the sandbox owner's completion in route orchestration tests."""
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+    from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+    invocation = kwargs["invocation_id"]
+    async with session_scope(tenant_id=kwargs["tenant_id"]) as session:
+        history = WorkflowHistoryRepo(session)
+        await history.bind_runtime(invocation, "test-generation")
+        await history.persist_events(invocation, "test-generation", [{
+            "type": "result", "seq": 1, "generation": "test-generation",
+            "invocation_id": invocation, "status": "succeeded",
+            "final_outputs": {"__end__": kwargs["inputs"]}, "error_dict": {}, "execution_time": 0.01,
+        }])
+        await DeploymentInvocationsRepo(session).mark_terminal(
+            uuid.UUID(invocation), status="succeeded", latency_ms=10, error=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_wait_limit_returns_session_ticket_without_restarting(pg_engine, app_engine, monkeypatch):
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock
+    from tests.test_deployment_rollout import setup_rollout
+    from vibecanvas_api.routes import deployments
+    from vibecanvas_api.services import deployment_observer
+    from vibecanvas_api.storage.db import short_session_scope
+
+    _, dep, _ = await setup_rollout(pg_engine, app_engine)
+    finish = asyncio.Event()
+    completed = asyncio.Event()
+    calls = []
+
+    async def dispatch(**kwargs):
+        calls.append(kwargs["invocation_id"])
+        try:
+            await finish.wait()
+            await _complete_dispatch(**kwargs)
+        finally:
+            completed.set()
+
+    monkeypatch.setattr(deployments, "_authorize_deployment", AsyncMock())
+    monkeypatch.setattr("vibecanvas_api.services.deployment_dispatch.dispatch_invocation", dispatch)
+    monkeypatch.setattr(deployment_observer, "SYNC_WAIT_SECONDS", 0.01)
+    try:
+        async with short_session_scope(tenant_id=str(dep["tenant_id"])) as session:
+            response = await deployments.test_invoke(
+                dep_id=dep["id"], body={}, request=_StubRequest(),
+                ctx=_Ctx(dep["tenant_id"], dep["user_id"]), session=session, service=_AllowAuthz(),
+            )
+        assert response.status_code == 202
+        payload = json.loads(response.body)
+        assert calls == [payload["execution_id"]]
+        assert payload["invocation_id"] == payload["task_id"] == payload["execution_id"]
+        assert payload["result_url"] == response.headers["location"] == f"/api/v1/workflow-executions/{calls[0]}"
+        assert payload["execution_url"] == f"/workflow-executions/{calls[0]}"
+        assert not completed.is_set()
+    finally:
+        finish.set()
+        await asyncio.wait_for(completed.wait(), 5)
+    from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+    async with short_session_scope(tenant_id=str(dep["tenant_id"])) as session:
+        assert (await WorkflowHistoryRepo(session).detail(calls[0]))["status"] == "succeeded"
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_dashboard_invocation_applies_deployment_qps_before_admission(pg_engine, app_engine, monkeypatch):
+    from vibecanvas_api.routes.deployments import test_invoke
+
+    tenant, actor, dep = await _seed_deployment(pg_engine, app_engine)
+
+    async def exhausted(deployment):
+        assert deployment['id'] == dep
+        raise HTTPException(429, 'rate limit exceeded', headers={'Retry-After': '1'})
+
+    monkeypatch.setattr('vibecanvas_api.services.rate_limit.check_rate_limit', exhausted)
+    async with session_scope(tenant_id=str(tenant)) as session:
+        with pytest.raises(HTTPException) as error:
+            await test_invoke(dep_id=dep, body={'x': 1}, request=_StubRequest(),
+                              ctx=_Ctx(tenant, actor), session=session, service=_AllowAuthz())
+        assert error.value.status_code == 429
+        assert error.value.headers == {'Retry-After': '1'}
+        count = await session.scalar(text('SELECT count(*) FROM deployment_invocations WHERE deployment_id=:id'), {'id': dep})
+        assert count == 0

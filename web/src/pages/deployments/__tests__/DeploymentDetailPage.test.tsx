@@ -86,7 +86,7 @@ vi.mock('@/lib/api/queries/workflow', () => ({
 }));
 
 import { DeploymentDetailPage } from '@/pages/deployments/DeploymentDetailPage';
-import { getDeployment, getHistory, getMetrics, patchDeployment, rotateKey } from '@/lib/api/deployments';
+import { getDeployment, getHistory, getMetrics, patchDeployment, rotateKey, testInvoke } from '@/lib/api/deployments';
 
 const testI18n = i18n.createInstance();
 void testI18n.use(initReactI18next).init({
@@ -129,6 +129,23 @@ describe('<DeploymentDetailPage>', () => {
       next_cursor: null,
       limit: 50,
     });
+  });
+
+  it('links an accepted approval invocation to its execution without resubmitting', async () => {
+    const user = userEvent.setup();
+    vi.mocked(testInvoke).mockResolvedValue({
+      invocation_id: 'approval-run', execution_id: 'approval-run',
+      execution_url: '/workflow-executions/approval-run',
+      result_url: '/api/v1/workflow-executions/approval-run', status: 'waiting_approval',
+    });
+    renderAt(DEP_ID);
+    await screen.findByRole('heading', { level: 1, name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Usage$/i }));
+    await user.click(screen.getByRole('button', { name: /^Run$/i }));
+    const link = await screen.findByRole('link', { name: 'execution.detail' });
+    expect(link).toHaveAttribute('href', '/workflow-executions/approval-run');
+    expect(testInvoke).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/"status": "waiting_approval"/)).toBeInTheDocument();
   });
 
   it('renders the simplified detail sections and the Overview content', async () => {

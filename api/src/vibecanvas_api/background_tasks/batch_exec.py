@@ -281,8 +281,9 @@ def _batch_exec_owned(
             "schema_version": 1,
             "level": "info",
             "category": "batch",
-            "action": "batch.progress",
-            "message": f"{p.done} / {p.total} rows completed.",
+            "action": f"batch.row.{p.status}" if p.status in {"queued", "running", "waiting_approval"} else "batch.progress",
+            "message": (f"Row {p.index + 1}: {p.status}." if p.status in {"queued", "running", "waiting_approval"}
+                        else f"{p.done} / {p.total} rows completed."),
             "task_status": "resuming" if resume else "running",
             "sandbox_status": "running",
             "scope": {"type": "row", "id": str(p.index), "name": None},
@@ -295,6 +296,8 @@ def _batch_exec_owned(
             "data": {
                 "row_index": p.index,
                 "row_status": p.status,
+                "execution_id": p.row.get("execution_id"),
+                "execution_url": p.row.get("execution_url"),
             },
             "error": (
                 {

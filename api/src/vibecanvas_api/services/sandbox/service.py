@@ -96,6 +96,7 @@ _MANAGER_METHODS = {
     "ensure_workflow_dependencies",
     "run_workflow_once",
     "run_deployment",
+    "start_deployment",
     "deployment_terminal",
 }
 
@@ -424,6 +425,8 @@ class RemoteSandboxManager:
 
     @staticmethod
     def _operation_timeout(method: str, kwargs: dict[str, Any]) -> float | None:
+        if method == "start_deployment":
+            return 30.0  # Ownership acknowledgement, never workflow completion.
         if method == "terminate_task_scope":
             return 60.0  # Control acknowledgement, never an execution deadline.
         if method in {"execute_workflow_job", "run_workflow_once", "run_deployment"} and kwargs.get("timeout") is None:
@@ -671,6 +674,9 @@ class RemoteSandboxManager:
 
     async def run_deployment(self, **kwargs: Any) -> dict:
         return await self._manager_call("run_deployment", **kwargs)
+
+    async def start_deployment(self, **kwargs: Any) -> dict:
+        return await self._manager_call("start_deployment", **kwargs)
 
     async def deployment_terminal(self, **kwargs: Any) -> dict:
         return await self._manager_call("deployment_terminal", **kwargs)
@@ -997,6 +1003,12 @@ class SandboxDaemon:
                     await self.manager.sweep_idle()
                 except Exception:
                     logger.exception("sandbox_activity_maintenance_failed")
+                try:
+                    from vibecanvas_api.services.workflow_process_reaper import reap_lost_workflow_processes
+
+                    await reap_lost_workflow_processes()
+                except Exception:
+                    logger.exception("workflow_process_maintenance_failed")
 
     async def start(self) -> None:
         # Rootful sandboxd is the authority that can migrate ciphertext written

@@ -50,9 +50,14 @@ explicit alternative, not as a completed substitute.
 Check requested side effects against real node capabilities. A ConditionNode
 routing to an EndNode with `pending_human_review` is only a flagged output, not
 an approval queue, notification or suspended execution. For real human review,
-identify an available authorized integration and its input/response contract;
-otherwise explain the missing integration and ask before claiming completion.
-Never invent a HumanApprovalNode or treat Chat/CLI approvals as Workflow nodes.
+fetch the HumanApprovalNode spec. It waits for the designated user's decision
+and outputs only approved (boolean). Both rejection and timeout output false
+and continue; use ConditionNode to route downstream actions. Deployments require
+an explicit approver_email; workflow/task runs may default to their initiator.
+The notification hook does not yet send messages. Chat/CLI tool approvals are
+separate from Workflow approvals and cannot substitute for the assigned reviewer.
+Verify the actual execution entrypoint supports waiting and resuming; discovery
+and graph validation alone do not prove a human approval run completed.
 
 ### 3. Choose one editing path
 

@@ -260,6 +260,7 @@ class BubblewrapProvider(RootlessGvisorProvider):
         extra_rw_binds: "list[tuple[str, str]] | None" = None,
         extra_ro_dest_binds: "list[tuple[str, str]] | None" = None,
         egress_socket: str | None = None,
+        bootstrap_data: dict | None = None,
     ) -> ServeHandle:
         """Boot the long-lived warm worker WarmGvisorPool serves jobs through.
 
@@ -305,11 +306,29 @@ class BubblewrapProvider(RootlessGvisorProvider):
             argv = resource_group.wrap_command(argv)
         proc = subprocess.Popen(
             argv,
+            stdin=subprocess.PIPE if bootstrap_data is not None else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             start_new_session=True,
         )
+        if bootstrap_data is not None:
+            # One-shot private bootstrap pipe: control credentials must not be
+            # placed in argv, environment, or the shared filesystem.
+            try:
+                import json
+                proc.stdin.write(json.dumps(bootstrap_data) + "\n")
+                proc.stdin.flush()
+            except BaseException:
+                # Bootstrap failures must not leave an unowned resident process.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait(timeout=5)
+                raise
+            finally:
+                proc.stdin.close()
         # bundle_dir/state_root/run_id exist only to satisfy the shared
         # ServeHandle shape; bubblewrap has no bundle or OCI state directory
         # to track, and warm.py only ever reads handle.proc (verified against

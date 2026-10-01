@@ -27,7 +27,7 @@ def test_node_producer_is_sandbox_only():
     ``run_node`` and no longer has the in-process ``run_node_to_frames``
     fallback."""
     src = inspect.getsource(ex._produce_node_execution)
-    assert "run_node" in src and "config.execute_in_sandbox" not in src
+    assert "execute_history_workflow" in src and "config.execute_in_sandbox" not in src
     assert "run_node_to_frames" not in src
 
 
@@ -35,6 +35,25 @@ import asyncio
 import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+
+@pytest.fixture(autouse=True)
+def history_dependencies(monkeypatch):
+    """Isolate producer projection tests; real persistence is covered by canvas integration tests."""
+    from contextlib import asynccontextmanager
+    import vibecanvas_api.services.workflow_resources as resources
+
+    @asynccontextmanager
+    async def scope(**kwargs):
+        yield None
+
+    monkeypatch.setattr(ex, "create_execution", AsyncMock())
+    monkeypatch.setattr(ex, "_fail_history", AsyncMock())
+    monkeypatch.setattr(ex, "inject_into_run_context_async", AsyncMock(return_value={}))
+    monkeypatch.setattr(ex, "prepare_code_pythonpath", AsyncMock(return_value=None))
+    monkeypatch.setattr(resources, "prepare_execution_resources", AsyncMock(return_value={}))
+    monkeypatch.setattr(ex, "session_scope", scope)
+    monkeypatch.setattr(ex, "WorkflowHistoryRepo", lambda _: SimpleNamespace(get=AsyncMock(return_value={"status": "cancelled"})))
 
 
 @pytest.mark.asyncio
@@ -139,12 +158,12 @@ async def test_node_producer_persists_complete_debug_metadata(monkeypatch):
     )
     monkeypatch.setattr(
         ex,
-        "run_node_once",
-        AsyncMock(return_value=SimpleNamespace(result_json={
+        "execute_history_workflow",
+        AsyncMock(return_value={"result": {
             "final_outputs": {"node_2": {"y": "world!"}},
             "error_dict": {},
             "execution_time": 0.25,
-        })),
+        }}),
     )
     monkeypatch.setattr(ex, "write_node_result", persisted)
 
@@ -183,10 +202,13 @@ async def test_node_producer_hard_cancels_sandbox_before_cancelled_frame(monkeyp
     started = asyncio.Event()
     task_cancelled = asyncio.Event()
 
+    released = asyncio.Event()
+
     async def _slow_run(*args, **kwargs):
         started.set()
         try:
-            await asyncio.Event().wait()
+            await released.wait()
+            return {"status": {"status": "cancelled"}}
         finally:
             task_cancelled.set()
 
@@ -194,8 +216,12 @@ async def test_node_producer_hard_cancels_sandbox_before_cancelled_frame(monkeyp
         def __init__(self):
             self.cancel_calls = []
 
-        async def cancel_workflow_run(self, **kwargs):
+        execute_workflow_job = staticmethod(_slow_run)
+
+        async def close_workflow_pool(self, **kwargs):
             self.cancel_calls.append(kwargs)
+            released.set()
+            return {"closed": True}
 
     session = _Session()
 
@@ -213,12 +239,17 @@ async def test_node_producer_hard_cancels_sandbox_before_cancelled_frame(monkeyp
     monkeypatch.setattr(
         ex, "inject_into_run_context_async", AsyncMock(return_value={}),
     )
-    monkeypatch.setattr(ex, "run_node_once", _slow_run)
+    import vibecanvas_api.services.workflow_history_runner as runner
+
+    async def observe(**kwargs):
+        return await kwargs["execute"]
+
+    monkeypatch.setattr(runner, "observe_execution", observe)
     monkeypatch.setattr(ex, "write_node_result", persisted)
 
     stop = asyncio.Event()
     stream = ex._produce_node_execution(
-        stop, "n_cancel", node, {"x": "value"}, "tenant", "wf", "user", {},
+        stop, "11111111-1111-4111-8111-111111111111", node, {"x": "value"}, "tenant", "wf", "user", {},
     )
     running_name, running = await anext(stream)
     assert running_name == "EXEC_UPDATE"
@@ -233,8 +264,8 @@ async def test_node_producer_hard_cancels_sandbox_before_cancelled_frame(monkeyp
     assert terminal["status"] == "cancelled"
     assert session.cancel_calls == [{
         "tenant": "tenant",
-        "run_id": "wf",
-        "run_subpath": "wf",
+        "pool_id": "11111111111141118111111111111111",
+        "history": True,
     }]
     assert task_cancelled.is_set()
     persisted.assert_awaited_once()

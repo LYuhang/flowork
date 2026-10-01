@@ -1892,6 +1892,8 @@ class SandboxSession:
         kill_individually: bool = False,
         execution_pool_id: str = "",
         node_id: str | None = None,
+        history_id: str | None = None,
+        execution_capacity: int = 1,
     ) -> dict:
         """Stage, execute and collect one workflow or selected node inside sandboxd.
 
@@ -1904,6 +1906,15 @@ class SandboxSession:
         try:
             if tenant != self.tenant_id:
                 raise ValueError("workflow tenant does not match sandbox scope")
+            if history_id is not None:
+                from .session_executions import SessionExecutions
+                if not hasattr(self, "_history_executions"):
+                    self._history_executions = SessionExecutions(self)
+                return await self._history_executions.run(
+                    group_id=execution_pool_id, execution_id=history_id,
+                    workflow=workflow, inputs=inputs, context=extra or {}, capacity=execution_capacity,
+                    node_id=node_id,
+                )
             if execution_pool_id and (len(execution_pool_id) != 32 or any(c not in "0123456789abcdef" for c in execution_pool_id)):
                 raise ValueError("invalid execution pool ID")
             normalized_subpath = run_subpath.strip("/")
@@ -1994,11 +2005,18 @@ class SandboxSession:
         finally:
             self._end_activity()
 
-    async def close_workflow_pool(self, *, tenant: str, pool_id: str) -> dict:
+    async def close_workflow_pool(self, *, tenant: str, pool_id: str, history: bool = False) -> dict:
         if tenant != self.tenant_id:
             raise ValueError("workflow tenant does not match sandbox scope")
         self._begin_activity()
         try:
+            from .session_executions import SessionExecutions
+            if not hasattr(self, "_history_executions"):
+                self._history_executions = SessionExecutions(self)
+            historical = pool_id in self._history_executions.groups
+            await self._history_executions.close(pool_id)
+            if history or historical:
+                return {"closed": True}
             pool = await self._get_fileop_pool()
             if pool is None:
                 raise RuntimeError("no sandbox for this session")
@@ -2805,6 +2823,14 @@ class SandboxSession:
                            exc_info=True)
         if self._lifecycle_state != SessionLifecycleState.RELEASING.value:
             self._transition_lifecycle(SessionLifecycleState.RELEASING)
+        execution_pool = getattr(self, "_workflow_rpc_pool", None)
+        if execution_pool is not None:
+            # Stop workflow writers before persisting/unmounting shared files.
+            # Their drivers record execution_lost; history is never a checkpoint.
+            await execution_pool.close()
+        historical = getattr(self, "_history_executions", None)
+        if historical is not None:
+            await historical.shutdown()
         try:
             await self.writeback_vfs()
         except Exception:  # pragma: no cover - fail-soft
@@ -3245,6 +3271,9 @@ class SandboxManager:
 
     async def run_deployment(self, **kwargs) -> dict:
         return await self.deployments.run(**kwargs)
+
+    async def start_deployment(self, **kwargs) -> dict:
+        return await self.deployments.start(**kwargs)
 
     async def deployment_terminal(self, **kwargs) -> dict:
         return await self.deployments.terminal(**kwargs)

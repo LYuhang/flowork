@@ -64,6 +64,8 @@ if (!bootstrapSource) {
     ['/share/abcdefghijklmnopqrstuvwxyz0123456789abcdefg', '/'],
     ['/opaque/proxy/tasks/share/abcdefghijklmnopqrstuvwxyz0123456789abcdefg', '/opaque/proxy/tasks/'],
     ['/opaque/proxy/tasks/login', '/opaque/proxy/tasks/'],
+    ['/workflow-executions/00000000-0000-0000-0000-000000000001', '/'],
+    ['/opaque/proxy/workflow-executions/00000000-0000-0000-0000-000000000001', '/opaque/proxy/'],
     ['/knowledge', '/'],
     ['/opaque/proxy/knowledge', '/opaque/proxy/'],
     ['/preview', '/'],

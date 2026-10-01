@@ -90,7 +90,7 @@ async def test_resident_workflows_reuse_instance_and_isolate_concurrent_requests
             await asyncio.sleep(0.05)
         assert '29 101' in output, output
         assert (Path(session.run_dir) / 'terminal-proof').read_text() == 'proof'
-        first = await asyncio.wait_for(invoke(117), 60)
+        await asyncio.wait_for(invoke(117), 60)
         second, third = await asyncio.wait_for(asyncio.gather(invoke(223), invoke(337)), 60)
         assert 337 not in numbers(second['final_outputs'])
         assert 223 not in numbers(third['final_outputs'])
@@ -168,19 +168,19 @@ async def test_http_calls_continue_during_real_instance_replacement(pg_engine, a
     manager = SandboxManager(max_resident=3, idle_ttl_s=60)
     runtime = manager.deployments
     controller = DeploymentRollouts(manager)
-    loop = asyncio.get_running_loop()
     seen = []
     # Use the production HTTP handler and actual durable admission. Only the
     # process transport is adapted to this test's event loop; execution itself
     # runs in the real bubblewrap instance with real engine workers.
-    def bridge(**kwargs):
+    async def bridge(**kwargs):
         seen.append(kwargs['revision_id'])
-        outcome = asyncio.run_coroutine_threadsafe(runtime.run(
+        outcome = await runtime.run(
             tenant_id=kwargs['tenant_id'], deployment_id=kwargs['deployment_id'],
             revision_id=kwargs['revision_id'], workflow=kwargs['workflow_dict'],
-            inputs=kwargs['inputs'], run_id=kwargs['run_id']), loop).result(timeout=30)
+            inputs=kwargs['inputs'], run_id=kwargs['run_id'])
         return outcome['final_outputs'], outcome['error_dict'], outcome['execution_time']
-    monkeypatch.setattr(routes, 'run_workflow_sandboxed_sync', bridge)
+    from vibecanvas_api.services import deployment_dispatch
+    monkeypatch.setattr(deployment_dispatch, 'run_workflow_sandboxed_async', bridge)
     app = FastAPI()
     app.include_router(routes.router)
     warming, release = asyncio.Event(), asyncio.Event()

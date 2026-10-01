@@ -297,7 +297,7 @@ async def _workflow_execution_is_active(
         ).mappings().one_or_none()
         return bool(
             row is not None
-            and row["status"] == "running"
+            and row["status"] in {"running", "waiting_approval"}
             and row["wf_id"] == capability.workflow_id
             and (
                 str(row["service_account_id"]) == capability.principal_id

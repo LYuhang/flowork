@@ -121,12 +121,13 @@ def test_agent_approval_policy(operation, args, expected):
     assert needs_approval("deployment." + operation, args, {"rate_limit_qps": 10, "mount_enabled": False}) is expected
 
 
-def test_run_inputs_file_and_failed_exit(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("terminal_status", ["failed", "timed_out", "cancelled"])
+def test_run_inputs_file_and_failed_exit(tmp_path, monkeypatch, capsys, terminal_status):
     inputs = tmp_path / "inputs.json"
     inputs.write_text('{"value":7}')
     def request(endpoint, args, **kw):
         assert args["inputs"] == {"value": 7}
-        return {"status": "failed", "execution_id": "execution", "errors": {"node": "failed"}}
+        return {"status": terminal_status, "execution_id": "execution", "errors": {"node": "failed"}}
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["deployment", "run", "--deployment_id", str(uuid4()),
                      "--inputs_file", str(inputs)], socket_path="test") == 1
@@ -204,3 +205,23 @@ async def test_step_up_uses_live_server_session(monkeypatch, generation, expires
         with pytest.raises(HTTPException) as exc:
             await host.step_up(params)
         assert exc.value.detail["code"] == "step_up_required"
+
+
+@pytest.mark.parametrize("state", ["waiting_approval", "running", "succeeded"])
+def test_async_run_is_reported_as_accepted_even_if_approval_already_finished(state):
+    from fastapi.responses import JSONResponse
+    from vibecanvas_api.services.agent_runtime.cli_deployments import invocation_result
+    response = JSONResponse(status_code=202, content={"status": state, "execution_id": "original"})
+    result = invocation_result("deployment", response)
+    assert result["http_status"] == 202
+    assert "accepted" in result["message"]
+    assert "succeeded" not in result["message"]
+    assert "--execution_id original" in result["hint"]
+
+
+@pytest.mark.parametrize("state", ["waiting_approval", "timed_out"])
+def test_history_accepts_new_execution_statuses(monkeypatch, capsys, state):
+    request = Mock(return_value={"items": []})
+    monkeypatch.setattr(cli, "request", request)
+    assert cli.main(["deployment", "history", "--deployment_id", str(uuid4()), "--status", state], socket_path="test") == 0
+    assert request.call_args.args[1]["status"] == state

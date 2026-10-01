@@ -49,10 +49,10 @@ _MINIMAL_WORKFLOW = {
         "node_name": "__start__",
         "node_description": "",
         "input_fields": {
-            "x": {"type": "int", "value": 0, "reference": ""},
+            "x": {"type": "integer", "value": 0, "reference": ""},
         },
         "output_fields": {
-            "x": {"type": "int", "description": ""},
+            "x": {"type": "integer", "description": ""},
         },
         "node_config": {},
         "children": ["node_2"],
@@ -64,9 +64,9 @@ _MINIMAL_WORKFLOW = {
         "node_name": "__end__",
         "node_description": "",
         "input_fields": {
-            "y": {"type": "int", "value": 0, "reference": "__start__.x"},
+            "y": {"type": "integer", "value": 0, "reference": "__start__.x"},
         },
-        "output_fields": {},
+        "output_fields": {"y": {"type": "integer", "description": ""}},
         "node_config": {},
         "children": [],
         "__attributes__": {"x": 200, "y": 0},
@@ -200,10 +200,21 @@ def _fake_sandboxed_sync(*, workflow_id, inputs, tenant_id, user_id,
 def mock_runner(monkeypatch):
     """Patch the sync runner at its point of use (the route module) so route
     tests never touch the engine / sandbox / in-process fallback."""
-    monkeypatch.setattr(
-        "vibecanvas_api.routes.deployment_invoke.run_workflow_sandboxed_sync",
-        _fake_sandboxed_sync,
-    )
+    async def dispatch(*, dep, workflow, inputs, tenant_id, invocation_id, **kwargs):
+        from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+        outputs, errors, elapsed = _fake_sandboxed_sync(
+            workflow_id=dep["wf_id"], workflow_dict=workflow, inputs=inputs,
+            tenant_id=tenant_id, user_id=dep["user_id"], run_id=invocation_id,
+        )
+        async with session_scope(tenant_id=tenant_id) as session:
+            history = WorkflowHistoryRepo(session)
+            await history.bind_runtime(invocation_id, "test-runtime")
+            await history.persist_events(invocation_id, "test-runtime", [{
+                "seq": 1, "generation": "test-runtime", "invocation_id": invocation_id,
+                "type": "result", "status": "succeeded", "final_outputs": outputs,
+                "error_dict": errors, "execution_time": elapsed,
+            }])
+    monkeypatch.setattr("vibecanvas_api.routes.deployment_invoke._dispatch_invocation", dispatch)
     yield
 
 

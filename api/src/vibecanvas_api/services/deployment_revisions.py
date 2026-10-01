@@ -9,6 +9,7 @@ import json
 import uuid
 from fastapi import HTTPException
 from sqlalchemy import text
+from vibecanvas_api.config import config
 
 EXECUTION_FIELDS = ("wf_id", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "service_account_id", "cpu_millis", "memory_mb")
 
@@ -28,6 +29,7 @@ def execution_spec(dep: dict, workflow: dict, user_id: str) -> dict:
             "pinned_major": meta["workflow_version"], "pinned_sub": meta["workflow_subversion"],
             "mount_enabled": bool(dep["mount_enabled"]), "user_id": str(user_id),
             "cpu_millis": dep.get("cpu_millis", 500), "memory_mb": dep.get("memory_mb", 256),
+            "max_concurrency": max(1, config.sandbox_fileop_workers),
             "service_account_id": str(dep["service_account_id"]), "desired_key": desired_key(dep)}
 
 
@@ -37,6 +39,14 @@ async def admit_revision(session, deployment_id) -> tuple[dict, dict]:
     This closes the select-old / switch / drain / enqueue-old race. A queued
     invocation counts toward draining just like a running one.
     """
+    tenant_id = await session.scalar(text("SELECT tenant_id FROM deployments WHERE id=:id"), {"id": deployment_id})
+    if tenant_id is None:
+        raise HTTPException(404, "deployment not found")
+    # Serialize admission across this tenant's deployments before locking the
+    # individual deployment. Counts and invocation insertion share one commit;
+    # neither Redis availability nor a background queue may bypass capacity.
+    tenant = (await session.execute(text("""SELECT max_concurrent_deployments FROM tenants
+        WHERE tenant_id=:tenant FOR UPDATE"""), {"tenant": tenant_id})).mappings().one()
     dep = (await session.execute(text("SELECT * FROM deployments WHERE id=:id FOR UPDATE"),
                                  {"id": deployment_id})).mappings().one_or_none()
     if dep is None or dep["deleted_at"] is not None or not dep["enabled"]:
@@ -47,6 +57,16 @@ async def admit_revision(session, deployment_id) -> tuple[dict, dict]:
                                  {"id": dep["active_revision_id"], "dep": deployment_id})).mappings().one()
     if rev["state"] != "active":
         raise HTTPException(503, "deployment_not_ready", headers={"Retry-After": "2"})
+    counts = (await session.execute(text("""SELECT count(*) AS tenant_count,
+        count(*) FILTER (WHERE deployment_id=:id) AS deployment_count
+        FROM deployment_invocations WHERE tenant_id=:tenant
+        AND status IN ('queued','running','waiting_approval')"""),
+        {"id": deployment_id, "tenant": tenant_id})).mappings().one()
+    limit = int(rev["spec"].get("max_concurrency", max(1, config.sandbox_fileop_workers)))
+    if counts["deployment_count"] >= limit:
+        raise HTTPException(429, "concurrency_limit_exceeded", headers={"Retry-After": "1"})
+    if tenant["max_concurrent_deployments"] is not None and counts["tenant_count"] >= tenant["max_concurrent_deployments"]:
+        raise HTTPException(429, "tenant_concurrency_limit_exceeded", headers={"Retry-After": "1"})
     return dict(dep), dict(rev)
 
 
@@ -55,7 +75,7 @@ async def runtime_summary(session, deployment_id) -> dict:
         CASE WHEN r.observed_at > now() - interval '30 seconds' THEN r.runtime_metrics END AS metrics,
         r.observed_at,
         (SELECT count(*) FROM deployment_invocations i WHERE i.revision_id=r.id
-            AND i.status IN ('queued','running')) AS pending_requests
+            AND i.status IN ('queued','running','waiting_approval')) AS pending_requests
         FROM deployment_runtime_revisions r WHERE r.deployment_id=:id
         AND r.state IN ('active','preparing','draining') ORDER BY r.created_at"""),
         {"id": deployment_id})).mappings().all()

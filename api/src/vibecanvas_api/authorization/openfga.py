@@ -79,6 +79,9 @@ class OpenFgaAuthzService:
         resource: ResourceRef,
         context: AuthzRequestContext,
     ) -> Decision:
+        historical = await self._history_run_decision(principal, action, resource, context)
+        if historical is not None:
+            return historical
         root, denial = await self._resolve_and_validate(
             principal, resource, context
         )
@@ -160,6 +163,10 @@ class OpenFgaAuthzService:
         ] = []
 
         for index, item in enumerate(checks):
+            historical = await self._history_run_decision(item.principal, item.action, item.resource, item.context)
+            if historical is not None:
+                decisions[index] = historical
+                continue
             root, denial = await self._resolve_and_validate(
                 item.principal,
                 item.resource,
@@ -548,6 +555,43 @@ class OpenFgaAuthzService:
                 )
             return
         raise ValueError("unsupported authorization subject")
+
+    async def _history_run_decision(self, principal, action, resource, context) -> Decision | None:
+        """Execution artifacts share history's read scope, never its workflow's edit grants.
+
+        Applied centrally so VFS reads, signed URLs, Preview resources and live
+        subscription rechecks all enforce the same execution boundary.
+        Legacy Agent and workflow preview scopes keep their existing policy.
+        """
+        if resource.type is not ResourceType.VFS_RUN:
+            return None
+        denial = self._validate_context(principal, resource, context)
+        if denial is not None:
+            return denial
+        try:
+            execution_id = str(uuid.UUID(resource.id))
+        except ValueError:
+            return None
+        from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+
+        repo = WorkflowHistoryRepo(self._session)
+        run = await repo.get(execution_id)
+        if run is None:
+            return None
+        if str(run["tenant_id"]) != context.active_organization_id:
+            return Decision(False, reason_code="organization_mismatch")
+        if action is not Action.VIEW:
+            return Decision(False, reason_code="execution_artifact_read_only")
+        assigned = principal.type is PrincipalType.USER and await repo.is_assignee(execution_id, principal.id)
+        if assigned:
+            allowed = True
+        else:
+            source = ResourceRef(ResourceType(run["source_type"]), run["source_id"], resource.organization_id)
+            allowed = (await self.check(principal, Action.INSPECT_RUNS, source, context)).allowed
+        return Decision(
+            allowed, capabilities=frozenset({Action.VIEW}) if allowed else frozenset(),
+            reason_code="execution_history_read" if allowed else "execution_history_denied",
+        )
 
     async def _resolve_and_validate(
         self,

@@ -35,6 +35,42 @@ async def setup_rollout(pg_engine, app_engine):
 
 
 @pytest.mark.asyncio
+async def test_admission_reserves_capacity_atomically_including_human_wait(pg_engine, app_engine):
+    import asyncio
+    from fastapi import HTTPException
+    from vibecanvas_api.services.deployment_revisions import admit_revision
+    from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+
+    _, dep, _ = await setup_rollout(pg_engine, app_engine)
+    tenant = str(dep["tenant_id"])
+    async with short_session_scope(tenant_id=tenant) as db:
+        await db.execute(text("""UPDATE deployment_runtime_revisions
+            SET spec=jsonb_set(spec,'{max_concurrency}','1') WHERE id=:id"""), {"id": dep["active_revision_id"]})
+
+    async def admit():
+        async with short_session_scope(tenant_id=tenant) as db:
+            _, revision = await admit_revision(db, dep["id"])
+            return await DeploymentInvocationsRepo(db).create(
+                tenant_id=dep["tenant_id"], deployment_id=dep["id"], wf_id=dep["wf_id"],
+                trigger_type="api", source="async_api", status="queued", revision_id=revision["id"],
+            )
+
+    outcomes = await asyncio.gather(admit(), admit(), return_exceptions=True)
+    accepted = [value for value in outcomes if isinstance(value, uuid.UUID)]
+    rejected = [value for value in outcomes if isinstance(value, HTTPException)]
+    assert len(accepted) == len(rejected) == 1
+    assert rejected[0].status_code == 429
+    async with short_session_scope(tenant_id=tenant) as db:
+        await db.execute(text("UPDATE deployment_invocations SET status='waiting_approval' WHERE id=:id"), {"id": accepted[0]})
+    with pytest.raises(HTTPException) as full:
+        await admit()
+    assert full.value.status_code == 429
+    async with short_session_scope(tenant_id=tenant) as db:
+        await db.execute(text("UPDATE deployment_invocations SET status='cancelled' WHERE id=:id"), {"id": accepted[0]})
+    assert isinstance(await admit(), uuid.UUID)
+
+
+@pytest.mark.asyncio
 async def test_reverting_to_active_configuration_retires_candidate(pg_engine, app_engine):
     controller, dep, spec = await setup_rollout(pg_engine, app_engine)
     stale = uuid.uuid4()

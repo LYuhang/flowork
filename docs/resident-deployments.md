@@ -9,7 +9,10 @@ increase it for workflows with larger in-memory datasets.
 Deployment terminals start in `/run`, an instance-local scratch directory.
 Deployment instances use an execution workspace profile: they do not initialize,
 hydrate, mount or write back the Chat-specific `/chats`, `/data`, `/logs` and
-`/memory` roots. Each invocation still has its own isolated execution directory.
+`/memory` roots. Each invocation has isolated in-memory execution state and
+artifact space. The host installs a frozen workflow revision over authenticated
+local RPC; inputs, execution events and results travel over RPC as well. Request
+and result JSON files are not the execution transport.
 Use `/mount` for durable user files when explicitly enabled; files placed in
 `/run` are temporary and disappear when the instance is replaced or restarted.
 
@@ -35,7 +38,8 @@ instance. Dependencies come from the selected workflow version.
 During replacement, the old instance continues serving while the candidate
 prepares its execution environment. After readiness succeeds, a database
 transaction switches admission to the new revision. Previously accepted queued
-and running calls stay on the old revision. It is removed only after those calls
+and running calls, including calls waiting for human approval, stay on the old
+revision. It is removed only after those calls
 and its local workers have finished. A failed candidate leaves the old revision
 serving; insufficient capacity leaves the replacement waiting. Superseded
 configuration cannot promote over a newer saved change.
@@ -66,8 +70,24 @@ Once sandboxd accepts an invocation, it records completion itself before
 releasing its local drain lease. Losing the API caller therefore does not
 prevent a surviving executor from recording success or failure. Completion is
 monotonic: an API acknowledgement or queue retry cannot reopen or overwrite a
-terminal invocation. Persisted result summaries contain counts, not outputs.
+terminal invocation. The deployment invocation summary contains counts; the
+linked encrypted execution history also retains inputs, the frozen graph,
+node events and outputs, approval decisions and final results in PostgreSQL.
+The runtime retains events until the host commits them and acknowledges their
+sequence. Transient database errors while storing an event batch retry that
+same batch for up to 10 seconds; an uncertain commit is safe to retry because
+event sequences are deduplicated. No success or runtime acknowledgement is
+reported before the commit. A persistent failure stops the isolated executor
+before releasing its capacity; it does not replay the workflow.
+These records have no automatic TTL deletion. Temporary process files and
+short-lived credentials can be removed without deleting execution history.
 Queued invocations remain bound to their admitted revision until execution.
+For explicit asynchronous and webhook submissions, DBOS delivers the admitted
+invocation to sandboxd and exits once sandboxd commits its ownership claim.
+Approval waits therefore consume the deployment's reserved execution capacity,
+not a background queue worker. A lost dispatch acknowledgement is reconciled
+against the same invocation; an existing claim never starts a second execution.
+The delivery task does not mark the invocation successful or clean its files.
 
 Execution ownership is claimed atomically in PostgreSQL. The executor renews a
 60-second lease every 10 seconds; failure to renew cancels only that request's
@@ -81,8 +101,77 @@ Synchronous API and dashboard test calls have five minutes to reach the
 executor after admission. Unclaimed calls past that deadline fail with
 `dispatch_expired`. Background calls that are still queued have no dispatch
 expiry; their execution lease starts only when sandboxd claims them. Apply
-migration 144 before running this version, and drain active calls during an
+migrations through 153 before running this version, and drain active calls during an
 upgrade from an older executor that does not renew leases.
+
+## Human approval and API results
+
+`HumanApprovalNode` requires `instruction`, `timeout_seconds` (a positive
+integer) and, for deployments, an explicit `approver_email`. Admission resolves
+the email to an active member of the deployment's organization. Its only output
+is `approved: boolean`. Rejection and approval timeout both produce `false` and
+continue the graph; use a ConditionNode to route downstream work.
+
+Every visit creates an independent approval, including loop iterations. Waiting
+retains execution capacity. A deployment call that reaches an approval returns
+HTTP 202 with `invocation_id`, its compatibility alias `task_id`, and a
+`Location`/`result_url`. Calls that take another branch can still complete
+synchronously. The notification hook is currently a placeholder; review takes
+place in the execution detail page linked from the deployment's Activity log.
+The page shows the frozen graph and node results without granting graph-edit
+permission. Only the assigned reviewer can approve or reject.
+
+For API-triggered deployments, submit the StartNode input object directly to
+`POST /api/v1/deployments/{slug}/invoke` with the deployment's Bearer API key.
+`POST /api/v1/deployments/{slug}/runs` explicitly requests asynchronous execution.
+
+| Situation | HTTP response |
+| --- | --- |
+| Synchronous execution succeeds | 200 with final EndNode outputs |
+| Execution reaches human approval | 202 with the same invocation's ticket |
+| HTTP observation reaches 30 seconds | 202; execution continues |
+| Explicit asynchronous submission is admitted | 202 |
+| Synchronous workflow execution fails | 502 with a safe error code |
+| Active execution budget expires during synchronous observation | 504 |
+| Invalid input | 422 |
+| QPS or invocation concurrency quota is exhausted | 429 with `Retry-After` |
+| Execution infrastructure is unavailable | 503 with `Retry-After` |
+| Internal dispatch fails | 500 |
+
+Query `GET /api/v1/deployments/{slug}/runs/{invocation_id}` using the current
+deployment API key. Query HTTP 200 means the lookup succeeded; inspect `status`
+for `queued`, `running`, `waiting_approval`, `succeeded`, `failed`, `timed_out` or
+`cancelled`. External results contain final EndNode outputs and safe errors;
+internal graph data, node outputs and tracebacks belong to the authorized
+execution detail view. Key rotation applies to queries of existing results too.
+
+For retryable submissions, supply `Idempotency-Key` (1–256 visible ASCII
+characters). Reuse the same key and input for one logical call across `/invoke`
+and `/runs`; it returns the original invocation. Different input with the same
+key returns 409. An HTTP disconnect does not cancel an admitted execution.
+
+The HTTP observation window, approval deadline and active execution budget are
+separate. Human-only waiting pauses the active execution budget; concurrently
+running non-human branches still consume it. Approval deadlines are enforced
+by the server. Duplicate or late decisions return 409. Continuation rechecks
+the original execution principal's authorization, not the reviewer's identity.
+
+Pending execution state is not checkpointed for sandbox restart recovery. If
+the owning sandbox process is lost, the execution fails with `execution_lost`,
+its pending approvals close, and it is not replayed. Capacity is released only
+after process termination is confirmed. Persisted history remains queryable.
+
+Webhook submissions also return HTTP 202 with an invocation ticket and
+`Location`/`result_url`, pointing to
+`/api/v1/deployments/{slug}/webhook/runs/{invocation_id}`. Query that URL with
+`X-Vibecanvas-Timestamp` (Unix seconds) and `X-Vibecanvas-Signature`. Use the
+current webhook secret to compute `sha256=` followed by the hex HMAC-SHA256 of
+the UTF-8 string `timestamp + ".GET " + result_url`. The signed path starts at
+`/api/v1`; an optional reverse-proxy mount prefix is not part of the signature.
+The timestamp must be within five minutes of server time. The query uses the
+same external result contract as an API deployment. A POST delivery signature
+cannot authorize a result query, and a query signature cannot be reused for
+another invocation. Disabling admission preserves access to historical results.
 
 ## Native Linux
 

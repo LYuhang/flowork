@@ -377,6 +377,7 @@ def build_app() -> FastAPI:
     from .routes import enterprise_identity as _enterprise_identity_routes
     from .routes import envs as _envs_routes
     from .routes import executions as _exec_routes
+    from .routes import workflow_history as _workflow_history_routes
     from .routes import kb as _kb_routes
     from .routes import llm_credentials as _llm_credentials_routes
     from .routes import mcp_servers as _mcp_servers_routes
@@ -409,6 +410,7 @@ def build_app() -> FastAPI:
     app.include_router(_meta_routes.router)
     app.include_router(_workflow_routes.router)
     app.include_router(_exec_routes.router)
+    app.include_router(_workflow_history_routes.router)
     app.include_router(_chat_routes.router)
     app.include_router(_chat_engagement_routes.router)
     app.include_router(_task_routes.router)

@@ -134,6 +134,8 @@ async def _seed_deployment(pg_engine, app_engine):
                 "s": slug, "h": h,
             },
         )
+    from tests.test_deployment_invoke_sync import _activate_test_revision
+    await _activate_test_revision(tenant_id, dep_id)
     return tenant_id, slug, api_key, dep_id
 
 
@@ -164,6 +166,11 @@ async def test_runs_returns_202_without_task_row(
         slug=slug, body={"x": 21},
         authorization=f"Bearer {api_key}",
     )
+    import json
+    assert result.status_code == 202
+    payload = json.loads(result.body)
+    assert result.headers["location"].endswith(payload["invocation_id"])
+    result = payload
     assert "task_id" in result
     task_id = result["task_id"]
 

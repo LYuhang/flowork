@@ -36,6 +36,8 @@ vi.mock('@/lib/api/vfs', async (importOriginal) => ({
   readVfsRun: (...a: unknown[]) => readVfsRunMock(...a),
 }));
 
+import { ExecutionHistoryContext, type ExecutionHistoryValue } from '../../ExecutionHistoryContext';
+import { cancelWorkflowExecution } from '@/lib/api/executions';
 import { WorkflowRunTab } from '@/pages/canvas/inspector/WorkflowRunTab';
 import { useExecStreamStore } from '@/stores/exec-stream';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
@@ -63,12 +65,14 @@ function startWith(inputFields: Record<string, unknown>) {
   };
 }
 
-function renderTab() {
+function renderTab(history: ExecutionHistoryValue | null = null) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <I18nextProvider i18n={testI18n}>
-        <WorkflowRunTab wfId="wf_1" />
+        <ExecutionHistoryContext.Provider value={history}>
+          <WorkflowRunTab wfId="wf_1" />
+        </ExecutionHistoryContext.Provider>
       </I18nextProvider>
     </QueryClientProvider>,
   );
@@ -77,6 +81,7 @@ function renderTab() {
 describe('WorkflowRunTab', () => {
   beforeEach(() => {
     streamExecutionMock.mockClear();
+    vi.mocked(cancelWorkflowExecution).mockClear();
     getWorkflowExecutionStatus.mockReset();
     getWorkflowExecutionStatus.mockResolvedValue(null);
     readVfsRunMock.mockReset();
@@ -103,6 +108,19 @@ describe('WorkflowRunTab', () => {
     delete (globalThis as unknown as { __mockReadVfsRun?: typeof readVfsRunMock })
       .__mockReadVfsRun;
     cleanup();
+  });
+
+  it('restores cancellation after reload without starting a second execution', async () => {
+    useWorkflowEditStore.getState().setDraft(startWith({}));
+    const history = {
+      detail: { id: 'existing-run', wf_id: 'wf_1', status: 'waiting_approval' },
+      latestNodeEvents: {},
+    } as ExecutionHistoryValue;
+    renderTab(history);
+    expect(screen.queryByRole('button', { name: 'Execute' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(cancelWorkflowExecution).toHaveBeenCalledWith('wf_1'));
+    expect(streamExecutionMock).not.toHaveBeenCalled();
   });
 
   it('renders one input row per StartNode field, no reference toggle', () => {

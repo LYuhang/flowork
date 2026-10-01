@@ -1,0 +1,79 @@
+import { useMemo, useState } from 'react';
+import { useParams } from 'react-router';
+import { useTranslation } from 'react-i18next';
+import { ReactFlowProvider } from '@xyflow/react';
+import { Button } from '@/components/ui/button';
+import { useExecutionDetail, useExecutionEvents, type ExecutionFrame } from '@/lib/api/queries/workflow-history';
+import { WorkflowGraph, workflowDictToNodesEdges } from './WorkflowGraph';
+import { WorkflowSnapshotContext } from './WorkflowSnapshotContext';
+import { ExecutionHistoryContext } from './ExecutionHistoryContext';
+import { NodeJsonPreview } from './nodes/NodeJsonPreview';
+import { autoLayout } from './auto-layout';
+
+export function ExecutionDetailPage() {
+  const { executionId = '' } = useParams();
+  return <ExecutionDetail key={executionId} executionId={executionId} />;
+}
+
+function ExecutionDetail({ executionId }: { executionId: string }) {
+  const { t } = useTranslation();
+  const detailQuery = useExecutionDetail(executionId);
+  const eventsQuery = useExecutionEvents(executionId);
+  const [selected, setSelected] = useState<string | null>(null);
+  const detail = detailQuery.data;
+  const projection = useMemo(() => {
+    const graph = workflowDictToNodesEdges(detail?.workflow ?? null);
+    const hasPositions = graph.nodes.some((node) => node.position.x !== 0 || node.position.y !== 0);
+    return { ...graph, nodes: hasPositions ? graph.nodes : autoLayout(graph.nodes, graph.edges) };
+  }, [detail?.workflow]);
+  const latestNodeEvents = useMemo(() => {
+    const nodes: Record<string, ExecutionFrame> = {};
+    for (const event of eventsQuery.data?.events ?? []) {
+      if (event.type === 'node_event' && event.node_id) nodes[event.node_id] = event;
+    }
+    return nodes;
+  }, [eventsQuery.data]);
+  if (detailQuery.isError || eventsQuery.isError) return <p role="alert" className="p-6">{t('execution.unavailable')}</p>;
+  if (!detail) return <p role="status" className="p-6">{t('execution.loading')}</p>;
+  const selectedEvents = eventsQuery.data?.events.filter((event) => event.type === 'node_event' && event.node_id === selected) ?? [];
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-edge-structural px-4 py-3">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold">{t('execution.detail')} · {t(`execution.status.${detail.status}`)}</h1>
+          <p className="text-xs text-content-secondary">{t('execution.readOnly')}</p>
+          <p className="break-all font-mono text-xs text-content-tertiary">{detail.id}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => { void detailQuery.refetch(); void eventsQuery.refetch(); }}>{t('execution.refresh')}</Button>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <main className="min-h-80 min-w-0 flex-1">
+          <WorkflowSnapshotContext.Provider value={detail.workflow}>
+            <ExecutionHistoryContext.Provider value={{ detail, latestNodeEvents }}>
+              <ReactFlowProvider>
+                <WorkflowGraph
+                  nodes={projection.nodes} edges={projection.edges}
+                  nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false}
+                  deleteKeyCode={null} showInteractiveControls={false}
+                  onNodeClick={(_event, node) => setSelected(node.id)}
+                />
+              </ReactFlowProvider>
+            </ExecutionHistoryContext.Provider>
+          </WorkflowSnapshotContext.Provider>
+        </main>
+        <aside className="max-h-72 overflow-auto border-t border-edge-structural p-4 lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
+          <h2 className="mb-3 text-sm font-medium">{t('execution.inputs')}</h2>
+          <div className="mb-4"><NodeJsonPreview value={detail.inputs} /></div>
+          <h2 className="mb-3 text-sm font-medium">{t('execution.nodeDetails')}{selected ? ` · ${selected}` : ''}</h2>
+          {selected ? selectedEvents.map((event) => <div key={event.seq} className="mb-3 border-b border-edge-structural pb-3">
+            <p className="mb-2 text-xs text-content-secondary">{t(`execution.status.${event.status === 'success' ? 'succeeded' : event.status === 'error' ? 'failed' : 'running'}`)}</p>
+            {event.inputs !== undefined && <NodeJsonPreview value={{ inputs: event.inputs }} />}
+            {event.output !== undefined && <NodeJsonPreview value={{ output: event.output }} />}
+            {event.error_message && <p role="alert" className="break-words text-xs text-state-danger">{event.error_message}</p>}
+          </div>)
+            : <p className="text-sm text-content-secondary">{t('execution.noNodeSelected')}</p>}
+        </aside>
+      </div>
+    </div>
+  );
+}

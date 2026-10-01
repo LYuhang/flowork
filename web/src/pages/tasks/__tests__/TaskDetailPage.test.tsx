@@ -261,12 +261,13 @@ describe("<TaskDetailPage>", () => {
     await user.click(screen.getByRole("tab", { name: "Execution logs" }));
     expect(await screen.findByText("No events yet.")).toBeInTheDocument();
     expect(document.querySelector('[data-role="task-event-log-scroll-region"]')).toHaveClass(
-      "min-h-0",
-      "flex-1",
+      "max-h-[65dvh]",
+      "min-h-48",
       "overflow-y-auto",
       "overscroll-contain",
     );
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Executions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Share task" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Download" })).not.toBeInTheDocument();
   });

@@ -39,6 +39,7 @@ from .condition import ConditionNode
 from .loop import LoopBeginNode, LoopEndNode
 from .http_request import HTTPRequestNode
 from .transform import TransformNode
+from .human_approval import HumanApprovalNode
 from .template import TemplateNode
 from .table_read import TableReadNode
 from .table_write import TableWriteNode
@@ -78,6 +79,7 @@ __all__ = [
     "ParallelStartNode",
     "ParallelEndNode",
     "ConditionNode",
+    "HumanApprovalNode",
     "LoopBeginNode",
     "LoopEndNode",
     "HTTPRequestNode",

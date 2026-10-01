@@ -63,6 +63,7 @@ import {
 const CanvasPage = lazy(() =>
   loadCanvasPage().then((m) => ({ default: m.CanvasPage })),
 );
+const ExecutionDetailPage = lazy(() => import('@/pages/canvas/ExecutionDetailPage').then((module) => ({ default: module.ExecutionDetailPage })));
 const AppLayout = lazy(() =>
   loadAppLayout().then((m) => ({ default: m.AppLayout })),
 );
@@ -197,6 +198,10 @@ export const router = createBrowserRouter([
       {
         element: routeElement(AppLayout),
         children: [
+          {
+            path: 'workflow-executions/:executionId',
+            element: routeElement(ExecutionDetailPage),
+          },
           {
             index: true,
             element: <Navigate to="/chat" replace />,

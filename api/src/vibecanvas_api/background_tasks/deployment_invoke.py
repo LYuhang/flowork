@@ -1,41 +1,13 @@
-"""Background worker implementation for API and webhook Deployment invocations.
+"""Deliver admitted asynchronous deployment calls to their sandbox owner.
 
-Both external trigger types funnel through this single task. Deployment
-observability belongs to Deployment logs/history, not the Task Center table;
-recurring execution is owned by scheduled Tasks.
+DBOS stores only the invocation ID; its adapter decrypts the frozen payload.
+Resident deliveries return after sandboxd commits its ownership claim. The
+sandbox then owns approval waits, results and artifact cleanup independently
+of the queue worker. Delivery completion is not workflow completion.
 
-Architecture choice — async-driven worker (deviation from batch_exec):
-
-  ``batch_exec`` runs in a fully synchronous style: a sync task body,
-  ``SyncWorkflowRepo`` for loads, ``run_in_short_session`` for each DB
-  write. That fit the row-by-row CSV use-case where every write opens
-  its own short transaction.
-
-  The DBOS Step body is a sync shell around ``asyncio.run(_run(...))``. The
-  engine run itself goes through the sandbox runner:
-  ``_run`` calls the sync+blocking
-  ``run_workflow_sandboxed_sync`` (offloaded via ``asyncio.to_thread`` since
-  ``_run`` is on a loop), which runs the engine inside the selected sandbox backend without
-  an in-process fallback. The runner owns the whole run-dir lifecycle
-  (RunWorkspace: temporary run_dir + cleanup), so
-  ``_run`` no longer builds its own run context. ``run_id=task_id`` keeps the
-  run-tier id consistent with the invocation id and the sync shell's release.
-
-Tenant ContextVar invariant:
-
-  ``tenant_id_var.set(...)`` is the FIRST line of the task body, before
-  anything that could read a stale tenant context. Every subsequent
-  ``short_session_scope(tenant_id=...)`` receives that SAME tenant id
-  explicitly, so RLS GUC binding is deterministic per transaction.  The
-  worker-safe scope owns a NullPool engine on the current ``asyncio.run``
-  loop and disposes it before that loop closes; a background invocation never
-  borrows a connection from the web process' loop-bound global pool.
-
-DB state:
-
-  This worker no longer writes ``tasks`` or ``task_events``. It logs terminal
-  outcome through structlog until Deployment-specific invocation history is
-  introduced.
+The tenant ContextVar is bound before any repository work, and each short DB
+session receives the same tenant explicitly. Older deliveries without a
+resident revision retain their legacy completion and cleanup path.
 """
 from __future__ import annotations
 
@@ -59,6 +31,14 @@ from vibecanvas_api.storage.sync_session import current_sync_tenant_id
 from vibecanvas_api.storage.vfs_run_repo import PostgresVfsRunStore
 
 logger = structlog.get_logger(__name__)
+
+
+async def _fail_history(session, invocation_id, code):
+    from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+
+    history = WorkflowHistoryRepo(session)
+    if await history.get(invocation_id) is not None:
+        await history.fail(invocation_id, error_code=code)
 
 
 def deployment_invoke(
@@ -86,9 +66,9 @@ def deployment_invoke(
             is ``{"payload": <parsed-json>}``.
 
     Side effects:
-      * runs the deployment's pinned workflow version
-      * logs terminal success/failure
-      * releases the invocation run-tier
+      * dispatches the admitted revision under its service account
+      * records failures that happen before sandbox ownership
+      * leaves resident execution files with the sandbox owner
     """
     # Spec §9 invariant — MUST be the first executable line of the body.
     # Every nested ``short_session_scope(tenant_id=...)`` call below passes
@@ -105,20 +85,15 @@ def deployment_invoke(
             snapshot=snapshot,
         ))
     finally:
-        # RE-2 E0: release the run-tier at run-end. ``_run`` has no single
-        # try/finally funnel (early ``return`` + multiple ``_finalize``s), so
-        # release here in the genuinely-SYNC background worker shell (the ``asyncio.run``
-        # above has returned), where ``release_sync`` (→ its own ``asyncio.run``)
-        # is legal (C1). The run_id is the background job id (the resolved per-run
-        # id). Set the sync tenant CV here in case ``_run`` raised before
-        # reaching it. Production batch → retain=False; ``release`` is idempotent
-        # so recovery is safe. Fail-soft: never crash the task.
-        try:
-            current_sync_tenant_id.set(tenant_id)
-            PostgresVfsRunStore().release_sync(run_id=task_id, retain=False)
-        except Exception:  # pragma: no cover - fail-soft, never crash the task
-            logger.warning("run_release_failed", run_id=task_id, retain=False,
-                           site="background_deployment_invoke", exc_info=True)
+        # Resident executions outlive this delivery task. Their sandbox owner
+        # persists artifacts and releases scratch files at actual completion.
+        if not (snapshot or {}).get("revision_id"):
+            try:
+                current_sync_tenant_id.set(tenant_id)
+                PostgresVfsRunStore().release_sync(run_id=task_id, retain=False)
+            except Exception:  # pragma: no cover - fail-soft, never crash the task
+                logger.warning("run_release_failed", run_id=task_id, retain=False,
+                               site="background_deployment_invoke", exc_info=True)
 
 
 async def _run(
@@ -129,16 +104,9 @@ async def _run(
     inputs: dict,
     snapshot: dict | None = None,
 ) -> None:
-    """Async driver — load deployment + version, run engine, finalize.
+    """Check delivery authority, then hand resident execution to sandboxd.
 
-    Three failure modes funnel through the same ``_finalize`` call:
-      1. Deployment was soft-deleted between submit and pickup → 'failed'
-         with a stable, asserted-against error string.
-      2. Workflow version missing / engine init failure → 'failed' with
-         the exception's ``str()``.
-      3. Engine produced a non-empty ``error_dict`` → 'failed' with a
-         joined error summary; ``outputs`` still rides on ``result`` so
-         a partial-progress UI can surface what DID succeed.
+    Legacy deliveries without a revision use the older result path below.
     """
     dep_uuid = uuid.UUID(deployment_id)
     invocation_uuid = uuid.UUID(task_id)
@@ -153,6 +121,7 @@ async def _run(
 
     if dep is None:
         async with short_session_scope(tenant_id=tenant_id) as s:
+            await _fail_history(s, task_id, "execution_unavailable")
             await DeploymentInvocationsRepo(s).mark_terminal(
                 invocation_uuid,
                 status="failed",
@@ -182,6 +151,7 @@ async def _run(
                 return
     except (LookupError, ValueError):
         async with short_session_scope(tenant_id=tenant_id) as s:
+            await _fail_history(s, task_id, "execution_unavailable")
             await DeploymentInvocationsRepo(s).mark_terminal(
                 invocation_uuid,
                 status="failed",
@@ -195,7 +165,19 @@ async def _run(
         )
         return
 
-    # Cut over to the sandbox runner. ``load_workflow_version`` still resolves
+    if (snapshot or {}).get("revision_id"):
+        from vibecanvas_api.services.deployment_dispatch import dispatch_invocation
+
+        await dispatch_invocation(
+            dep=dep,
+            revision={"id": snapshot["revision_id"], "spec": {"mount_enabled": snapshot.get("mount_enabled", True)}},
+            lease=lease, workflow=snapshot["workflow"], inputs=inputs,
+            tenant_id=tenant_id, invocation_id=task_id, wait_for_result=False,
+        )
+        return
+
+    # Compatibility for older deliveries without a resident revision.
+    # ``load_workflow_version`` still resolves
     # the deployment's pinned, possibly non-head version and is
     # threaded through to the sandbox runner to execute that exact content. ``run_workflow_sandboxed_sync`` is sync+blocking
     # and owns the whole temporary run-dir lifecycle, so ``_run`` no longer

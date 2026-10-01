@@ -15,6 +15,7 @@ import { TemplateNodeEditor } from './config-editors/TemplateNodeEditor';
 import { TableReadNodeEditor } from './config-editors/TableReadNodeEditor';
 import { TableWriteNodeEditor } from './config-editors/TableWriteNodeEditor';
 import { SubAgentNodeEditor } from './config-editors/SubAgentNodeEditor';
+import { HumanApprovalNodeEditor } from './config-editors/HumanApprovalNodeEditor';
 
 export const NODE_CONFIG_EDITORS: Record<string, ComponentType<NodeConfigEditorProps>> = {
   StartNode: StartNodeEditor,
@@ -32,6 +33,7 @@ export const NODE_CONFIG_EDITORS: Record<string, ComponentType<NodeConfigEditorP
   TableReadNode: TableReadNodeEditor,
   TableWriteNode: TableWriteNodeEditor,
   SubAgentNode: SubAgentNodeEditor,
+  HumanApprovalNode: HumanApprovalNodeEditor,
 };
 
 const CONFIGLESS_NODE_TYPES = new Set(['StartNode', 'EndNode', 'LoopEndNode']);

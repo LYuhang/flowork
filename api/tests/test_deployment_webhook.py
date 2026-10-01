@@ -31,6 +31,7 @@ stand-in suffices and we avoid wiring TestClient.
 from __future__ import annotations
 
 import hmac
+import json
 import time
 import uuid
 from unittest.mock import AsyncMock
@@ -172,6 +173,8 @@ async def _seed_webhook_dep(pg_engine, app_engine):
             hmac_secret_ref=secret_ref,
             hmac_secret_version=1,
         )
+    from tests.test_deployment_invoke_sync import _activate_test_revision
+    await _activate_test_revision(tenant_id, dep_id)
     return tenant_id, slug, secret, dep_id
 
 
@@ -212,9 +215,14 @@ async def test_webhook_valid_signature_accepts(
         },
         body=payload,
     )
-    result = await webhook(slug=slug, request=req)
+    response = await webhook(slug=slug, request=req)
+    assert response.status_code == 202
+    result = json.loads(response.body)
     assert "task_id" in result
     task_id = result["task_id"]
+    assert result["invocation_id"] == task_id
+    assert response.headers["location"] == result["result_url"]
+    assert result["result_url"].endswith(f"/webhook/runs/{task_id}")
 
     # Deployment webhook invocations are not Task Center rows.
     async with app_engine.connect() as c:
@@ -333,8 +341,9 @@ async def test_webhook_actual_body_limit_rejects_lying_content_length(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("current_status", ["queued", "waiting_approval", "succeeded"])
 async def test_webhook_replay_returns_original_invocation_without_reenqueue(
-    pg_engine, app_engine, monkeypatch,
+    pg_engine, app_engine, monkeypatch, current_status,
 ):
     from vibecanvas_api.routes.deployment_invoke import webhook
     from vibecanvas_api.services import deployments_service
@@ -363,12 +372,19 @@ async def test_webhook_replay_returns_original_invocation_without_reenqueue(
         slug=slug,
         request=_StubRequest(headers=headers, body=payload),
     )
+    first_body = json.loads(first.body)
+    async with pg_engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE workflow_execution_runs SET status=:status WHERE id=:id"),
+            {"status": current_status, "id": uuid.UUID(first_body["invocation_id"])},
+        )
     replay = await webhook(
         slug=slug,
         request=_StubRequest(headers=headers, body=payload),
     )
 
-    assert replay == first
+    assert replay.status_code == first.status_code == 202
+    assert json.loads(replay.body) == {**first_body, "status": current_status}
     assert len(sent) == 1
     async with app_engine.connect() as connection:
         await connection.execute(
@@ -494,3 +510,44 @@ def test_webhook_route_mounted():
     assert any("/deployments/{slug}/webhook" in p for p in paths), (
         f"webhook route missing; got {sorted(paths)}"
     )
+
+
+@pytest.mark.asyncio
+async def test_webhook_result_signature_is_bound_to_method_and_execution(pg_engine, app_engine, monkeypatch):
+    from vibecanvas_api.routes.deployment_invoke import webhook, get_webhook_invocation_result
+    from vibecanvas_api.services import deployments_service
+    from vibecanvas_api.services.deployment_results import webhook_result_location
+    from vibecanvas_api.storage import db as db_mod
+
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
+    monkeypatch.setattr(deployments_service, "enqueue_background_job_in_transaction", AsyncMock())
+    tenant, slug, secret, dep_id = await _seed_webhook_dep(pg_engine, app_engine)
+    ts = str(int(time.time()))
+    body = b'{}'
+    post_signature = _sign(secret, ts, body)
+    response = await webhook(slug=slug, request=_StubRequest(headers={
+        "Content-Type": "application/json", "Content-Length": str(len(body)),
+        "X-Vibecanvas-Timestamp": ts, "X-Vibecanvas-Signature": post_signature,
+    }, body=body))
+    inv = uuid.UUID(json.loads(response.body)["invocation_id"])
+    location = webhook_result_location(slug, str(inv))
+    signature = _sign(secret, ts, ("GET " + location).encode())
+
+    async def query(target=inv, stamp=ts, sig=signature):
+        return await get_webhook_invocation_result(slug, target, _StubRequest(headers={
+            "X-Vibecanvas-Timestamp": stamp, "X-Vibecanvas-Signature": sig,
+        }, body=b""))
+
+    assert await query() == {"invocation_id": str(inv), "status": "queued"}
+    for kwargs in ({"sig": post_signature}, {"target": uuid.uuid4()},
+                   {"sig": "sha256=invalid"}, {"stamp": "0"}):
+        with pytest.raises(HTTPException) as error:
+            await query(**kwargs)
+        assert error.value.status_code == 401
+    other = uuid.uuid4()
+    with pytest.raises(HTTPException) as error:
+        await query(target=other, sig=_sign(secret, ts, ("GET " + webhook_result_location(slug, str(other))).encode()))
+    assert error.value.status_code == 404
+    async with session_scope(tenant_id=str(tenant)) as session:
+        await DeploymentsRepo(session).update(dep_id, enabled=False)
+    assert (await query())["invocation_id"] == str(inv)

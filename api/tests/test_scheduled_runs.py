@@ -16,6 +16,7 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
 ):
     from vibecanvas_api.background_tasks import scheduled_runs as worker
     from vibecanvas_api.services.task_worker import WorkerClaim
+    from vibecanvas_api.services import service_account_resources, workflow_resources
 
     task_id, schedule_id, execution_id, tenant, user = [uuid.uuid4() for _ in range(5)]
     claim = WorkerClaim("schedule", execution_id, uuid.uuid4())
@@ -32,34 +33,28 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
     graph = {"__meta__": {"workflow_id": "wf-original"}}
     monkeypatch.setattr(worker, "run_in_short_session", lambda fn: ({"value": 0}, graph, mount_enabled))
     monkeypatch.setattr(worker, "inject_into_run_context_async", AsyncMock(return_value={}))
+    monkeypatch.setattr(service_account_resources, "refresh_scheduled_resources", AsyncMock())
+    monkeypatch.setattr(workflow_resources, "prepare_execution_resources", AsyncMock(return_value=None))
+    monkeypatch.setattr(worker, "prepare_code_pythonpath", AsyncMock(return_value=None))
+    monkeypatch.setattr(worker, "create_execution", AsyncMock(return_value=str(execution_id)))
     monkeypatch.setattr(worker, "_snapshot_schedule", lambda _: {"enabled": False})
     updates = []
     monkeypatch.setattr(worker, "_update_execution", lambda eid, **kw: updates.append(kw))
     for name in ("_update_task", "_update_schedule", "_emit"):
         monkeypatch.setattr(worker, name, lambda *a, **kw: None)
 
-    class Stream:
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            if outcome == "empty":
-                raise StopAsyncIteration
-            if outcome == "error":
-                raise RuntimeError("Sandbox released.")
-            return {"type": "result", "final_outputs": {"answer": 0}}
-
-        async def aclose(self):
-            if outcome == "cleanup_error":
-                raise RuntimeError("Connection lost during cleanup.")
-
-    def stream(**kw):
+    async def execute(**kw):
         assert kw["workflow"] is graph
-        assert kw["workflow_run_id"] == scope
-        assert kw["timeout"] is None
-        return Stream()
+        assert kw["execution_id"] == str(execution_id)
+        assert kw["session"] is sandbox
+        if outcome == "error":
+            raise RuntimeError("Sandbox released.")
+        return {"result": None if outcome == "empty" else {"final_outputs": {"answer": 0}}}
 
-    monkeypatch.setattr(worker, "stream_workflow_job", stream)
+    if outcome == "cleanup_error":
+        manager.close_session.side_effect = RuntimeError("Connection lost during cleanup.")
+
+    monkeypatch.setattr(worker, "execute_history_workflow", execute)
     await worker._execute_scheduled_run(task_id=task_id, schedule_id=schedule_id,
         execution_id=execution_id, tenant_id=str(tenant), user_id=str(user), workflow_id="wf-original")
     manager.get_session.assert_awaited_once_with(str(tenant), scope, user_id=str(user),
@@ -70,21 +65,14 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
 
 
 async def _seed_tenant_user_workflow(pg_engine):
-    tenant_id = uuid.uuid4()
-    user_id = uuid.uuid4()
     wf_id = f"wf_{uuid.uuid4().hex[:8]}"
-    async with pg_engine.begin() as c:
-        await c.execute(
-            text("INSERT INTO tenants(tenant_id, name) VALUES (:t, 'x')"),
-            {"t": tenant_id},
-        )
-        await c.execute(
-            text("INSERT INTO users(user_id, tenant_id, email) VALUES (:u, :t, :e)"),
-            {"u": user_id, "t": tenant_id, "e": f"sched-{uuid.uuid4().hex[:6]}@example.com"},
-        )
+    from vibecanvas_api.auth.repo import AuthRepo
     from vibecanvas_api.storage.db import session_scope
     from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
+    async with session_scope() as session:
+        user = await AuthRepo(session).register(f"sched-{uuid.uuid4().hex}@example.com", "unused-password-hash")
+        tenant_id, user_id = user.tenant_id, user.user_id
     async with session_scope(tenant_id=str(tenant_id)) as session:
         await WorkflowRepo(session, str(user_id)).create_workflow(
             wf_id=wf_id,

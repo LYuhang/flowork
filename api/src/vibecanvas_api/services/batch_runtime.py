@@ -23,6 +23,10 @@ from uuid import uuid4
 
 from vibecanvas_api.authorization.types import ResourceType
 from vibecanvas_api.services.batch_output import build_output_sink, serialize_results
+from vibecanvas_api.services.workflow_execution_history import (
+    create_execution as create_row_execution,
+    observe_execution as observe_row_execution,
+)
 from vibecanvas_api.services.llm_credentials_inject import inject_into_run_context_async
 from vibecanvas_api.services.object_store import get_object_store, uri_to_key
 from vibecanvas_api.services.sandbox.coordinator import get_sandbox_coordinator
@@ -381,7 +385,7 @@ async def run_batch_workflow(
         if not pool_used:
             return
         if pool_close is None:
-            pool_close = asyncio.create_task(session.close_workflow_pool(tenant=tenant_id, pool_id=pool_id))
+            pool_close = asyncio.create_task(session.close_workflow_pool(tenant=tenant_id, pool_id=pool_id, history=True))
         response = await asyncio.wait_for(asyncio.shield(pool_close), 20)
         if not isinstance(response, dict) or response.get("closed") is not True:
             raise RuntimeError("Batch worker pool shutdown was not confirmed.")
@@ -432,6 +436,18 @@ async def run_batch_workflow(
         async def _run_one(job_pos: int, job: dict) -> None:
             nonlocal done, pool_used
             row_index, orig, mapped = job_meta[job_pos]
+            execution_id = None
+
+            async def on_state(state):
+                if on_progress is not None:
+                    progress = on_progress(BatchProgress(
+                        index=row_index, status=state, done=done, total=len(jobs),
+                        row={"execution_id": execution_id, "execution_url": f"/workflow-executions/{execution_id}",
+                             "status": state, "input": orig},
+                    ))
+                    if asyncio.iscoroutine(progress):
+                        await progress
+
             async with semaphore:
                 # Coroutines are created for every row up front. Check after
                 # acquiring the concurrency slot so rows queued behind active
@@ -440,17 +456,25 @@ async def run_batch_workflow(
                     outcome = _cancelled_outcome()
                 else:
                     try:
+                        execution_id = await create_row_execution(
+                            tenant_id=tenant_id, source_type="task", source_id=task_id, user_id=user_id,
+                            workflow_id=workflow_id, workflow=workflow, inputs=mapped, input_index=row_index,
+                        )
                         pool_used = True
-                        outcome = await session.execute_workflow_job(
+                        outcome = await observe_row_execution(
+                            tenant_id=tenant_id, execution_id=execution_id, on_state=on_state, on_failure=close_pool,
+                            execute=session.execute_workflow_job(
                             workflow=workflow,
                             inputs=job["inputs"],
                             extra=run_extra,
                             tenant=job["tenant"],
-                            run_id=job["run_id"],
+                            run_id=execution_id,
                             run_subpath=job["run_subpath"],
                             timeout=None,
                             execution_pool_id=pool_id,
-                        )
+                            history_id=execution_id,
+                            execution_capacity=workers,
+                        ))
                     except Exception as exc:  # noqa: BLE001 - isolate row failures
                         outcome = {
                             "status": {
@@ -476,6 +500,8 @@ async def run_batch_workflow(
                 status_result=status_result,
             )
             merged[row_index] = row
+            if execution_id:
+                row.update(execution_id=execution_id, execution_url=f"/workflow-executions/{execution_id}")
             done += 1
             if on_progress is not None:
                 maybe = on_progress(BatchProgress(

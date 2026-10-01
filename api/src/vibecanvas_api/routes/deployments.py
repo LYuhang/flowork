@@ -25,11 +25,9 @@ from __future__ import annotations
 
 from vibecanvas_api.services.deployment_completion import complete_before_cancelling
 
-import asyncio
 import re
 import uuid
 from datetime import datetime
-from time import perf_counter
 from typing import Annotated, List, Literal, Optional
 from fastapi import (
     APIRouter,
@@ -103,10 +101,6 @@ from vibecanvas_api.services.resource_provenance import (
 )
 from vibecanvas_api.services.service_account_credentials import (
     bind_workflow_credentials,
-)
-from vibecanvas_api.services.workflow_runner import (
-    load_workflow_version,
-    run_workflow_sandboxed_sync,
 )
 from vibecanvas_api.services.deployment_snapshots import resolve_workflow
 from vibecanvas_api.storage.db import session_scope
@@ -1158,10 +1152,10 @@ async def test_invoke(
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
-    """Spec §6 — test invoke from the dashboard. Same execution path as
-    ``/invoke`` (load pinned version → run engine → drain stream), but the
-    auth surface is the user's session cookie/bearer (resolved by
-    ``current_user``) and the DB session is RLS-bound to their tenant.
+    """Session-authenticated invocation with the same sync/async contract as /invoke.
+
+    Human approval or the HTTP observation deadline returns 202. The admitted
+    execution continues independently; links use session-authorized history.
 
     Foreign-tenant ``dep_id`` → repo returns ``None`` (RLS filtered) → 404.
     Disabled deployment → 404 (same status as the public ``/invoke`` to
@@ -1189,6 +1183,9 @@ async def test_invoke(
         action=Action.EXECUTE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
+
+    from vibecanvas_api.services.rate_limit import check_rate_limit
+    await check_rate_limit(dep)
 
     service_account_id = dep.get("service_account_id")
     lease = None
@@ -1229,68 +1226,24 @@ async def test_invoke(
             status="running",
             revision_id=revision["id"],
         )
-    started = perf_counter()
-    emit = getattr(request.state, "cli_deployment_progress", None)
-    if emit is not None:
-        # A disconnected progress observer must not strand an admitted call
-        # before its execution/finalization block starts.
-        try:
-            await emit({"progress": {"deployment_id": str(dep_id), "execution_id": str(invocation_id),
-                "status": "running", "message": "A real test invocation started. Do not submit it again."}})
-        except Exception:
-            pass
-    outputs: dict = {}
-    errors: dict = {}
-    fatal_http_exc: HTTPException | None = None
-    try:
-        execution_identity = (
-            {
-                "execution_principal_type": "service_account",
-                "execution_principal_id": str(lease.service_account_id),
-                "execution_principal_generation": lease.generation,
-            }
-            if lease is not None else {}
+        from vibecanvas_api.services.deployment_execution_history import create_deployment_history
+        await create_deployment_history(
+            invocation_session, invocation_id=invocation_id, deployment=dep, revision=revision,
+            workflow=workflow_dict, inputs=body,
         )
-        outputs, errors, exec_secs = await asyncio.to_thread(
-            run_workflow_sandboxed_sync,
-            workflow_id=dep["wf_id"], inputs=body,
-            tenant_id=invocation_tenant,
-            user_id=str(lease.created_by if lease is not None else dep["user_id"]),
-            run_id=str(invocation_id),
-            workflow_dict=workflow_dict,
-            mount_enabled=revision["spec"]["mount_enabled"],
-            deployment_id=str(dep_id), revision_id=str(revision["id"]),
-            execution_resource_type=ResourceType.DEPLOYMENT_INVOCATION.value,
-            **execution_identity,
-        )
-        exec_time_ms = exec_secs * 1000.0
-    except HTTPException as exc:
-        exec_time_ms = (perf_counter() - started) * 1000.0
-        errors = {"__top__": str(exc.detail)}
-        fatal_http_exc = exc
-    except Exception as exc:
-        exec_time_ms = (perf_counter() - started) * 1000.0
-        errors = {"__top__": f"{type(exc).__name__}: {exc}"}
-    async with session_scope(tenant_id=invocation_tenant) as invocation_session:
-        await DeploymentInvocationsRepo(invocation_session).mark_terminal(
-            invocation_id,
-            status="failed" if errors else "succeeded",
-            latency_ms=exec_time_ms,
-            error="execution_failed" if errors else None,
-            result_summary={
-                "output_count": len(outputs) if isinstance(outputs, dict) else 0,
-                "error_count": len(errors) if isinstance(errors, dict) else 0,
-            },
-        )
-    if fatal_http_exc is not None and emit is None:
-        raise fatal_http_exc
-    return {
-        "outputs": outputs,
-        "errors": errors,
-        "exec_time_ms": exec_time_ms,
-        "execution_id": str(invocation_id),
-        "status": "failed" if errors else "succeeded",
-    }
+    from vibecanvas_api.services.deployment_dispatch import dispatch_invocation
+    from vibecanvas_api.services.deployment_observer import own_dispatch, observe_invocation
+    from vibecanvas_api.services.deployment_results import session_invocation_response
+
+    dispatch = own_dispatch(dispatch_invocation(
+        dep=dep, revision=revision, lease=lease, workflow=workflow_dict,
+        inputs=body, tenant_id=invocation_tenant, invocation_id=str(invocation_id),
+    ))
+    response = await observe_invocation(
+        tenant_id=invocation_tenant, slug=dep["slug"],
+        invocation_id=str(invocation_id), dispatch=dispatch,
+    )
+    return session_invocation_response(response)
 
 
 # ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ def add_parser(groups):
         "disable": "Disable new calls. Does not guarantee cancellation of in-flight execution or undo side effects.",
         "delete": "Soft-delete and disable the deployment, not its Workflow. Does not undo in-flight side effects. Approval applies.",
         "rotate_key": "API deployments only. Old API key immediately stops working. Save the one-time replacement to --secret_file; never automatically rotate again after an unknown result.",
-        "run": "Make one REAL synchronous test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Streams state JSONL and waits for outputs/errors; no fixed total CLI deadline. Workflow business timeouts still apply. On interruption inspect history; do not automatically run again. Tests execution, not external key/signature/network reachability.",
+        "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url after human approval is reached or the observation wait expires. The admitted execution continues independently. Inspect that execution through history or its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
         "history": "Inspect deployment calls, not Task Center jobs. --execution_id selects exactly one call belonging to this deployment; otherwise a newest-first page with next_cursor (pass as --after). --output_dir exports this page, deployment status and hourly metrics to a NEW directory; default export window is the last seven days. These are invocation summaries, not complete node logs. No implicit latest execution.",
         "create": "Create an enabled deployment by default; does not execute. Required --major/--version selects a branch or fixed snapshot. --secret_file is a NEW sandbox file for the one-time API key/webhook secret (0600); stdout never prints it. After an unknown result inspect list before retrying. --slug defaults to the lowercased name with non-ASCII/alphanumeric groups replaced by hyphens (fallback deployment); collisions are errors.",
         "update": "Update ONLY supplied settings, not Workflow ID, trigger type or slug. Version changes and increased execution exposure may require approval. Use enable/disable for availability. Existing accepted calls retain their frozen version/mount.",
@@ -68,7 +68,7 @@ def add_parser(groups):
             inputs.add_argument("--inputs_file", help="Read the input JSON object from a sandbox file.")
         if action == "history":
             leaf.add_argument("--execution_id", help="Exact call ID from history/run; mutually exclusive with paging, status and time filters.")
-            leaf.add_argument("--status", choices=("queued", "running", "succeeded", "failed", "cancelled"))
+            leaf.add_argument("--status", choices=("queued", "running", "waiting_approval", "succeeded", "failed", "timed_out", "cancelled"))
             leaf.add_argument("--from", dest="from_time", help="ISO-8601 with timezone.")
             leaf.add_argument("--to", dest="to_time", help="ISO-8601 with timezone.")
             leaf.add_argument("--limit", type=int)
@@ -139,7 +139,7 @@ def validate(operation, arguments):
                 raise ValueError("Time filters require an explicit timezone.")
     if value.get("from_time") and value.get("to_time") and datetime.fromisoformat(value["from_time"].replace("Z", "+00:00")) > datetime.fromisoformat(value["to_time"].replace("Z", "+00:00")):
         raise ValueError("--from must not be after --to.")
-    if "status" in value and value["status"] not in {"queued", "running", "succeeded", "failed", "cancelled"}:
+    if "status" in value and value["status"] not in {"queued", "running", "waiting_approval", "succeeded", "failed", "timed_out", "cancelled"}:
         raise ValueError("Unsupported execution status.")
     if "after" in value:
         try:
@@ -234,4 +234,4 @@ def execute(args, endpoint, cli):
     print(json.dumps(result, ensure_ascii=False), flush=True)
     if result.get("error") == "invalid_arguments":
         return 2
-    return 1 if "error" in result or (args.action == "run" and result.get("status") == "failed") else 0
+    return 1 if "error" in result or (args.action == "run" and result.get("status") in {"failed", "timed_out", "cancelled"}) else 0

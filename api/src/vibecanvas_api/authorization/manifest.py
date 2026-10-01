@@ -99,7 +99,9 @@ _SIGNED_CAPABILITY_ENDPOINTS = frozenset({
 _EXTERNAL_CREDENTIAL_ENDPOINTS = frozenset({
     "invoke_sync",
     "invoke_async",
+    "get_invocation_result",
     "webhook",
+    "get_webhook_invocation_result",
 })
 
 _OIDC_PUBLIC_ENDPOINTS = frozenset({
@@ -387,7 +389,9 @@ def permission_for_route(
         return _spec(
             admission=AdmissionKind.EXTERNAL_CREDENTIAL,
             resource_type=ResourceType.DEPLOYMENT,
-            action=Action.EXECUTE,
+            action=(Action.INSPECT_RUNS
+                    if endpoint in {"get_invocation_result", "get_webhook_invocation_result"}
+                    else Action.EXECUTE),
             selector="path:slug",
             parent_resolver="deployment_slug",
         )
@@ -458,6 +462,31 @@ def permission_for_route(
                 ResourceType.DEPLOYMENT,
                 ResourceType.KNOWLEDGE_BASE,
             }),
+        )
+    if path.startswith("/api/v1/workflow-executions"):
+        if endpoint == "decide":
+            return _spec(
+                admission=AdmissionKind.SESSION,
+                resource_type=ResourceType.WORKFLOW_EXECUTION,
+                action=Action.USE,
+                selector="path:execution_id+approval_id+session:user_id",
+                parent_resolver="same_organization_pending_approval_to_assigned_user",
+            )
+        if endpoint == "history":
+            return _spec(
+                admission=AdmissionKind.RESOURCE,
+                resource_type=None,
+                action=Action.INSPECT_RUNS,
+                selector="query:source_type+source_id+mine",
+                parent_resolver="execution_source_or_current_assignee_filtered_collection",
+                resource_type_options=frozenset({ResourceType.WORKFLOW, ResourceType.TASK, ResourceType.DEPLOYMENT}),
+            )
+        return _spec(
+            admission=AdmissionKind.RESOURCE,
+            resource_type=ResourceType.WORKFLOW_EXECUTION,
+            action=Action.CANCEL if endpoint == "cancel" else Action.INSPECT_RUNS,
+            selector="path:execution_id",
+            parent_resolver="execution_to_source" if endpoint == "cancel" else "execution_to_source_or_assignee",
         )
     if path.startswith("/api/v1/workflows"):
         return _spec(

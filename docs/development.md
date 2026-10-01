@@ -156,6 +156,40 @@ The build-time boundary is implemented in
 Run the checks for every package affected by a change. The commands below match
 the primary gates in [continuous integration](../.github/workflows/ci.yml).
 
+### Adding or changing a workflow node
+
+A node change includes every entry point that discovers, edits, validates or
+executes it. Review these dependencies together:
+
+- Register and export the node in `engine/src/vibecanvas_engine/nodes/` and the
+  public engine package. Check the compatibility import and sandbox allowlist.
+- Define `CONFIG_SCHEMA` and `AGENT_SPEC`, including valid examples and output
+  constraints. CLI `workflow get-spec --list-types` and `get-spec --type TYPE`
+  use the canonical registry; do not maintain a separate CLI type list.
+- Review the compact BUILD catalog in `agents/prompts/node_definitions.py`, the
+  workflow playbook, CLI help and `flowork_cli/AGENTS.md`. Explain execution
+  lifetime and limitations where they affect an Agent's choice of command.
+- Update the canvas catalog, icon, translations, default configuration and
+  configuration editor. Check validation, output references and read-only
+  execution details as well as graph editing.
+- Exercise canvas full and single-node runs, CLI `run`, `run --node` and
+  `run-batch`, batch Tasks, scheduled Tasks and deployments. Shared engine
+  support alone does not prove that each host entry point supports the node.
+- Propagate any new execution state to persistence, admission/concurrency,
+  cancellation, result queries, history filters and CLI exit/result handling.
+
+For `HumanApprovalNode`, verify that waiting retains its worker, each admitted
+input has its own `execution_id` and `execution_url`, and rejection or timeout
+returns `approved=false` and continues. CLI progress must expose
+`row_status=waiting_approval`; unfinished CLI executions remain scoped to the
+original Agent turn. Deployment HTTP 202 is acceptance, not execution success.
+
+Run the registry/prompt/CLI contract tests and runtime integration tests, then
+deploy the affected services and verify these paths through a real account.
+Record execution IDs and expected/actual results. Mocked tests, graph validation
+and node discovery do not replace deployed execution acceptance; an unverified
+required path remains incomplete.
+
 ### Engine and API
 
 ```bash

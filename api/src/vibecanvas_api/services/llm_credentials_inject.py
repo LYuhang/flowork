@@ -337,6 +337,14 @@ async def inject_into_run_context_async(
         )
     if mapping:
         run_context["llm_credentials"] = mapping
+    if any(isinstance(node, dict) and node.get("node_type") == "HumanApprovalNode"
+           for node in workflow_dict.values()):
+        from vibecanvas_api.services.workflow_resume import IDENTITY_KEY, execution_identity
+        run_context[IDENTITY_KEY] = execution_identity(
+            tenant_id=tenant_id, user_id=user_id, workflow_id=workflow_id,
+            execution_id=execution_id, execution_resource_type=execution_resource_type,
+            principal_type=principal_type, principal_id=principal_id, principal_generation=principal_generation,
+        )
     return run_context
 
 
@@ -375,6 +383,14 @@ def inject_into_run_context_sync(
         ))
     if mapping:
         run_context["llm_credentials"] = mapping
+    if any(isinstance(node, dict) and node.get("node_type") == "HumanApprovalNode"
+           for node in workflow_dict.values()):
+        from vibecanvas_api.services.workflow_resume import IDENTITY_KEY, execution_identity
+        run_context[IDENTITY_KEY] = execution_identity(
+            tenant_id=tenant_id, user_id=user_id, workflow_id=workflow_id,
+            execution_id=execution_id, execution_resource_type=execution_resource_type,
+            principal_type=principal_type, principal_id=principal_id, principal_generation=principal_generation,
+        )
     return run_context
 
 

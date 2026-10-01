@@ -1,49 +1,24 @@
-"""External deployment endpoints — runs the deployed workflow via api_key/slug/webhook.
+"""External deployment admission and result observation.
 
-T6 ships POST ``/api/v1/deployments/{slug}/invoke`` — the true sync path
-that runs the workflow IN the API process via ``Workflow.astream``
-without a background queue hop. POST ``/api/v1/deployments/{slug}/runs``
-— async submit; enqueues a durable ``deployment_invoke`` workflow and returns
-``task_id`` as an opaque deployment invocation id.
-T8 will add ``/webhook`` (HMAC verified).
-
-Spec §6 invariant: every external endpoint MUST call
-``resolve_deployment_and_bind_tenant`` FIRST. RLS is otherwise unset
-and any tenant-scoped query that follows would be silently filtered to
-zero rows (FORCE RLS is universal across the business tables).
-
-Auth model:
-* ``api`` deployments authenticate by ``Authorization: Bearer <api_key>``
-  (the one-shot plaintext returned by T4's create / T5's rotate-key).
-* The path slug must match the deployment the key belongs to — a key
-  for deployment A cannot invoke deployment B even if the path slug is
-  valid for B.
-
-Error mapping intentionally does not reveal resource existence:
-* Missing / malformed ``Authorization`` header → 401 (RFC compliance).
-* Unknown api_key, disabled deployment, wrong trigger_type, mismatched
-  slug → 404 ``"deployment not found"`` (uniform, never leaks which
-  axis failed).
-* Engine-level / per-node errors → 502 with the per-node ``errors``
-  bundle so the caller can debug their workflow without the API
-  pretending the run succeeded.
+Invoke waits briefly for the resident sandbox. A reached human approval or an
+expired HTTP wait returns 202 for the same execution. Durable asynchronous
+submission uses the existing queue; neither path may bypass capacity admission.
+API keys are checked before binding tenant scope, and all result queries are
+restricted to the authenticated deployment.
 """
 from __future__ import annotations
 
 from vibecanvas_api.services.deployment_completion import complete_before_cancelling
+from vibecanvas_api.services.deployment_idempotency import claim_invocation, replay_response
 
-import asyncio
 import hashlib
-import json
 import uuid
-from time import perf_counter
-from typing import Optional
+from typing import Annotated, Optional
 
 import structlog
-from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from sqlalchemy import text
 
-from vibecanvas_api.authorization.types import ResourceType
 from vibecanvas_api.services.deployment_secret_config import (
     resolve_deployment_hmac_secret,
 )
@@ -56,10 +31,7 @@ from vibecanvas_api.services.rate_limit import (
     check_rate_limit,
 )
 from vibecanvas_api.services.tenant_db import tenant_id_var
-from vibecanvas_api.services.workflow_runner import (
-    load_workflow_version,
-    run_workflow_sandboxed_sync,
-)
+from vibecanvas_api.services.deployment_dispatch import dispatch_invocation as _dispatch_invocation
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
 from vibecanvas_api.storage.repo_deployments import DeploymentsRepo
@@ -73,6 +45,68 @@ router = APIRouter(
 
 _WEBHOOK_MAX_BODY_BYTES = 1_048_576
 _WEBHOOK_REPLAY_RETENTION_SECONDS = 600
+
+
+@router.get("/{slug}/runs/{invocation_id}")
+async def get_invocation_result(
+    slug: str, invocation_id: uuid.UUID,
+    authorization: Optional[str] = Header(default=None),
+):
+    """An authorized poll returns 200 even when the execution itself failed."""
+    api_key = _extract_bearer(authorization)
+    if api_key is None:
+        raise HTTPException(401, "Bearer token required")
+    dep = await resolve_deployment_and_bind_tenant(api_key=api_key)
+    # Disabling admission does not erase existing results. Rotation/revocation
+    # still takes effect through the same current-key lookup on every poll.
+    if dep is None or dep["slug"] != slug or dep["trigger_type"] != "api":
+        raise HTTPException(404, "deployment not found")
+    return await _invocation_result(dep, invocation_id)
+
+
+async def _invocation_result(dep: dict, invocation_id: uuid.UUID):
+    from vibecanvas_api.services.deployment_results import external_result
+    from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+
+    async with session_scope(tenant_id=str(dep["tenant_id"])) as session:
+        history = WorkflowHistoryRepo(session)
+        run = await history.get(str(invocation_id))
+        if run is None or run["source_type"] != "deployment" or run["source_id"] != str(dep["id"]):
+            raise HTTPException(404, "invocation_not_found")
+        return external_result(await history.result_detail(str(invocation_id)))
+
+
+@router.get("/{slug}/webhook/runs/{invocation_id}")
+async def get_webhook_invocation_result(slug: str, invocation_id: uuid.UUID, request: Request):
+    """Read with the current webhook secret, signing timestamp + '.GET ' + path.
+
+    Bind the signature to method, deployment and invocation; a signed POST body
+    or another invocation's polling signature cannot authorize this lookup.
+    """
+    import hmac
+    import time
+
+    from vibecanvas_api.services.deployment_results import webhook_result_location
+
+    timestamp = request.headers.get("X-Vibecanvas-Timestamp", "")
+    signature = request.headers.get("X-Vibecanvas-Signature", "")
+    try:
+        if abs(time.time() - int(timestamp)) > 300:
+            raise ValueError
+    except (ValueError, TypeError):
+        raise HTTPException(401, "invalid or expired timestamp") from None
+    dep = await resolve_deployment_and_bind_tenant(slug=slug)
+    # Disabled admission does not revoke access to retained execution results.
+    if dep is None or dep["trigger_type"] != "webhook":
+        raise HTTPException(404, "deployment not found")
+    async with session_scope(tenant_id=str(dep["tenant_id"])) as session:
+        secret = await resolve_deployment_hmac_secret(session, dep)
+    path = webhook_result_location(slug, str(invocation_id))
+    message = f"{timestamp}.GET {path}".encode()
+    expected = "sha256=" + hmac.new(secret.encode(), message, "sha256").hexdigest()
+    if not hmac.compare_digest(signature.encode(), expected.encode()):
+        raise HTTPException(401, "invalid signature")
+    return await _invocation_result(dep, invocation_id)
 
 
 async def _read_body_with_hard_limit(request: Request, *, limit: int) -> bytes:
@@ -186,21 +220,16 @@ async def invoke_sync(
     slug: str,
     body: dict,
     authorization: Optional[str] = Header(default=None),
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key", description=(
+            "Optional per-deployment operation key (1–256 visible ASCII characters). "
+            "Reusing a key with identical input returns the same invocation; changed input returns 409. "
+            "Shared by /invoke and /runs; retained with history."
+        )),
+    ] = None,
 ):
-    """Spec §6.1 — true sync invoke. Runs the workflow IN the API process
-    via :py:meth:`Workflow.astream`. There is no background queue hop or
-    intermediate ``tasks`` row — the caller blocks until completion.
-
-    Returns ``{"outputs": ..., "exec_time_ms": ...}`` on success.
-    Returns 502 ``{"errors": ..., "exec_time_ms": ...}`` when the
-    workflow finished but at least one node produced an error.
-
-    Why every "not authorized" case is 404 (not 403 / 401):
-    api_key, slug, enabled, and trigger_type are all *existence* axes
-    of the same row — leaking which one failed would let an attacker
-    probe slugs by trying random keys against them. The single 404
-    response collapses them all.
-    """
+    """Run synchronously until completion, human approval or the HTTP wait limit."""
     api_key = _extract_bearer(authorization)
     if api_key is None:
         # 401 — bearer required. (Malformed/empty bearer is "did not
@@ -224,11 +253,13 @@ async def invoke_sync(
             detail="deployment not found",
         )
 
-    await check_rate_limit(dep)
-
     tenant_id = str(tenant_id_var.get())
 
     async with session_scope(tenant_id=tenant_id) as session:
+        receipt_id, fresh = await claim_invocation(session, deployment=dep, key=idempotency_key, inputs=body)
+        if not fresh:
+            return await replay_response(session, slug=slug, invocation_id=receipt_id, asynchronous=False)
+        await check_rate_limit(dep)
         from vibecanvas_api.services.deployment_revisions import admit_revision
         from vibecanvas_api.services.deployment_snapshots import resolve_workflow
         dep, revision = await admit_revision(session, dep["id"])
@@ -248,6 +279,7 @@ async def invoke_sync(
                     detail="deployment execution identity unavailable",
                 ) from exc
         invocation_id = await DeploymentInvocationsRepo(session).create(
+            invocation_id=receipt_id,
             tenant_id=uuid.UUID(tenant_id),
             deployment_id=dep["id"],
             wf_id=dep["wf_id"],
@@ -256,77 +288,23 @@ async def invoke_sync(
             status="running",
             revision_id=revision["id"],
         )
-
-    started = perf_counter()
-    outputs: dict = {}
-    errors: dict = {}
-    fatal_http_exc: HTTPException | None = None
-    try:
-        execution_identity = (
-            {
-                "execution_principal_type": "service_account",
-                "execution_principal_id": str(lease.service_account_id),
-                "execution_principal_generation": lease.generation,
-            }
-            if lease is not None else {}
+        from vibecanvas_api.services.deployment_execution_history import create_deployment_history
+        await create_deployment_history(
+            session, invocation_id=invocation_id, deployment=dep, revision=revision,
+            workflow=workflow_dict, inputs=body,
         )
-        outputs, errors, exec_secs = await asyncio.to_thread(
-            run_workflow_sandboxed_sync,
-            workflow_id=dep["wf_id"],
-            inputs=body,
-            tenant_id=tenant_id,
-            user_id=str(lease.created_by if lease is not None else dep["user_id"]),
-            run_id=str(invocation_id),
-            workflow_dict=workflow_dict,
-            mount_enabled=revision["spec"]["mount_enabled"],
-            deployment_id=str(dep["id"]), revision_id=str(revision["id"]),
-            execution_resource_type=ResourceType.DEPLOYMENT_INVOCATION.value,
-            **execution_identity,
-        )
-        exec_time_ms = exec_secs * 1000.0
-    except HTTPException as exc:
-        exec_time_ms = (perf_counter() - started) * 1000.0
-        errors = {"__top__": str(exc.detail)}
-        fatal_http_exc = exc
-    except Exception as exc:
-        exec_time_ms = (perf_counter() - started) * 1000.0
-        errors = {"__top__": f"{type(exc).__name__}: {exc}"}
 
-    async with session_scope(tenant_id=tenant_id) as session:
-        await DeploymentInvocationsRepo(session).mark_terminal(
-            invocation_id,
-            status="failed" if errors else "succeeded",
-            latency_ms=exec_time_ms,
-            error="execution_failed" if errors else None,
-            result_summary={
-                "output_count": len(outputs) if isinstance(outputs, dict) else 0,
-                "error_count": len(errors) if isinstance(errors, dict) else 0,
-            },
-        )
-    if fatal_http_exc is not None:
-        raise fatal_http_exc
-
-    # Bump the in-Redis invoke counter (best-effort); a background
-    # flusher (``deployments.flush_invoke_counters``) periodically writes
-    # batched counters to ``deployments.invoke_count`` + ``last_invoked_at``
-    # so this hot path stays write-free. AFTER the run so a crash
-    # doesn't double-count.
+    from vibecanvas_api.services.deployment_observer import own_dispatch, observe_invocation
+    dispatch = own_dispatch(_dispatch_invocation(
+        dep=dep, revision=revision, lease=lease, workflow=workflow_dict,
+        inputs=body, tenant_id=tenant_id, invocation_id=str(invocation_id),
+    ))
     await bump_redis_invoke_counter(dep["id"])
+    return await observe_invocation(
+        tenant_id=tenant_id, slug=slug, invocation_id=str(invocation_id), dispatch=dispatch,
+    )
 
-    if errors:
-        # Workflow ran to completion but produced per-node errors.
-        # 502 because the underlying execution (a "remote" workflow run)
-        # failed — same shape as a downstream gateway error. We use
-        # an explicit Response so the body still serializes (raising
-        # HTTPException would lose the ``exec_time_ms`` field).
-        return Response(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            media_type="application/json",
-            content=json.dumps(
-                {"errors": errors, "exec_time_ms": exec_time_ms}
-            ),
-        )
-    return {"outputs": outputs, "exec_time_ms": exec_time_ms}
+
 
 
 @router.post("/{slug}/runs", status_code=status.HTTP_202_ACCEPTED)
@@ -334,6 +312,14 @@ async def invoke_async(
     slug: str,
     body: dict,
     authorization: Optional[str] = Header(default=None),
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key", description=(
+            "Optional per-deployment operation key (1–256 visible ASCII characters). "
+            "Reusing a key with identical input returns the same invocation; changed input returns 409. "
+            "Shared by /invoke and /runs; retained with history."
+        )),
+    ] = None,
 ):
     """Spec §6.2 — async submit. Enqueues a durable ``deployment_invoke``
     workflow and returns its opaque invocation id immediately.
@@ -366,18 +352,22 @@ async def invoke_async(
             detail="deployment not found",
         )
 
-    await check_rate_limit(dep)
-
     tenant_id = tenant_id_var.get()
     async with session_scope(tenant_id=str(tenant_id)) as session:
+        receipt_id, fresh = await claim_invocation(session, deployment=dep, key=idempotency_key, inputs=body)
+        if not fresh:
+            return await replay_response(session, slug=slug, invocation_id=receipt_id, asynchronous=True)
+        await check_rate_limit(dep)
         svc = DeploymentsService(session, DeploymentsRepo(session))
         task_id = await svc.submit(
             deployment=dep,
             payload=body,
             source="async_api",
+            invocation_id=receipt_id,
         )
     await bump_redis_invoke_counter(dep["id"])
-    return {"task_id": str(task_id)}
+    from vibecanvas_api.services.deployment_results import accepted_response
+    return accepted_response(slug=slug, invocation_id=str(task_id))
 
 
 @router.post("/{slug}/webhook", status_code=status.HTTP_202_ACCEPTED)
@@ -386,7 +376,7 @@ async def webhook(slug: str, request: Request):
 
     No Bearer auth: trust comes from a valid signature over
     ``timestamp + "." + raw_body`` using the deployment's ``hmac_secret``.
-    Returns 202 + ``task_id`` once the durable workflow is enqueued.
+    Returns 202 with invocation_id, task_id and a signed-query result URL.
 
     Order of checks (rejects cheapest first):
 
@@ -481,6 +471,7 @@ async def webhook(slug: str, request: Request):
         )
     inputs = {"payload": payload_obj}
 
+    receipt_state = "queued"
     async with session_scope(tenant_id=tenant_id) as session:
         task_id, claimed = await _claim_webhook_receipt(
             session,
@@ -499,6 +490,14 @@ async def webhook(slug: str, request: Request):
                 source="webhook",
                 invocation_id=task_id,
             )
+        else:
+            from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+
+            run = await WorkflowHistoryRepo(session).get(str(task_id))
+            if run is None:
+                raise RuntimeError("Webhook receipt has no execution history")
+            receipt_state = run["status"]
     if claimed:
         await bump_redis_invoke_counter(dep["id"])
-    return {"task_id": str(task_id)}
+    from vibecanvas_api.services.deployment_results import accepted_response
+    return accepted_response(slug=slug, invocation_id=str(task_id), state=receipt_state, webhook=True)

@@ -30,6 +30,8 @@ async def dispatch_node_call(node: BaseNode, inputs: dict, previous_outputs: dic
     - everything else → inline sync ``__call__``.
     Returns the node's ``{status, output, ...}`` result dict.
     """
+    if hasattr(node, "call_async"):
+        return await node.call_async(inputs, previous_outputs, extra or {})
     if getattr(node, "REQUIRES_THREAD_BRIDGE", False):
         if getattr(node, 'node_type', None) == 'SubAgentNode':
             local_extra = dict(extra or {})

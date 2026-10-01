@@ -4,13 +4,13 @@ import { getWorkflowExecutionStatus } from '@/lib/api/executions';
 /** Latest DB-backed interactive execution state for a workflow. */
 export const useWorkflowExecutionStatus = (
   wfId: string | undefined,
-  opts: { enabled: boolean },
+  opts: { enabled: boolean; running?: boolean },
 ) =>
   useQuery({
     queryKey: ['executions', 'workflow-status', wfId],
     queryFn: () => getWorkflowExecutionStatus(wfId as string),
     enabled: opts.enabled && !!wfId,
     refetchInterval: (query) =>
-      query.state.data?.status === 'running' ? 1_000 : false,
+      opts.running || query.state.data?.status === 'running' ? 1_000 : false,
     staleTime: 1_000,
   });

@@ -112,6 +112,11 @@ class DeploymentsService:
         deployment, revision = await admit_revision(self.session, deployment["id"])
         snapshot = {"workflow": await resolve_workflow(self.session, deployment["user_id"], revision["spec"]),
                     "mount_enabled": revision["spec"]["mount_enabled"], "revision_id": str(revision["id"])}
+        from vibecanvas_api.services.deployment_execution_history import create_deployment_history
+        await create_deployment_history(
+            self.session, invocation_id=task_id, deployment=deployment, revision=revision,
+            workflow=snapshot["workflow"], inputs=payload,
+        )
         await inv_repo.create(
             invocation_id=task_id,
             tenant_id=deployment["tenant_id"],

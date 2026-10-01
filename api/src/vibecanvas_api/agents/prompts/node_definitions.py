@@ -79,6 +79,7 @@ _CORE_BUILD_NODE_TYPES: tuple[str, ...] = (
     "PromptNode",
     "SubAgentNode",
     "ConditionNode",
+    "HumanApprovalNode",
     "ParallelStartNode",
     "ParallelEndNode",
     "LoopBeginNode",

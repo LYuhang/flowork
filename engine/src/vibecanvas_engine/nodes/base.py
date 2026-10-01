@@ -37,7 +37,7 @@ class BaseNode:
             },
             "node_type": {
                 "type": "string",
-                "enum": ["StartNode", "EndNode", "CodeNode", "PromptNode", "ParallelStartNode", "ParallelEndNode", "ConditionNode", "LoopBeginNode", "LoopEndNode", "HTTPRequestNode", "TransformNode", "TemplateNode", "TableReadNode", "TableWriteNode", "SubAgentNode"],
+                "enum": ["StartNode", "EndNode", "CodeNode", "PromptNode", "ParallelStartNode", "ParallelEndNode", "ConditionNode", "LoopBeginNode", "LoopEndNode", "HTTPRequestNode", "TransformNode", "TemplateNode", "TableReadNode", "TableWriteNode", "SubAgentNode", "HumanApprovalNode"],
                 "description": "The node_type indicates the specific type of this node, which determines the node's functionality and execution logic. Please choose from the predefined node types."
             },
             "node_description": {

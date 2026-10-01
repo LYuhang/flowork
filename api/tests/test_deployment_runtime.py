@@ -1,7 +1,7 @@
 """Cancellation must not release a resident instance before its worker exits."""
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -9,52 +9,126 @@ from vibecanvas_api.services.sandbox.deployment_runtime import DeploymentRuntime
 
 
 @pytest.mark.asyncio
-async def test_cancel_waits_for_worker_without_interrupting_sibling(tmp_path):
-    runtime = DeploymentRuntime(SimpleNamespace())
-    entered = {key: asyncio.Event() for key in ('first', 'second')}
-    finish = {key: asyncio.Event() for key in entered}
-    stop_requested = asyncio.Event()
-    async def execute(**kwargs):
-        key = kwargs['run_id']
-        assert kwargs['kill_individually'] is True
-        root = tmp_path / 'requests' / key
-        root.mkdir(parents=True)
-        (root / 'credential').write_text('test-only')
-        entered[key].set()
-        await finish[key].wait()
-        assert root.exists(), 'request files deleted while worker was alive'
-        return {'result': {'outputs': key}}
-    async def kill(**kwargs):
-        assert kwargs['run_id'] == 'first'
-        stop_requested.set()
+async def test_resident_rpc_calls_reuse_process_and_persist_history(pg_engine, app_engine, monkeypatch):
+    import shutil
+    import uuid
+    from tests.test_deployment_rollout import setup_rollout
+    from vibecanvas_api.services.sandbox.bubblewrap import BubblewrapProvider
+    from vibecanvas_api.services.sandbox.workflow_rpc_pool import WorkflowRpcPool
+    from vibecanvas_api.storage.db import short_session_scope
+    from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+    from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+
+    if not shutil.which("bwrap"):
+        pytest.skip("bubblewrap is required")
+    controller, dep, spec = await setup_rollout(pg_engine, app_engine)
+    graph = await controller.graph(spec)
+    tenant, revision = str(dep["tenant_id"]), str(dep["active_revision_id"])
     session = SimpleNamespace(
-        workflow_run_dir=str(tmp_path / 'run'), execute_workflow_job=execute,
-        kill_workflow_job=AsyncMock(side_effect=kill), _sync_mount_folder=AsyncMock())
+        provider=BubblewrapProvider(shutil.which("bwrap")), workspace_folders=(), _rw_binds=[],
+        skills_dir=None, _begin_activity=Mock(), _end_activity=Mock(), _sync_mount_folder=AsyncMock(),
+    )
+    pool = WorkflowRpcPool.for_session(session=session, revision=revision, workflow=graph, capacity=1)
+    session._workflow_rpc_pool = pool
+    runtime = DeploymentRuntime(SimpleNamespace())
+    monkeypatch.setattr(runtime, "prepare", AsyncMock(return_value=session))
+    try:
+        await pool.prewarm()
+        slot = pool._slots[0]
+        pid = slot.handle.proc.pid
+        for value in (117, 223):
+            invocation = uuid.uuid4()
+            async with short_session_scope(tenant_id=tenant) as db:
+                await DeploymentInvocationsRepo(db).create(
+                    invocation_id=invocation, tenant_id=dep["tenant_id"], deployment_id=dep["id"],
+                    wf_id=dep["wf_id"], trigger_type="api", source="sync_api", status="queued",
+                    revision_id=dep["active_revision_id"],
+                )
+            result = await runtime.run(
+                tenant_id=tenant, deployment_id=str(dep["id"]), revision_id=revision,
+                workflow=graph, inputs={"x": value}, run_id=str(invocation),
+            )
+            assert not result["error_dict"], result
+            assert result["final_outputs"]["__end__"]["y"] == value
+            assert slot.handle.proc.pid == pid and slot.alive
+            assert list((slot.root / "artifacts").iterdir()) == []
+            assert {path.name for path in (slot.root / "control").iterdir()} == {"rpc.sock"}
+            async with short_session_scope(tenant_id=tenant) as db:
+                detail = await WorkflowHistoryRepo(db).detail(str(invocation))
+                assert detail["status"] == "succeeded"
+                assert detail["result"] == result
+                assert detail["inputs"] == {"x": value}
+        assert not pool.busy
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_waits_for_rpc_worker_without_interrupting_sibling(monkeypatch):
+    from vibecanvas_api.services.deployment_completion import complete_before_cancelling
+    from vibecanvas_api.services.sandbox import workflow_execution_driver
+    from vibecanvas_api.services.sandbox.workflow_rpc_pool import WorkflowRpcPool, WorkflowPoolFull
+
+    runtime = DeploymentRuntime(SimpleNamespace())
+    entered = {key: asyncio.Event() for key in ("first", "second")}
+    finish = {key: asyncio.Event() for key in entered}
+    stop_requested, stop_confirmed = asyncio.Event(), asyncio.Event()
+
+    class Slot:
+        invocation_id = None
+        alive = False
+
+        async def start(self):
+            self.alive = True
+
+        @complete_before_cancelling
+        async def close(self):
+            stop_requested.set()
+            await stop_confirmed.wait()
+            self.alive = False
+
+    class Driver:
+        def __init__(self, *, execution_id, slot, **kwargs):
+            self.key, self.slot = execution_id, slot
+
+        async def run(self, **kwargs):
+            self.slot.invocation_id = self.key
+            entered[self.key].set()
+            await finish[self.key].wait()
+            self.slot.invocation_id = None
+            return {"outputs": self.key}
+
+    monkeypatch.setattr(workflow_execution_driver, "WorkflowExecutionDriver", Driver)
+    pool = WorkflowRpcPool(capacity=2, factory=lambda _: Slot())
+    session = SimpleNamespace(_workflow_rpc_pool=pool, _begin_activity=Mock(), _end_activity=Mock())
     tasks = {key: asyncio.create_task(runtime._execute_request(session,
-        workflow={}, inputs={}, extra={}, tenant_id='tenant', run_id=key,
-        subpath='requests/' + key)) for key in entered}
+        workflow={}, inputs={}, extra={}, tenant_id="tenant", run_id=key,
+        wf_id="wf")) for key in entered}
     try:
         await asyncio.wait_for(asyncio.gather(*(event.wait() for event in entered.values())), 2)
-        tasks['first'].cancel()
+        assert await pool.retire() is False
+        with pytest.raises(WorkflowPoolFull):
+            async with pool.acquire("overflow"):
+                pytest.fail("a full pool must not admit or queue work")
+        tasks["first"].cancel()
         await asyncio.wait_for(stop_requested.wait(), 2)
-        assert not tasks['first'].done()
-        assert not tasks['second'].done()
-        assert (tmp_path / 'requests/first/credential').exists()
-        # Repeated disconnect cancellation must not bypass the exit wait.
-        tasks['first'].cancel()
-        finish['first'].set()
+        tasks["first"].cancel()
+        assert not tasks["first"].done()
+        assert not tasks["second"].done()
+        stop_confirmed.set()
         with pytest.raises(asyncio.CancelledError):
-            await tasks['first']
-        assert not (tmp_path / 'requests/first').exists()
-        assert (tmp_path / 'requests/second/credential').exists()
-        finish['second'].set()
-        assert (await tasks['second'])['outputs'] == 'second'
-        assert not (tmp_path / 'requests/second').exists()
-        session.kill_workflow_job.assert_awaited_once()
+            await tasks["first"]
+        assert pool.busy
+        finish["second"].set()
+        assert (await tasks["second"])["outputs"] == "second"
+        assert not pool.busy
+        assert session._begin_activity.call_count == session._end_activity.call_count == 2
     finally:
+        stop_confirmed.set()
         for event in finish.values():
             event.set()
         await asyncio.gather(*tasks.values(), return_exceptions=True)
+        await pool.close()
 
 
 @pytest.mark.asyncio
@@ -122,9 +196,18 @@ async def test_executor_commits_completion_without_api_caller(pg_engine, app_eng
     result = {'final_outputs': {'answer': 'private-output'}, 'error_dict': {}, 'execution_time': 0.1}
     if outcome == 'node_failure':
         result['error_dict'] = {'node': 'private-error'}
-    execute = AsyncMock(return_value=result)
-    if outcome == 'runtime_failure':
-        execute.side_effect = RuntimeError('worker crashed')
+    async def execute(session, **kwargs):
+        if outcome == "runtime_failure":
+            raise RuntimeError("worker crashed")
+        from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+        async with short_session_scope(tenant_id=tenant) as db:
+            history = WorkflowHistoryRepo(db)
+            await history.bind_runtime(str(invocation), "test-generation")
+            await history.persist_events(str(invocation), "test-generation", [{
+                "invocation_id": str(invocation), "generation": "test-generation", "seq": 1,
+                "type": "result", "status": "failed" if result["error_dict"] else "succeeded", **result,
+            }])
+        return result
     monkeypatch.setattr(runtime, '_execute_request', execute)
     call = runtime.run(tenant_id=tenant, deployment_id=str(dep['id']), revision_id=revision,
                        workflow={}, inputs={}, run_id=str(invocation))
@@ -146,3 +229,69 @@ async def test_executor_commits_completion_without_api_caller(pg_engine, app_eng
         assert (await db.execute(text('SELECT status FROM deployment_invocations WHERE id=:id'), {'id': invocation})).scalar_one() == expected
     await controller.drain()
     controller.manager.deployments.retire.assert_awaited_once_with(tenant, revision)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('disconnect_before_ack', [False, True])
+async def test_detached_start_owns_one_execution_after_caller_disconnect(
+    pg_engine, app_engine, monkeypatch, disconnect_before_ack,
+):
+    import uuid
+    from tests.test_deployment_rollout import setup_rollout
+    from vibecanvas_api.storage.db import short_session_scope
+    from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+
+    controller, dep, spec = await setup_rollout(pg_engine, app_engine)
+    graph = await controller.graph(spec)
+    tenant, revision, invocation = str(dep['tenant_id']), str(dep['active_revision_id']), uuid.uuid4()
+    async with short_session_scope(tenant_id=tenant) as db:
+        await DeploymentInvocationsRepo(db).create(
+            invocation_id=invocation, tenant_id=dep['tenant_id'], deployment_id=dep['id'],
+            wf_id=dep['wf_id'], trigger_type='api', source='async_api', status='queued',
+            revision_id=dep['active_revision_id'],
+        )
+    runtime = DeploymentRuntime(SimpleNamespace())
+    admitted, may_claim, executing, finish = (asyncio.Event() for _ in range(4))
+    original_run = runtime.run
+
+    async def gated_run(**kwargs):
+        admitted.set()
+        await may_claim.wait()
+        return await original_run(**kwargs)
+
+    async def execute(*args, **kwargs):
+        executing.set()
+        await finish.wait()
+        return {'final_outputs': {}, 'error_dict': {}, 'execution_time': 1}
+
+    execution = AsyncMock(side_effect=execute)
+    monkeypatch.setattr(runtime, 'run', gated_run)
+    monkeypatch.setattr(runtime, 'prepare', AsyncMock(return_value=SimpleNamespace()))
+    monkeypatch.setattr(runtime, '_execute_request', execution)
+    kwargs = dict(tenant_id=tenant, deployment_id=str(dep['id']), revision_id=revision,
+                  workflow=graph, inputs={'x': 1}, run_id=str(invocation))
+    caller = asyncio.create_task(runtime.start(**kwargs))
+    try:
+        await asyncio.wait_for(admitted.wait(), 2)
+        owner = runtime._dispatches[(tenant, str(invocation))]
+        if disconnect_before_ack:
+            caller.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await caller
+            assert not owner.done()
+        may_claim.set()
+        await asyncio.wait_for(executing.wait(), 3)
+        receipt = await asyncio.wait_for(runtime.start(**kwargs), 2)
+        assert receipt == {'invocation_id': str(invocation), 'accepted': True}
+        assert not owner.done()
+        assert execution.await_count == 1
+        if not disconnect_before_ack:
+            assert await caller == receipt
+        finish.set()
+        await asyncio.wait_for(owner, 3)
+        assert await runtime.start(**kwargs) == receipt
+        assert execution.await_count == 1
+    finally:
+        may_claim.set()
+        finish.set()
+        await asyncio.gather(caller, *runtime._dispatches.values(), return_exceptions=True)

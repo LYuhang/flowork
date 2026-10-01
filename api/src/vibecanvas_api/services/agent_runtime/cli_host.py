@@ -37,6 +37,15 @@ from vibecanvas_api.services.agent_resources.workflow_versions import workflow_v
 logger = structlog.get_logger(__name__)
 
 
+def _log_authorization_unavailable(operation: str, exc: OpenFgaUnavailableError) -> None:
+    # Do not format exceptions or request objects: they may hold capabilities.
+    logger.warning(
+        "flowork_cli_authorization_unavailable", operation=operation,
+        reason_code=exc.reason_code,
+        transport_error=type(exc.__cause__).__name__ if exc.__cause__ else None,
+    )
+
+
 def _metadata_result(meta: dict) -> dict:
     return {
         "id": str(meta["wf_id"]), "name": meta.get("workflow_name") or "",
@@ -169,10 +178,12 @@ async def invoke_workflow_command(*, operation: str, identity_token: str, argume
         logger.info("flowork_cli_completed", operation=operation, chat_id=capability.chat_id,
                     turn_id=capability.turn_id, user_id=capability.user_id, workflow_id=result["id"])
         return result
-    except OpenFgaUnavailableError:
+    except OpenFgaUnavailableError as exc:
+        _log_authorization_unavailable(operation, exc)
         return error("authorization_unavailable", "Authorization is temporarily unavailable.", "Retry when authorization is available.")
     except PermissionError as exc:
         if isinstance(exc.__cause__, OpenFgaUnavailableError):
+            _log_authorization_unavailable(operation, exc.__cause__)
             return error("authorization_unavailable", "Authorization is temporarily unavailable.", "Retry when authorization is available.")
         return error("permission_denied", "The identity or Agent execution is no longer authorized.", "Check account access and start a new Agent turn.")
     except ToolError as exc:

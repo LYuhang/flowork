@@ -67,7 +67,7 @@ def test_decorated_routes_keep_fastapi_dependency_schema():
 @pytest.mark.asyncio
 async def test_shared_dashboard_invocation_records_owner_tenant_despite_progress_disconnect(pg_engine, app_engine, monkeypatch):
     import uuid
-    from unittest.mock import AsyncMock, Mock
+    from unittest.mock import AsyncMock
     from fastapi import Request
     from sqlalchemy import text
     from tests.test_deployment_rollout import setup_rollout
@@ -78,8 +78,9 @@ async def test_shared_dashboard_invocation_records_owner_tenant_despite_progress
     # Permission admission is independent of this regression: model an already
     # authorized share whose request DB session was rebound to the owner.
     monkeypatch.setattr(deployments, '_authorize_deployment', AsyncMock())
-    runner = Mock(return_value=({'ok': 1}, {}, 0.01))
-    monkeypatch.setattr(deployments, 'run_workflow_sandboxed_sync', runner)
+    from tests.test_deployment_test_invoke import _complete_dispatch
+    runner = AsyncMock(side_effect=_complete_dispatch)
+    monkeypatch.setattr('vibecanvas_api.services.deployment_dispatch.dispatch_invocation', runner)
     request = Request({'type': 'http', 'method': 'POST', 'path': '/', 'headers': [],
         'state': {'cli_deployment_progress': AsyncMock(side_effect=RuntimeError('observer disconnected'))}})
     ctx = AuthContext(user_id=str(dep['user_id']), tenant_id=str(uuid.uuid4()), email='test@example.com')

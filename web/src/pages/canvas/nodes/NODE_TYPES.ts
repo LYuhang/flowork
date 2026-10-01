@@ -13,6 +13,7 @@
  */
 
 export const NODE_COLORS: Record<string, string> = {
+  HumanApprovalNode: '#d97706',
   StartNode: '#10b981',
   EndNode: '#ef4444',
   CodeNode: '#3b82f6',
@@ -31,6 +32,7 @@ export const NODE_COLORS: Record<string, string> = {
 };
 
 export const NODE_LABELS: Record<string, string> = {
+  HumanApprovalNode: 'Human approval',
   StartNode: 'Start',
   EndNode: 'End',
   CodeNode: 'Code',
@@ -91,11 +93,13 @@ import {
   StickyNote,
   Table,
   TableProperties,
+  UserCheck,
 } from 'lucide-react';
 
 export const DEFAULT_NODE_ICON: LucideIcon = Box;
 
 export const NODE_ICONS: Record<string, LucideIcon> = {
+  HumanApprovalNode: UserCheck,
   StartNode: Flag,
   EndNode: FlagOff,
   CodeNode: Code2,

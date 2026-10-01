@@ -26,7 +26,9 @@ from vibecanvas_api.services.sandbox.coordinator import (
 )
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.scheduled_runs import compute_next_run_at, utc_now
-from vibecanvas_api.services.workflow_sandbox_runner import stream_workflow_job
+from vibecanvas_api.services.workflow_sandbox_runner import prepare_code_pythonpath
+from vibecanvas_api.services.workflow_execution_history import create_execution
+from vibecanvas_api.services.workflow_history_runner import execute_history_workflow
 from vibecanvas_api.services.task_worker import (
     WorkerOwnershipLost, assert_worker_owner, claim_worker, current_claim, watch_worker,
 )
@@ -258,10 +260,18 @@ async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
                 if skipped is not None:
                     await repo.update_scheduled_execution(
                         execution_id,
-                        error=(
-                            "Skipped because a previous execution is still active."
-                        ),
+                        finished_at=now,
+                        error="skipped_previous_run_active",
                     )
+                    await repo.insert_event(schedule.task_id, "log", {
+                        "schema_version": 1,
+                        "level": "info", "category": "scheduled_run",
+                        "action": "scheduled_run.skipped_previous_run_active",
+                        "message": "Skipped because a previous execution is still active.",
+                        "task_status": task.status,
+                        "data": {"execution_id": str(execution_id), "schedule_id": str(schedule.id),
+                                 "status": "skipped", "reason": "skipped_previous_run_active"},
+                    }, schedule.tenant_id)
                 await repo.update_schedule(
                     schedule.id,
                     next_run_at=next_run,
@@ -415,7 +425,6 @@ async def _execute_owned_scheduled_run(
     watcher = asyncio.create_task(_watch_cancellation(execution_id, stop))
     claim = current_claim.get()
     ownership_watcher = asyncio.create_task(watch_worker(claim, stop)) if claim else None
-    workflow_stream = None
     execution_scope = claim.scope_id if claim else f"schedule-{execution_id}"
     manager = get_sandbox_manager()
     session = None
@@ -444,7 +453,7 @@ async def _execute_owned_scheduled_run(
             expose_run=True,
             expose_mount=mount_enabled,
         )
-        creds = (
+        runtime_extra = (
             await inject_into_run_context_async(
                 {},
                 workflow,
@@ -457,7 +466,7 @@ async def _execute_owned_scheduled_run(
                 principal_id=str(lease.service_account_id),
                 principal_generation=lease.generation,
             )
-        ).get("llm_credentials")
+        )
         from vibecanvas_api.services.workflow_resources import prepare_execution_resources
         resources = await prepare_execution_resources(
             sandbox_session=session, workflow=workflow, tenant_id=tenant_id,
@@ -466,32 +475,39 @@ async def _execute_owned_scheduled_run(
             principal_type="service_account", principal_id=str(lease.service_account_id),
             principal_generation=lease.generation,
         )
-        runtime_extra = {"llm_credentials": creds} if creds else {}
         if resources:
             runtime_extra["workflow_resources"] = resources
+        code_pythonpath = await prepare_code_pythonpath(workflow, session=session)
+        if code_pythonpath:
+            runtime_extra["code_pythonpath"] = code_pythonpath
+        history_id = await create_execution(
+            execution_id=str(execution_id), tenant_id=tenant_id, source_type="task", source_id=str(task_id),
+            user_id=user_id, workflow_id=workflow_id, workflow=workflow, inputs=input_snapshot,
+        )
         node_events = 0
         resource_audits = {}
-        workflow_stream = stream_workflow_job(
-            stop=stop,
-            workflow=workflow,
-            inputs=input_snapshot,
-            workflow_run_id=execution_scope,
-            tenant_id=tenant_id,
-            session=session,
-            exec_id=str(execution_id),
-            timeout=None,
-            runtime_extra=runtime_extra or None,
-            clear_run=True,
-        )
-        async for msg in workflow_stream:
-            mtype = msg.get("type")
-            if mtype == "node_event":
+
+        async def on_state(state):
+            await asyncio.to_thread(_emit, task_id, tenant_uuid, "progress", {
+                "schema_version": 1, "level": "info", "category": "scheduled_run",
+                "action": f"scheduled_run.{state}", "message": f"Scheduled execution: {state}.",
+                "task_status": "running", "sandbox_status": "running",
+                "scope": {"type": "scheduled_run_execution", "id": history_id, "name": None},
+                "progress": None,
+                "data": {"execution_id": history_id, "schedule_id": str(schedule_id), "status": state,
+                         "execution_url": f"/workflow-executions/{history_id}"},
+                "error": None,
+            })
+
+        async def on_event(msg):
+            nonlocal node_events
+            if msg.get("type") == "node_event":
                 node_events += 1
                 node_id = msg.get("node_id")
                 status = msg.get("status")
                 if node_id and isinstance(msg.get('resource_audit'), dict):
                     resource_audits[node_id] = msg['resource_audit']
-                _emit(task_id, tenant_uuid, "progress", {
+                await asyncio.to_thread(_emit, task_id, tenant_uuid, "progress", {
                     "schema_version": 1,
                     "level": "info",
                     "category": "scheduled_run",
@@ -512,24 +528,23 @@ async def _execute_owned_scheduled_run(
                     },
                     "error": None,
                 })
-            elif mtype == "result":
-                error_dict = msg.get("error_dict") or {}
-                final_status = "failed" if error_dict else "succeeded"
-                error_message = None
-                result_payload = {
-                    "final_outputs": msg.get("final_outputs") or {},
-                    **({'resource_audits': resource_audits} if resource_audits else {}),
-                    "error_dict": error_dict,
-                    "execution_time": msg.get("execution_time"),
-                }
-                if error_dict:
-                    final_status = "failed"
-                    error_message = json.dumps(error_dict, ensure_ascii=False, default=str)[:2000]
-                break
-            elif mtype == "timeout":
-                final_status = "failed"
-                error_message = msg.get("message") or "Workflow execution timed out."
-                break
+        response = await execute_history_workflow(
+            session=session, tenant_id=tenant_id, execution_id=history_id, workflow=workflow,
+            inputs=input_snapshot, context=runtime_extra, stop=stop, on_state=on_state, on_event=on_event,
+        )
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError("Execution ended without a result.")
+        error_dict = result.get("error_dict") or {}
+        final_status = "failed" if error_dict else "succeeded"
+        error_message = json.dumps(error_dict, ensure_ascii=False, default=str)[:2000] if error_dict else None
+        if (response.get("status") or {}).get("status") == "cancelled":
+            final_status = "cancelled"
+            error_message = "Execution cancelled."
+        result_payload = {
+            **result, **({'resource_audits': resource_audits} if resource_audits else {}),
+            "execution_id": history_id, "execution_url": f"/workflow-executions/{history_id}",
+        }
     except Exception as exc:
         final_status = "failed"
         error_message = str(exc)
@@ -540,17 +555,11 @@ async def _execute_owned_scheduled_run(
         if ownership_watcher is not None:
             ownership_watcher.cancel()
             ownership_result = (await asyncio.gather(ownership_watcher, return_exceptions=True))[0]
-        try:
-            if workflow_stream is not None:
-                await workflow_stream.aclose()
-        except Exception:
-            logger.warning("scheduled_run_stream_cleanup_failed", exc_info=True)
-        finally:
-            if session is not None:
-                try:
-                    await manager.close_session(tenant_id, execution_scope)
-                except Exception:
-                    logger.warning("scheduled_run_sandbox_cleanup_failed", exc_info=True)
+        if session is not None:
+            try:
+                await manager.close_session(tenant_id, execution_scope)
+            except Exception:
+                logger.warning("scheduled_run_sandbox_cleanup_failed", exc_info=True)
         if ownership_watcher is not None and isinstance(ownership_result, WorkerOwnershipLost):
             raise ownership_result
     if stop.is_set() or await _execution_cancelled(execution_id):

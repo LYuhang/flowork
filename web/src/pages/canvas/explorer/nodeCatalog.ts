@@ -12,6 +12,7 @@
  * here means the drag-MIME payload and the click-insert payload are identical.
  */
 import { ADDABLE_NODE_TYPES } from '@/pages/canvas/nodes/NODE_TYPES';
+import { fixedOutputFields } from '@/pages/canvas/nodes/fixedOutputs';
 
 /** Stable display order for the palette (canonical authoring flow, minus
  *  any deprecated/hidden types in HIDDEN_NODE_TYPES). */
@@ -32,8 +33,10 @@ export function nodeInsertPayload(nodeType: string): Record<string, unknown> {
     node_type: nodeType,
     node_description: '',
     input_fields: {},
-    output_fields: {},
-    node_config: {},
+    output_fields: nodeType === 'HumanApprovalNode' ? structuredClone(fixedOutputFields(nodeType)) : {},
+    node_config: nodeType === 'HumanApprovalNode'
+      ? { instruction: '', approver_email: '', timeout_seconds: 3600 }
+      : {},
     children: [],
   };
 }

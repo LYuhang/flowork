@@ -48,6 +48,7 @@ import {
   type MetricsPoint,
 } from '@/lib/api/deployments';
 import { useFormatDateTime } from '@/lib/timezone';
+import { ExecutionHistory } from '@/components/logs/execution-history';
 import { EntityDetailShell } from '@/components/layout/entity-detail-shell';
 import { SectionBlock } from '@/components/layout/section-block';
 import { DetailSummary } from '@/components/layout/detail-summary';
@@ -1063,6 +1064,11 @@ function TestTab({
               ? t('deployments.detail.testResponseSuccess', 'The deployment accepted the request successfully.')
               : t('deployments.detail.testResponseError', 'The request failed. Review the message below, update the request or deployment, and try again.')}
         >
+          {mutation.data?.execution_url && (
+            <Link to={mutation.data.execution_url} className="text-sm text-primary underline">
+              {t('execution.detail')}
+            </Link>
+          )}
           {output ? (
           <pre className="mt-2 max-h-96 overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-xs">
             {output}
@@ -1368,6 +1374,7 @@ export function DeploymentDetailPage() {
             ) : null}
           </TabsContent>
           <TabsContent value="activity" className="space-y-8">
+            <ExecutionHistory key={depId} source="deployment" sourceId={depId} />
             <section className="space-y-3">
               <h2 className="text-sm font-semibold">{t('deployments.detail.recentRuns', 'Recent runs')}</h2>
               <RunsTab depId={depId} active={activeTab === 'activity'} />

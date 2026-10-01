@@ -149,9 +149,14 @@ export interface RotateKeyResponse {
 }
 
 export interface TestInvokeResponse {
-  outputs: unknown;
-  errors: unknown;
-  exec_time_ms: number;
+  invocation_id: string;
+  execution_id: string;
+  execution_url: string;
+  result_url: string;
+  status: string;
+  outputs?: unknown;
+  errors?: unknown;
+  exec_time_ms?: number;
 }
 
 export type MetricsBucket = 'hour' | 'day';

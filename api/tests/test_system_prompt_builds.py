@@ -59,6 +59,7 @@ def test_build_prompt_node_catalog_embeds_core_specs_and_extended_catalog():
     assert "#### `StartNode`" in out
     assert "#### `PromptNode`" in out
     assert "#### `SubAgentNode`" in out
+    assert "#### `HumanApprovalNode`" in out
     assert "CONFIG_SCHEMA:" in out
     assert "Compact example:" in out
     assert "#### Extended node catalog" in out
@@ -74,6 +75,7 @@ def test_core_build_node_types_are_expected_flow_nodes():
         "PromptNode",
         "SubAgentNode",
         "ConditionNode",
+        "HumanApprovalNode",
         "ParallelStartNode",
         "ParallelEndNode",
         "LoopBeginNode",

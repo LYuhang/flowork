@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import tempfile
 import time
 import uuid
@@ -220,8 +221,7 @@ async def test_g1_create_returns_plaintext_once(
     )
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
     tenant_id = uuid.uuid4()
     user_id = uuid.uuid4()
@@ -289,12 +289,13 @@ async def test_g2_invoke_short_returns_outputs(
     """Spec G2 — happy path sync invoke returns outputs + exec_time_ms."""
     from vibecanvas_api.routes.deployment_invoke import invoke_sync
     from vibecanvas_api.storage import db as db_mod
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
-    _, _, _, _, slug, key, _ = await _seed_full(
+    tenant, _, _, deployment, slug, key, _ = await _seed_full(
         pg_engine, app_engine, trigger="api",
     )
+    from tests.test_deployment_invoke_sync import _activate_test_revision
+    await _activate_test_revision(tenant, deployment)
     resp = await invoke_sync(
         slug=slug, body={"x": 5}, authorization=f"Bearer {key}",
     )
@@ -304,16 +305,17 @@ async def test_g2_invoke_short_returns_outputs(
     assert "exec_time_ms" in resp
 
 
-# ---------- G3: long workflow gateway timeout — staging only ----------
+# ---------- G3: HTTP observation expires before execution — staging only ----------
 
 
 @pytest.mark.skip(
     reason=(
-        "G3 — needs a long-running workflow + edge gateway timeout config; "
-        "staging only."
+        "G3 — needs a deployed long-running workflow and edge gateway; "
+        "observation must return 202 while the same execution continues. "
+        "The database-backed observer contract is in test_deployment_results.py."
     )
 )
-def test_g3_long_workflow_504():
+def test_g3_long_workflow_observation_returns_202():
     pass
 
 
@@ -328,19 +330,21 @@ async def test_g4_runs_async_returns_task_id(
     from vibecanvas_api.routes.deployment_invoke import invoke_async
     from vibecanvas_api.services import deployments_service
     from vibecanvas_api.storage import db as db_mod
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
     monkeypatch.setattr(
         deployments_service, "enqueue_background_job_in_transaction", AsyncMock(),
     )
 
-    _, _, _, _, slug, key, _ = await _seed_full(
+    tenant, _, _, deployment, slug, key, _ = await _seed_full(
         pg_engine, app_engine, trigger="api",
     )
+    from tests.test_deployment_invoke_sync import _activate_test_revision
+    await _activate_test_revision(tenant, deployment)
     resp = await invoke_async(
         slug=slug, body={"x": 1}, authorization=f"Bearer {key}",
     )
-    assert "task_id" in resp
+    assert resp.status_code == 202
+    assert "task_id" in json.loads(resp.body)
 
 
 # ---------- G5: webhook signature good/bad branches ----------
@@ -354,15 +358,16 @@ async def test_g5_webhook_signature_branches(
     from vibecanvas_api.routes.deployment_invoke import webhook
     from vibecanvas_api.services import deployments_service
     from vibecanvas_api.storage import db as db_mod
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
     monkeypatch.setattr(
         deployments_service, "enqueue_background_job_in_transaction", AsyncMock(),
     )
 
-    _, _, _, _, slug, _, secret = await _seed_full(
+    tenant, _, _, deployment, slug, _, secret = await _seed_full(
         pg_engine, app_engine, trigger="webhook",
     )
+    from tests.test_deployment_invoke_sync import _activate_test_revision
+    await _activate_test_revision(tenant, deployment)
 
     class _Req:
         def __init__(self, headers, body):
@@ -400,7 +405,8 @@ async def test_g5_webhook_signature_branches(
         body,
     )
     resp = await webhook(slug=slug, request=good)
-    assert "task_id" in resp
+    assert resp.status_code == 202
+    assert "task_id" in json.loads(resp.body)
 
 
 # ---------- G7: RLS isolates tenants ----------
@@ -414,8 +420,7 @@ async def test_g7_rls_isolates_tenants(
     from vibecanvas_api.routes.deployments import list_deployments
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
     _, _, _, dep_a_id, _, _, _ = await _seed_full(
         pg_engine, app_engine, trigger="api",
@@ -497,8 +502,7 @@ async def test_g10_metrics_aggregates_history(
     from vibecanvas_api.routes.deployments import metrics
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
     tenant_id, user_id, _, dep_id, _, _, _ = await _seed_full(
         pg_engine, app_engine, trigger="api",
@@ -556,8 +560,7 @@ async def test_g12_version_pin_specific_freezes(
     (2,0) exists. load_workflow_version honours the pin (not HEAD)."""
     from vibecanvas_api.services.workflow_runner import load_workflow_version
     from vibecanvas_api.storage import db as db_mod
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
     tenant_id, user_id, wf_id, dep_id, _, _, _ = await _seed_full(
         pg_engine, app_engine, trigger="api",
@@ -594,8 +597,7 @@ async def test_g13_test_invoke_via_user_session(
     from vibecanvas_api.routes.deployments import test_invoke
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
     tenant_id, user_id, _, dep_id, _, _, _ = await _seed_full(
         pg_engine, app_engine, trigger="api",
@@ -625,8 +627,7 @@ async def test_g14_rotate_key_invalidates_old(
     from vibecanvas_api.services.tenant_db import tenant_id_var
     from vibecanvas_api.storage import db as db_mod
     from vibecanvas_api.storage.db import session_scope
-    monkeypatch.setattr(db_mod, "_admin_engine", None)
-    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
 
     tenant_id, user_id, _, dep_id, _, old_key, _ = await _seed_full(
         pg_engine, app_engine, trigger="api",

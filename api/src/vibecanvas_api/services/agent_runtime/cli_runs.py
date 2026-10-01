@@ -32,6 +32,7 @@ from vibecanvas_api.services.workflow_sandbox_runner import prepare_code_pythonp
 from vibecanvas_api.services.agent_resources.node_execution import select_execution_node
 from . import cli_run_lease
 from vibecanvas_api.services.agent_resources.workflow_transfer import read_workflow_snapshot
+from vibecanvas_api.services.workflow_execution_history import create_execution, observe_execution
 
 logger = structlog.get_logger(__name__)
 LEASE_SECONDS = 20.0
@@ -95,6 +96,7 @@ class Run:
     pool_used: bool = False
     pool_close_task: asyncio.Task | None = None
     durable_lease: bool = False
+    capacity: int = 1
 
     async def emit(self, **event):
         await self.queue.put({"run_id": self.run_id, **self.reference, **event})
@@ -118,7 +120,7 @@ async def _close_pool(run: Run) -> bool:
         return True
     if run.pool_close_task is None:
         run.pool_close_task = asyncio.create_task(run.session.close_workflow_pool(
-            tenant=run.capability.tenant_id, pool_id=run.run_id,
+            tenant=run.capability.tenant_id, pool_id=run.run_id, history=True,
         ))
     try:
         result = await asyncio.wait_for(asyncio.shield(run.pool_close_task), timeout=20)
@@ -137,22 +139,39 @@ async def _execute_one(run: Run, workflow: dict, row: dict, index: int, code_pyt
         {}, workflow, ctx.tenant_id, user_id=ctx.username, workflow_id=run.workflow_id,
         execution_id=ctx.turn_id, execution_resource_type=ResourceType.AGENT_RUN.value,
     )
-    extra = {"workflow_resources": resources} if resources else {}
-    if injected.get("llm_credentials"):
-        extra["llm_credentials"] = injected["llm_credentials"]
+    extra = dict(injected)
+    if resources:
+        extra["workflow_resources"] = resources
     if code_pythonpath:
         extra["code_pythonpath"] = code_pythonpath
     if run.stopping:
         raise asyncio.CancelledError()
-    job_id, subpath = f"{run.run_id}_{index}", f"cli/{run.run_id}/{index}"
+    node_id = run.reference.get("node_id")
+    job_id = await create_execution(
+        tenant_id=ctx.tenant_id, source_type="workflow", source_id=run.workflow_id,
+        user_id=ctx.username, workflow_id=run.workflow_id, workflow=workflow, inputs=row, node_id=node_id,
+        input_index=index if run.operation == "workflow.run-batch" else None,
+    )
+    subpath = f"cli/{run.run_id}/{index}"
     run.active[job_id] = subpath
     run.pool_used = True
-    node_id = run.reference.get("node_id")
-    execution = asyncio.create_task(run.session.execute_workflow_job(
-        workflow=workflow, inputs=row, extra=extra or None, tenant=ctx.tenant_id,
-        run_id=job_id, run_subpath=subpath, execution_pool_id=run.run_id,
-        **({"node_id": node_id} if node_id else {}),
-    ))
+    link = {"execution_id": job_id, "execution_url": f"/workflow-executions/{job_id}"}
+
+    async def on_state(state):
+        await run.emit(status="running", row_status=state, index=index, **link,
+                       total=run.total, completed=run.completed, failed=run.failed)
+
+    execution = asyncio.create_task(
+        observe_execution(
+            tenant_id=ctx.tenant_id, execution_id=job_id, on_state=on_state, on_failure=lambda: _close_pool(run),
+            execute=run.session.execute_workflow_job(
+                workflow=workflow, inputs=row, extra=extra or None, tenant=ctx.tenant_id,
+                run_id=job_id, run_subpath=subpath, execution_pool_id=run.run_id,
+                history_id=job_id, execution_capacity=run.capacity,
+                **({"node_id": node_id} if node_id else {}),
+            ),
+        )
+    )
     try:
         # Keep the RPC alive until pool shutdown is acknowledged. Cancelling
         # an RPC alone is not proof that its sandbox process has exited.
@@ -164,6 +183,7 @@ async def _execute_one(run: Run, workflow: dict, row: dict, index: int, code_pyt
         if not isinstance(result, dict):
             raise ToolError("execution_failed", "The sandbox returned no workflow result; inspect side effects before retrying.")
         record = _jsonl_record(index, row, result)
+        record.update(link)
         if node_id:
             # The node runner keys final_outputs by ID, unlike the graph's __end__.
             record["output"] = record["node_outputs"].get(node_id)
@@ -205,6 +225,7 @@ async def _work(run: Run, arguments: dict):
             return
         run.session = await _require_session(ctx)
         run.total = len(rows)
+        run.capacity = max(1, min(arguments.get("concurrency", 1), len(rows), 16))
         if run.operation == "workflow.run-batch":
             run.reference["name"] = arguments["name"]
         await run.emit(status="running", total=run.total, completed=0, failed=0)
@@ -226,14 +247,16 @@ async def _work(run: Run, arguments: dict):
                 run.failed += int(record["status"] == "error")
                 if run.operation == "workflow.run-batch":
                     await run.emit(status="running", total=run.total, completed=run.completed,
-                                   failed=run.failed, index=index, record=record)
+                                   failed=run.failed, index=index, record=record,
+                                   execution_id=record["execution_id"], execution_url=record["execution_url"])
                 else:
                     await run.emit(status="running", total=1, completed=1, failed=run.failed,
+                                   execution_id=record["execution_id"], execution_url=record["execution_url"],
                                    result={"run_id": run.run_id, **run.reference, **record},
                                    **({"errors": record["errors"], "message": "The selected node failed. Inspect errors and the result file before retrying."}
                                       if run.reference.get("node_id") and record["errors"] else {}))
 
-        for _ in range(min(arguments.get("concurrency", 1), len(rows))):
+        for _ in range(min(run.capacity, len(rows))):
             workers.append(asyncio.create_task(worker()))
         await asyncio.gather(*workers)
         if not await _close_pool(run):

@@ -66,9 +66,12 @@ class DeploymentRollouts:
                 await self.reconcile(dep)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                # Never record workflow data, credentials or internal paths in UI errors.
-                log.exception('deployment_rollout_reconcile_failed', deployment_id=str(dep['id']))
+            except Exception as exc:
+                # Exception formatting may include graph data and bootstrap
+                # credentials in locals. Keep repeated recovery failures small
+                # and safe in host logs as well as in the UI.
+                log.warning('deployment_rollout_reconcile_failed',
+                            deployment_id=str(dep['id']), error_type=type(exc).__name__)
                 async with short_session_scope(tenant_id=str(dep['tenant_id'])) as db:
                     locked = (await db.execute(text('SELECT * FROM deployments WHERE id=:id FOR UPDATE'), {'id': dep['id']})).mappings().one_or_none()
                     if (locked is not None and locked['enabled'] and locked['deleted_at'] is None
@@ -80,17 +83,8 @@ class DeploymentRollouts:
             await self.drain()
 
     async def expire_invocations(self):
-        # Database time is authoritative. Never expire queued background work:
-        # only an execution claim or a bounded synchronous dispatch can expire.
-        # The executor's local worker lease still prevents retiring a live job.
-        async with session_scope_admin() as db:
-            await db.execute(text("""UPDATE deployment_invocations
-                SET status='failed', finished_at=now(),
-                    error=CASE WHEN runtime_claim IS NULL THEN 'dispatch_expired'
-                        ELSE 'execution_lease_expired' END
-                WHERE status IN ('queued','running') AND revision_id IS NOT NULL
-                    AND ((execution_lease_until IS NOT NULL AND execution_lease_until <= now())
-                        OR (runtime_claim IS NULL AND dispatch_deadline <= now()))"""))
+        from vibecanvas_api.services.deployment_expiry import expire_deployment_invocations
+        await expire_deployment_invocations(self.manager.deployments)
 
     async def sample_metrics(self):
         async with session_scope_admin() as db:
@@ -185,7 +179,7 @@ class DeploymentRollouts:
         async with session_scope_admin() as db:
             rows = (await db.execute(text("""SELECT r.* FROM deployment_runtime_revisions r
                 WHERE r.state='draining' AND NOT EXISTS (SELECT 1 FROM deployment_invocations i
-                    WHERE i.revision_id=r.id AND i.status IN ('queued','running'))"""))).mappings().all()
+                    WHERE i.revision_id=r.id AND i.status IN ('queued','running','waiting_approval'))"""))).mappings().all()
         for row in rows:
             if await self.manager.deployments.retire(str(row['tenant_id']), str(row['id'])) is False:
                 continue

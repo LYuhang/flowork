@@ -488,7 +488,12 @@ class Workflow:
 
             # Wait for every parallel branch or the workflow timeout.
             try:
-                await asyncio.wait_for(done_event.wait(), timeout=self._execution_timeout)
+                # A resident runtime meters active execution time across the
+                # whole graph, excluding human waits. Its independent stop
+                # signal owns the budget; this legacy parallel-tail timer must
+                # not expire while the graph awaits a human decision.
+                timeout = None if extra.get("execution_budget_managed") else self._execution_timeout
+                await asyncio.wait_for(done_event.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 extra["error_dict"]["__engine__"] = {
                     "status": "error",

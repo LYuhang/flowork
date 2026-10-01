@@ -1,0 +1,275 @@
+"""Invocation observation, safe external results and current-key authorization."""
+
+import asyncio
+import hashlib
+import json
+import time
+import uuid
+
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import text
+
+from vibecanvas_api.services import deployment_observer
+from vibecanvas_api.services.deployment_results import external_result, sync_result_response
+from vibecanvas_api.storage.db import session_scope
+from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+
+
+@pytest.mark.parametrize("state,code", [("succeeded", 200), ("failed", 502), ("timed_out", 504), ("cancelled", 502)])
+def test_external_result_excludes_internal_outputs_and_raw_errors(state, code):
+    detail = {
+        "id": str(uuid.uuid4()),
+        "status": state,
+        "workflow": {"secret": "private"},
+        "result": {
+            "final_outputs": {"__start__": {"secret": "private"}, "__end__": {"answer": 42}},
+            "error_dict": {"node_2": "private traceback and credentials"},
+            "execution_time": 1.25,
+        },
+    }
+    payload = external_result(detail)
+    assert "private" not in json.dumps(payload)
+    assert payload["outputs"] == {"__end__": {"answer": 42}}
+    assert payload["exec_time_ms"] == 1250
+    response = sync_result_response(detail)
+    assert (200 if isinstance(response, dict) else response.status_code) == code
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("disconnect", [False, True])
+async def test_http_wait_returns_ticket_without_cancelling_dispatch(pg_engine, monkeypatch, disconnect):
+    from tests.storage.test_workflow_history import owner
+
+    tenant, actor, _ = await owner()
+    invocation = str(uuid.uuid4())
+    async with session_scope(tenant_id=tenant) as session:
+        await WorkflowHistoryRepo(session).create(
+            execution_id=invocation,
+            tenant_id=tenant,
+            wf_id="wf-observe",
+            source_type="deployment",
+            source_id="test-deployment",
+            initiator_user_id=actor,
+            workflow={},
+            inputs={},
+            approvers={},
+        )
+    finish = asyncio.Event()
+
+    async def dispatch():
+        await finish.wait()
+        async with session_scope(tenant_id=tenant) as session:
+            history = WorkflowHistoryRepo(session)
+            await history.bind_runtime(invocation, "generation")
+            await history.persist_events(
+                invocation,
+                "generation",
+                [
+                    {
+                        "invocation_id": invocation,
+                        "generation": "generation",
+                        "seq": 1,
+                        "type": "result",
+                        "status": "succeeded",
+                        "final_outputs": {"__end__": {"value": 7}},
+                        "error_dict": {},
+                        "execution_time": 0.1,
+                    }
+                ],
+            )
+
+    task = deployment_observer.own_dispatch(dispatch())
+    monkeypatch.setattr(deployment_observer, "SYNC_WAIT_SECONDS", 30 if disconnect else 0.01)
+    try:
+        observation = asyncio.create_task(
+            deployment_observer.observe_invocation(
+                tenant_id=tenant,
+                slug="example",
+                invocation_id=invocation,
+                dispatch=task,
+            )
+        )
+        if disconnect:
+            await asyncio.sleep(0.03)
+            observation.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await observation
+        else:
+            response = await observation
+            assert response.status_code == 202
+            assert json.loads(response.body)["invocation_id"] == invocation
+        assert not task.done()
+        finish.set()
+        await task
+        result = await deployment_observer.observe_invocation(
+            tenant_id=tenant,
+            slug="example",
+            invocation_id=invocation,
+            dispatch=task,
+        )
+        assert result["outputs"] == {"__end__": {"value": 7}}
+    finally:
+        finish.set()
+        await task
+
+
+@pytest.mark.asyncio
+async def test_even_immediately_completed_approval_returns_async_ticket(pg_engine):
+    from tests.storage.test_workflow_history import owner, waiting_run
+
+    tenant, actor, _ = await owner()
+    invocation, approval, event = await waiting_run(tenant, actor)
+    async with session_scope(tenant_id=tenant) as session:
+        history = WorkflowHistoryRepo(session)
+        await history.persist_events(
+            invocation,
+            "generation-a",
+            [
+                {
+                    **event,
+                    "seq": 2,
+                    "type": "approval_resolved",
+                    "approved": True,
+                    "reason": "approved",
+                    "decided_at": time.time(),
+                },
+                {
+                    **event,
+                    "seq": 3,
+                    "type": "result",
+                    "status": "succeeded",
+                    "final_outputs": {"__end__": {"approved": True}},
+                    "error_dict": {},
+                    "execution_time": 0.1,
+                },
+            ],
+        )
+    task = deployment_observer.own_dispatch(asyncio.sleep(0))
+    await task
+    response = await deployment_observer.observe_invocation(
+        tenant_id=tenant,
+        slug="example",
+        invocation_id=invocation,
+        dispatch=task,
+    )
+    assert response.status_code == 202
+    assert json.loads(response.body)["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_result_query_is_scoped_to_current_deployment_key(pg_engine, app_engine, monkeypatch):
+    from tests.test_deployment_invoke_sync import _seed_full_deployment
+    from vibecanvas_api.routes.deployment_invoke import get_invocation_result
+    from vibecanvas_api.storage import db as db_module
+
+    monkeypatch.setattr(db_module, "_admin_engine", pg_engine)
+    tenant, slug, key, deployment = await _seed_full_deployment(pg_engine, app_engine)
+    invocation = uuid.uuid4()
+    async with session_scope(tenant_id=str(tenant)) as session:
+        dep = (
+            (await session.execute(text("SELECT * FROM deployments WHERE id=:id"), {"id": deployment})).mappings().one()
+        )
+        history = WorkflowHistoryRepo(session)
+        await history.create(
+            execution_id=str(invocation),
+            tenant_id=str(tenant),
+            wf_id=dep["wf_id"],
+            source_type="deployment",
+            source_id=str(deployment),
+            initiator_user_id=str(dep["user_id"]),
+            workflow={"private": "graph"},
+            inputs={"private": "inputs"},
+            approvers={},
+        )
+        await history.fail(str(invocation), error_code="execution_lost")
+        await session.execute(text("UPDATE deployments SET enabled=false WHERE id=:id"), {"id": deployment})
+    payload = await get_invocation_result(slug=slug, invocation_id=invocation, authorization=f"Bearer {key}")
+    assert payload["status"] == "failed" and payload["error_code"] == "execution_lost"
+    assert "private" not in json.dumps(payload)
+    from httpx import ASGITransport, AsyncClient
+    from vibecanvas_api.app import build_app
+
+    async with AsyncClient(transport=ASGITransport(app=build_app()), base_url="http://testserver") as client:
+        response = await client.get(
+            f"/api/v1/deployments/{slug}/runs/{invocation}", headers={"Authorization": f"Bearer {key}"}
+        )
+        assert response.status_code == 200
+        assert response.json() == payload
+    sibling_slug, sibling_key = "sibling-" + uuid.uuid4().hex, uuid.uuid4().hex
+    async with session_scope(tenant_id=str(tenant)) as session:
+        await session.execute(
+            text("""INSERT INTO deployments
+            (id,tenant_id,user_id,owner_id,wf_id,name,slug,trigger_type,version_pin,api_key_hash)
+            SELECT :id,tenant_id,user_id,owner_id,wf_id,'Sibling',:slug,'api','head',:hash
+            FROM deployments WHERE id=:source"""),
+            {
+                "id": uuid.uuid4(),
+                "slug": sibling_slug,
+                "hash": hashlib.sha256(sibling_key.encode()).hexdigest(),
+                "source": deployment,
+            },
+        )
+    with pytest.raises(HTTPException) as sibling:
+        await get_invocation_result(slug=sibling_slug, invocation_id=invocation, authorization=f"Bearer {sibling_key}")
+    assert sibling.value.status_code == 404
+    _, other_slug, other_key, _ = await _seed_full_deployment(pg_engine, app_engine)
+    for test_slug, authorization in [
+        (slug, None),
+        (slug, "Bearer wrong"),
+        (other_slug, f"Bearer {other_key}"),
+        (other_slug, f"Bearer {key}"),
+    ]:
+        with pytest.raises(HTTPException) as error:
+            await get_invocation_result(slug=test_slug, invocation_id=invocation, authorization=authorization)
+        assert error.value.status_code == (401 if authorization is None else 404)
+    rotated = uuid.uuid4().hex
+    async with session_scope(tenant_id=str(tenant)) as session:
+        await session.execute(
+            text("UPDATE deployments SET api_key_hash=:hash WHERE id=:id"),
+            {"id": deployment, "hash": hashlib.sha256(rotated.encode()).hexdigest()},
+        )
+    with pytest.raises(HTTPException) as revoked:
+        await get_invocation_result(slug=slug, invocation_id=invocation, authorization=f"Bearer {key}")
+    assert revoked.value.status_code == 404
+    assert (await get_invocation_result(slug=slug, invocation_id=invocation, authorization=f"Bearer {rotated}"))[
+        "status"
+    ] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code,transport", [
+    (429, None), (503, None), (500, None),
+    (503, "sandbox_unavailable"), (503, "sandbox_deadline_exceeded"),
+])
+async def test_pre_dispatch_failure_has_durable_safe_result(pg_engine, app_engine, monkeypatch, code, transport):
+    from tests.test_deployment_invoke_sync import _seed_full_deployment, _activate_test_revision
+    from vibecanvas_api.routes import deployment_invoke
+    from vibecanvas_api.storage import db as db_module
+
+    monkeypatch.setattr(db_module, "_admin_engine", pg_engine)
+    tenant, slug, key, deployment = await _seed_full_deployment(pg_engine, app_engine)
+    await _activate_test_revision(tenant, deployment)
+
+    async def unavailable(**kwargs):
+        if transport:
+            from vibecanvas_api.services.sandbox.service import SandboxServiceError
+
+            raise SandboxServiceError("private credential or implementation detail", code=transport)
+        raise HTTPException(code, "private credential or implementation detail")
+
+    from vibecanvas_api.services import deployment_dispatch
+
+    monkeypatch.setattr(deployment_dispatch, "run_workflow_sandboxed_async", unavailable)
+    response = await deployment_invoke.invoke_sync(slug=slug, body={"x": 1}, authorization=f"Bearer {key}")
+    assert response.status_code == code
+    payload = json.loads(response.body)
+    assert "private" not in response.body.decode()
+    if code in {429, 503}:
+        assert response.headers["Retry-After"] == "1"
+    polled = await deployment_invoke.get_invocation_result(
+        slug=slug,
+        invocation_id=uuid.UUID(payload["invocation_id"]),
+        authorization=f"Bearer {key}",
+    )
+    assert polled == payload

@@ -43,7 +43,9 @@ import {
   NODE_LABELS,
 } from '@/pages/canvas/nodes/NODE_TYPES';
 import { NodeHoverCard } from '@/pages/canvas/nodes/NodeHoverCard';
-import { NodeOutputPreview } from '@/pages/canvas/nodes/NodeOutputPreview';
+import { NodeOutputPreview, NodeResultPreview } from '@/pages/canvas/nodes/NodeOutputPreview';
+import { HumanApprovalPanel } from './HumanApprovalPanel';
+import { useExecutionHistory } from '../ExecutionHistoryContext';
 import { useExecStreamStore } from '@/stores/exec-stream';
 import { useUIStore } from '@/stores/ui';
 import { useWorkflowSnapshot } from '@/pages/canvas/WorkflowSnapshotContext';
@@ -148,10 +150,13 @@ export const LOOP_BACK_TARGET_HANDLE_ID = 'loop-back-target';
 function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
   const { t } = useTranslation();
   const snapshot = useWorkflowSnapshot();
+  const history = useExecutionHistory();
+  const historicalEvent = history?.latestNodeEvents[id];
+  const useHistoricalResult = Boolean(history && (snapshot || historicalEvent));
   const payload = (data ?? {}) as NodePayload;
   const nodeType = payload.node_type ?? 'UnknownNode';
   const headerColor = NODE_COLORS[nodeType] ?? DEFAULT_NODE_COLOR;
-  const label = NODE_LABELS[nodeType] ?? nodeType;
+  const label = t(`nodes_palette.label.${nodeType}`, NODE_LABELS[nodeType] ?? nodeType);
   const Icon = NODE_ICONS[nodeType] ?? DEFAULT_NODE_ICON;
   const title = payload.node_name ?? payload.node_id ?? id;
   const isStart = nodeType === 'StartNode';
@@ -177,13 +182,16 @@ function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
   // card). The error message is pulled lazily — only when the node is in the
   // error state — to keep the selector output a primitive string.
   const execStatusRaw = useExecStreamStore((s) => snapshot ? undefined : s.perNode[id]?.status);
-  const execState = narrowExecState(execStatusRaw);
-  const execError = useExecStreamStore((s) =>
+  const historicalStatus = historicalEvent?.status === 'success' ? 'completed' : historicalEvent?.status;
+  const execState = narrowExecState(useHistoricalResult ? historicalStatus : execStatusRaw);
+  const liveError = useExecStreamStore((s) =>
     execState === 'error' ? s.perNode[id]?.error : undefined,
   );
-  const execResult = useExecStreamStore((s) =>
+  const liveResult = useExecStreamStore((s) =>
     execState === 'completed' ? s.perNode[id]?.result : undefined,
   );
+  const execError = useHistoricalResult ? historicalEvent?.error_message : liveError;
+  const execResult = useHistoricalResult ? JSON.stringify(historicalEvent?.output) : liveResult;
 
   // Do not open the hover card while a canvas gesture is in
   // flight (drag/connect), nor when THIS node is already open in the
@@ -367,7 +375,13 @@ function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
         )}
       </div>
     </NodeHoverCard>
-      {!snapshot && <NodeOutputPreview
+      {nodeType === 'HumanApprovalNode' && <HumanApprovalPanel nodeId={id} instruction={String(payload.node_config?.instruction ?? '')} />}
+      {history && useHistoricalResult && <NodeResultPreview
+        nodeId={id} nodeType={nodeType} wfId={history.detail.wf_id} runId={history.detail.id}
+        output={historicalEvent?.status === 'success' ? historicalEvent.output : undefined}
+        format={typeof payload.node_config?.output_format === 'string' ? payload.node_config.output_format : undefined}
+      />}
+      {!snapshot && !useHistoricalResult && <NodeOutputPreview
         nodeId={id}
         nodeType={nodeType}
         format={typeof payload.node_config?.output_format === 'string' ? payload.node_config.output_format : undefined}

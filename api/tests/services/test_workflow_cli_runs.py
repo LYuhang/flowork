@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+from uuid import uuid4
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -32,6 +33,12 @@ def execution(monkeypatch):
     monkeypatch.setattr(runs, "_require_session", AsyncMock(return_value=session))
     monkeypatch.setattr(runs, "prepare_code_pythonpath", AsyncMock(return_value="/overlay"))
     monkeypatch.setattr(runs, "inject_into_run_context_async", AsyncMock(return_value={"llm_credentials": {"handle": "private"}}))
+    monkeypatch.setattr(runs, "create_execution", AsyncMock(side_effect=lambda **kwargs: str(uuid4())))
+
+    async def observe(**kwargs):
+        return await kwargs["execute"]
+
+    monkeypatch.setattr(runs, "observe_execution", observe)
     for name in ("reserve", "renew", "release"):
         monkeypatch.setattr(runs.cli_run_lease, name, AsyncMock(return_value=True))
     return capability, session, snapshot
@@ -99,7 +106,7 @@ async def test_single_node_uses_frozen_snapshot_isolated_pool_and_node_output(ex
     assert session.execute_workflow_job.await_args.kwargs["workflow"] is selected
     assert runs.prepare_code_pythonpath.await_args.args[0] is selected
     assert runs.inject_into_run_context_async.await_args.args[1] is selected
-    session.close_workflow_pool.assert_awaited_once_with(tenant="tenant", pool_id=run.run_id)
+    session.close_workflow_pool.assert_awaited_once_with(tenant="tenant", pool_id=run.run_id, history=True)
 
 
 @pytest.mark.asyncio
@@ -136,7 +143,7 @@ async def test_single_node_interrupt_closes_only_its_owned_pool(execution, monke
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
-    session.close_workflow_pool.assert_awaited_once_with(tenant="tenant", pool_id=run.run_id)
+    session.close_workflow_pool.assert_awaited_once_with(tenant="tenant", pool_id=run.run_id, history=True)
 
 
 @pytest.mark.asyncio
@@ -171,7 +178,7 @@ async def test_batch_freezes_selected_snapshot_and_emits_before_slowest_row(exec
         assert snapshot.await_count == 1
         assert len({call.kwargs["run_subpath"] for call in session.execute_workflow_job.await_args_list}) == 2
         assert {call.kwargs["execution_pool_id"] for call in session.execute_workflow_job.await_args_list} == {run.run_id}
-        session.close_workflow_pool.assert_awaited_once_with(tenant="tenant", pool_id=run.run_id)
+        session.close_workflow_pool.assert_awaited_once_with(tenant="tenant", pool_id=run.run_id, history=True)
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
@@ -212,7 +219,7 @@ async def test_cancel_explicitly_stops_sandbox_job(execution):
     await asyncio.wait_for(entered.wait(), 5)
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
-    session.close_workflow_pool.assert_awaited_once_with(tenant="tenant", pool_id="a" * 32)
+    session.close_workflow_pool.assert_awaited_once_with(tenant="tenant", pool_id="a" * 32, history=True)
     assert not run.active
     assert run.cancellation_confirmed
 

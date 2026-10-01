@@ -215,6 +215,7 @@ def parser() -> Parser:
         running.add_argument("--output", help="Result file; default unique /data/runs/<run_id>/result.json or results.jsonl.")
         running.add_argument("--overwrite", action="store_true")
         running.epilog = "Each invocation owns its pool. Completion closes it; cancellation stops new rows and hard-kills only this pool, not the Chat sandbox. Results record input/output/node_outputs/errors/execution_time; batch rows append in completion order with zero-based index. Partial files cannot undo external side effects. Check terminal status, not file existence. Never automatically rerun result_unknown. Follow AGENTS.md path visibility rules."
+        running.epilog += " HumanApprovalNode waits for review while retaining its worker. Progress includes row_status=waiting_approval and an execution_url for the reviewer; keep this command and its original Agent turn alive. Each admitted input has its own execution_id and execution_url in both progress and results. Rejection or approval timeout produces approved=false and continues."
         if command == "run":
             running.add_argument("--node", help="Execute only this exact node ID, not its upstream/downstream nodes. Inputs go directly to the node (overriding configured defaults); no previous outputs are reused. Supports --file. Validates only the target and its required resources. No autosave/new version. Loop/parallel control nodes require full workflow execution. Not supported by run-batch.")
             inputs = running.add_mutually_exclusive_group()
@@ -224,7 +225,7 @@ def parser() -> Parser:
         else:
             running.epilog += " Example: flowork-cli workflow run-batch --workflow_id wf_123 --major v1 --input-file /data/rows.csv --output /data/results.jsonl > /data/progress.jsonl 2>&1. For background monitoring, use the runtime's managed long-running terminal session, or keep the parent shell alive and wait for its background child. A bare & followed by shell exit may terminate the child before it returns any status. Empty output is not evidence of a live process or of no side effects: check the original process/session handle; do not automatically retry. No --file or --node override. Ordinary row errors continue; authorization/transport/platform errors stop new rows."
             running.add_argument("--input-file", required=True, help="CSV/TSV/JSON/JSONL/XLSX/XLSM table. JSON: array of objects or {rows: [...]}; JSONL: one object per line.")
-            running.add_argument("--concurrency", type=int, default=4, help="Positive worker count (default: 4).")
+            running.add_argument("--concurrency", type=int, default=4, help="Positive requested worker count (default: 4; at most 16 active workers).")
             running.add_argument("--sheet", default="", help="Workbook sheet; required when multiple sheets exist.")
             running.add_argument("--name", help="Batch name; defaults to input filename.")
 

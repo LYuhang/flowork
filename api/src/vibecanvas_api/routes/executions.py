@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
 from typing import AsyncIterator
 
 import structlog
@@ -38,9 +38,11 @@ from ..services.node_results import (
 from ..schemas.pagination import Page, PageRequest
 from ..services.vfs_run_context import clear_run_contents
 from ..services.workflow_sandbox_runner import (
-    run_node_once,
-    stream_workflow_job,
+    prepare_code_pythonpath,
 )
+from ..services.workflow_execution_history import create_execution
+from ..services.workflow_history_runner import execute_history_workflow, stream_history_workflow
+from ..storage.workflow_history_repo import WorkflowHistoryRepo, TERMINAL_STATUSES
 from ..services.llm_credentials_inject import inject_into_run_context_async
 from ..services.exec_events import to_exec_update
 from ..services.sandbox.manager import get_sandbox_manager
@@ -54,7 +56,7 @@ from ..storage.sync_session import current_sync_tenant_id
 from ..storage.workflow_repo import WorkflowRepo
 from ..streaming.sse import format_event
 from ..streaming.turn_runtime import (
-    TURN_BUFFERS, TURN_TASKS, new_turn_id, register_turn, request_cancel,
+    TURN_BUFFERS, TURN_TASKS, register_turn, request_cancel,
     run_turn,
 )
 from .deps import get_execution_repo, get_workflow_repo
@@ -176,6 +178,7 @@ def _record_to_status(record: dict) -> ExecutionStatusOut:
     db_status = record.get("status", "running")
     return ExecutionStatusOut(
         exec_id=record["exec_id"],
+        history_id=record.get("history_id"),
         wf_id=record.get("wf_id", ""),
         status=_DB_STATUS_TO_API.get(db_status, "running"),
         started_at=record.get("started_at") or 0.0,
@@ -199,6 +202,53 @@ async def _with_execution_repo(tenant_id: str, user_id: str, fn):
     """Run one execution-state write in its own tenant-bound transaction."""
     async with session_scope(tenant_id=tenant_id) as s:
         return await fn(ExecutionRepo(s, user_id))
+
+
+async def _fail_history(tenant_id: str, exec_id: str):
+    async with session_scope(tenant_id=tenant_id) as session:
+        repo = WorkflowHistoryRepo(session)
+        if await repo.get(exec_id) is not None:
+            await repo.fail(exec_id, error_code="execution_dispatch_failed")
+
+
+def _history_id(exec_id: str) -> str | None:
+    try:
+        return str(uuid.UUID(exec_id))
+    except (ValueError, TypeError):
+        return None
+
+
+async def _history_status(record, session):
+    """Only advertise a history link after its admission transaction commits."""
+    history_id = _history_id(record["exec_id"])
+    history = await WorkflowHistoryRepo(session).get(history_id) if history_id else None
+    if history is not None:
+        record = {**record, "history_id": history_id}
+        record["status"] = {
+            "succeeded": "success", "failed": "error", "timed_out": "error", "cancelled": "stopped",
+        }.get(history["status"], "running")
+    return _record_to_status(record)
+
+
+async def _request_history_cancel(exec_repo, exec_id: str):
+    history_id = _history_id(exec_id)
+    if history_id is not None:
+        repo = WorkflowHistoryRepo(exec_repo._session)
+        run = await repo.get(history_id)
+        if run is not None and run["status"] not in TERMINAL_STATUSES:
+            await repo.request_cancel(history_id)
+
+
+async def _reject_live_execution(tenant_id: str, wf_id: str, record):
+    active = TURN_TASKS.get(record["exec_id"]) or TURN_TASKS.get(wf_id)
+    if active is not None and not active.done():
+        raise HTTPException(409, f"workflow {wf_id} already has a running execution")
+    history_id = _history_id(record["exec_id"])
+    if history_id is not None:
+        async with session_scope(tenant_id=tenant_id) as session:
+            run = await WorkflowHistoryRepo(session).get(history_id)
+            if run is not None and run["status"] not in TERMINAL_STATUSES:
+                raise HTTPException(409, f"workflow {wf_id} already has a running execution")
 
 
 def _stringify_engine_error(value) -> "str | None":
@@ -249,6 +299,8 @@ def _accumulate_per_node(per_node: dict[str, dict], payload: dict) -> None:
 def _workflow_public_payload(payload: dict, wf_id: str) -> dict:
     """Workflow SSE payloads are workflow-scoped; hide internal row ids."""
     out = {k: v for k, v in payload.items() if k != "exec_id"}
+    if payload.get("exec_id"):
+        out["history_id"] = payload["exec_id"]
     out["wf_id"] = wf_id
     return out
 
@@ -406,6 +458,10 @@ async def _produce_execution_sandbox(
     total_started = time.perf_counter()
     current_sync_tenant_id.set(tenant_id)
     try:
+        await create_execution(
+            execution_id=exec_id, tenant_id=tenant_id, source_type="workflow", source_id=wf_id,
+            user_id=creator_user_id, workflow_id=wf_id, workflow=wf_dict, inputs=body.input,
+        )
         workflow_run_id = wf_id
         stage_started = time.perf_counter()
         session = await get_sandbox_manager().get_session(
@@ -496,17 +552,14 @@ async def _produce_execution_sandbox(
         live_node_event_count = 0
         backfilled_node_event_count = 0
         stream_started = time.perf_counter()
-        async for msg in stream_workflow_job(
+        async for msg in stream_history_workflow(
             stop=stop,
             workflow=wf_dict,
             inputs=body.input,
-            workflow_run_id=workflow_run_id,
             tenant_id=tenant_id,
             session=session,
-            exec_id=exec_id,
-            install_dependencies=True,
-            runtime_extra=_cred_rc or None,
-            allow_hosts=sorted(_allow_hosts),
+            execution_id=exec_id,
+            context=_cred_rc or None,
         ):
             if not first_msg_seen:
                 first_msg_seen = True
@@ -756,6 +809,7 @@ async def _produce_execution_sandbox(
         )
     except Exception as e:
         error = str(e)
+        await _fail_history(tenant_id, exec_id)
         await _with_execution_repo(
             tenant_id,
             creator_user_id,
@@ -825,7 +879,7 @@ async def _produce_execution(
     # The OUTER ``try/finally`` owns ONLY ``stop_registry.discard`` — the
     # FD-leak guard, unrelated to the fixed workflow /run lifecycle.
     try:
-        yield "EXEC_UPDATE", {"wf_id": wf_id, "status": "started"}
+        yield "EXEC_UPDATE", {"wf_id": wf_id, "status": "started", "history_id": exec_id}
 
         # The sandbox is the only execution path. The canvas "Run"
         # single-execute delegates to the resident workflow sandbox session.
@@ -889,7 +943,7 @@ async def start_execution(
     # the request and must not hold a request-scoped session.
     wf_dict = await repo.get_current_workflow(wf_id)
 
-    execution_record_id = wf_id
+    execution_record_id = str(uuid.uuid4())
     workflow_turn_key = wf_id
 
     active = TURN_TASKS.get(workflow_turn_key)
@@ -901,9 +955,10 @@ async def start_execution(
     stale_running = await _with_execution_repo(
         ctx.tenant_id,
         ctx.user_id,
-        lambda exec_repo: exec_repo.latest_running_execution(wf_id),
+        lambda exec_repo: exec_repo.latest_execution(wf_id),
     )
     if stale_running is not None:
+        await _reject_live_execution(ctx.tenant_id, wf_id, stale_running)
         await _with_execution_repo(
             ctx.tenant_id,
             ctx.user_id,
@@ -1022,6 +1077,13 @@ async def _produce_node_execution(
             "exec_id": exec_id, "node_id": nid, "status": "error", "error": str(e),
         }
         return
+    selected = {nid: node_dict}
+    if isinstance(workflow, dict) and "__meta__" in workflow:
+        selected["__meta__"] = workflow["__meta__"]
+    await create_execution(
+        execution_id=exec_id, tenant_id=tenant_id, source_type="workflow", source_id=wf_id,
+        user_id=creator_user_id, workflow_id=wf_id, workflow=selected, inputs=inputs, node_id=nid,
+    )
     if tenant_id is not None:
         extra = await inject_into_run_context_async(
             {},
@@ -1044,6 +1106,7 @@ async def _produce_node_execution(
         classify_workflow({nid: node_dict})
     except EngineNeedsHostNode as e:
         err = f"node cannot run in the sandbox: {type(e).__name__}: {e}"
+        await _fail_history(tenant_id, exec_id)
         await _with_execution_repo(
             tenant_id,
             creator_user_id,
@@ -1069,6 +1132,13 @@ async def _produce_node_execution(
     node_started = time.perf_counter()
 
     async def _record_cancelled() -> dict:
+        async with session_scope(tenant_id=tenant_id) as history_session:
+            history = WorkflowHistoryRepo(history_session)
+            run = await history.get(exec_id)
+            if run is not None and run["status"] not in TERMINAL_STATUSES:
+                await history.request_cancel(exec_id)
+                if run["generation"] is None:
+                    await history.confirm_cancelled(exec_id)
         frame = {
             "exec_id": exec_id,
             "node_id": nid,
@@ -1094,6 +1164,7 @@ async def _produce_node_execution(
                 duration=frame["duration"],
             ),
         )
+        await _with_execution_repo(tenant_id, creator_user_id, lambda repo: repo.stop_execution(exec_id))
         return frame
 
     try:
@@ -1119,47 +1190,29 @@ async def _produce_node_execution(
         )
         if resources:
             extra["workflow_resources"] = resources
-        run_task = asyncio.create_task(
-            run_node_once(
-                session,
-                tenant_id=tenant_id,
-                node=node_dict,
-                inputs=inputs,
-                workflow_run_id=workflow_run_id,
-                extra=extra,
-                workflow=workflow,
-                clear_run=False,
-                timeout=120.0,
-                install_dependencies=True,
-            )
+        pythonpath = await prepare_code_pythonpath(selected, session=session)
+        if pythonpath:
+            extra["code_pythonpath"] = pythonpath
+
+        async def on_state(state):
+            return None
+
+        job = await execute_history_workflow(
+            session=session, tenant_id=tenant_id, execution_id=exec_id,
+            workflow=selected, inputs=inputs, context=extra, stop=stop,
+            node_id=nid, on_state=on_state,
         )
-        stop_task = asyncio.create_task(stop.wait())
-        done, _ = await asyncio.wait(
-            {run_task, stop_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        if stop_task in done and stop.is_set():
-            try:
-                await session.cancel_workflow_run(
-                    tenant=tenant_id,
-                    run_id=workflow_run_id,
-                    run_subpath=workflow_run_id,
-                )
-            finally:
-                run_task.cancel()
-                with suppress(BaseException):
-                    await run_task
+        if stop.is_set() or (job.get("status") or {}).get("status") == "cancelled":
             yield "EXEC_UPDATE", await _record_cancelled()
             return
-        stop_task.cancel()
-        with suppress(BaseException):
-            await stop_task
-        job = await run_task
-        rj = job.result_json
+        rj = job.get("result")
+        if not isinstance(rj, dict):
+            raise RuntimeError("Execution ended without a result.")
     except Exception as e:
         # Provider/admission failure (e.g. SandboxUnavailable, at-capacity) →
         # CLEAR terminal error frame (NO silent in-process fallback).
         err = f"sandbox node run failed: {e}"
+        await _fail_history(tenant_id, exec_id)
         logger.warning(
             "workflow_node_execute_sandbox_failure",
             exec_id=exec_id,
@@ -1315,15 +1368,10 @@ async def execute_node(
     running = await _with_execution_repo(
         ctx.tenant_id,
         ctx.user_id,
-        lambda exec_repo: exec_repo.latest_running_execution(wf_id),
+        lambda exec_repo: exec_repo.latest_execution(wf_id),
     )
     if running is not None:
-        active = TURN_TASKS.get(running["exec_id"])
-        if active is not None and not active.done():
-            raise HTTPException(
-                status_code=409,
-                detail=f"workflow {wf_id} already has a running execution",
-            )
+        await _reject_live_execution(ctx.tenant_id, wf_id, running)
         await _with_execution_repo(
             ctx.tenant_id,
             ctx.user_id,
@@ -1337,7 +1385,7 @@ async def execute_node(
         wf_id=wf_id,
         action=Action.EXECUTE,
     )
-    exec_id = "n_" + new_turn_id().removeprefix("t_")
+    exec_id = str(uuid.uuid4())
     buf, stop = register_turn(exec_id, drop_oldest=True)
 
     node_dict = body.node
@@ -1350,6 +1398,12 @@ async def execute_node(
                 ctx.user_id, workflow,
             ):
                 yield ev
+        except Exception as exc:
+            message = str(exc)
+            await _fail_history(ctx.tenant_id, exec_id)
+            await _with_execution_repo(ctx.tenant_id, ctx.user_id,
+                lambda execution_repo: execution_repo.finish_execution(exec_id, status="error", error=message))
+            yield "EXEC_UPDATE", {"exec_id": exec_id, "node_id": node_id, "status": "error", "error": message}
         finally:
             stop_registry.discard(exec_id)
 
@@ -1396,7 +1450,7 @@ async def get_execution_status(
     record = await exec_repo.get_execution(exec_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"execution {exec_id} not found")
-    return _record_to_status(record)
+    return await _history_status(record, exec_repo._session)
 
 
 @router.post("/executions/{exec_id}/cancel", status_code=202)
@@ -1432,6 +1486,7 @@ async def cancel_execution(
         exec_id=exec_id,
         action=Action.CANCEL,
     )
+    await _request_history_cancel(exec_repo, exec_id)
     await exec_repo.stop_execution(exec_id)
     return {"status": "cancel-requested"}
 
@@ -1462,7 +1517,7 @@ async def get_workflow_execution_status(
     if not await workflow_repo.get_meta(wf_id):
         raise HTTPException(status_code=404, detail=f"workflow {wf_id} not found")
     record = await exec_repo.latest_execution(wf_id)
-    return _record_to_status(record) if record is not None else None
+    return await _history_status(record, exec_repo._session) if record is not None else None
 
 
 @router.post("/workflows/{wf_id}/execution/cancel", status_code=202)
@@ -1494,6 +1549,7 @@ async def cancel_workflow_execution(
         except RuntimeError:
             pass
     request_cancel(wf_id)
+    request_cancel(record["exec_id"])
     await _authorize_workflow_action(
         request=request,
         auth=auth,
@@ -1501,6 +1557,7 @@ async def cancel_workflow_execution(
         wf_id=wf_id,
         action=Action.CANCEL,
     )
+    await _request_history_cancel(exec_repo, record["exec_id"])
     await exec_repo.stop_execution(record["exec_id"])
     return {"status": "cancel-requested"}
 

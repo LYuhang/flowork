@@ -78,7 +78,7 @@ async def _refresh(
         FROM deployment_invocations i
         JOIN deployments d ON d.id = i.deployment_id
         JOIN service_accounts sa ON sa.service_account_id = d.service_account_id
-        WHERE i.id = :execution_id AND i.status = 'running'
+        WHERE i.id = :execution_id AND i.status IN ('running','waiting_approval')
           AND i.wf_id = :workflow_id AND d.wf_id = :workflow_id
           AND d.deleted_at IS NULL AND sa.tenant_id = :tenant_id
           AND sa.service_account_id = :account_id AND sa.status = 'active'

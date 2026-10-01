@@ -9,6 +9,7 @@ import uuid
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from vibecanvas_api.agents.tools.decorator import ToolError
@@ -256,10 +257,8 @@ async def execute(call, args):
         _running_tests.add(running)
         running.add_done_callback(test_finished)
         result = await asyncio.shield(running)
-        result["errors"] = execution_errors(result.get("errors") or {})
-        return {"deployment_id": str(dep_id), **result,
-                "message": "Test execution failed." if result["status"] == "failed" else "Test execution succeeded. External API key, signature and network access were not tested.",
-                "hint": f"flowork-cli deployment history --deployment_id {dep_id} --execution_id {result['execution_id']}"}
+        return invocation_result(dep_id, result)
+
     except HTTPException as exc:
         detail = exc.detail
         code = (detail.get("code") if isinstance(detail, dict) else None) or {401: "authentication_required", 403: "permission_denied", 404: "resource_unavailable", 409: "state_conflict", 422: "invalid_arguments"}.get(exc.status_code, "deployment_error")
@@ -272,3 +271,23 @@ async def execute(call, args):
         return error("invalid_arguments", str(exc), "Check this command's --help.")
     except Exception:
         return uncertain_result() if started else error("deployment_unavailable", "The deployment operation is unavailable.", "Inspect status and report the failure; do not retry repeatedly.")
+
+
+def invocation_result(deployment_id, response):
+    """Report accepted work without claiming it has finished successfully."""
+    if isinstance(response, JSONResponse):
+        result = {**json.loads(response.body), "http_status": response.status_code}
+    else:
+        result = dict(response)
+    result["errors"] = execution_errors(result.get("errors") or {})
+    pending = result.get("http_status") == 202 or result["status"] in {"queued", "running", "waiting_approval"}
+    if pending:
+        message = "Invocation accepted. Inspect this execution's history or detail link; do not submit it again."
+    elif result["status"] == "succeeded":
+        message = "Test execution succeeded. External API key, signature and network access were not tested."
+    else:
+        message = "Test execution failed."
+    return {
+        "deployment_id": str(deployment_id), **result, "message": message,
+        "hint": f"flowork-cli deployment history --deployment_id {deployment_id} --execution_id {result['execution_id']}",
+    }

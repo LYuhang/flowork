@@ -62,6 +62,13 @@ def test_share_target_resolver_manifest_has_exact_dynamic_resource_allowlist():
     assert permission.action is Action.MANAGE_ACCESS
 
 
+def test_deployment_result_queries_are_inspection_with_external_credentials():
+    by_endpoint = {item.endpoint: item.permission for item in route_permission_manifest(build_app())}
+    for endpoint in ("get_invocation_result", "get_webhook_invocation_result"):
+        assert by_endpoint[endpoint].admission is AdmissionKind.EXTERNAL_CREDENTIAL
+        assert by_endpoint[endpoint].action is Action.INSPECT_RUNS
+
+
 def test_every_session_protected_http_route_resolves_current_user():
     from vibecanvas_api.auth.deps import current_user
 

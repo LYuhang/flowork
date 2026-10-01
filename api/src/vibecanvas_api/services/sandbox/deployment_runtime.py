@@ -5,7 +5,6 @@ import asyncio
 import copy
 import contextlib
 import os
-import shutil
 import time
 import uuid
 
@@ -23,6 +22,48 @@ class DeploymentRuntime:
         self._active_requests: dict[str, int] = {}
         self._resources = None
         self._terminals: dict[str, dict] = {}
+        self._invocations: dict[tuple[str, str], asyncio.Task] = {}
+        self._dispatches: dict[tuple[str, str], asyncio.Task] = {}
+
+    async def start(self, **kwargs) -> dict:
+        """Acknowledge durable ownership without occupying a queue worker.
+
+        Losing this RPC never cancels the separately owned execution. Retries
+        inspect the original claim and never replay an already claimed run.
+        """
+        from sqlalchemy import text
+        from vibecanvas_api.storage.db import short_session_scope
+
+        tenant_id, run_id = kwargs["tenant_id"], kwargs["run_id"]
+        key = (tenant_id, run_id)
+        while True:
+            async with short_session_scope(tenant_id=tenant_id) as db:
+                row = (await db.execute(text("""SELECT runtime_claim,status
+                    FROM deployment_invocations WHERE id=:id AND deployment_id=:deployment
+                    AND revision_id=:revision"""), {
+                    "id": uuid.UUID(run_id), "deployment": uuid.UUID(kwargs["deployment_id"]),
+                    "revision": uuid.UUID(kwargs["revision_id"]),
+                })).mappings().one_or_none()
+            if row is None:
+                raise RuntimeError("deployment_revision_not_admitted")
+            if row["runtime_claim"] is not None or row["status"] not in {"queued", "running"}:
+                return {"invocation_id": run_id, "accepted": True}
+            task = self._dispatches.get(key)
+            if task is None:
+                task = asyncio.create_task(self.run(**kwargs))
+                self._dispatches[key] = task
+
+                def finished(done):
+                    if self._dispatches.get(key) is done:
+                        self._dispatches.pop(key, None)
+                    if not done.cancelled():
+                        done.exception()  # Completion is recorded by the runtime.
+
+                task.add_done_callback(finished)
+            await asyncio.wait({task}, timeout=0.05)
+            if task.done():
+                task.result()  # Propagate a failure before ownership was claimed.
+                return {"invocation_id": run_id, "accepted": True}
 
     async def prepare(self, *, tenant_id: str, revision_id: str, spec: dict, workflow: dict):
         from vibecanvas_api.services.workflow_sandbox_runner import prepare_code_pythonpath
@@ -33,8 +74,13 @@ class DeploymentRuntime:
             previous = self._ready.get(key)
             if previous is not None:
                 pool = previous._fileop_pool
-                if not previous.closed and pool is not None and pool._handles and pool._handles[0].proc.poll() is None:
+                execution_pool = getattr(previous, "_workflow_rpc_pool", None)
+                if (not previous.closed and pool is not None and pool._handles
+                        and pool._handles[0].proc.poll() is None
+                        and execution_pool is not None and execution_pool.ready):
                     return previous
+                if execution_pool is not None and execution_pool.busy:
+                    raise RuntimeError("deployment_instance_unavailable")
                 await self.manager.close_session(tenant_id, revision_scope(revision_id))
                 if self._resources and not self._resources.release(revision_id):
                     raise RuntimeError('deployment_resource_instance_still_running')
@@ -61,14 +107,13 @@ class DeploymentRuntime:
                                                     spec=spec, workflow=workflow, sandbox_session=session)
                 await prepare_code_pythonpath(workflow, session=session)
                 await session.prewarm_fileops()
-                # Warm the actual reusable engine process, without invoking the
-                # customer's workflow or making model/network calls.
-                status = await session.submit_sandbox_job({
-                    "kind": "prewarm", "tenant": tenant_id,
-                    "run_id": "prewarm", "run_subpath": "prewarm",
-                }, timeout=60)
-                if status.get("status") != "success":
-                    raise RuntimeError("deployment_engine_prewarm_failed")
+                from vibecanvas_api.config import config
+                from .workflow_rpc_pool import WorkflowRpcPool
+                session._workflow_rpc_pool = WorkflowRpcPool.for_session(
+                    session=session, revision=revision_id, workflow=workflow,
+                    capacity=int(spec.get("max_concurrency", config.sandbox_fileop_workers)),
+                )
+                await session._workflow_rpc_pool.prewarm()
             except BaseException:
                 await self.manager.close_session(tenant_id, revision_scope(revision_id))
                 self._resources.release(revision_id)
@@ -76,6 +121,7 @@ class DeploymentRuntime:
             self._ready[key] = session
             return session
 
+    @complete_before_cancelling
     async def run(self, *, tenant_id: str, deployment_id: str, revision_id: str,
                   workflow: dict, inputs: dict, run_id: str, extra: dict | None = None,
                   resource_claims: dict | None = None, **unused) -> dict:
@@ -83,6 +129,10 @@ class DeploymentRuntime:
         # terminal before its sandbox worker exits. Keep an independent local
         # drain lease until execution and credential cleanup are confirmed.
         key = f"{tenant_id}:{revision_id}"
+        invocation_key = (tenant_id, run_id)
+        if invocation_key in self._invocations:
+            raise RuntimeError("deployment_invocation_already_owned")
+        self._invocations[invocation_key] = asyncio.current_task()
         self._active_requests[key] = self._active_requests.get(key, 0) + 1
         try:
             return await self._run_admitted(
@@ -91,11 +141,45 @@ class DeploymentRuntime:
                 resource_claims=resource_claims,
             )
         finally:
+            self._invocations.pop(invocation_key, None)
             remaining = self._active_requests[key] - 1
             if remaining:
                 self._active_requests[key] = remaining
             else:
                 self._active_requests.pop(key, None)
+
+    async def stop_expired_invocation(self, *, tenant_id: str, revision_id: str, invocation_id: str) -> bool:
+        """A lease deadline is not evidence that side effects stopped."""
+        owner = self._invocations.get((tenant_id, invocation_id))
+        if owner is not None:
+            owner.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(asyncio.gather(owner, return_exceptions=True)), timeout=15)
+            except TimeoutError:
+                return False
+        key = f"{tenant_id}:{revision_id}"
+        async with self._locks.setdefault(key, asyncio.Lock()):
+            session = self._ready.get(key)
+            if session is not None:
+                pool = getattr(session, "_workflow_rpc_pool", None)
+                if pool is None:
+                    return False
+                for slot in pool._slots.values():
+                    if slot.invocation_id == invocation_id and slot.alive:
+                        await slot.close()
+                        if slot.alive:
+                            return False
+                # New pools are created only after any previous revision
+                # cgroup is empty. No matching owner/process means this old
+                # invocation cannot continue on this daemon's current pool.
+                return (tenant_id, invocation_id) not in self._invocations
+            # After daemon restart there is no in-memory owner. The cgroup is
+            # the OS evidence: a populated orphan must keep its capacity until
+            # --die-with-parent shutdown is complete. Never replay the call.
+            if self._resources is None:
+                from .resource_limits import ResourceAllocator
+                self._resources = ResourceAllocator.from_environment()
+            return await asyncio.to_thread(self._resources.release, revision_id)
 
     async def _run_admitted(self, *, tenant_id: str, deployment_id: str, revision_id: str,
                             workflow: dict, inputs: dict, run_id: str, extra: dict | None,
@@ -128,7 +212,21 @@ class DeploymentRuntime:
         try:
             session = await self.prepare(tenant_id=tenant_id, revision_id=revision_id,
                                          spec=row["spec"], workflow=workflow)
-            subpath = f"requests/{uuid.UUID(run_id).hex}"
+            from vibecanvas_api.services.workflow_approvers import resolve_workflow_approvers
+            from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+            async with short_session_scope(tenant_id=tenant_id) as db:
+                history = WorkflowHistoryRepo(db)
+                if await history.get(run_id) is None:
+                    approvers = await resolve_workflow_approvers(
+                        db, tenant_id=tenant_id, workflow=workflow,
+                        initiator_user_id=row["spec"]["user_id"], require_explicit=True,
+                    )
+                    await history.create(
+                        execution_id=run_id, tenant_id=tenant_id, wf_id=row["spec"]["wf_id"],
+                        source_type="deployment", source_id=deployment_id,
+                        initiator_user_id=row["spec"]["user_id"], workflow=workflow,
+                        inputs=inputs, approvers=approvers, revision_id=revision_id,
+                    )
             runtime_extra = dict(extra or {})
             from vibecanvas_api.services.workflow_resources import (
                 collect_subagent_resources, prepare_execution_resources,
@@ -149,7 +247,7 @@ class DeploymentRuntime:
             if path:
                 runtime_extra["code_pythonpath"] = path
             result = await self._execute_request(session, workflow=workflow, inputs=inputs,
-                extra=runtime_extra, tenant_id=tenant_id, run_id=run_id, subpath=subpath)
+                extra=runtime_extra, tenant_id=tenant_id, run_id=run_id, wf_id=row["spec"]["wf_id"])
             return result
         finally:
             heartbeat.cancel()
@@ -175,7 +273,7 @@ class DeploymentRuntime:
                     async with short_session_scope(tenant_id=tenant_id) as db:
                         renewed = (await db.execute(text("""UPDATE deployment_invocations
                             SET execution_lease_until=now()+interval '60 seconds'
-                            WHERE id=:id AND runtime_claim=:claim AND status='running'
+                            WHERE id=:id AND runtime_claim=:claim AND status IN ('running','waiting_approval')
                             AND execution_lease_until > now() RETURNING id"""),
                             {'id': uuid.UUID(run_id), 'claim': claim})).scalar_one_or_none()
                 if renewed is None:
@@ -196,56 +294,58 @@ class DeploymentRuntime:
         outputs = (result or {}).get('final_outputs') or {}
         failed = result is None or bool(errors)
         async with short_session_scope(tenant_id=tenant_id) as db:
+            from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo, TERMINAL_STATUSES
+            history = WorkflowHistoryRepo(db)
+            execution = await history.get(run_id)
+            if execution is not None and execution["status"] not in TERMINAL_STATUSES:
+                await history.fail(run_id, error_code="execution_failed")
+                execution = await history.get(run_id)
+            terminal_status = execution["status"] if execution is not None else ("failed" if failed else "succeeded")
             await DeploymentInvocationsRepo(db).mark_terminal(
-                uuid.UUID(run_id), status='failed' if failed else 'succeeded',
+                uuid.UUID(run_id), status=terminal_status,
                 latency_ms=elapsed * 1000,
-                error='execution_failed' if failed else None,
+                error=(execution['error_code'] if execution is not None else None) or ('execution_failed' if failed else None),
                 result_summary={'output_count': len(outputs) if isinstance(outputs, dict) else 0,
                                 'error_count': len(errors) if isinstance(errors, dict) else 0},
                 runtime_claim=claim,
             )
 
-    async def _execute_request(self, session, *, workflow, inputs, extra, tenant_id, run_id, subpath):
-        started = time.perf_counter()
-        # Shield the owner of the offloaded blocking job. Cancelling to_thread
-        # alone does not stop its worker and must not release egress or files.
-        job = asyncio.create_task(session.execute_workflow_job(
-            workflow=workflow, inputs=inputs, extra=extra, tenant=tenant_id,
-            run_id=run_id, run_subpath=subpath, timeout=None, kill_individually=True,
-        ))
+    async def _execute_request(self, session, *, workflow, inputs, extra, tenant_id, run_id, wf_id):
+        from .workflow_execution_driver import WorkflowExecutionDriver
+        from vibecanvas_api.services.workflow_artifacts import persist_workflow_artifacts
+
+        if session._workflow_rpc_pool.workflow is not None and session._workflow_rpc_pool.workflow != workflow:
+            raise RuntimeError("deployment_revision_workflow_mismatch")
+        session._begin_activity()
         try:
-            try:
-                outcome = await asyncio.shield(job)
-            except asyncio.CancelledError:
-                # Signal only this request's worker, including if cancellation
-                # arrives before enqueue. Never restart the shared sandbox.
-                stop = asyncio.create_task(session.kill_workflow_job(
-                    run_id=run_id, tenant=tenant_id, run_subpath=subpath))
-                for pending in (stop, job):
-                    while not pending.done():
-                        try:
-                            await asyncio.shield(pending)
-                        except asyncio.CancelledError:
-                            continue
-                        except Exception:
-                            break
-                    # Consume failures; if signalling failed, waiting for the
-                    # original job still prevents premature instance retirement.
-                    if not pending.cancelled():
-                        pending.exception()
-                raise
-            result = outcome.get("result")
-            if not isinstance(result, dict):
-                raise RuntimeError("deployment_job_failed")
-            # Keep mounts durable while the instance stays resident.
-            await session._sync_mount_folder()
-            result.setdefault("execution_time", time.perf_counter() - started)
-            return result
+            async with session._workflow_rpc_pool.acquire(run_id) as slot:
+                async def persist_artifacts():
+                    await persist_workflow_artifacts(
+                        root=str(slot.root / "artifacts"), tenant_id=tenant_id,
+                        execution_id=run_id, wf_id=wf_id,
+                    )
+                    await session._sync_mount_folder()
+
+                async def on_event(frame):
+                    if frame["type"] not in {"approval_requested", "approval_resolved"}:
+                        return
+                    from sqlalchemy import text
+                    from vibecanvas_api.storage.db import short_session_scope
+                    # Project the durable state, not an older frame in this batch.
+                    async with short_session_scope(tenant_id=tenant_id) as db:
+                        await db.execute(text("""UPDATE deployment_invocations i
+                            SET status=h.status FROM workflow_execution_runs h
+                            WHERE i.id=:id AND h.id=i.id
+                            AND i.status IN ('running','waiting_approval')
+                            AND h.status IN ('running','waiting_approval')"""), {"id": uuid.UUID(run_id)})
+
+                driver = WorkflowExecutionDriver(
+                    tenant_id=tenant_id, execution_id=run_id, slot=slot,
+                    persist_artifacts=persist_artifacts, on_event=on_event,
+                )
+                return await driver.run(inputs=inputs, context=extra)
         finally:
-            # Request channels contain scoped broker credentials: never retain
-            # them in a resident instance after returning the result.
-            root = os.path.join(os.path.dirname(session.workflow_run_dir), subpath)
-            await asyncio.to_thread(shutil.rmtree, root, True)
+            session._end_activity()
 
     async def retire(self, tenant_id: str, revision_id: str):
         key = f"{tenant_id}:{revision_id}"

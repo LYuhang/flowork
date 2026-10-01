@@ -23,6 +23,7 @@
  *     Batch tab. The actual Execute/Cancel control lives in that tab so the
  *     run form and its lifecycle are controlled from one place.
  */
+import { useActiveHistoryExecution } from './ExecutionHistoryContext';
 import { useCallback, useRef, useState } from 'react';
 import {
   AlertCircle,
@@ -138,8 +139,9 @@ export function CanvasToolbar({
   const redo = useWorkflowEditStore((s) => s.redo);
   const applyEdit = useWorkflowEditStore((s) => s.applyEdit);
 
-  const execStatus = useExecStreamStore((s) => s.status);
-  const isRunning = execStatus === 'running';
+  const localRunning = useExecStreamStore((s) => s.wfId === wfId && s.status === 'running');
+  const activeHistory = useActiveHistoryExecution(wfId);
+  const isRunning = localRunning || activeHistory !== null;
 
   // Execute and Run Batch open the Inspector to the corresponding workflow tab;
   // run input and triggers live there. Check remains in the More menu.

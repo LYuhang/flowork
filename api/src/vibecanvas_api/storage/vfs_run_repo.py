@@ -8,7 +8,7 @@ import re
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from vibecanvas_api.security.vfs_protection import protect_vfs_abstract
@@ -101,6 +101,12 @@ class VfsRunRepo:
         follow-up). retain=True keeps everything (debug-execute)."""
         if retain:
             return
+        # Historical executions retain their artifacts with their result. This
+        # lifecycle hook is automatic cleanup, not an explicit user deletion.
+        historical = await self._s.scalar(text("""SELECT EXISTS (SELECT 1
+            FROM workflow_execution_runs WHERE id::text=:id)"""), {"id": run_id})
+        if historical:
+            return
         await self._s.execute(delete(VfsRun).where(VfsRun.run_id == run_id))
         await self._s.flush()
         self._os.delete_prefix(f"run/{self._t}/{run_id}/")   # best-effort (swallows by contract)
@@ -122,6 +128,9 @@ class VfsRunRepo:
         if not wf_id:
             return 0
         criterion = VfsRun.wf_id == wf_id
+        criterion = criterion & ~select(text("1")).select_from(text("workflow_execution_runs h")).where(
+            text("h.id::text = vfs_run.run_id")
+        ).exists()
         if except_run_id is not None:
             criterion = criterion & (VfsRun.run_id != except_run_id)
         other_runs = (await self._s.execute(

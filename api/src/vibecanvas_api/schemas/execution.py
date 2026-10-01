@@ -26,6 +26,7 @@ class NodeExecutionRequest(BaseModel):
 
 class ExecutionStatusOut(BaseModel):
     exec_id: str
+    history_id: str | None = None
     wf_id: str
     status: Literal["running", "completed", "stopped", "error"]
     started_at: float

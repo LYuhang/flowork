@@ -31,7 +31,7 @@ async def check_dependencies(session, workflow_id):
         ("deployments", "wf_id", "enabled AND deleted_at IS NULL", "enabled deployments"),
         ("task_schedules", "workflow_id", "enabled", "enabled scheduled tasks"),
         ("tasks", "workflow_id", "status IN ('queued','running','cancelling','resuming')", "active tasks"),
-        ("deployment_invocations", "wf_id", "status IN ('queued','running')", "active deployment invocations"),
+        ("deployment_invocations", "wf_id", "status IN ('queued','running','waiting_approval')", "active deployment invocations"),
         ("scheduled_run_executions", "workflow_id", "status IN ('queued','running','cancelling')", "active scheduled executions"),
         ("workflow_run_state", "wf_id", "status IN ('pending','running')", "active canvas executions"),
         # A lost heartbeat is not proof that a worker stopped. Only confirmed

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 
@@ -20,8 +22,9 @@ async def test_cancel_kills_owned_pool_and_skips_waiting_rows(monkeypatch, silen
         killed = asyncio.Event()
         pool_id = None
 
-        async def close_workflow_pool(self, *, tenant, pool_id):
+        async def close_workflow_pool(self, *, tenant, pool_id, history=False):
             assert tenant == "tenant-1" and pool_id == self.pool_id
+            assert history is True
             self.close_calls += 1
             self.killed.set()
             return {"closed": True}
@@ -61,6 +64,10 @@ async def test_cancel_kills_owned_pool_and_skips_waiting_rows(monkeypatch, silen
         return None
 
     monkeypatch.setattr(batch_runtime, "ensure_code_pythonpath", _no_dependency_layer)
+    monkeypatch.setattr(batch_runtime, "create_row_execution", AsyncMock(return_value=str(uuid4())))
+    async def observe(**kwargs):
+        return await kwargs["execute"]
+    monkeypatch.setattr(batch_runtime, "observe_row_execution", observe)
 
     result = await batch_runtime.run_batch_workflow(
         task_id="task-soft-cancel",

@@ -16,7 +16,7 @@ export function NodeCard({ nodeType, readOnly }: { nodeType: string; readOnly: b
   const addNode = useWorkflowEditStore((s) => s.addNode);
   const color = NODE_COLORS[nodeType] ?? DEFAULT_NODE_COLOR;
   const Icon = NODE_ICONS[nodeType] ?? DEFAULT_NODE_ICON;
-  const label = NODE_LABELS[nodeType] ?? nodeType;
+  const label = t(`nodes_palette.label.${nodeType}`, NODE_LABELS[nodeType] ?? nodeType);
   const desc = t(nodeDescKey(nodeType), '');
 
   const onDragStart = (e: React.DragEvent) => {

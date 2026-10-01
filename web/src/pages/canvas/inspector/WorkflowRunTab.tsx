@@ -20,6 +20,7 @@
  *      by wfId when no live stream is active. Empty state: the input form
  *      ALWAYS renders; the output region renders NOTHING until a run exists.
  */
+import { useActiveHistoryExecution } from '../ExecutionHistoryContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Square } from 'lucide-react';
@@ -244,7 +245,8 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
 
   const execStatus = useExecStreamStore((s) => s.status);
   const execWfId = useExecStreamStore((s) => s.wfId);
-  const isRunning = execWfId === wfId && execStatus === 'running';
+  const activeHistory = useActiveHistoryExecution(wfId);
+  const isRunning = (execWfId === wfId && execStatus === 'running') || activeHistory !== null;
   const startingRef = useRef(false);
   const [starting, setStarting] = useState(false);
   const isStarting = starting && !isRunning;
@@ -349,14 +351,17 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
 
   const onCancel = async () => {
     const { abortController, wfId: runningWfId } = useExecStreamStore.getState();
-    if (runningWfId !== wfId) return;
+    if (runningWfId !== wfId && !activeHistory) return;
     try {
       await cancelWorkflowExecution(wfId);
-    } catch {
-      // Best-effort server cancellation; still abort the local stream.
+    } catch (error) {
+      toast.error(errorMessage(error));
+      return;
     }
-    abortController?.abort();
-    useExecStreamStore.getState().setStatus('cancelled');
+    if (runningWfId === wfId) {
+      abortController?.abort();
+      useExecStreamStore.getState().setStatus('cancelled');
+    }
   };
 
   return (

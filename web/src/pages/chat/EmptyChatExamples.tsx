@@ -19,229 +19,59 @@ interface ExampleDefinition {
   prompt: string;
 }
 
-const EXAMPLES: Record<ExampleCategory, readonly ExampleDefinition[]> = {
-  automation: [
-    {
-      id: 'order-audit',
-      icon: '⚙️',
-      command: '/workflow',
-      titleKey: 'chat.examples.automation.orderAudit.title',
-      title: 'From request to callable API',
-      descriptionKey: 'chat.examples.automation.orderAudit.description',
-      description: 'Build an order-audit Workflow with 15 node types, test it, and deploy an API.',
-      promptKey: 'chat.examples.automation.orderAudit.prompt',
-      prompt: en['chat.examples.automation.orderAudit.prompt'],
-    },
-  ],
-  office: [
-    {
-      id: 'presentation',
-      icon: '📊',
-      command: '/document',
-      titleKey: 'chat.examples.office.presentation.title',
-      title: 'Create a presentation',
-      descriptionKey: 'chat.examples.office.presentation.description',
-      description: 'Research a topic and turn it into a polished slide deck.',
-      promptKey: 'chat.examples.office.presentation.prompt',
-      prompt: '/document Create a polished, editable 3-slide presentation introducing Flowork to a technical team. Do not browse the web; use only these facts: Flowork is an open-source server-side Agent for browser automation, Workflows, Tasks and Deployments, professional office documents and diagrams, and reusable Knowledge storage. Use slide 1 for the problem and product position, slide 2 for the capability groups, and slide 3 for a concise getting-started flow from connecting a Runtime and model source to Chat and delivery.',
-    },
-    {
-      id: 'report',
-      icon: '📝',
-      command: '/document',
-      titleKey: 'chat.examples.office.report.title',
-      title: 'Write a business report',
-      descriptionKey: 'chat.examples.office.report.description',
-      description: 'Structure evidence and recommendations into a professional report.',
-      promptKey: 'chat.examples.office.report.prompt',
-      prompt: '/document Create a polished, editable 3-page Word (DOCX) decision brief for a mid-sized customer-support team evaluating Flowork. Do not browse the web; use only these assumptions: the team handles 20,000 tickets per month, spends 35% of staff time on repetitive browser and reporting work, and requires human review before production actions. Cover the current problem, a proposed pilot using browser automation, Workflows, Tasks and Deployments, expected benefits and risks, and a 30-day rollout with measurable success criteria.',
-    },
-    {
-      id: 'spreadsheet',
-      icon: '📈',
-      command: '/document',
-      titleKey: 'chat.examples.office.spreadsheet.title',
-      title: 'Build an analysis workbook',
-      descriptionKey: 'chat.examples.office.spreadsheet.description',
-      description: 'Create a clear spreadsheet with formulas, summaries, and charts.',
-      promptKey: 'chat.examples.office.spreadsheet.prompt',
-      prompt: '/document Create a polished, editable quarterly sales workbook with exactly two sheets: Data and Summary. Use sample data for four regions across four quarters. Include validated formulas, restrained conditional formatting, and three compact charts on the Summary sheet for revenue, growth, and target attainment. Set each sheet to fit on one landscape print page for visual review.',
-    },
-  ],
-  diagram: [
-    {
-      id: 'architecture',
-      icon: '🏗️',
-      command: '/diagram',
-      titleKey: 'chat.examples.diagram.architecture.title',
-      title: 'Visualize a system architecture',
-      descriptionKey: 'chat.examples.diagram.architecture.description',
-      description: 'Show system boundaries, components, and data flows clearly.',
-      promptKey: 'chat.examples.diagram.architecture.prompt',
-      prompt: '/diagram Create a professional architecture diagram for an AI customer-support platform. Show the web app, API gateway, Agent service, model providers, knowledge retrieval, job queue, database, object storage, and observability services, including their main data flows and trust boundaries.',
-    },
-    {
-      id: 'process',
-      icon: '🧭',
-      command: '/diagram',
-      titleKey: 'chat.examples.diagram.process.title',
-      title: 'Map a business process',
-      descriptionKey: 'chat.examples.diagram.process.description',
-      description: 'Turn roles, decisions, and exceptions into an easy-to-follow flow.',
-      promptKey: 'chat.examples.diagram.process.prompt',
-      prompt: '/diagram Create a professional business process diagram for an employee expense claim. Cover submission, manager approval, finance review, policy exceptions, rejection and resubmission, payment, and employee notification, with responsibilities clearly separated by role.',
-    },
-    {
-      id: 'sequence',
-      icon: '🔁',
-      command: '/diagram',
-      titleKey: 'chat.examples.diagram.sequence.title',
-      title: 'Explain an interaction sequence',
-      descriptionKey: 'chat.examples.diagram.sequence.description',
-      description: 'Clarify how participants exchange requests, responses, and failures.',
-      promptKey: 'chat.examples.diagram.sequence.prompt',
-      prompt: '/diagram Create a professional sequence diagram for an e-commerce checkout. Include the customer, storefront, order service, inventory service, payment provider, and notification service, showing the successful path plus payment failure and inventory shortage branches.',
-    },
-  ],
-  workflow: [
-    {
-      id: 'feedback',
-      icon: '💬',
-      command: '/workflow',
-      titleKey: 'chat.examples.workflow.feedback.title',
-      title: 'Triage customer feedback',
-      descriptionKey: 'chat.examples.workflow.feedback.description',
-      description: 'Classify feedback, identify urgency, and route follow-up work.',
-      promptKey: 'chat.examples.workflow.feedback.prompt',
-      prompt: '/workflow Build a compact customer-feedback workflow that accepts feedback, detects language and sentiment, classifies topic and urgency, drafts a response, and routes critical issues for human review. Keep the workflow to 5–7 clear nodes, validate it, and publish it to the canvas; do not run it yet.',
-    },
-    {
-      id: 'research',
-      icon: '🔎',
-      command: '/workflow',
-      titleKey: 'chat.examples.workflow.research.title',
-      title: 'Produce a research digest',
-      descriptionKey: 'chat.examples.workflow.research.description',
-      description: 'Collect sources, extract findings, and publish a concise digest.',
-      promptKey: 'chat.examples.workflow.research.prompt',
-      prompt: '/workflow Build a reusable research workflow that takes a topic, searches trustworthy sources, removes duplicates, extracts key findings with citations, and produces a concise Markdown digest.',
-    },
-    {
-      id: 'invoices',
-      icon: '🧾',
-      command: '/workflow',
-      titleKey: 'chat.examples.workflow.invoices.title',
-      title: 'Process incoming invoices',
-      descriptionKey: 'chat.examples.workflow.invoices.description',
-      description: 'Extract fields, validate totals, and flag exceptions for review.',
-      promptKey: 'chat.examples.workflow.invoices.prompt',
-      prompt: '/workflow Build an invoice-processing workflow that reads uploaded invoices, extracts supplier and line-item data, validates totals and required fields, and sends exceptions to a human reviewer.',
-    },
-  ],
-  operations: [
-    {
-      id: 'batch',
-      icon: '🗂️',
-      command: '/workflow',
-      titleKey: 'chat.examples.operations.batch.title',
-      title: 'Run a workflow batch',
-      descriptionKey: 'chat.examples.operations.batch.description',
-      description: 'Apply a workflow to many records and collect structured results.',
-      promptKey: 'chat.examples.operations.batch.prompt',
-      prompt: '/workflow Build or select a customer-feedback workflow, run it against a small batch of representative feedback records, preserve row-level errors, and save successful and failed results separately.',
-    },
-    {
-      id: 'schedule',
-      icon: '🗓️',
-      command: '/task',
-      titleKey: 'chat.examples.operations.schedule.title',
-      title: 'Schedule recurring work',
-      descriptionKey: 'chat.examples.operations.schedule.description',
-      description: 'Select an existing workflow, schedule it, and retain its run history.',
-      promptKey: 'chat.examples.operations.schedule.prompt',
-      prompt: '/task From my existing workflows, select the most recently updated valid workflow whose name or description best matches a research digest. Schedule it to run every weekday at 09:00 in my current timezone, and keep each run result available for review.',
-    },
-    {
-      id: 'deploy',
-      icon: '🚀',
-      command: '/deployment',
-      titleKey: 'chat.examples.operations.deploy.title',
-      title: 'Publish a workflow API',
-      descriptionKey: 'chat.examples.operations.deploy.description',
-      description: 'Select an existing workflow and expose it through a controlled endpoint.',
-      promptKey: 'chat.examples.operations.deploy.prompt',
-      prompt: '/deployment From my existing workflows, select the most recently updated valid workflow whose name or description best matches customer feedback. Deploy it as an authenticated API endpoint, use the latest workflow version, and configure a conservative request rate limit.',
-    },
-  ],
-  skill: [
-    {
-      id: 'template', icon: '🧩', command: '/skill',
-      titleKey: 'chat.examples.skill.template.title', title: en['chat.examples.skill.template.title'],
-      descriptionKey: 'chat.examples.skill.template.description', description: en['chat.examples.skill.template.description'],
-      promptKey: 'chat.examples.skill.template.prompt', prompt: en['chat.examples.skill.template.prompt'],
-    },
-    {
-      id: 'download', icon: '📥', command: '/skill',
-      titleKey: 'chat.examples.skill.download.title', title: en['chat.examples.skill.download.title'],
-      descriptionKey: 'chat.examples.skill.download.description', description: en['chat.examples.skill.download.description'],
-      promptKey: 'chat.examples.skill.download.prompt', prompt: en['chat.examples.skill.download.prompt'],
-    },
-    {
-      id: 'update', icon: '🛠️', command: '/skill',
-      titleKey: 'chat.examples.skill.update.title', title: en['chat.examples.skill.update.title'],
-      descriptionKey: 'chat.examples.skill.update.description', description: en['chat.examples.skill.update.description'],
-      promptKey: 'chat.examples.skill.update.prompt', prompt: en['chat.examples.skill.update.prompt'],
-    },
-  ],
-  knowledge: [
-    {
-      id: 'create',
-      icon: '📚',
-      command: '/knowledge',
-      titleKey: 'chat.examples.knowledge.create.title',
-      title: 'Create a knowledge package',
-      descriptionKey: 'chat.examples.knowledge.create.description',
-      description: 'Organize reusable research into a documented file collection.',
-      promptKey: 'chat.examples.knowledge.create.prompt',
-      prompt: '/knowledge Research practical evaluation methods for Agent systems, organize the findings into a new knowledge package with a clear README and source files, and publish it to my Knowledge library.',
-    },
-    {
-      id: 'explore',
-      icon: '🧭',
-      command: '/knowledge',
-      titleKey: 'chat.examples.knowledge.explore.title',
-      title: 'Explore existing knowledge',
-      descriptionKey: 'chat.examples.knowledge.explore.description',
-      description: 'Find the right package and progressively inspect relevant files.',
-      promptKey: 'chat.examples.knowledge.explore.prompt',
-      prompt: '/knowledge Find my knowledge about Agent evaluation, read its README first, then summarize the recommended evaluation process and cite the relevant local files.',
-    },
-    {
-      id: 'update',
-      icon: '✨',
-      command: '/knowledge',
-      titleKey: 'chat.examples.knowledge.update.title',
-      title: 'Update a knowledge package',
-      descriptionKey: 'chat.examples.knowledge.update.description',
-      description: 'Add new evidence while preserving the package structure.',
-      promptKey: 'chat.examples.knowledge.update.prompt',
-      prompt: '/knowledge Find my Agent evaluation knowledge package and add recent findings and sources. If it does not exist, create it with a clear README and source-file structure first. Validate the complete package and publish the resulting version.',
-    },
-  ],
-};
+// Keep presentation grouped by user goals; prompts still activate the required tools.
+type LocaleKey = { [K in keyof typeof en]: typeof en[K] extends string ? K : never }[keyof typeof en];
+type ExampleKey = { [K in LocaleKey]: K extends `chat.examples.${infer Name}.prompt` ? `chat.examples.${Name}` : never }[LocaleKey];
+function example(id: string, icon: string, command: string, key: ExampleKey): ExampleDefinition {
+  const titleKey = `${key}.title` as LocaleKey;
+  const descriptionKey = `${key}.description` as LocaleKey;
+  const promptKey = `${key}.prompt` as LocaleKey;
+  return { id, icon, command, titleKey, title: en[titleKey],
+    descriptionKey, description: en[descriptionKey],
+    promptKey, prompt: en[promptKey] };
+}
 
 const CATEGORIES: readonly {
-  id: ExampleCategory;
-  labelKey: string;
-  label: string;
+  id: string;
+  labelKey: LocaleKey;
+  style: ExampleCategory;
+  examples: readonly ExampleDefinition[];
 }[] = [
-  { id: 'automation', labelKey: 'chat.examples.tab.automation', label: 'Automation' },
-  { id: 'office', labelKey: 'chat.examples.tab.office', label: 'Office' },
-  { id: 'diagram', labelKey: 'chat.examples.tab.diagram', label: 'Diagram' },
-  { id: 'workflow', labelKey: 'chat.examples.tab.workflow', label: 'Workflow' },
-  { id: 'operations', labelKey: 'chat.examples.tab.operations', label: 'Tasks and deployments' },
-  { id: 'skill', labelKey: 'chat.examples.tab.skill', label: en['chat.examples.tab.skill'] },
-  { id: 'knowledge', labelKey: 'chat.examples.tab.knowledge', label: 'Knowledge' },
+  { id: 'tables', labelKey: 'chat.examples.scenario.tables', style: 'office', examples: [
+    example('clean', '🧹', '/document', 'chat.examples.tables.clean'),
+    example('audit', '🧾', '/document', 'chat.examples.tables.audit'),
+    example('spreadsheet', '📈', '/document', 'chat.examples.office.spreadsheet'),
+  ] },
+  { id: 'reports', labelKey: 'chat.examples.scenario.reports', style: 'office', examples: [
+    example('report', '📝', '/document', 'chat.examples.office.report'),
+    example('presentation', '📊', '/document', 'chat.examples.office.presentation'),
+    example('weekly', '📅', '/document', 'chat.examples.reports.weekly'),
+  ] },
+  { id: 'web', labelKey: 'chat.examples.scenario.web', style: 'workflow', examples: [
+    example('compare', '⚖️', '', 'chat.examples.web.compare'),
+    example('digest', '🔎', '', 'chat.examples.web.digest'),
+    example('extract', '📋', '', 'chat.examples.web.extract'),
+  ] },
+  { id: 'automation', labelKey: 'chat.examples.scenario.automation', style: 'automation', examples: [
+    example('order-audit', '⚙️', '/workflow', 'chat.examples.automation.orderAudit'),
+    example('schedule', '🗓️', '/task', 'chat.examples.operations.schedule'),
+    example('deploy', '🚀', '/deployment', 'chat.examples.operations.deploy'),
+  ] },
+  { id: 'diagrams', labelKey: 'chat.examples.scenario.diagrams', style: 'diagram', examples: [
+    example('architecture', '🏗️', '/diagram', 'chat.examples.diagram.architecture'),
+    example('process', '🧭', '/diagram', 'chat.examples.diagram.process'),
+    example('sequence', '🔁', '/diagram', 'chat.examples.diagram.sequence'),
+  ] },
+  { id: 'knowledge', labelKey: 'chat.examples.scenario.knowledge', style: 'knowledge', examples: [
+    example('create', '📚', '/knowledge', 'chat.examples.knowledge.create'),
+    example('explore', '🧭', '/knowledge', 'chat.examples.knowledge.explore'),
+    example('update', '✨', '/knowledge', 'chat.examples.knowledge.update'),
+  ] },
+  { id: 'more', labelKey: 'chat.examples.scenario.more', style: 'skill', examples: [
+    example('template', '🧩', '/skill', 'chat.examples.skill.template'),
+    example('download', '📥', '/skill', 'chat.examples.skill.download'),
+    example('update', '🛠️', '/skill', 'chat.examples.skill.update'),
+  ] },
 ];
 
 const CATEGORY_STYLE: Record<ExampleCategory, {
@@ -311,21 +141,21 @@ export function EmptyChatExamples({
       aria-label={t('chat.examples.label', 'Start with an example')}
       data-role="empty-chat-examples"
     >
-      <Tabs defaultValue="automation">
+      <Tabs defaultValue="tables">
         <TabsList
           variant="underline"
           className="chat-scrollbar flex h-auto w-full justify-start overflow-x-auto"
         >
           {CATEGORIES.map((category) => (
             <TabsTrigger key={category.id} value={category.id} className="shrink-0">
-              {t(category.labelKey, category.label)}
+              {t(category.labelKey, en[category.labelKey])}
             </TabsTrigger>
           ))}
         </TabsList>
         {CATEGORIES.map((category) => (
           <TabsContent key={category.id} value={category.id} className="mt-3">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-2">
-              {EXAMPLES[category.id].map((example) => (
+              {category.examples.map((example) => (
                 <button
                   key={example.id}
                   type="button"
@@ -336,7 +166,7 @@ export function EmptyChatExamples({
                     'hover:-translate-y-0.5 active:translate-y-px active:shadow-sm',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2',
                     'motion-reduce:transform-none motion-reduce:transition-none',
-                    CATEGORY_STYLE[category.id].card,
+                    CATEGORY_STYLE[category.style].card,
                   )}
                   onClick={() => onSelect(t(example.promptKey, {
                     defaultValue: example.prompt,
@@ -352,19 +182,19 @@ export function EmptyChatExamples({
                         'grid size-11 shrink-0 place-items-center rounded-xl border text-[1.35rem] leading-none',
                         'shadow-[0_5px_12px_-7px_currentColor,inset_0_1px_0_rgba(255,255,255,0.9)]',
                         'transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:scale-[1.04] motion-reduce:transform-none motion-reduce:transition-none',
-                        CATEGORY_STYLE[category.id].icon,
+                        CATEGORY_STYLE[category.style].icon,
                       )}
                     >
                       {example.icon}
                     </span>
-                    <span
+                    {example.command && <span
                       className={cn(
                         'rounded-full border px-2 py-1 font-mono text-xs font-medium tracking-tight',
-                        CATEGORY_STYLE[category.id].command,
+                        CATEGORY_STYLE[category.style].command,
                       )}
                     >
                       {example.command}
-                    </span>
+                    </span>}
                   </span>
                   <span className="text-ui mt-3 block break-words font-semibold text-content-primary">
                     {t(example.titleKey, example.title)}
@@ -375,7 +205,7 @@ export function EmptyChatExamples({
                   <span
                     className={cn(
                       'mt-3 inline-flex items-center gap-1 text-xs font-medium',
-                      CATEGORY_STYLE[category.id].action,
+                      CATEGORY_STYLE[category.style].action,
                     )}
                   >
                     {t('chat.examples.use', 'Use this example')}

@@ -115,7 +115,11 @@ continue the graph; use a ConditionNode to route downstream work.
 Every visit creates an independent approval, including loop iterations. Waiting
 retains execution capacity. A deployment call that reaches an approval returns
 HTTP 202 with `invocation_id`, its compatibility alias `task_id`, and a
-`Location`/`result_url`. Calls that take another branch can still complete
+`Location`/`status_url`. `result_url` remains an alias for existing clients.
+Tickets also include `async_reason` and `poll_after_seconds`; the latter equals
+the `Retry-After` header (3 seconds). Reasons are `human_approval`,
+`http_wait_timeout`, `explicit_async`, and `dispatch_pending` (an admitted call
+whose dispatch outcome still needs observation). Calls that take another branch can still complete
 synchronously. The notification hook is currently a placeholder; review takes
 place in the execution detail page linked from the deployment's Activity log.
 The page shows the frozen graph and node results without granting graph-edit
@@ -142,8 +146,23 @@ Query `GET /api/v1/deployments/{slug}/runs/{invocation_id}` using the current
 deployment API key. Query HTTP 200 means the lookup succeeded; inspect `status`
 for `queued`, `running`, `waiting_approval`, `succeeded`, `failed`, `timed_out` or
 `cancelled`. External results contain final EndNode outputs and safe errors;
-internal graph data, node outputs and tracebacks belong to the authorized
+`outputs` contains the EndNode business fields directly, without an `__end__`
+wrapper. Successful queries include `error: null`; failed executions include
+`error: {"code": "..."}`. The `error_code` and `errors` fields remain aliases for
+compatibility. Internal graph data, node outputs and tracebacks belong to the authorized
 execution detail view. Key rotation applies to queries of existing results too.
+
+Public admission errors use the same `error.code` envelope. Codes distinguish
+`rate_limit_exceeded`, `concurrency_limit_exceeded`, `executor_unavailable`,
+`deployment_not_ready`, `invalid_input`, `internal_error`, and
+`idempotency_conflict`. Execution failures use `execution_failed`; active budget
+expiry uses `execution_timeout`. Internal storage codes are translated at the
+HTTP boundary. Errors never include dependency exception messages or raw input.
+
+Batch Tasks create execution history only after an input obtains a worker and
+starts execution. Inputs still waiting for a worker have no execution log or
+detail link. Approval waiting retains that worker, while other free workers
+can continue processing inputs.
 
 For retryable submissions, supply `Idempotency-Key` (1–256 visible ASCII
 characters). Reuse the same key and input for one logical call across `/invoke`

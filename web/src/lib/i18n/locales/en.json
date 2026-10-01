@@ -3724,5 +3724,8 @@
   "chat.examples.tables.audit.prompt": "/document Check the order spreadsheet I upload. Confirm the meaning of quantity, unit price, discount, tax, and total fields, then verify amounts using formulas or code. Ask about missing business rules instead of assuming them. Preserve the source data and return an editable Excel workbook with exceptions, calculations, and a summary. Do not modify external systems. If no file is attached, ask me to upload one.",
   "chat.examples.reports.weekly.title": "Write a weekly update",
   "chat.examples.reports.weekly.description": "Turn work notes into progress, blockers, and next steps.",
-  "chat.examples.reports.weekly.prompt": "/document Turn the work notes I provide into an editable Word weekly report covering progress, completed work, risks and blockers, and next steps. Preserve key facts and sources. Do not invent progress or numbers; mark missing information clearly. If I have not provided notes, ask me to paste them or upload a file."
+  "chat.examples.reports.weekly.prompt": "/document Turn the work notes I provide into an editable Word weekly report covering progress, completed work, risks and blockers, and next steps. Preserve key facts and sources. Do not invent progress or numbers; mark missing information clearly. If I have not provided notes, ask me to paste them or upload a file.",
+  "execution.failure.generic": "Execution failed. See the recorded node results for details.",
+  "execution.failure.execution_lost": "Execution interrupted: the sandbox or execution process stopped.",
+  "execution.failure.execution_resume_failed": "Execution stopped because its original permissions could not be revalidated."
 }

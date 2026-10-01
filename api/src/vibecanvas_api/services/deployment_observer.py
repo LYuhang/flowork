@@ -45,7 +45,7 @@ async def observe_invocation(*, tenant_id: str, slug: str, invocation_id: str, d
             # Even an immediately resolved approval switches this particular
             # call to the asynchronous contract. Other calls stay synchronous.
             if encountered_approval:
-                return accepted_response(slug=slug, invocation_id=invocation_id, state=run["status"])
+                return accepted_response(slug=slug, invocation_id=invocation_id, state=run["status"], async_reason="human_approval")
             if run["status"] in TERMINAL_STATUSES:
                 return sync_result_response(await history.result_detail(invocation_id))
             state = run["status"]
@@ -53,5 +53,6 @@ async def observe_invocation(*, tenant_id: str, slug: str, invocation_id: str, d
         if remaining <= 0 or dispatch_finished_before_read:
             # A lost transport is not proof of execution loss. The sandbox owner
             # continues finalization; the same ticket remains queryable.
-            return accepted_response(slug=slug, invocation_id=invocation_id, state=state)
+            return accepted_response(slug=slug, invocation_id=invocation_id, state=state,
+                                     async_reason="http_wait_timeout" if remaining <= 0 else "dispatch_pending")
         await asyncio.wait({dispatch}, timeout=min(0.1, remaining))

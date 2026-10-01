@@ -29,6 +29,7 @@ export interface ExecutionDetail {
   source_id: string;
   status: ExecutionStatus;
   last_seq: number;
+  error_code?: string | null;
   server_time: string;
   received_at: number;
   workflow: WorkflowDraft;

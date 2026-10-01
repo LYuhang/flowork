@@ -31,6 +31,9 @@ import en from '@/lib/i18n/locales/en.json';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { NODE_LABELS } from '../NODE_TYPES';
+import { ExecutionHistoryContext } from '../../ExecutionHistoryContext';
+import { WorkflowSnapshotContext } from '../../WorkflowSnapshotContext';
+import type { ExecutionDetail, ExecutionStatus } from '@/lib/api/queries/workflow-history';
 
 // NOTE: this @xyflow/react mock is byte-identical to the one in
 // canvas-feedback.test.tsx. Under vitest `isolate:false` sibling files share
@@ -94,6 +97,32 @@ function renderNode(data: Record<string, unknown>, id = 'node_1') {
     </I18nextProvider>,
   );
 }
+
+describe('CustomNode — terminal execution history', () => {
+  afterEach(cleanup);
+  it.each(['failed', 'timed_out', 'cancelled'] as ExecutionStatus[])(
+    'stops the running indicator when the execution becomes %s without a final node event', (status) => {
+      const detail: ExecutionDetail = {
+        id: 'execution', wf_id: 'workflow', source_type: 'workflow', source_id: 'workflow',
+        status: 'running', last_seq: 1, server_time: new Date().toISOString(), received_at: Date.now(),
+        workflow: {}, inputs: {}, approvals: [], result: null,
+      };
+      const view = (run: ExecutionDetail) => <I18nextProvider i18n={testI18n}>
+        <WorkflowSnapshotContext.Provider value={run.workflow}>
+          <ExecutionHistoryContext.Provider value={{ detail: run, latestNodeEvents: {
+            node_1: { seq: 1, type: 'node_event', node_id: 'node_1', status: 'running' },
+          } }}>
+            <Node data={{ node_type: 'CodeNode', node_name: 'work' }} id="node_1" />
+          </ExecutionHistoryContext.Provider>
+        </WorkflowSnapshotContext.Provider>
+      </I18nextProvider>;
+      const rendered = render(view(detail));
+      expect(document.querySelector('[data-exec-indicator="running"]')).not.toBeNull();
+      rendered.rerender(view({ ...detail, status }));
+      expect(document.querySelector('[data-exec-indicator="running"]')).toBeNull();
+    },
+  );
+});
 
 describe('CustomNode — output preview wiring for every node type', () => {
   beforeEach(() => useExecStreamStore.getState().reset());

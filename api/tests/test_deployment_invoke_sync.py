@@ -479,7 +479,7 @@ async def test_invoke_honors_pinned_version_not_head(
     assert isinstance(result, dict), (
         f"expected dict (success path), got {type(result).__name__}: {result}"
     )
-    end_out = result["outputs"]["__end__"]["out"]
+    end_out = result["outputs"]["out"]
     assert end_out == 21, (
         f"deployment pinned to v1 (x*1) must run v1 → 21, but got {end_out}. "
         f"A value of 21000 means the runner silently ran the HEAD version "

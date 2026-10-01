@@ -30,7 +30,7 @@ def test_external_result_excludes_internal_outputs_and_raw_errors(state, code):
     }
     payload = external_result(detail)
     assert "private" not in json.dumps(payload)
-    assert payload["outputs"] == {"__end__": {"answer": 42}}
+    assert payload["outputs"] == {"answer": 42}
     assert payload["exec_time_ms"] == 1250
     response = sync_result_response(detail)
     assert (200 if isinstance(response, dict) else response.status_code) == code
@@ -108,7 +108,7 @@ async def test_http_wait_returns_ticket_without_cancelling_dispatch(pg_engine, m
             invocation_id=invocation,
             dispatch=task,
         )
-        assert result["outputs"] == {"__end__": {"value": 7}}
+        assert result["outputs"] == {"value": 7}
     finally:
         finish.set()
         await task

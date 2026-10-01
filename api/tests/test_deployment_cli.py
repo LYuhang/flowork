@@ -55,7 +55,7 @@ def test_credential_format_is_discoverable_without_reading_secrets(action, capsy
     assert "only api_key as the Bearer token" in help_text
     assert "hmac_secret" in help_text
     assert "do not wrap it in an inputs property" in help_text
-    assert "outputs.__end__" in help_text
+    assert "outputs" in help_text
 
 
 def test_symlink_rejected_before_dispatch(tmp_path, monkeypatch):
@@ -138,13 +138,13 @@ def test_run_inputs_file_preserves_json_types(tmp_path, monkeypatch, capsys):
     payload = {"text": "hello", "count": 2, "enabled": False, "items": [1, None], "object": {"x": "y"}}
     inputs = tmp_path / "inputs.json"
     inputs.write_text(json.dumps(payload))
-    request = Mock(return_value={"status": "succeeded", "outputs": {"__end__": payload}})
+    request = Mock(return_value={"status": "succeeded", "outputs": payload})
     monkeypatch.setattr(cli, "request", request)
     target = str(uuid4())
     assert cli.main(["deployment", "run", "--deployment_id", target,
         "--inputs_file", str(inputs)], socket_path="test") == 0
     assert request.call_args.args[1] == {"deployment_id": target, "inputs": payload}
-    assert json.loads(capsys.readouterr().out)["outputs"]["__end__"] == payload
+    assert json.loads(capsys.readouterr().out)["outputs"] == payload
 
 
 @pytest.mark.parametrize("content", ["[]", "null", "not json"])

@@ -23,15 +23,15 @@ def webhook_result_location(slug: str, invocation_id: str) -> str:
 def external_result(detail: dict) -> dict:
     state = detail["status"]
     result = detail.get("result") or {}
-    payload = {"invocation_id": str(detail["id"]), "status": state}
+    payload = {"invocation_id": str(detail["id"]), "status": state, "error": None}
     if state not in TERMINAL_STATUSES:
         return payload
     payload["exec_time_ms"] = float(result.get("execution_time") or 0) * 1000
     outputs = result.get("final_outputs") or {}
-    payload["outputs"] = {"__end__": outputs["__end__"]} if "__end__" in outputs else {}
+    payload["outputs"] = outputs.get("__end__", {})
     if state != "succeeded":
         code = {
-            "timed_out": "execution_timed_out",
+            "timed_out": "execution_timeout",
             "cancelled": "execution_cancelled",
         }.get(state, "execution_failed")
         if detail.get("error_code") in {
@@ -42,16 +42,19 @@ def external_result(detail: dict) -> dict:
             "execution_resume_failed",
         }:
             code = detail["error_code"]
-        payload.update(error_code=code, errors={"__top__": code})
+        code = {"execution_dispatch_failed": "internal_error", "execution_unavailable": "executor_unavailable",
+                "execution_quota_exceeded": "concurrency_limit_exceeded"}.get(code, code)
+        payload.update(error={"code": code}, error_code=code, errors={"__top__": code})
     return payload
 
 
-def accepted_response(*, slug: str, invocation_id: str, state: str = "queued", webhook: bool = False) -> JSONResponse:
+def accepted_response(*, slug: str, invocation_id: str, state: str = "queued", webhook: bool = False, async_reason: str = "explicit_async") -> JSONResponse:
     location = (webhook_result_location if webhook else result_location)(slug, invocation_id)
     return JSONResponse(
         status_code=202,
-        headers={"Location": location, "Retry-After": "1"},
-        content={"invocation_id": invocation_id, "task_id": invocation_id, "status": state, "result_url": location},
+        headers={"Location": location, "Retry-After": "3"},
+        content={"invocation_id": invocation_id, "task_id": invocation_id, "status": state,
+                 "status_url": location, "result_url": location, "async_reason": async_reason, "poll_after_seconds": 3},
     )
 
 
@@ -75,6 +78,7 @@ def session_invocation_response(response):
         execution_id=execution_id,
         execution_url=f"/workflow-executions/{execution_id}",
         result_url=location,
+        status_url=location,
     )
     if isinstance(response, JSONResponse):
         headers = {"Location": location}

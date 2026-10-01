@@ -8,6 +8,7 @@ import { WorkflowGraph, workflowDictToNodesEdges } from './WorkflowGraph';
 import { WorkflowSnapshotContext } from './WorkflowSnapshotContext';
 import { ExecutionHistoryContext } from './ExecutionHistoryContext';
 import { NodeJsonPreview } from './nodes/NodeJsonPreview';
+import { historicalNodeStatus } from './execution-state';
 import { autoLayout } from './auto-layout';
 
 export function ExecutionDetailPage() {
@@ -42,6 +43,7 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
         <div className="min-w-0">
           <h1 className="text-base font-semibold">{t('execution.detail')} · {t(`execution.status.${detail.status}`)}</h1>
           <p className="text-xs text-content-secondary">{t('execution.readOnly')}</p>
+          {detail.error_code && <p role="alert" className="text-sm text-state-danger">{t(`execution.failure.${detail.error_code}`, { defaultValue: t('execution.failure.generic') })}</p>}
           <p className="break-all font-mono text-xs text-content-tertiary">{detail.id}</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => { void detailQuery.refetch(); void eventsQuery.refetch(); }}>{t('execution.refresh')}</Button>
@@ -65,12 +67,14 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
           <h2 className="mb-3 text-sm font-medium">{t('execution.inputs')}</h2>
           <div className="mb-4"><NodeJsonPreview value={detail.inputs} /></div>
           <h2 className="mb-3 text-sm font-medium">{t('execution.nodeDetails')}{selected ? ` · ${selected}` : ''}</h2>
-          {selected ? selectedEvents.map((event) => <div key={event.seq} className="mb-3 border-b border-edge-structural pb-3">
-            <p className="mb-2 text-xs text-content-secondary">{t(`execution.status.${event.status === 'success' ? 'succeeded' : event.status === 'error' ? 'failed' : 'running'}`)}</p>
+          {selected ? selectedEvents.map((event) => {
+            const status = event.seq === latestNodeEvents[selected]?.seq ? historicalNodeStatus(event.status, detail.status) : event.status;
+            return <div key={event.seq} className="mb-3 border-b border-edge-structural pb-3">
+            <p className="mb-2 text-xs text-content-secondary">{t(`execution.status.${status === 'success' ? 'succeeded' : status === 'error' ? 'failed' : status === 'cancelled' ? 'cancelled' : 'running'}`)}</p>
             {event.inputs !== undefined && <NodeJsonPreview value={{ inputs: event.inputs }} />}
             {event.output !== undefined && <NodeJsonPreview value={{ output: event.output }} />}
             {event.error_message && <p role="alert" className="break-words text-xs text-state-danger">{event.error_message}</p>}
-          </div>)
+          </div>; })
             : <p className="text-sm text-content-secondary">{t('execution.noNodeSelected')}</p>}
         </aside>
       </div>

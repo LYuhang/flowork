@@ -153,6 +153,10 @@ export interface TestInvokeResponse {
   execution_id: string;
   execution_url: string;
   result_url: string;
+  status_url?: string;
+  async_reason?: string;
+  poll_after_seconds?: number;
+  error?: { code: string } | null;
   status: string;
   outputs?: unknown;
   errors?: unknown;

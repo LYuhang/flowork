@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from vibecanvas_api.services.deployment_completion import complete_before_cancelling
 from vibecanvas_api.services.deployment_idempotency import claim_invocation, replay_response
+from vibecanvas_api.services.deployment_http import DeploymentPublicRoute
 
 import hashlib
 import uuid
@@ -41,6 +42,7 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/deployments", tags=["deployments-invoke"],
+    route_class=DeploymentPublicRoute,
 )
 
 _WEBHOOK_MAX_BODY_BYTES = 1_048_576

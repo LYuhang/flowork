@@ -21,7 +21,7 @@ _CREDENTIAL_FILE_HELP = (
     "Content-Type: application/json; do not wrap it in an inputs property. "
     "For example, --inputs '{\"batch_id\":\"example\",\"orders\":[]}' becomes "
     "the HTTP body {\"batch_id\":\"example\",\"orders\":[]}. "
-    "The response contains outputs keyed by node_name; final values are in outputs.__end__."
+    "The response contains final EndNode business values directly in outputs."
 )
 
 

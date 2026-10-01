@@ -64,4 +64,5 @@ async def replay_response(session, *, slug: str, invocation_id, asynchronous: bo
     )
     if not asynchronous and not encountered_approval and run["status"] in TERMINAL_STATUSES:
         return sync_result_response(await history.result_detail(str(invocation_id)))
-    return accepted_response(slug=slug, invocation_id=str(invocation_id), state=run["status"])
+    return accepted_response(slug=slug, invocation_id=str(invocation_id), state=run["status"],
+                             async_reason="explicit_async" if asynchronous else "human_approval" if encountered_approval else "dispatch_pending")

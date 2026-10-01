@@ -72,7 +72,7 @@ node/task execution evidence when auditing SubAgent behavior.
 The script checks that missing credentials return HTTP 401, then sends three
 requests sequentially. The request body is the StartNode input object directly,
 for example `{"batch_id":"example","orders":[]}`. Do **not** wrap it in
-`{"inputs": ...}`. Final values are in `response.outputs.__end__`.
+`{"inputs": ...}`. Final values are in `response.outputs`.
 
 | Case | Accepted / duplicate / rejected | Subtotal | Discount | Total | Route |
 | --- | --- | --- | --- | --- | --- |
@@ -113,7 +113,7 @@ diagnosis; the script does not silently retry or coach the Agent.
    paths, unresolved placeholders, traversal and symlink escapes are rejected.
 2. **External request body ambiguity:** deployment CLI help, returned credential
    hints and Agent guidance now specify the raw StartNode object, the JSON
-   credential's `api_key`, and the `outputs.__end__` result shape.
+   credential's `api_key`, and the `outputs` result shape.
 
 A passing run establishes this scenario on the tested configuration. It does
 not guarantee that every model or arbitrary Workflow will succeed unattended.

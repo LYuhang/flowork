@@ -1,3 +1,4 @@
+import { historicalNodeStatus } from '../execution-state';
 /* eslint-disable react-refresh/only-export-components -- The node renderer owns shared handle geometry used by the canvas projection. */
 /**
  * Generic per-node renderer used for ALL 14 (currently 15) workflow node
@@ -182,7 +183,8 @@ function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
   // card). The error message is pulled lazily — only when the node is in the
   // error state — to keep the selector output a primitive string.
   const execStatusRaw = useExecStreamStore((s) => snapshot ? undefined : s.perNode[id]?.status);
-  const historicalStatus = historicalEvent?.status === 'success' ? 'completed' : historicalEvent?.status;
+  const recordedStatus = history ? historicalNodeStatus(historicalEvent?.status, history.detail.status) : undefined;
+  const historicalStatus = recordedStatus === 'success' ? 'completed' : recordedStatus;
   const execState = narrowExecState(useHistoricalResult ? historicalStatus : execStatusRaw);
   const liveError = useExecStreamStore((s) =>
     execState === 'error' ? s.perNode[id]?.error : undefined,

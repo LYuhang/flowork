@@ -538,7 +538,7 @@ async def test_webhook_result_signature_is_bound_to_method_and_execution(pg_engi
             "X-Vibecanvas-Timestamp": stamp, "X-Vibecanvas-Signature": sig,
         }, body=b""))
 
-    assert await query() == {"invocation_id": str(inv), "status": "queued"}
+    assert await query() == {"invocation_id": str(inv), "status": "queued", "error": None}
     for kwargs in ({"sig": post_signature}, {"target": uuid.uuid4()},
                    {"sig": "sha256=invalid"}, {"stamp": "0"}):
         with pytest.raises(HTTPException) as error:

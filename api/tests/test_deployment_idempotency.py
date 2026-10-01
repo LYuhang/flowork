@@ -88,7 +88,7 @@ async def test_retry_reuses_live_and_finished_invocation_and_rejects_changed_inp
         await asyncio.wait_for(finished.wait(), 5)
         completed = await routes.invoke_sync(**args)
         assert payload(completed)["status"] == "succeeded"
-        assert payload(completed)["outputs"] == {"__end__": {"y": 7}}
+        assert payload(completed)["outputs"] == {"y": 7}
         assert len(dispatched) == 1
         async with session_scope(tenant_id=str(tenant)) as session:
             assert (

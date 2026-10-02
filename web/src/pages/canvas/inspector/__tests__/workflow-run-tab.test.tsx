@@ -16,11 +16,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import i18n from 'i18next';
 
-const { streamExecutionMock, getWorkflowExecutionStatus, readVfsRunMock } = vi.hoisted(
+const { streamExecutionMock, getWorkflowExecutionStatus, readVfsRunMock, checkWorkflowResumeMock } = vi.hoisted(
   () => ({
     streamExecutionMock: vi.fn((..._a: unknown[]) => Promise.resolve()),
     getWorkflowExecutionStatus: vi.fn(),
     readVfsRunMock: vi.fn(),
+    checkWorkflowResumeMock: vi.fn(),
   }),
 );
 
@@ -29,6 +30,7 @@ vi.mock('@/lib/api/sse/exec-stream', () => ({
 }));
 vi.mock('@/lib/api/executions', () => ({
   getWorkflowExecutionStatus: (...a: unknown[]) => getWorkflowExecutionStatus(...a),
+  checkWorkflowResume: (...a: unknown[]) => checkWorkflowResumeMock(...a),
   cancelWorkflowExecution: vi.fn(() => Promise.resolve()),
 }));
 vi.mock('@/lib/api/vfs', async (importOriginal) => ({
@@ -81,6 +83,8 @@ function renderTab(history: ExecutionHistoryValue | null = null) {
 describe('WorkflowRunTab', () => {
   beforeEach(() => {
     streamExecutionMock.mockClear();
+    checkWorkflowResumeMock.mockReset();
+    checkWorkflowResumeMock.mockResolvedValue({ eligible: false, resume_from: null, reason: "no_failure" });
     vi.mocked(cancelWorkflowExecution).mockClear();
     getWorkflowExecutionStatus.mockReset();
     getWorkflowExecutionStatus.mockResolvedValue(null);
@@ -108,6 +112,53 @@ describe('WorkflowRunTab', () => {
     delete (globalThis as unknown as { __mockReadVfsRun?: typeof readVfsRunMock })
       .__mockReadVfsRun;
     cleanup();
+  });
+
+  it('restores original raw inputs from whole-workflow history after reload', async () => {
+    useWorkflowEditStore.getState().setDraft(startWith({ count: { type: 'integer', value: 0 } }));
+    checkWorkflowResumeMock.mockImplementation((_wf, _draft, input) => Promise.resolve({
+      eligible: input.count === '12', resume_from: input.count === '12' ? 'failed-id' : null,
+      reason: input.count === '12' ? null : 'inputs_changed', previous_inputs: { count: '12' },
+    }));
+    renderTab();
+    await waitFor(() => expect(screen.getByTestId('workflow-resume-checkbox')).toBeEnabled());
+    expect(useExecStreamStore.getState().inputsByWorkflow.wf_1).toEqual({ count: '12' });
+  });
+
+  it('resumes only when explicitly checked and disables immediately on edits', async () => {
+    useWorkflowEditStore.getState().setDraft(startWith({ query: { type: 'string', value: '' } }));
+    checkWorkflowResumeMock.mockResolvedValue({ eligible: true, resume_from: 'failed-id', reason: null });
+    renderTab();
+    const checkbox = screen.getByTestId('workflow-resume-checkbox');
+    await waitFor(() => expect(checkbox).toBeEnabled());
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Execute' }));
+    await waitFor(() => expect(streamExecutionMock).toHaveBeenCalledWith(expect.objectContaining({ resumeFrom: 'failed-id' })));
+  });
+
+  it('unchecks and disables resume after input or workflow changes', async () => {
+    useWorkflowEditStore.getState().setDraft(startWith({ query: { type: 'string', value: '' } }));
+    checkWorkflowResumeMock.mockImplementation((_wf, _draft, input) => Promise.resolve(
+      input.query ? { eligible: false, resume_from: null, reason: 'inputs_changed' }
+        : { eligible: true, resume_from: 'failed-id', reason: null },
+    ));
+    renderTab();
+    const checkbox = screen.getByTestId('workflow-resume-checkbox');
+    await waitFor(() => expect(checkbox).toBeEnabled());
+    fireEvent.click(checkbox);
+    fireEvent.change(screen.getByTestId('exec-field-query').querySelector('input,textarea')!, { target: { value: 'changed' } });
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).not.toBeChecked();
+    await waitFor(() => expect(screen.getByTestId('workflow-resume-hint')).toHaveTextContent('Inputs changed'));
+    fireEvent.change(screen.getByTestId('exec-field-query').querySelector('input,textarea')!, { target: { value: '' } });
+    await waitFor(() => expect(checkbox).toBeEnabled());
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    act(() => useWorkflowEditStore.setState({ dirty: true }));
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).not.toBeChecked();
   });
 
   it('restores cancellation after reload without starting a second execution', async () => {

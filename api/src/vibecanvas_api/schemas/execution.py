@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from uuid import UUID
 from pydantic import BaseModel, Field
 
 
 class ExecutionRequest(BaseModel):
+    input: dict[str, Any] = Field(default_factory=dict)
+    resume_from: UUID | None = None
+
+
+class ResumeCheckRequest(BaseModel):
+    workflow: dict[str, Any]
     input: dict[str, Any] = Field(default_factory=dict)
 
 

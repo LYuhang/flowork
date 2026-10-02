@@ -88,3 +88,23 @@ export async function cancelExecution(execId: string): Promise<void> {
     );
   }
 }
+
+
+export interface WorkflowResumeCheck {
+  previous_inputs: Record<string, unknown> | null;
+  eligible: boolean;
+  resume_from: string | null;
+  reason: 'no_failure' | 'workflow_changed' | 'inputs_changed' | null;
+}
+
+export async function checkWorkflowResume(
+  wfId: string, workflow: unknown, input: Record<string, unknown>, signal?: AbortSignal,
+): Promise<WorkflowResumeCheck> {
+  const resp = await authedFetch(
+    `/api/v1/workflows/${encodeURIComponent(wfId)}/execution/resume-check`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflow, input }), signal },
+  );
+  if (!resp.ok) throw new Error(`checkWorkflowResume failed: ${resp.status}`);
+  return await resp.json() as WorkflowResumeCheck;
+}

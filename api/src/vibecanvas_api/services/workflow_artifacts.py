@@ -56,3 +56,34 @@ async def persist_workflow_artifacts(*, root: str, tenant_id: str, execution_id:
                 )
     finally:
         iterator.close()
+
+
+async def restore_workflow_artifacts(*, root, tenant_id: str, execution_id: str) -> None:
+    """Hydrate a new, unused slot before invoking any untrusted workflow code.
+
+    The caller must authorize the historical execution before entering here.
+    O_EXCL and O_NOFOLLOW also reject collisions and links; an incomplete copy
+    fails admission instead of running with missing artifacts.
+    """
+    from pathlib import Path, PurePosixPath
+
+    root = Path(root)
+    async with short_session_scope(tenant_id=tenant_id) as session:
+        files = await VfsRunRepo(session, get_object_store(), tenant_id).ls(run_id=execution_id)
+    for entry in files:
+        path = PurePosixPath(entry.path)
+        if not entry.path.startswith("/run/") or ".." in path.parts or "\x00" in entry.path:
+            raise ValueError("invalid_workflow_artifact_path")
+        relative = path.relative_to("/run")
+        parent = root
+        for part in relative.parts[:-1]:
+            parent = parent / part
+            parent.mkdir(exist_ok=True, mode=0o700)
+            if parent.is_symlink():
+                raise ValueError("invalid_workflow_artifact_link")
+        async with short_session_scope(tenant_id=tenant_id) as session:
+            data = await VfsRunRepo(session, get_object_store(), tenant_id).read_bytes(
+                run_id=execution_id, path=entry.path)
+        fd = os.open(root / relative, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as file:
+            file.write(data)

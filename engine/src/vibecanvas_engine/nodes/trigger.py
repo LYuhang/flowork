@@ -25,6 +25,7 @@ import uuid
 from copy import deepcopy
 
 from ..utils import scoped_recursive_get, walk_to_scope
+from ..resume import CONTROL_NODES, visit_key
 from .exec import dispatch_node_call
 
 
@@ -189,7 +190,16 @@ async def trigger(self, previous_outputs: dict, extra: dict, workflow_inputs: di
             # Per-node execution dispatch (CodeNode async / thread-bridge /
             # plain sync) — extracted to nodes/exec.py so the agent's run_node
             # shares the exact same dispatch logic.
-            call_result = await dispatch_node_call(current, inputs, previous_outputs, extra=extra)
+            cached = extra.get("workflow_resume_visits", {}).get(visit_key(current.node_id, loop_stack))
+            if cached is not None and current.node_type not in CONTROL_NODES:
+                # A graph/input mismatch must fail closed, never silently repeat
+                # side effects from a successful visit.
+                if cached["inputs"] != inputs:
+                    raise ValueError("workflow_resume_inputs_mismatch")
+                call_result = {"status": "success", "output": deepcopy(cached["output"]),
+                               "error_message": "", "execution_time": 0.0, "reused": True}
+            else:
+                call_result = await dispatch_node_call(current, inputs, previous_outputs, extra=extra)
             if call_result.get("status") == "error":
                 call_result.pop("traceback")
                 call_result["inputs"] = deepcopy(inputs)

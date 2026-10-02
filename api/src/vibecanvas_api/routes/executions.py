@@ -30,7 +30,7 @@ from ..authorization.stream_guard import authorization_lease_is_valid
 from ..authorization.types import Action, ResourceRef, ResourceType
 from ..schemas.execution import (
     ExecutionListItem, ExecutionRequest, ExecutionStatusOut,
-    NodeExecutionRequest,
+    NodeExecutionRequest, ResumeCheckRequest,
 )
 from ..services.node_results import (
     persist_node_frame_payload, write_node_result,
@@ -41,6 +41,7 @@ from ..services.workflow_sandbox_runner import (
     prepare_code_pythonpath,
 )
 from ..services.workflow_execution_history import create_execution
+from ..services.workflow_retry import latest_workflow_run, retry_reason
 from ..services.workflow_history_runner import execute_history_workflow, stream_history_workflow
 from ..storage.workflow_history_repo import WorkflowHistoryRepo, TERMINAL_STATUSES
 from ..services.llm_credentials_inject import inject_into_run_context_async
@@ -444,9 +445,9 @@ async def _produce_execution_sandbox(
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run a workflow execution through the workflow's resident sandbox session.
 
-    The in-memory execution id is only for cancel/status. The sandbox run VFS is fixed at
-    ``run_id == wf_id`` so the workflow has one stable ``/run`` mount; interactive
-    workflow runs clear that mount before starting.
+    Each execution has an isolated artifact directory and immutable history.
+    Ordinary runs clear the workflow's debug projection; explicit retries also
+    hydrate the new slot from the authorized previous execution's artifacts.
     """
     # Validate buildability on the host FIRST (a malformed wf shouldn't reach the
     # sandbox launch) — mirrors the in-process ``Workflow(...)`` construction.
@@ -475,17 +476,18 @@ async def _produce_execution_sandbox(
         # staging and mount resolution happen inside sandboxd over the session
         # RPC.  Do not couple an API worker to sandboxd's local filesystem.
         clear_owned_run = getattr(session, "clear_workflow_run", None)
-        if clear_owned_run is not None:
-            await clear_owned_run()
-        else:
-            await clear_run_contents(workflow_run_id, tenant_id)
+        if body.resume_from is None:
+            if clear_owned_run is not None:
+                await clear_owned_run()
+            else:
+                await clear_run_contents(workflow_run_id, tenant_id)
         logger.warning(
             "workflow_execution_stage",
             stage="workflow_run_prepare_done",
             wf_id=wf_id,
             exec_id=exec_id,
             workflow_run_id=workflow_run_id,
-            clear_run=True,
+            clear_run=body.resume_from is None,
             elapsed_ms=int((time.perf_counter() - stage_started) * 1000),
         )
         # Inject the saved-credential mapping into the fixed workflow run tier so
@@ -508,6 +510,8 @@ async def _produce_execution_sandbox(
         )
         if resources:
             _cred_rc["workflow_resources"] = resources
+        if body.resume_from is not None:
+            _cred_rc["_workflow_resume_from"] = str(body.resume_from)
         _creds = _cred_rc.get("llm_credentials")
         logger.warning(
             "workflow_execution_stage",
@@ -920,6 +924,22 @@ async def _produce_execution(
         stop_registry.discard(exec_id)
 
 
+@router.post("/workflows/{wf_id}/execution/resume-check")
+async def check_workflow_resume(
+    wf_id: str, body: ResumeCheckRequest, request: Request,
+    ctx: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_workflow_action(request=request, auth=ctx, service=service,
+                                   wf_id=wf_id, action=Action.EXECUTE)
+    async with session_scope(tenant_id=ctx.tenant_id) as session:
+        detail = await latest_workflow_run(session, wf_id=wf_id, user_id=ctx.user_id)
+        reason = retry_reason(detail, wf_id=wf_id, user_id=ctx.user_id,
+                              workflow=body.workflow, inputs=body.input)
+    return {"eligible": reason is None, "resume_from": detail["id"] if reason is None else None,
+            "reason": reason, "previous_inputs": detail["inputs"] if detail else None}
+
+
 @router.post("/workflows/{wf_id}/executions")
 async def start_execution(
     wf_id: str,
@@ -942,6 +962,14 @@ async def start_execution(
     # Resolve the snapshot now (request session); the producer outlives
     # the request and must not hold a request-scoped session.
     wf_dict = await repo.get_current_workflow(wf_id)
+
+    if body.resume_from is not None:
+        async with session_scope(tenant_id=ctx.tenant_id) as session:
+            previous = await latest_workflow_run(session, wf_id=wf_id, user_id=ctx.user_id)
+            reason = retry_reason(previous, wf_id=wf_id, user_id=ctx.user_id,
+                                  workflow=wf_dict, inputs=body.input)
+            if reason is not None or previous["id"] != str(body.resume_from):
+                raise HTTPException(status_code=409, detail="workflow_resume_unavailable")
 
     execution_record_id = str(uuid.uuid4())
     workflow_turn_key = wf_id

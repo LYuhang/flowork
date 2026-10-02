@@ -12,7 +12,8 @@ import asyncio
 from dataclasses import dataclass, field
 
 from vibecanvas_api.services.deployment_completion import complete_before_cancelling
-from vibecanvas_api.services.workflow_artifacts import persist_workflow_artifacts
+from vibecanvas_api.services.workflow_artifacts import persist_workflow_artifacts, restore_workflow_artifacts
+from vibecanvas_api.services.workflow_retry import retry_reason, load_retry_visits
 from vibecanvas_api.storage.db import short_session_scope
 from vibecanvas_api.storage.workflow_history_repo import TERMINAL_STATUSES, WorkflowHistoryRepo
 
@@ -64,6 +65,17 @@ class SessionExecutions:
                 raise PermissionError("execution_history_scope_mismatch")
             if detail["status"] in TERMINAL_STATUSES or detail["generation"] is not None:
                 raise RuntimeError("execution_already_dispatched")
+            context = dict(context)
+            # Never accept arbitrary replay outputs from a session caller.
+            context.pop("workflow_resume_visits", None)
+            source_id = context.get("_workflow_resume_from")
+            if source_id is not None:
+                previous = await history.detail(source_id)
+                if (node_id is not None or detail["source_type"] != "workflow"
+                    or retry_reason(previous, wf_id=detail["wf_id"], user_id=self.session.user_id,
+                                    workflow=workflow, inputs=inputs) is not None):
+                    raise PermissionError("workflow_resume_scope_mismatch")
+                context["workflow_resume_visits"] = await load_retry_visits(db, source_id)
             await history.claim_dispatch(execution_id)
             if self.shutting_down or group_id in self.closed or detail["cancel_requested_at"] is not None:
                 await history.request_cancel(execution_id)
@@ -105,6 +117,13 @@ class SessionExecutions:
     async def _execute(self, group, execution_id, inputs, context, wf_id):
         try:
             async with group.pool.acquire(execution_id) as slot:
+                context = dict(context)
+                source_id = context.pop("_workflow_resume_from", None)
+                if source_id is not None:
+                    await restore_workflow_artifacts(
+                        root=slot.root / "artifacts", tenant_id=self.session.tenant_id,
+                        execution_id=source_id,
+                    )
 
                 async def artifacts():
                     await persist_workflow_artifacts(

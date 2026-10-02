@@ -3732,4 +3732,10 @@
   "toolbar.newVersionConfirmBody": "Create a new major version from the current workflow. Unsaved changes will be saved first.",
   "toolbar.newVersionConfirm": "Create version",
   "toolbar.newVersionCreating": "Creating…"
+,
+  "inspector.run.resumeFromFailure": "Start from the last failure",
+  "inspector.run.resumeHint": "Reuse successful results and files from the last failed run.",
+  "inspector.run.resumeWorkflowChanged": "Workflow changed. Run from the beginning.",
+  "inspector.run.resumeInputsChanged": "Inputs changed. Run from the beginning.",
+  "inspector.run.resumeUnavailable": "Available after a failed workflow run with unchanged workflow and inputs."
 }

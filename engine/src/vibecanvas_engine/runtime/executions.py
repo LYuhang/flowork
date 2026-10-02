@@ -94,7 +94,7 @@ class WorkflowRuntime:
     """
 
     TERMINAL = frozenset({"succeeded", "failed", "timed_out", "cancelled"})
-    CONTEXT_KEYS = frozenset({"llm_credentials", "workflow_resources", "code_pythonpath", "run_dir"})
+    CONTEXT_KEYS = frozenset({"llm_credentials", "workflow_resources", "code_pythonpath", "run_dir", "workflow_resume_visits"})
 
     def __init__(self, *, capacity: int, max_pending_results: int = 32, max_buffer_bytes: int = 16 * 1024 * 1024):
         if capacity < 1:

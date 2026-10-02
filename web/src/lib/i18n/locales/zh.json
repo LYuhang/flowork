@@ -3732,4 +3732,10 @@
   "toolbar.newVersionConfirmBody": "将基于当前工作流创建一个新的主版本，未保存的修改会先保存。",
   "toolbar.newVersionConfirm": "确认创建",
   "toolbar.newVersionCreating": "创建中…"
+,
+  "inspector.run.resumeFromFailure": "从上次失败位置开始",
+  "inspector.run.resumeHint": "复用上次失败执行中已成功节点的结果和运行文件。",
+  "inspector.run.resumeWorkflowChanged": "Workflow 已修改，需要从头执行。",
+  "inspector.run.resumeInputsChanged": "输入已修改，需要从头执行。",
+  "inspector.run.resumeUnavailable": "完整 Workflow 执行失败后，且 Workflow 和输入未修改时可用。"
 }

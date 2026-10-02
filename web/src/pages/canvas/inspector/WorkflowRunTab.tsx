@@ -38,7 +38,7 @@ import type { components } from '@/lib/api/schema';
 import { errorMessage } from '@/lib/api/mutations/error-message';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
 import { useExecStreamStore } from '@/stores/exec-stream';
-import { useWorkflowExecutionStatus } from '@/lib/api/queries/executions';
+import { useWorkflowExecutionStatus, useWorkflowResumeCheck } from '@/lib/api/queries/executions';
 import { useRunWorkflowInputs } from '@/lib/api/queries/vfs';
 import { cancelWorkflowExecution } from '@/lib/api/executions';
 
@@ -295,8 +295,7 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
   useEffect(() => {
     useExecStreamStore.getState().setWorkflowInputs(wfId, buffers);
   }, [wfId, buffers]);
-  const onRun = async () => {
-    if (startingRef.current || isRunning || commit.isPending) return;
+  const rawInput = useMemo(() => {
     const rawInput: Record<string, unknown> = {};
     for (const f of fields) {
       // An untouched boolean switch visually represents false.  Preserve that
@@ -310,6 +309,37 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
         : (buffered ?? '');
     }
 
+    return rawInput;
+  }, [buffers, fields]);
+  const resumeCheck = useWorkflowResumeCheck(wfId, draft, rawInput, execStatus, !isRunning && !starting);
+  // History owns the original (pre-coercion) workflow inputs. The legacy VFS
+  // projection may be absent, stale, or overwritten by single-node debugging.
+  useEffect(() => {
+    const previous = resumeCheck.data?.previous_inputs;
+    if (!previous || hasRememberedInputsRef.current || userEditedRef.current) return;
+    hasRememberedInputsRef.current = true;
+    queueMicrotask(() => setBuffers(Object.fromEntries(
+      fieldNames.filter((name) => Object.hasOwn(previous, name)).map((name) => [name, previous[name]]),
+    )));
+  }, [resumeCheck.data?.previous_inputs, fieldNames]);
+  // Bind the selection to the exact checked draft/input/source. Changing any
+  // of them immediately unchecks it, even before the network check completes.
+  const selectionKey = JSON.stringify([wfId, draft, rawInput, resumeCheck.data?.resume_from]);
+  const [selectedResume, setSelectedResume] = useState<string | null>(null);
+  const canResume = !isRunning && !starting && !dirty && !resumeCheck.isFetching
+    && !resumeCheck.isError && resumeCheck.data?.eligible === true;
+  const resumeChecked = canResume && selectedResume === selectionKey;
+  useEffect(() => {
+    if (!canResume || selectedResume !== selectionKey) {
+      queueMicrotask(() => setSelectedResume(null));
+    }
+  }, [canResume, selectedResume, selectionKey]);
+  const resumeReason = dirty ? 'workflow_changed' : resumeCheck.data?.reason;
+
+  const onRun = async () => {
+    if (startingRef.current || isRunning || commit.isPending) return;
+    const resumeFrom = resumeChecked ? resumeCheck.data?.resume_from ?? undefined : undefined;
+    setSelectedResume(null);
     startingRef.current = true;
     setStarting(true);
     const ac = new AbortController();
@@ -326,7 +356,7 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
       save: (wf) => commit.mutateAsync(wf as WorkflowDraft),
       run: async () => {
         try {
-          await streamExecution({ wfId, input: rawInput, ac });
+          await streamExecution({ wfId, input: rawInput, ac, ...(resumeFrom ? { resumeFrom } : {}) });
         } catch (e) {
           // AbortError fires when the toolbar Cancel calls `ac.abort()`; that
           // path already set status to 'cancelled'. Every other throw is real.
@@ -404,6 +434,27 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
       </section>
 
       <div className="sticky bottom-0 z-10 border-y border-edge-structural bg-surface-sidepanel/95 py-2 backdrop-blur">
+        <label className={`mb-2 flex items-center gap-2 text-sm ${canResume ? '' : 'text-muted-foreground'}`}>
+          <input
+            type="checkbox"
+            data-testid="workflow-resume-checkbox"
+            checked={resumeChecked}
+            disabled={!canResume}
+            onChange={(event) => setSelectedResume(event.target.checked ? selectionKey : null)}
+          />
+          {t('inspector.run.resumeFromFailure', 'Start from the last failure')}
+        </label>
+        {!isRunning && (
+          <p className="mb-2 text-xs text-muted-foreground" data-testid="workflow-resume-hint">
+            {canResume
+              ? t('inspector.run.resumeHint', 'Reuse successful results and files from the last failed run.')
+              : resumeReason === 'workflow_changed'
+                ? t('inspector.run.resumeWorkflowChanged', 'Workflow changed. Run from the beginning.')
+                : resumeReason === 'inputs_changed'
+                  ? t('inspector.run.resumeInputsChanged', 'Inputs changed. Run from the beginning.')
+                  : t('inspector.run.resumeUnavailable', 'Available after a failed workflow run with unchanged workflow and inputs.')}
+          </p>
+        )}
         <Button
           className="w-full"
           data-action="run-workflow"

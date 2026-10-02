@@ -56,6 +56,7 @@ function execStreamDebug(message: string, data?: unknown): void {
 export interface StreamExecutionArgs {
   wfId: string;
   input?: Record<string, unknown>;
+  resumeFrom?: string;
   ac: AbortController;
 }
 
@@ -135,6 +136,7 @@ export async function streamExecution(args: StreamExecutionArgs): Promise<void> 
     },
     body: JSON.stringify({
       input: args.input ?? {},
+      ...(args.resumeFrom ? { resume_from: args.resumeFrom } : {}),
     }),
     signal: args.ac.signal,
     // Keep streaming when the tab is backgrounded — execution can take

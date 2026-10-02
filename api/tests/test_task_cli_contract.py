@@ -73,9 +73,9 @@ def test_retired_commands_are_not_aliases(action):
     assert cli.main(["task", action, "--help"]) == 2
 
 
-def test_exact_thirteen_public_operations_and_named_targets():
+def test_public_operations_and_named_targets():
     assert task_cli.OPERATIONS == {"task." + name for name in
-        ("list", "status", "history", "logs", "download", "create", "update", "enable", "disable", "run", "cancel", "resume", "delete")}
+        ("evaluation", "evaluate", "evaluation-config", "list", "status", "history", "logs", "download", "create", "update", "enable", "disable", "run", "cancel", "resume", "delete")}
     for args in (["status", str(uuid4())], ["status", "--task_id", str(uuid4())],
                  ["status", "--task_type", "batch_exec", "--task_i", str(uuid4())]):
         assert cli.main(["task", *args]) == 2

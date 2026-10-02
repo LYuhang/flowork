@@ -17,6 +17,7 @@ const inventory = [
   ['management', 'management'],
   ['tasks', 'tasks'],
   ['tasks/:taskId', 'task-detail-error'],
+  ['tasks/:taskId/results', 'task-results-error'],
   ['deployments', 'deployments'],
   ['deployments/:depId', 'deployment-detail-error'],
   ['credentials', 'credentials'],

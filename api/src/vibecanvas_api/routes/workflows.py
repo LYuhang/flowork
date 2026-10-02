@@ -32,7 +32,7 @@ from fastapi import (
     Request,
     status,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1279,6 +1279,9 @@ async def get_prompt_history(
 # ---------------------------------------------------------------------------
 
 
+from vibecanvas_api.services.batch_evaluation import EvaluationConfig
+
+
 class BatchSubmitBody(BaseModel):
     """Atomic-submit body. ``extra='ignore'`` so a client cannot smuggle
     ``tenant_id`` / ``user_id`` / ``background_job_id`` into the row — those are
@@ -1286,6 +1289,7 @@ class BatchSubmitBody(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     data_source: dict
     column_mapping: dict
     # Optional output destination for the aggregated results table. v1 shape:

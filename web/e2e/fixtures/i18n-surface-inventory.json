@@ -17,6 +17,7 @@
     { "id": "management", "path": "/management" },
     { "id": "tasks", "path": "/tasks" },
     { "id": "task-detail-error", "path": "/tasks/:taskId" },
+    { "id": "task-results-error", "path": "/tasks/:taskId/results" },
     { "id": "deployments", "path": "/deployments" },
     { "id": "deployment-detail-error", "path": "/deployments/:depId" },
     { "id": "credentials", "path": "/credentials" },

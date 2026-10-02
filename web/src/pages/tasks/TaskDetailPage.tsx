@@ -66,6 +66,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EvaluationTab } from "./EvaluationTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   cancelTask,
@@ -379,7 +380,7 @@ export function TaskDetailPage() {
   const [logRange, setLogRange] = useState<LogRangeValue>({ range: "all", from: "", to: "" });
   const [logOrder, setLogOrder] = useState<LogSortOrder>("desc");
   const eventLogRegionRef = useRef<HTMLDivElement>(null);
-  const activeTab = searchParams.get("tab") === "logs" ? "logs" : "overview";
+  const activeTab = ["logs", "evaluation"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "overview";
   const logBounds = useMemo(
     () => resolveLogRange(logRange),
     [logRange],
@@ -655,10 +656,10 @@ export function TaskDetailPage() {
     : liveCounts;
   const canDownload = !isScheduledRun && capabilities.has("export") && !!task.results_uri;
   const downloadHref = `/api/v1/tasks/${taskId}/download`;
-  const storageHref = `/storage?path=${encodeURIComponent(`/task/${task.id}`)}`;
+  const canViewResult = !ACTIVE_STATUSES.includes(task.status) && !!(task.result as { artifact_uris?: { jsonl?: string } } | null)?.artifact_uris?.jsonl;
   const selectTab = (tab: string) => {
     const next = new URLSearchParams(searchParams);
-    if (tab === "logs") next.set("tab", "logs");
+    if (tab === "logs" || tab === "evaluation") next.set("tab", tab);
     else next.delete("tab");
     setSearchParams(next, { replace: true });
   };
@@ -721,14 +722,12 @@ export function TaskDetailPage() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to={storageHref}>
-                      <FolderOpen aria-hidden="true" />
-                      {t("taskDetail.viewInStorage", "View in Storage")}
-                    </Link>
-                  </Button>
+
                 </>
               )}
+              {!isScheduledRun && (canViewResult ? <Button variant="outline" size="sm" asChild>
+                <Link to={`/tasks/${task.id}/results`}><FolderOpen aria-hidden="true" />{t("evaluation.viewResult", "View Result")}</Link>
+              </Button> : <Button variant="outline" size="sm" disabled>{t("evaluation.viewResult", "View Result")}</Button>)}
               {isCancellable && (
                 <>
                   <Button
@@ -820,6 +819,7 @@ export function TaskDetailPage() {
           <TabsTrigger value="logs" className="shrink-0">
             {t("taskDetail.tab.logs", "Execution logs")}
           </TabsTrigger>
+          {!isScheduledRun && <TabsTrigger value="evaluation">{t("evaluation.title", "Evaluation")}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="overview" className="mt-0">
@@ -1240,6 +1240,7 @@ export function TaskDetailPage() {
           </div>
           </SectionBlock>
         </TabsContent>
+        {!isScheduledRun && <TabsContent value="evaluation"><EvaluationTab taskId={task.id} canEdit={capabilities.has("update")} canExecute={capabilities.has("execute")} /></TabsContent>}
       </Tabs>
       <ResourceShareDialog
         open={shareOpen}

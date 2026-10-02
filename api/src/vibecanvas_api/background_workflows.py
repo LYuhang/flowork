@@ -170,6 +170,10 @@ def _task_registration(
     return task_workflow
 
 
+from vibecanvas_api.services.batch_evaluation import evaluation_job
+
+batch_evaluation_workflow = _task_registration("batch_evaluation", evaluation_job)
+
 batch_exec_workflow = _task_registration("batch_exec", _run_batch_from_id)
 workflow_delete_cleanup = _task_registration(
     "workflow.delete_cleanup", run_cleanup, retries_allowed=True, max_attempts=12,
@@ -191,6 +195,7 @@ authorization_apply_workflow = _task_registration(
 TASK_WORKFLOWS = {
     "workflow.delete_cleanup": workflow_delete_cleanup,
     "batch_exec": batch_exec_workflow,
+    "batch_evaluation": batch_evaluation_workflow,
     "deployment_invoke": deployment_invoke_workflow,
     "kb.index_file": kb_index_file_workflow,
     "scheduled_runs.execute": scheduled_run_workflow,

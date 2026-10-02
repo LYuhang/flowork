@@ -41,6 +41,7 @@ QUEUE_SPECS: dict[str, BackgroundQueueSpec] = {
 BACKGROUND_JOB_PAYLOAD_KEYS: dict[str, frozenset[str]] = {
     "workflow.delete_cleanup": frozenset({"workflow_id"}),
     "batch_exec": frozenset({"task_id"}),
+    "batch_evaluation": frozenset({"task_id", "evaluation_id"}),
     "deployment_invoke": frozenset({"invocation_id"}),
     "kb.index_file": frozenset({"file_id"}),
     "scheduled_runs.execute": frozenset({"execution_id"}),

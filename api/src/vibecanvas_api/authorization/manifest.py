@@ -130,6 +130,8 @@ _SCIM_ENDPOINTS = frozenset({
 })
 
 _EXPLICIT_ACTIONS = {
+    "query_results": Action.VIEW,
+    "start_evaluation": Action.EXECUTE,
     "create_share": Action.EXPORT,
     "list_shares": Action.VIEW,
     "revoke_share": Action.VIEW,
@@ -902,6 +904,10 @@ WORKER_PERMISSION_MANIFEST = (
         "authorization.audit", "platform_worker",
         ResourceType.ORGANIZATION, Action.MANAGE_POLICY,
         "authorization_projection_inventory",
+    ),
+    WorkerPermission(
+        "batch_evaluation", "platform_worker", ResourceType.TASK,
+        Action.EXECUTE, "evaluation_to_task",
     ),
     WorkerPermission(
         "batch_exec", "captured_user", ResourceType.WORKFLOW,

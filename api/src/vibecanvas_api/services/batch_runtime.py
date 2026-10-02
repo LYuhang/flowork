@@ -595,6 +595,7 @@ async def run_batch_workflow(
             output_error=output_error,
         )
         summary.update(summary_probe)
+        summary["result_version"] = hashlib.sha256(final_jsonl).hexdigest()
         if any(row.get("status") == "cancelled" for row in final_rows):
             summary["task_status"] = "interrupted"
             summary["can_resume"] = True

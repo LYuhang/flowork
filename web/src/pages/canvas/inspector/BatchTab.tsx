@@ -18,6 +18,7 @@
  *      "View in Task Center" link hands off to the cross-workflow `/tasks`.
  *      A no-batch-yet empty state when the list is empty.
  */
+import { EvaluationEditor } from '@/pages/tasks/EvaluationEditor';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -160,6 +161,7 @@ export function BatchTab({
   // setup; the DATA SOURCE is not persisted (per-run input). Lazy initializers
   // read localStorage once on mount.
   const saved = loadBatchConfig(wfId);
+  const [evaluation, setEvaluation] = useState({ enabled: false, script: '' });
   const [outputPath, setOutputPath] = useState<string>(() => saved?.outputPath ?? '');
   const [outputSheet, setOutputSheet] = useState<string>(() => saved?.outputSheet ?? '');
   // Rows to run in parallel (thread pool; server clamps to 1..16).
@@ -341,7 +343,7 @@ export function BatchTab({
   });
 
   async function onSubmit() {
-    if (!rows.length) return;
+    if (!rows.length || (evaluation.enabled && !evaluation.script.trim())) return;
     // Flip mapping direction: UI keys by workflow_field, backend expects
     // {csv_column: workflow_field}.
     const column_mapping: Record<string, string> = {};
@@ -377,6 +379,7 @@ export function BatchTab({
       run: () =>
         mutation.mutateAsync({
           ...batchTarget,
+          ...(evaluation.enabled ? { evaluation } : {}),
           data_source: { rows },
           column_mapping,
           output,
@@ -690,10 +693,12 @@ export function BatchTab({
         </span>
       </label>
 
+      <EvaluationEditor value={evaluation} onChange={setEvaluation} disabled={mutation.isPending || commit.isPending} />
+
       <Button
         className="w-full"
         onClick={() => void onSubmit()}
-        disabled={!rows.length || mutation.isPending || commit.isPending}
+        disabled={!rows.length || (evaluation.enabled && !evaluation.script.trim()) || mutation.isPending || commit.isPending}
         data-testid="batch-submit"
       >
         {t('canvas.batch.runOnRows', 'Run on {{count}} rows', { count: rows.length })}

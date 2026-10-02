@@ -488,6 +488,7 @@ export type BatchOutputColumn =
   | { kind: 'field'; name: string; node: string; field: string; default?: string };
 
 export interface SubmitBatchBody {
+  evaluation?: EvaluationConfig;
   /** Frozen for this task and all resumed attempts; defaults to false. */
   mount_enabled?: boolean;
   major?: string;
@@ -513,4 +514,26 @@ export async function submitBatch(
     throw new Error(`submitBatch failed: ${resp.status} ${resp.statusText}`);
   }
   return (await resp.json()) as { task_id: string };
+}
+
+export interface EvaluationConfig { enabled: boolean; script: string }
+export interface EvaluationRecord {
+  id: string; status: 'queued' | 'running' | 'succeeded' | 'failed'; script: string;
+  result_version: string; row_count: number; partial: boolean; automatic: boolean;
+  created_at: string; metrics: Record<string, unknown> | null; error: string | null;
+}
+export interface EvaluationState { result_version?: string; config: EvaluationConfig; records: EvaluationRecord[]; ready: boolean }
+export interface ResultPage {
+  rows: Record<string, unknown>[]; total: number; filtered: number;
+  counts: Record<string, number>; version: string; partial: boolean;
+}
+export async function taskResultRequest<T>(taskId: string, suffix: string, method = 'GET', body?: unknown): Promise<T> {
+  const response = await authedFetch(`/api/v1/tasks/${taskId}/${suffix}`, {
+    method, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({}));
+    throw new Error(typeof problem.detail === 'string' ? problem.detail : `Request failed (${response.status})`);
+  }
+  return response.json() as Promise<T>;
 }

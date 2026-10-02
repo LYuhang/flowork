@@ -430,7 +430,23 @@ def _batch_exec_owned(
         if final_status != "interrupted":
             terminal_fields["progress"] = 1.0
             visible_progress = 1.0
-        _update(t_uuid, **terminal_fields)
+        async def finish_and_evaluate(session):
+            await assert_worker_owner(session)
+            repo = TasksRepo(session)
+            task = await repo.get(t_uuid, for_update=True)
+            await repo.update_status(t_uuid, **terminal_fields)
+            if final_status in {"finished", "finished_with_errors"} and (task.payload.get("evaluation") or {}).get("enabled"):
+                from vibecanvas_api.services.batch_evaluation import queue_evaluation
+                # Evaluation setup failures must never change inference status.
+                try:
+                    async with session.begin_nested():
+                        await queue_evaluation(session, task, automatic=True)
+                except Exception:
+                    await repo.insert_event(t_uuid, "log", {
+                        "level": "error", "message": "Automatic evaluation could not be queued. Open Evaluation to retry.",
+                        "action": "evaluation.queue_failed",
+                    }, tn_uuid)
+        run_in_short_session(finish_and_evaluate)
         _emit(t_uuid, tn_uuid, "terminal", {
             "schema_version": 1,
             "level": "info" if final_status in {"finished", "interrupted"} else "warning",

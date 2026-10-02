@@ -206,7 +206,7 @@ describe("<TaskDetailPage>", () => {
     const completed = makeTask({
         status: "finished",
         progress: 1,
-        result: { rows_total: 10, rows_ok: 8, rows_failed: 2 },
+        result: { rows_total: 10, rows_ok: 8, rows_failed: 2, artifact_uris: { jsonl: "memory://tasks/abc/results.jsonl" } },
         results_uri: "memory://tasks/abc/results.csv",
         finished_at: "2026-05-24T10:05:00Z",
       });
@@ -231,9 +231,9 @@ describe("<TaskDetailPage>", () => {
     expect(screen.getByText("/reports/results.xlsx")).toBeInTheDocument();
     // Download link → backend redirect endpoint
     expect(screen.getByRole("button", { name: /download/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /view in storage/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /view result/i })).toHaveAttribute(
       "href",
-      `/storage?path=${encodeURIComponent(`/task/${TASK_ID}`)}`,
+      `/tasks/${TASK_ID}/results`,
     );
   });
 

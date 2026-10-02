@@ -95,6 +95,7 @@ const WorkspacePage = lazy(() =>
   loadWorkspacePage().then((m) => ({ default: m.WorkspacePage })));
 const TasksListPage = lazy(() =>
   loadTasksListPage().then((m) => ({ default: m.TasksListPage })));
+const TaskResultsPage = lazy(() => import('@/pages/tasks/TaskResultsPage').then(m => ({ default: m.TaskResultsPage })));
 const TaskDetailPage = lazy(() =>
   loadTaskDetailPage().then((m) => ({ default: m.TaskDetailPage })));
 const DeploymentsListPage = lazy(() =>
@@ -231,6 +232,10 @@ export const router = createBrowserRouter([
           {
             // Per-task detail and live SSE event log.
             // Route-split with a stable detail-shell fallback.
+            path: 'tasks/:taskId/results',
+            element: routeElement(TaskResultsPage),
+          },
+          {
             path: 'tasks/:taskId',
             element: routeElement(TaskDetailPage),
           },

@@ -59,6 +59,7 @@ const ROUTES: readonly RouteFixture[] = [
     expectedNotFound: true,
   },
   { id: 'tasks', path: () => '/tasks', screenshot: true },
+  { id: 'task-results-error', path: () => `/tasks/${MISSING_UUID}/results`, screenshot: true, expectedNotFound: true },
   {
     id: 'task-detail-error',
     path: () => `/tasks/${MISSING_UUID}`,

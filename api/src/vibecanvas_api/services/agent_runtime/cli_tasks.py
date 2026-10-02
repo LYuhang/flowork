@@ -259,7 +259,7 @@ def prepare_batch(arguments, snapshot):
         output = {"type": "vfs_data", "path": arguments["output_path"]}
         if arguments.get("output_sheet"):
             output["sheet_name"] = arguments["output_sheet"]
-    body = workflows.BatchSubmitBody(data_source={"rows": normalized},
+    body = workflows.BatchSubmitBody(evaluation={"enabled": True, "script": arguments["evaluation_script"]} if arguments.get("evaluation_script") else {}, data_source={"rows": normalized},
         column_mapping={key: key for key in fields}, output=output, output_columns=columns,
         concurrency=arguments.get("concurrency", 1), version=snapshot["version"], mount_enabled=arguments.get("mount", False))
     return body, sheet
@@ -280,6 +280,8 @@ async def _read(ctx, operation, arguments, emit):
         expected = "scheduled_run" if arguments["task_type"] == "schedule_run" else "batch_exec"
         if task["task_type"] != expected:
             raise ToolError("wrong_task_type", "--task_type does not match the stored Task type. No operation was performed.")
+        if operation == "task.evaluation":
+            return await routes.get_evaluation(task_id, **common)
         if operation in {"task.status", "task.logs", "task.download"}:
             if (expected == "scheduled_run") != bool(arguments.get("execution_id")):
                 raise ToolError("invalid_arguments", "schedule_run requires --execution_id; batch_exec rejects it. Use task history to discover executions.")
@@ -388,7 +390,7 @@ async def execute(call, arguments):
             common = resource_route_params(ctx, session)
             current = None
             if task_id:
-                action = {"cancel": Action.CANCEL, "resume": Action.RESUME, "run": Action.EXECUTE, "delete": Action.DELETE}.get(operation.rsplit(".", 1)[1], Action.UPDATE)
+                action = {"cancel": Action.CANCEL, "resume": Action.RESUME, "run": Action.EXECUTE, "evaluate": Action.EXECUTE, "delete": Action.DELETE}.get(operation.rsplit(".", 1)[1], Action.UPDATE)
                 await routes._authorize_task(task_id=task_id, action=action, **{key: value for key, value in common.items() if key != "session"})
                 current = await TasksRepo(session).get(task_id)
                 expected = "batch_exec" if arguments["task_type"] == "batch_exec" else "scheduled_run"
@@ -431,6 +433,19 @@ async def execute(call, arguments):
                 if result.get("authorization_pending"):
                     return _feedback({"id": result["task_id"], "task_type": "batch_exec", "status": "queued", "version": result["version"], "authorization_pending": True}, result["task_id"])
                 return _feedback({"id": result["task_id"], "task_type": "batch_exec", "status": "queued", "workflow_id": arguments["workflow_id"], "version": result["version"], "rows": len(prepared.data_source["rows"]), "input_sheet": sheet or None}, result["task_id"])
+            if operation == "task.batch_exec.evaluate":
+                record = await routes.start_evaluation(task_id, **common)
+                # CLI reserves top-level `error` for command failures. A queued
+                # business record has error=None and must not produce exit 1.
+                return {"task_id": str(task_id), "evaluation_id": record["id"],
+                        "status": "queued", "message": "Evaluation queued; inference will not run again.",
+                        "hint": f"flowork-cli task evaluation --task_type batch_exec --task_id {task_id}"}
+            if operation == "task.batch_exec.evaluation-config":
+                previous = await routes.get_evaluation(task_id, **common)
+                return await routes.save_evaluation(task_id, routes.EvaluationConfig(
+                    enabled=arguments.get("auto_evaluate", previous["config"]["enabled"]),
+                    script=arguments["evaluation_script"],
+                ), **common)
             if operation == "task.batch_exec.cancel":
                 result = await routes.cancel_task(task_id, routes.CancelBody(mode="soft"), **common)
             elif operation == "task.batch_exec.resume":

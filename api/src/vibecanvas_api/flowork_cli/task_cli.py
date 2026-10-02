@@ -15,10 +15,10 @@ from uuid import UUID
 
 
 READ_OPERATIONS = frozenset("task." + name for name in (
-    "list", "status", "history", "logs", "download",
+    "list", "status", "history", "logs", "download", "evaluation",
 ))
 WRITE_OPERATIONS = frozenset("task." + name for name in (
-    "create", "update", "enable", "disable", "run", "cancel", "resume", "delete",
+    "evaluate", "evaluation-config", "create", "update", "enable", "disable", "run", "cancel", "resume", "delete",
 ))
 OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS
 FIXED_COLUMNS = ("index", "status", "error", "execution_time")
@@ -49,6 +49,13 @@ def add_parser(groups):
     def page(command):
         command.add_argument("--limit", type=int, default=20)
         command.add_argument("--offset", type=int, default=0)
+
+    target(_command(actions, "evaluation", help="Batch only: read evaluation configuration, status and metrics history."))
+    target(_command(actions, "evaluate", help="Batch only: evaluate saved results asynchronously; never reruns inference. Inspect task evaluation for completion."))
+    evaluation_config = _command(actions, "evaluation-config", help="Batch only: save evaluation script content and optional automatic evaluation setting.")
+    target(evaluation_config)
+    evaluation_config.add_argument("--evaluation-script", dest="evaluation_script", required=True)
+    evaluation_config.add_argument("--auto-evaluate", dest="auto_evaluate", choices=("true", "false"), default=None)
 
     listing = _command(actions, "list", help="List authorized tasks; --task_type optionally filters one type.")
     typed(listing, False)
@@ -109,6 +116,7 @@ def add_parser(groups):
         command.add_argument("--notify", help="Schedule: succeeded,failed or none; defaults to failed.")
         if action == "create":
             command.add_argument("--paused", action="store_true", default=None, help="schedule_run only: create a paused plan; otherwise enabled.")
+            command.add_argument("--evaluation-script", dest="evaluation_script", help="Batch only: upload a Python evaluate(results) script and evaluate automatically after inference. No third-party imports.")
             command.add_argument("--input_file", help="Batch: CSV/TSV/JSON/JSONL/XLSX/XLSM.")
             command.add_argument("--input_sheet")
             command.add_argument("--mapping", action="append", help="Batch output: flat JSON {field,source,default?}; repeat for ordered columns.")
@@ -138,6 +146,8 @@ def validate(operation, arguments):
         raise ValueError("This operation only supports --task_type schedule_run.")
     if operation == "task.resume" and supplied_type != "batch_exec":
         raise ValueError("resume only supports batch_exec; use enable for future schedule dispatch.")
+    if operation in {"task.evaluation", "task.evaluate", "task.evaluation-config"} and supplied_type != "batch_exec":
+        raise ValueError("Evaluation only supports batch_exec.")
     if operation in WRITE_OPERATIONS:
         action = {"task.enable": "resume", "task.disable": "pause"}.get(operation, operation.split(".")[1])
         operation = f"task.{supplied_type}.{action}"
@@ -145,11 +155,14 @@ def validate(operation, arguments):
     schedule_fields = {"name", "major", "version", "interval", "cron", "timezone",
                        "start_at", "end_at", "inputs", "mount", "notify"}
     allowed = {
+        "task.evaluation": common | {"task_type"},
+        "task.batch_exec.evaluate": common,
+        "task.batch_exec.evaluation-config": common | {"evaluation_script", "auto_evaluate"},
         "task.list": {"task_type", "status", "workflow_id", "query", "limit", "offset"},
         "task.status": common | {"task_type", "execution_id"},
         "task.logs": common | {"task_type", "execution_id", "follow", "after", "before", "limit", "from_time", "to_time", "export"},
         "task.download": common | {"task_type", "execution_id", "format"},
-        "task.batch_exec.create": {"workflow_id", "major", "version", "data", "format", "input_sheet", "mapping", "concurrency", "output_path", "output_sheet", "mount"},
+        "task.batch_exec.create": {"workflow_id", "major", "version", "data", "format", "input_sheet", "mapping", "concurrency", "output_path", "output_sheet", "mount", "evaluation_script"},
         "task.schedule_run.create": schedule_fields | {"workflow_id", "paused"},
         "task.schedule_run.update": schedule_fields | common,
         "task.history": common | {"task_type", "limit", "offset"},
@@ -166,6 +179,12 @@ def validate(operation, arguments):
         flags = ", ".join("--" + key for key in sorted(unsupported))
         raise ValueError(f"Unsupported parameters for {supplied_type or 'task list'}: {flags}. Check this command's --help for type-specific options.")
     result = dict(arguments)
+    if "evaluation_script" in result:
+        script = result["evaluation_script"]
+        if not isinstance(script, str) or not script.strip() or len(script) > 65536:
+            raise ValueError("Evaluation script must contain 1–65536 characters.")
+    if "auto_evaluate" in result and type(result["auto_evaluate"]) is not bool:
+        raise ValueError("auto_evaluate must be a boolean.")
     if operation in READ_OPERATIONS:
         if operation != "task.list" and "task_type" not in result:
             raise ValueError("--task_type is required: batch_exec or schedule_run.")
@@ -277,6 +296,12 @@ def execute(args, endpoint, api):
     staged = None
     dispatched = False
     try:
+        if getattr(args, "evaluation_script", None):
+            if args.task_type != "batch_exec":
+                raise ValueError("--evaluation-script only supports batch_exec.")
+            arguments["evaluation_script"] = api._read_run_file(args.evaluation_script).decode("utf-8-sig")
+        if "auto_evaluate" in arguments:
+            arguments["auto_evaluate"] = arguments["auto_evaluate"] == "true"
         if "mount" in arguments:
             arguments["mount"] = arguments["mount"] == "true"
         if operation == "task.logs" and args.output_dir:

@@ -976,6 +976,9 @@ async def delete_batch_task(
     task = await TasksRepo(session).get(task_id, for_update=True)
     if task is None or task.task_type != "batch_exec":
         raise HTTPException(status_code=404, detail="Batch task not found.")
+    from vibecanvas_api.services.batch_evaluation import active_evaluation
+    if active_evaluation(task):
+        raise HTTPException(409, "Wait for the current evaluation before deleting this task.")
     if task.status not in {"finished", "finished_with_errors", "failed", "interrupted", "cancelled"} or task.worker_recovery_pending:
         raise HTTPException(status_code=409, detail="Stop the active execution and wait for a terminal state before deleting this task.")
     await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id,
@@ -1574,6 +1577,9 @@ async def resume_task(
             detail=f"task is {t.status}, cannot resume",
         )
 
+    from vibecanvas_api.services.batch_evaluation import active_evaluation
+    if active_evaluation(t):
+        raise HTTPException(409, "Wait for the current evaluation before resuming inference.")
     result = t.result or {}
     if result.get("can_resume") is False:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
@@ -1896,3 +1902,96 @@ async def download_results(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+class ResultQuery(BaseModel):
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=100, ge=1, le=500)
+    search: str = Field(default="", max_length=1000)
+    row_status: str = ""
+    sort: str = "index"
+    descending: bool = False
+    filters: dict[str, str] = Field(default_factory=dict)
+
+
+@router.post("/{task_id}/results/query")
+async def query_results(
+    task_id: uuid.UUID, body: ResultQuery, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from vibecanvas_api.services.batch_evaluation import load_results, result_uri
+    await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id, action=Action.VIEW)
+    task = await TasksRepo(session).get(task_id)
+    if task is None:
+        raise HTTPException(404, "Task not found.")
+    rows, version = await asyncio.to_thread(load_results, result_uri(task))
+    total = len(rows)
+    counts = {name: sum(row.get("status") == name for row in rows) for name in ("success", "error", "cancelled")}
+    def cell(row, key):
+        value = row.get(key)
+        return json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value if value is not None else "")
+    if body.search:
+        needle = body.search.casefold()
+        rows = [r for r in rows if needle in json.dumps(r, ensure_ascii=False).casefold()]
+    if body.row_status:
+        rows = [r for r in rows if r.get("status") == body.row_status]
+    for key, needle in body.filters.items():
+        rows = [r for r in rows if needle.casefold() in cell(r, key).casefold()]
+    numeric = body.sort in {"index", "i", "attempt", "execution_time", "elapsed_ms"}
+    rows.sort(key=lambda r: (float(r.get(body.sort) or 0) if numeric else cell(r, body.sort).casefold()), reverse=body.descending)
+    return {"rows": rows[body.offset:body.offset + body.limit], "filtered": len(rows), "total": total,
+            "counts": counts, "version": version, "partial": task.status not in {"finished", "finished_with_errors"}}
+
+
+@router.get("/{task_id}/evaluation")
+async def get_evaluation(
+    task_id: uuid.UUID, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from vibecanvas_api.services.batch_evaluation import TERMINAL
+    await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id, action=Action.VIEW)
+    task = await TasksRepo(session).get(task_id)
+    if task is None or task.task_type != "batch_exec":
+        raise HTTPException(404, "Batch task not found.")
+    return {"config": task.payload.get("evaluation") or {"enabled": False, "script": ""},
+            "records": task.payload.get("evaluations", []),
+            "result_version": (task.result or {}).get("result_version"),
+            "ready": task.status in TERMINAL and bool(((task.result or {}).get("artifact_uris") or {}).get("jsonl"))}
+
+
+from vibecanvas_api.services.batch_evaluation import EvaluationConfig
+
+
+@router.put("/{task_id}/evaluation")
+async def save_evaluation(
+    task_id: uuid.UUID, body: EvaluationConfig, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id, action=Action.UPDATE)
+    repo = TasksRepo(session)
+    task = await repo.get(task_id, for_update=True)
+    if task is None or task.task_type != "batch_exec":
+        raise HTTPException(404, "Batch task not found.")
+    await repo.update_status(task_id, payload={**task.payload, "evaluation": body.model_dump()})
+    return body.model_dump()
+
+
+@router.post("/{task_id}/evaluation", status_code=202)
+async def start_evaluation(
+    task_id: uuid.UUID, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from vibecanvas_api.services.batch_evaluation import queue_evaluation
+    await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id, action=Action.EXECUTE)
+    repo = TasksRepo(session)
+    task = await repo.get(task_id, for_update=True)
+    if task is None:
+        raise HTTPException(404, "Task not found.")
+    try:
+        return await queue_evaluation(session, task)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc

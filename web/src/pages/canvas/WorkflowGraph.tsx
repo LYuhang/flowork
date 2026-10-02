@@ -12,7 +12,7 @@ import { nodeWarnings } from './nodeWarnings';
 
 const nodeTypes = { custom: CustomNode };
 
-export function WorkflowGraph({ showMiniMap = true, showInteractiveControls = true, ...props }: ComponentProps<typeof ReactFlow> & { showMiniMap?: boolean; showInteractiveControls?: boolean }) {
+export function WorkflowGraph({ showMiniMap = true, showInteractiveControls = true, children, ...props }: ComponentProps<typeof ReactFlow> & { showMiniMap?: boolean; showInteractiveControls?: boolean }) {
   return (
     <ReactFlow
       className="workflow-canvas [&_.react-flow__edge-text]:pointer-events-none [&_.react-flow__edge-textbg]:pointer-events-none"
@@ -23,6 +23,7 @@ export function WorkflowGraph({ showMiniMap = true, showInteractiveControls = tr
       zoomOnDoubleClick={false}
       {...props}
     >
+      {children}
       <Background gap={20} />
       <Controls
         showInteractive={showInteractiveControls}

@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { ReactFlowProvider } from '@xyflow/react';
+import { ReactFlowProvider, useNodes, useNodesInitialized, useNodesState, useReactFlow, type Node, type Edge } from '@xyflow/react';
 import { Button } from '@/components/ui/button';
 import { useExecutionDetail, useExecutionEvents, type ExecutionFrame } from '@/lib/api/queries/workflow-history';
 import { WorkflowGraph, workflowDictToNodesEdges } from './WorkflowGraph';
@@ -24,8 +24,7 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
   const detail = detailQuery.data;
   const projection = useMemo(() => {
     const graph = workflowDictToNodesEdges(detail?.workflow ?? null);
-    const hasPositions = graph.nodes.some((node) => node.position.x !== 0 || node.position.y !== 0);
-    return { ...graph, nodes: hasPositions ? graph.nodes : autoLayout(graph.nodes, graph.edges) };
+    return { ...graph, nodes: autoLayout(graph.nodes, graph.edges) };
   }, [detail?.workflow]);
   const latestNodeEvents = useMemo(() => {
     const nodes: Record<string, ExecutionFrame> = {};
@@ -53,12 +52,7 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
           <WorkflowSnapshotContext.Provider value={detail.workflow}>
             <ExecutionHistoryContext.Provider value={{ detail, latestNodeEvents }}>
               <ReactFlowProvider>
-                <WorkflowGraph
-                  nodes={projection.nodes} edges={projection.edges}
-                  nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false}
-                  deleteKeyCode={null} showInteractiveControls={false}
-                  onNodeClick={(_event, node) => setSelected(node.id)}
-                />
+                <ExecutionGraph initialNodes={projection.nodes} edges={projection.edges} onSelect={setSelected} />
               </ReactFlowProvider>
             </ExecutionHistoryContext.Provider>
           </WorkflowSnapshotContext.Provider>
@@ -80,4 +74,37 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
       </div>
     </div>
   );
+}
+
+/** Presentation-only positions: the immutable execution snapshot is never edited. */
+function ExecutionGraph({ initialNodes, edges, onSelect }: { initialNodes: Node[]; edges: Edge[]; onSelect: (id: string) => void }) {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  return <WorkflowGraph nodes={nodes} edges={edges} onNodesChange={onNodesChange}
+    nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false}
+    deleteKeyCode={null} showInteractiveControls={false}
+    onNodeClick={(_event, node) => onSelect(node.id)}>
+    <MeasuredLayout edges={edges} onLayout={setNodes} />
+  </WorkflowGraph>;
+}
+
+function MeasuredLayout({ edges, onLayout }: { edges: Edge[]; onLayout: (nodes: Node[]) => void }) {
+  const initialized = useNodesInitialized();
+  const nodes = useNodes();
+  const dimensions = nodes.map((node) => `${node.id}:${node.measured?.width}:${node.measured?.height}`).join('|');
+  const { getNodes, fitView } = useReactFlow();
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (!initialized) return;
+    onLayout(autoLayout(getNodes(), edges));
+    // Fit once after measurement. Later output expansion must preserve the
+    // user's zoom and viewport rather than snapping back on each update.
+    if (!fitted.current) {
+      const frame = requestAnimationFrame(() => {
+        void fitView({ padding: 0.16, minZoom: 0.1, maxZoom: 1 });
+        fitted.current = true;
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [initialized, dimensions, edges, getNodes, fitView, onLayout]);
+  return null;
 }

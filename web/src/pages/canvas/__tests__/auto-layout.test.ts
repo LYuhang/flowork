@@ -35,3 +35,31 @@ describe('autoLayout (left-to-right)', () => {
     expect(s1.position.y).not.toBeCloseTo(s2.position.y, 0);
   });
 });
+
+
+describe('expanded cards and loop routing', () => {
+  it('keeps expanded sibling cards apart without changing input positions', () => {
+    const nodes: Node[] = ['root', 'a', 'b'].map((id) => ({
+      id, position: { x: 0, y: 0 }, data: {}, measured: { width: 224, height: id === 'a' ? 480 : 300 },
+    }));
+    const edges: Edge[] = ['a', 'b'].map((target) => ({ id: target, source: 'root', target }));
+    const out = autoLayout(nodes, edges);
+    for (const a of out) for (const b of out) {
+      if (a.id === b.id) continue;
+      const overlapX = Math.min(a.position.x + a.measured!.width!, b.position.x + b.measured!.width!) - Math.max(a.position.x, b.position.x);
+      const overlapY = Math.min(a.position.y + a.measured!.height!, b.position.y + b.measured!.height!) - Math.max(a.position.y, b.position.y);
+      expect(overlapX <= 0 || overlapY <= 0).toBe(true);
+    }
+    expect(nodes.every((node) => node.position.x === 0 && node.position.y === 0)).toBe(true);
+  });
+
+  it('does not let a visual loop-back edge reorder the forward chain', () => {
+    const nodes: Node[] = ['begin', 'body', 'end'].map((id) => ({ id, data: {}, position: { x: 0, y: 0 } }));
+    const edges: Edge[] = [
+      { id: 'a', source: 'begin', target: 'body' },
+      { id: 'b', source: 'body', target: 'end' },
+    ];
+    expect(autoLayout(nodes, [...edges, { id: 'back', source: 'end', target: 'begin', data: { __pairing__: true } }]))
+      .toEqual(autoLayout(nodes, edges));
+  });
+});

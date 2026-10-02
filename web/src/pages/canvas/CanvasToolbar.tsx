@@ -155,7 +155,7 @@ export function CanvasToolbar({
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
   const toggleInspector = useUIStore((s) => s.toggleInspector);
   const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
-  const { setNodes } = useReactFlow();
+  const { setNodes, getNodes } = useReactFlow();
 
   const navigate = useNavigate();
   // UX-5: Save commits under the pinned historical major when one is active
@@ -363,7 +363,7 @@ export function CanvasToolbar({
   // Stream 8 (N1): "Tidy up" — re-arrange every node via dagre, one undo step.
   const onAutoLayout = () => {
     if (!draft) return;
-    applyEdit((wf) => layoutWorkflowDict(wf));
+    applyEdit((wf) => layoutWorkflowDict(wf, { measuredNodes: getNodes() }));
   };
 
   return (

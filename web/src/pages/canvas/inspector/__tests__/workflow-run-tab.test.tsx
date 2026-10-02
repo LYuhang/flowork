@@ -67,13 +67,13 @@ function startWith(inputFields: Record<string, unknown>) {
   };
 }
 
-function renderTab(history: ExecutionHistoryValue | null = null) {
+function renderTab(history: ExecutionHistoryValue | null = null, allowResume = true) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <I18nextProvider i18n={testI18n}>
         <ExecutionHistoryContext.Provider value={history}>
-          <WorkflowRunTab wfId="wf_1" />
+          <WorkflowRunTab wfId="wf_1" allowResume={allowResume} />
         </ExecutionHistoryContext.Provider>
       </I18nextProvider>
     </QueryClientProvider>,
@@ -112,6 +112,13 @@ describe('WorkflowRunTab', () => {
     delete (globalThis as unknown as { __mockReadVfsRun?: typeof readVfsRunMock })
       .__mockReadVfsRun;
     cleanup();
+  });
+
+  it('does not expose retries when reused outside the workflow execution page', () => {
+    useWorkflowEditStore.getState().setDraft(startWith({}));
+    renderTab(null, false);
+    expect(screen.queryByTestId('workflow-resume-checkbox')).not.toBeInTheDocument();
+    expect(checkWorkflowResumeMock).not.toHaveBeenCalled();
   });
 
   it('restores original raw inputs from whole-workflow history after reload', async () => {

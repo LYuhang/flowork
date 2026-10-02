@@ -296,7 +296,7 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, var
                 value="run"
                 className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-3 data-[state=inactive]:hidden"
               >
-                <WorkflowRunTab wfId={wfId} />
+                <WorkflowRunTab wfId={wfId} allowResume />
               </TabsContent>
               <TabsContent
                 forceMount

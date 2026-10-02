@@ -224,9 +224,10 @@ function RunOutput({ wfId }: { wfId: string }) {
 
 export interface WorkflowRunTabProps {
   wfId: string;
+  allowResume?: boolean;
 }
 
-export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
+export function WorkflowRunTab({ wfId, allowResume = false }: WorkflowRunTabProps) {
   const { t } = useTranslation();
   const draft = useWorkflowEditStore((s) => s.draft);
   const dirty = useWorkflowEditStore((s) => s.dirty);
@@ -311,22 +312,22 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
 
     return rawInput;
   }, [buffers, fields]);
-  const resumeCheck = useWorkflowResumeCheck(wfId, draft, rawInput, execStatus, !isRunning && !starting);
+  const resumeCheck = useWorkflowResumeCheck(wfId, draft, rawInput, execStatus, allowResume && !isRunning && !starting);
   // History owns the original (pre-coercion) workflow inputs. The legacy VFS
   // projection may be absent, stale, or overwritten by single-node debugging.
   useEffect(() => {
     const previous = resumeCheck.data?.previous_inputs;
-    if (!previous || hasRememberedInputsRef.current || userEditedRef.current) return;
+    if (!allowResume || !previous || hasRememberedInputsRef.current || userEditedRef.current) return;
     hasRememberedInputsRef.current = true;
     queueMicrotask(() => setBuffers(Object.fromEntries(
       fieldNames.filter((name) => Object.hasOwn(previous, name)).map((name) => [name, previous[name]]),
     )));
-  }, [resumeCheck.data?.previous_inputs, fieldNames]);
+  }, [allowResume, resumeCheck.data?.previous_inputs, fieldNames]);
   // Bind the selection to the exact checked draft/input/source. Changing any
   // of them immediately unchecks it, even before the network check completes.
   const selectionKey = JSON.stringify([wfId, draft, rawInput, resumeCheck.data?.resume_from]);
   const [selectedResume, setSelectedResume] = useState<string | null>(null);
-  const canResume = !isRunning && !starting && !dirty && !resumeCheck.isFetching
+  const canResume = allowResume && !isRunning && !starting && !dirty && !resumeCheck.isFetching
     && !resumeCheck.isError && resumeCheck.data?.eligible === true;
   const resumeChecked = canResume && selectedResume === selectionKey;
   useEffect(() => {
@@ -434,7 +435,7 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
       </section>
 
       <div className="sticky bottom-0 z-10 border-y border-edge-structural bg-surface-sidepanel/95 py-2 backdrop-blur">
-        <label className={`mb-2 flex items-center gap-2 text-sm ${canResume ? '' : 'text-muted-foreground'}`}>
+        {allowResume && <label className={`mb-2 flex items-center gap-2 text-sm ${canResume ? '' : 'text-muted-foreground'}`}>
           <input
             type="checkbox"
             data-testid="workflow-resume-checkbox"
@@ -443,8 +444,8 @@ export function WorkflowRunTab({ wfId }: WorkflowRunTabProps) {
             onChange={(event) => setSelectedResume(event.target.checked ? selectionKey : null)}
           />
           {t('inspector.run.resumeFromFailure', 'Start from the last failure')}
-        </label>
-        {!isRunning && (
+        </label>}
+        {allowResume && !isRunning && (
           <p className="mb-2 text-xs text-muted-foreground" data-testid="workflow-resume-hint">
             {canResume
               ? t('inspector.run.resumeHint', 'Reuse successful results and files from the last failed run.')

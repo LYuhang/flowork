@@ -563,7 +563,7 @@ async def create_scheduled_run(
             next_run_at=next_run_at,
             end_at=normalized_end_at,
             service_account_id=service_account_id,
-            workflow_selector={key: value for key, value in {"major": body.major, "version": body.version}.items() if value},
+            workflow_selector={"version": snapshot["version"]},
             start_at=body.start_at.isoformat() if body.start_at else None,
         )
     except IntegrityError as exc:
@@ -719,8 +719,8 @@ async def update_scheduled_run(
     if body.major or body.version:
         from vibecanvas_api.services.task_snapshots import freeze_workflow
         await _authorize_workflow_use(request=request, ctx=ctx, service=service, workflow_id=schedule.workflow_id)
-        await freeze_workflow(session, ctx.user_id, schedule.workflow_id, major=body.major, version=body.version)
-        fields["workflow_selector"] = {key: value for key, value in {"major": body.major, "version": body.version}.items() if value}
+        snapshot = await freeze_workflow(session, ctx.user_id, schedule.workflow_id, major=body.major, version=body.version)
+        fields["workflow_selector"] = {"version": snapshot["version"]}
     enabled = schedule.enabled if body.enabled is None else body.enabled
     schedule_type = fields.get("schedule_type", schedule.schedule_type)
     if "schedule_type" in fields:

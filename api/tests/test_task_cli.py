@@ -18,7 +18,7 @@ def test_repeated_mapping_order_and_json_defaults(tmp_path, monkeypatch, capsys)
 
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["task", "create", "--task_type", "batch_exec", "--workflow_id", "wf",
-        "--major", "v2", "--input_file", str(source),
+        "--version", "v2.sv0", "--input_file", str(source),
         "--mapping", '{"field":"answer","source":"node_3.answer","default":false}',
         "--mapping", '{"field":"score","source":"node_3.score","default":0}'], socket_path="test") == 0
     operation, args = seen[0]
@@ -38,12 +38,12 @@ def test_repeated_mapping_order_and_json_defaults(tmp_path, monkeypatch, capsys)
 ])
 def test_invalid_mapping_rejected(mapping):
     with pytest.raises(ValueError, match="Mapping 1"):
-        task_cli.validate("task.create", {"task_type": "batch_exec", "workflow_id": "wf", "major": "v1", "format": "csv", "data": "", "mapping": [mapping]})
+        task_cli.validate("task.create", {"task_type": "batch_exec", "workflow_id": "wf", "version": "v1.sv0", "format": "csv", "data": "", "mapping": [mapping]})
 
 
 def test_mapping_names_cannot_repeat():
     with pytest.raises(ValueError, match="Mapping 2"):
-        task_cli.validate("task.create", {"task_type": "batch_exec", "workflow_id": "wf", "major": "v1", "format": "csv", "data": "", "mapping": [
+        task_cli.validate("task.create", {"task_type": "batch_exec", "workflow_id": "wf", "version": "v1.sv0", "format": "csv", "data": "", "mapping": [
             {"field": "a", "source": "node.x"}, {"field": "a", "source": "node.y"},
         ]})
 
@@ -76,12 +76,12 @@ def test_leaf_help_explains_observed_lifecycle_edges(capsys, args, phrase):
 
 @pytest.mark.parametrize("operation,args", [
     ("task.create", {"task_type": "batch_exec", "workflow_id": "wf", "format": "csv", "data": ""}),
-    ("task.create", {"task_type": "batch_exec", "workflow_id": "wf", "major": "v1", "format": "csv", "data": "", "concurrency": 17}),
+    ("task.create", {"task_type": "batch_exec", "workflow_id": "wf", "version": "v1.sv0", "format": "csv", "data": "", "concurrency": 17}),
     ("task.cancel", {"task_type": "schedule_run", "task_id": str(uuid4())}),
     ("task.status", {"task_type": "batch_exec", "task_id": "not-uuid"}),
     ("task.update", {"task_type": "schedule_run", "task_id": str(uuid4())}),
-    ("task.create", {"task_type": "schedule_run", "workflow_id": "wf", "major": "v1", "interval": 2, "cron": "* * * * *"}),
-    ("task.create", {"task_type": "schedule_run", "workflow_id": "wf", "major": "v1", "interval": 2, "start_at": "2026-01-01T09:00:00"}),
+    ("task.create", {"task_type": "schedule_run", "workflow_id": "wf", "version": "v1.sv0", "interval": 2, "cron": "* * * * *"}),
+    ("task.create", {"task_type": "schedule_run", "workflow_id": "wf", "version": "v1.sv0", "interval": 2, "start_at": "2026-01-01T09:00:00"}),
     ("task.list", {"type": "scheduled_run"}),
     ("task.list", {"tenant_id": "arbitrary"}),
 ])
@@ -314,3 +314,8 @@ async def test_schedule_history_includes_execution_commands_without_exposing_int
     assert f"task logs --task_id {task_id} --task_type schedule_run --execution_id {execution_id}" in latest["hint"]
     assert "private-plan" not in json.dumps(result)
     assert listing.await_args.kwargs["limit"] == 20
+
+
+def test_task_rejects_floating_major():
+    with pytest.raises(ValueError, match='fixed --version'):
+        task_cli.validate('task.create', {'task_type': 'batch_exec', 'workflow_id': 'wf', 'major': 'v1', 'format': 'csv', 'data': 'x\n1\n'})

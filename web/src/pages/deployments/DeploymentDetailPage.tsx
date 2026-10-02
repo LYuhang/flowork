@@ -16,6 +16,8 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
+import { WorkflowVersionLink } from '@/components/resources/WorkflowVersionLink';
+import { deploymentWorkflowVersion } from '@/lib/workflow/version-link';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -260,7 +262,7 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   const [version, setVersion] = useState(originalVersion);
   const versionsQuery = useWorkflowVersions(dep.wf_id);
   const versions = (versionsQuery.data as { versions?: { major: number; sub: number }[] } | undefined)?.versions ?? [];
-  const versionOptions = [...new Set([originalVersion, ...versions.map(v => `v${v.major}`), ...versions.map(v => `v${v.major}.sv${v.sub}`)])];
+  const versionOptions = [...new Set([originalVersion, ...versions.map(v => `v${v.major}.sv${v.sub}`)])];
 
   const resourcesChanged = cpuMillis !== (dep.cpu_millis ?? 500) || memoryMb !== (dep.memory_mb ?? 256);
   const dirty = rateQps !== dep.rate_limit_qps || enabled !== dep.enabled || mountEnabled !== (dep.mount_enabled ?? true) || version !== originalVersion || resourcesChanged;
@@ -348,7 +350,7 @@ function ConfigTab({ dep }: { dep: Deployment }) {
           <div className="min-w-0 space-y-2">
             <Select value={version} onValueChange={setVersion} disabled={versionsQuery.isLoading || versionsQuery.isError || patchMutation.isPending}>
               <SelectTrigger id="dep-version" aria-describedby="dep-version-help" aria-label={t('tasks.version.label', 'Workflow version')}><SelectValue /></SelectTrigger>
-              <SelectContent>{versionOptions.map(v => <SelectItem key={v} value={v} disabled={v === 'head'}>
+              <SelectContent>{versionOptions.map(v => <SelectItem key={v} value={v} disabled={!/^v[1-9]\d*\.sv\d+$/.test(v)}>
                 {v === 'head' ? t('deployments.legacyHead', 'Global HEAD (legacy)') : v.includes('.sv') ? v : t('tasks.version.latestMajor', '{{major}} · latest saved', { major: v })}
               </SelectItem>)}</SelectContent>
             </Select>
@@ -1283,6 +1285,7 @@ export function DeploymentDetailPage() {
       : tab === 'terminal' ? canUpdate : true;
   const activeTab: TabKey = allowedTab ? tab : 'overview';
   const latestMetric = metricsQuery.data?.series.at(-1) ?? null;
+  const linkedWorkflow = deploymentWorkflowVersion(dep);
   const versionLabel = dep.version_pin === 'head'
     ? t('deployments.detail.latestVersion', 'Latest version')
     : dep.version_pin === 'major' ? t('tasks.version.latestMajor', '{{major}} · latest saved', { major: `v${dep.pinned_major}` })
@@ -1319,6 +1322,7 @@ export function DeploymentDetailPage() {
         <ResourceProvenanceLine provenance={dep.provenance} />
       </>}
       actions={<>
+            <WorkflowVersionLink workflowId={dep.wf_id} version={linkedWorkflow.version} kind={linkedWorkflow.serving ? 'serving' : 'configured'} />
             <Button
               variant="outline"
               size="sm"

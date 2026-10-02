@@ -148,6 +148,15 @@ describe("<TaskDetailPage>", () => {
     });
   });
 
+  it("links a batch to its frozen version rather than its original selector", async () => {
+    const task = makeTask();
+    task.payload = { major: 'v9', workflow_snapshot: { version: 'v2.sv3' } };
+    vi.mocked(getTask).mockResolvedValue(task);
+    renderAt(TASK_ID);
+    expect(await screen.findByRole('link', { name: 'View workflow version v2.sv3' }))
+      .toHaveAttribute('href', '/workflow/wf_42/version/v2.sv3');
+  });
+
   it("renders the workflow id, status badge, and progress for a running task", async () => {
     vi.mocked(getTask).mockResolvedValue(makeTask());
     vi.mocked(useTaskStream).mockReturnValue({
@@ -333,6 +342,7 @@ describe("<TaskDetailPage>", () => {
       id: "11111111-1111-1111-1111-111111111111",
       schedule_id: "22222222-2222-2222-2222-222222222222",
       workflow_id: "wf_42",
+      version: "v2.sv3",
       run_key: "manual-1",
       status: "succeeded",
       trigger_type: "manual",
@@ -383,6 +393,9 @@ describe("<TaskDetailPage>", () => {
     renderAt(TASK_ID);
 
     expect(await screen.findByText(/手动触发/)).toBeInTheDocument();
+    for (const link of await screen.findAllByRole('link', { name: '查看所选执行版本 v2.sv3' })) {
+      expect(link).toHaveAttribute('href', '/workflow/wf_42/version/v2.sv3');
+    }
     expect(screen.getAllByText("成功").length).toBeGreaterThan(0);
     expect(screen.getByText(/未发送/)).toBeInTheDocument();
     const scheduleConfiguration = screen.getByTestId("schedule-configuration-details");

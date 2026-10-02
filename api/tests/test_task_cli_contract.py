@@ -17,7 +17,7 @@ def test_mount_is_explicit_value_and_omission_preserved(tmp_path, monkeypatch, m
     table.write_text("value\n1\n")
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, arguments, **kw: seen.append(arguments) or {"status": "queued"})
-    argv = ["task", "create", "--task_type", task_type, "--workflow_id", "wf", "--major", "v1"]
+    argv = ["task", "create", "--task_type", task_type, "--workflow_id", "wf", "--version", "v1.sv0"]
     argv += ["--input_file", str(table)] if task_type == "batch_exec" else ["--interval", "3600"]
     if mount is not None:
         argv += ["--mount", mount]
@@ -51,7 +51,7 @@ def test_update_mount_omission_is_not_false(monkeypatch, mount):
 
 @pytest.mark.parametrize("invalid", [["--no_mount"], ["--no-mount"], ["--mount"], ["--mount", "yes"], ["--mount", "1"]])
 def test_unsupported_mount_spellings_rejected(invalid):
-    assert cli.main(["task", "create", "--task_type", "schedule_run", "--workflow_id", "wf", "--major", "v1", "--interval", "3600", *invalid]) == 2
+    assert cli.main(["task", "create", "--task_type", "schedule_run", "--workflow_id", "wf", "--version", "v1.sv0", "--interval", "3600", *invalid]) == 2
 
 
 @pytest.mark.parametrize("action", ["status", "logs", "download", "cancel"])
@@ -88,7 +88,7 @@ def test_batch_name_error_is_actionable_and_never_submits(tmp_path, monkeypatch,
     request = AsyncMock()
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["task", "create", "--task_type", "batch_exec", "--workflow_id", "wf",
-        "--major", "v1", "--input_file", str(table), "--name", "Not supported"],
+        "--version", "v1.sv0", "--input_file", str(table), "--name", "Not supported"],
         socket_path="test") == 2
     error = json.loads(capsys.readouterr().out)
     assert "--name" in error["message"] and "batch_exec" in error["message"]

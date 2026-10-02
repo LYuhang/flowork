@@ -54,9 +54,9 @@ export function VersionBanner({ wfId, vKey }: VersionBannerProps) {
   return (
     <div className="flex items-center gap-3 border-b border-state-warning/35 bg-state-warning/10 px-4 py-2 text-sm text-content-primary" role="status">
       <span className="font-medium text-state-warning">
-        {t('version_banner.editing', {
+        {t('version_banner.readOnly', {
           vKey,
-          defaultValue: 'Historical {{vKey}} · Save creates a new sub-version here and makes it current; Fork creates a new major instead.',
+          defaultValue: 'Historical {{vKey}} · Read-only. Fork to edit as a new major.',
         })}
       </span>
       <div className="flex-1" />

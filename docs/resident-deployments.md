@@ -331,3 +331,29 @@ location /api/ {
 
 Run `nginx -t` before reloading Nginx. Empty upgrade requests keep ordinary
 HTTP connections reusable and preserve streaming responses.
+
+## Fixed workflow versions
+
+Tasks and deployments use a saved `vN.svM` snapshot. Creation forms and Task /
+Deployment CLI commands require a complete version (`--version`); workflow
+editing commands still use `--major`. Legacy HTTP selectors (`head` or `major`)
+are accepted for compatibility but resolved once at submission and stored as a
+specific pin. Workflow edits never automatically upgrade these resources.
+Incomplete explicit deployment pins are rejected instead of selecting HEAD.
+
+Detail-page links open `/workflow/:wfId/version/:vKey`, the read-only saved
+canvas. Batch links use the frozen submission snapshot. Scheduled execution
+links use the selected execution's snapshot, which can differ from the current
+schedule configuration after an explicit update. Deployment links distinguish
+its serving revision from configured/preparing versions. Unknown versions never
+fall back to the editable workflow or to its latest saved version.
+
+Before upgrading an existing installation, back up its database and stop API,
+worker and sandboxd processes. With the normal privileged database configuration,
+run `python api/scripts/pin_resource_versions.py` to preview legacy resources,
+then repeat with `--apply` before restarting. The operation is transactional and
+idempotent; a missing workflow/version aborts it without committing partial
+changes. It uses the encrypted schedule repository, leaves execution snapshots
+unchanged and preserves a serving deployment revision when it matches the saved
+configuration. Without such a revision, it resolves the configured selector once.
+Keep the ID/version report with the private deployment backup.

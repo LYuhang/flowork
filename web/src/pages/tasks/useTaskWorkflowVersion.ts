@@ -7,10 +7,10 @@ export function useTaskWorkflowVersion(workflowId: string) {
   const history = useWorkflowVersions(workflowId);
   const [choice, setChoice] = useState({ workflowId: '', value: '' });
   const metadata = live.data?.workflow?.__meta__ as { workflow_version?: number; workflow_subversion?: number } | undefined;
-  const currentMajor = metadata?.workflow_version;
-  const currentSub = metadata?.workflow_subversion;
+  const currentMajor = live.data?.meta?.active_v ?? metadata?.workflow_version;
+  const currentSub = live.data?.meta?.active_sv ?? metadata?.workflow_subversion;
   const selector = choice.workflowId === workflowId && choice.value
-    ? choice.value : currentMajor ? `v${currentMajor}` : '';
+    ? choice.value : currentMajor && currentSub != null ? `v${currentMajor}.sv${currentSub}` : '';
   const rows = (history.data as { versions?: { major: number; sub: number }[] } | undefined)?.versions ?? [];
   const match = /^v([1-9]\d*)(?:\.sv(\d+))?$/.exec(selector);
   const major = match ? Number(match[1]) : null;
@@ -20,8 +20,7 @@ export function useTaskWorkflowVersion(workflowId: string) {
   const isLive = major === currentMajor && sub === currentSub;
   const pinned = useWorkflowAt(workflowId, isLive ? null : major, isLive ? null : sub);
   const choices = [...new Set([
-    ...(currentMajor ? [`v${currentMajor}`] : []),
-    ...rows.map(row => `v${row.major}`),
+    ...(currentMajor && currentSub != null ? [`v${currentMajor}.sv${currentSub}`] : []),
     ...rows.map(row => `v${row.major}.sv${row.sub}`),
   ])];
   return {
@@ -30,7 +29,7 @@ export function useTaskWorkflowVersion(workflowId: string) {
     snapshot: isLive || !selector ? live : pinned,
     loading: live.isLoading || history.isLoading,
     error: live.isError || history.isError,
-    target: selector.includes('.sv') ? { version: selector } : { major: selector },
+    target: { version: selector },
     frozenTarget: major !== null && sub !== null ? { version: `v${major}.sv${sub}` } : undefined,
   };
 }

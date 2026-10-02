@@ -592,6 +592,11 @@ class TasksRepo:
         workflow_selector: dict | None = None,
         start_at: str | None = None,
     ) -> tuple[Task, TaskSchedule]:
+        from vibecanvas_api.services.task_snapshots import freeze_workflow
+        selector = workflow_selector or {}
+        snapshot = await freeze_workflow(self.session, user_id, workflow_id,
+                                        major=selector.get("major"), version=selector.get("version"))
+        workflow_selector = {"version": snapshot["version"]}
         task_private = {
             "payload": {
                 "name": name,
@@ -713,6 +718,12 @@ class TasksRepo:
         schedule = await self.session.get(TaskSchedule, schedule_id)
         if schedule is None:
             raise LookupError(f"Schedule {schedule_id} not found")
+        if "workflow_selector" in fields:
+            from vibecanvas_api.services.task_snapshots import freeze_workflow
+            selector = fields["workflow_selector"] or {}
+            snapshot = await freeze_workflow(self.session, schedule.user_id, schedule.workflow_id,
+                                            major=selector.get("major"), version=selector.get("version"))
+            fields["workflow_selector"] = {"version": snapshot["version"]}
         private_updates = _SCHEDULE_PRIVATE_FIELDS.intersection(fields)
         if private_updates:
             await self._materialize_schedule(schedule)

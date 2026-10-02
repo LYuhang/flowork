@@ -398,8 +398,8 @@ async def test_smuggled_tenant_id_is_ignored_at_handler_level(
 
 
 @pytest.mark.asyncio
-async def test_specific_version_pin_defaults_to_head(pg_engine, app_engine):
-    """``version_pin='specific'`` without pinned fields → defaults to HEAD."""
+async def test_legacy_major_is_resolved_once_to_a_specific_version(pg_engine, app_engine):
+    """A legacy branch selector is stored as a complete fixed version."""
     from vibecanvas_api.storage.db import session_scope
 
     tenant_id = uuid.uuid4()
@@ -416,8 +416,7 @@ async def test_specific_version_pin_defaults_to_head(pg_engine, app_engine):
     ctx = _StubCtx(tenant_id, user_id)
     body = CreateDeploymentBody.model_validate({
         "wf_id": wf_id, "name": "Pinned", "slug": "pinned-1",
-        "trigger_type": "api", "version_pin": "specific",
-        # pinned_major / pinned_sub deliberately omitted — handler defaults.
+        "trigger_type": "api", "version_pin": "major", "pinned_major": 2,
     })
 
     async with session_scope(tenant_id=str(tenant_id)) as s:
@@ -476,7 +475,7 @@ async def test_specific_version_pin_404_when_workflow_is_missing(
 
 
 @pytest.mark.asyncio
-async def test_head_pin_forces_pinned_fields_to_null(pg_engine, app_engine):
+async def test_legacy_head_is_resolved_once(pg_engine, app_engine):
     """``version_pin='head'`` ⇒ ``pinned_major`` / ``pinned_sub`` are
     forced to NULL even if the body supplied them."""
     from vibecanvas_api.storage.db import session_scope
@@ -510,8 +509,8 @@ async def test_head_pin_forces_pinned_fields_to_null(pg_engine, app_engine):
             ),
             {"id": uuid.UUID(resp["id"])},
         )).one()
-    assert row.pinned_major is None
-    assert row.pinned_sub is None
+    assert row.pinned_major == 1
+    assert row.pinned_sub == 0
 
 
 @pytest.mark.asyncio

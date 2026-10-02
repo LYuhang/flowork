@@ -119,7 +119,7 @@
   "tasks.version.label": "工作流版本",
   "tasks.version.latestMajor": "{{major}} · 最新保存版本",
   "tasks.version.batchHint": "批处理提交后固定保存版本，恢复执行时也不会更换版本。",
-  "tasks.version.scheduleHint": "选择主版本时，每次执行使用该分支最新保存版本；选择完整版本时始终固定。",
+  "tasks.version.scheduleHint": "每次执行都使用此固定版本，只有手动修改配置才会切换。",
   "tasks.version.error": "无法加载工作流版本。",
   "workflow_model_picker.label": "模型 API",
   "workflow_model_picker.loading": "正在加载模型 API…",
@@ -3781,5 +3781,12 @@
   "inspector.run.resumeHint": "复用上次失败执行中已成功节点的结果和运行文件。",
   "inspector.run.resumeWorkflowChanged": "Workflow 已修改，需要从头执行。",
   "inspector.run.resumeInputsChanged": "输入已修改，需要从头执行。",
-  "inspector.run.resumeUnavailable": "完整 Workflow 执行失败后，且 Workflow 和输入未修改时可用。"
+  "inspector.run.resumeUnavailable": "完整 Workflow 执行失败后，且 Workflow 和输入未修改时可用。",
+  "workflowVersionLink.snapshot": "查看 Workflow 版本",
+  "workflowVersionLink.configured": "查看配置版本",
+  "workflowVersionLink.execution": "查看所选执行版本",
+  "workflowVersionLink.serving": "查看当前服务版本",
+  "workflowVersionLink.unavailable": "暂无可确认的具体 Workflow 版本",
+  "workflowVersionLink.readOnly": "打开对应已保存版本的只读 Workflow 画布",
+  "version_banner.readOnly": "历史版本 {{vKey}} · 只读。如需修改，可从此版本创建新的大版本。"
 }

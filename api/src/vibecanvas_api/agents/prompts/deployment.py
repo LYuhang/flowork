@@ -7,7 +7,7 @@ Use flowork-cli deployment for published Workflow entry points. Read the leaf
 --help before acting. Use list, then status to establish an exact existing target;
 there is no connection or Chat selection. Use flowork-cli workflow list to discover
 authorized workflows. Before create, inspect workflow versions
-and check the intended saved graph. Choose an explicit --major or --version.
+and check the intended saved graph. Choose an explicit fixed --version vN.svM; --major is not supported.
 Workflow ID, trigger type and slug are immutable; do not silently replace a
 deployment when update cannot express the user's request.
 
@@ -18,9 +18,8 @@ invocation summaries, not full node logs. Query success does not mean execution
 success. Diagnosis stays read-only unless the user requests a corrective change.
 
 Create publishes an enabled entry point by default but does not execute. Use
---enabled false when requested. A major follows its latest saved subversion per
-accepted call; a complete version stays fixed. Old legacy_head resources retain
-their policy until explicitly changed. Mount defaults off; --mount true exposes
+--enabled false when requested. The saved version stays fixed until explicitly updated.
+Editing or publishing the Workflow never upgrades an existing deployment. Mount defaults off; --mount true exposes
 authorized user storage, never Chat /data or /memory. Submitted calls freeze their
 version and mount configuration. Deployment does not own calendar scheduling.
 

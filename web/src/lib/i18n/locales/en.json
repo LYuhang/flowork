@@ -119,7 +119,7 @@
   "tasks.version.label": "Workflow version",
   "tasks.version.latestMajor": "{{major}} · latest saved",
   "tasks.version.batchHint": "The submitted batch keeps one saved version, including when resumed.",
-  "tasks.version.scheduleHint": "A major follows its latest saved version per execution; a full version stays fixed.",
+  "tasks.version.scheduleHint": "Each execution uses this fixed saved version until you explicitly change it.",
   "tasks.version.error": "Could not load workflow versions.",
   "workflow_model_picker.label": "Model API",
   "workflow_model_picker.loading": "Loading model APIs…",
@@ -3781,5 +3781,12 @@
   "inspector.run.resumeHint": "Reuse successful results and files from the last failed run.",
   "inspector.run.resumeWorkflowChanged": "Workflow changed. Run from the beginning.",
   "inspector.run.resumeInputsChanged": "Inputs changed. Run from the beginning.",
-  "inspector.run.resumeUnavailable": "Available after a failed workflow run with unchanged workflow and inputs."
+  "inspector.run.resumeUnavailable": "Available after a failed workflow run with unchanged workflow and inputs.",
+  "workflowVersionLink.snapshot": "View workflow version",
+  "workflowVersionLink.configured": "View configured version",
+  "workflowVersionLink.execution": "View selected run version",
+  "workflowVersionLink.serving": "View serving version",
+  "workflowVersionLink.unavailable": "Exact workflow version is not yet available.",
+  "workflowVersionLink.readOnly": "Open the exact saved workflow version in a read-only canvas",
+  "version_banner.readOnly": "Historical {{vKey}} · Read-only. Fork to edit as a new major."
 }

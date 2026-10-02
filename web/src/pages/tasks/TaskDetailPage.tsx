@@ -66,6 +66,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WorkflowVersionLink } from "@/components/resources/WorkflowVersionLink";
+import { batchWorkflowVersion } from "@/lib/workflow/version-link";
 import { EvaluationTab } from "./EvaluationTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -645,6 +647,9 @@ export function TaskDetailPage() {
   const summary = ["finished", "finished_with_errors", "interrupted"].includes(task.status)
     ? asBatchSummary(task.result)
     : null;
+  const configuredVersion = scheduledQuery.data?.schedule.workflow_selector?.version;
+  const linkedVersion = isScheduledRun ? configuredVersion ?? selectedExecution?.version : batchWorkflowVersion(task);
+  const linkedWorkflowId = isScheduledRun && !configuredVersion ? selectedExecution?.workflow_id : task.workflow_id;
   const batchSetup = isScheduledRun ? null : asBatchSetup(task.payload);
   // "X of Y rows done" — prefer the live SSE progress frame; once finished,
   // the summary card carries the authoritative totals so we pin done==total.
@@ -700,6 +705,8 @@ export function TaskDetailPage() {
       </>)}
       actions={
         <>
+              <WorkflowVersionLink workflowId={linkedWorkflowId} version={linkedVersion}
+                kind={isScheduledRun ? configuredVersion ? "configured" : "execution" : "snapshot"} />
               {canDownload && (
                 <>
                   <DropdownMenu>
@@ -1051,6 +1058,7 @@ export function TaskDetailPage() {
                       {selectedExecution.id.slice(0, 8)}
                     </span>
                     <CopyButton value={selectedExecution.id} />
+                    <WorkflowVersionLink workflowId={selectedExecution.workflow_id} version={selectedExecution.version} kind="execution" />
                   </div>
                   <DetailSummary className="mt-4 sm:grid-cols-3" items={[
                     { label: t("taskDetail.startedAt", "Started"), value: formatTime(selectedExecution.started_at) },

@@ -49,7 +49,6 @@ import {
   createDeployment,
   type CreateDeploymentBody,
   type CreateDeploymentResponse,
-  type VersionPin,
 } from '@/lib/api/deployments';
 import { useWorkspaceList } from '@/lib/api/queries/workflows';
 import { useWorkflowVersions } from '@/lib/api/queries/workflow';
@@ -80,7 +79,7 @@ function defaultBody(initialWorkflowId = '', initialName = ''): CreateDeployment
     name: initialName,
     slug: '',
     trigger_type: 'api',
-    version_pin: 'major',
+    version_pin: 'specific',
     rate_limit_qps: 10,
     mount_enabled: false,
     enabled: true,
@@ -391,22 +390,6 @@ export function CreateDeploymentModal({
                   'Version pin',
                 )}
               </legend>
-              <div className="flex items-center gap-4 text-sm">
-                {(['major', 'specific'] as VersionPin[]).map((vp) => (
-                  <label key={vp} className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="version_pin"
-                      value={vp}
-                      checked={body.version_pin === vp}
-                      onChange={() =>
-                        setBody((b) => ({ ...b, version_pin: vp }))
-                      }
-                    />
-                    {t(`deployments.create.versionPin.${vp}`, vp === 'major' ? 'Follow major version' : 'Fixed version')}
-                  </label>
-                ))}
-              </div>
               {body.version_pin !== 'head' && (
                 <div className="grid grid-cols-2 gap-2">
                   <div className="flex flex-col gap-1">

@@ -12,9 +12,8 @@ There is no current Task or Workflow. Never call retired Task MCP tools.
 Use flowork-cli workflow list to discover authorized workflows, then inspect saved versions. Inspect
 StartNode inputs and desired node outputs; upload/check graph edits before
 submitting. Batch creation freezes the saved graph, input data and mount setting.
-Resume uses the SAME Task ID and snapshot, skipping successful rows. Schedule
---major resolves that major's latest saved version per execution; --version pins
-it. Never infer the target from global HEAD or a prior Chat binding.
+Resume uses the SAME Task ID and snapshot, skipping successful rows. Both task types require --version vN.svM. Schedules retain this fixed version
+until explicitly updated; --major is not supported. Never infer the target from global HEAD or a prior Chat binding.
 
 Prepare batch input files with column names matching StartNode input names.
 Repeat --mapping with flat JSON {field,source,default?}: field is the RESULT

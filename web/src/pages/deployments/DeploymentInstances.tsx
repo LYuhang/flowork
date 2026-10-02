@@ -1,3 +1,4 @@
+import { WorkflowVersionLink } from '@/components/resources/WorkflowVersionLink';
 import { useTranslation } from 'react-i18next';
 import type { Deployment } from '@/lib/api/deployments';
 import { useFormatDateTime } from '@/lib/timezone';
@@ -28,7 +29,7 @@ export function DeploymentInstances({ dep }: { dep: Deployment }) {
           </StatusBadge>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-4">
-          <div><dt className="text-xs text-content-tertiary">{t('tasks.version.label', 'Workflow version')}</dt><dd className="mt-1 font-mono">{instance.version}</dd></div>
+          <div><dt className="text-xs text-content-tertiary">{t('tasks.version.label', 'Workflow version')}</dt><dd className="mt-1 font-mono"><WorkflowVersionLink workflowId={dep.wf_id} version={instance.version} /></dd></div>
           <div><dt className="text-xs text-content-tertiary">/mount</dt><dd className="mt-1">{instance.mount_enabled ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off')}</dd></div>
           <div><dt className="text-xs text-content-tertiary">{t('deployments.runtime.pendingRequests', 'Unfinished requests')}</dt><dd className="mt-1 tabular-nums">{instance.pending_requests}</dd></div>
           <div><dt className="text-xs text-content-tertiary">{t('deployments.runtime.activatedAt', 'Serving since')}</dt><dd className="mt-1 break-words tabular-nums">{instance.activated_at ? formatTime(instance.activated_at) : '—'}</dd></div>

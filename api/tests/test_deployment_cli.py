@@ -28,12 +28,12 @@ def test_create_credential_private_and_never_stdout(tmp_path, monkeypatch, capsy
     secret = tmp_path / "private.json"
     def request(endpoint, args, **kw):
         assert secret.exists() and secret.stat().st_mode & 0o777 == 0o600
-        assert args == {"workflow_id": "wf", "name": "Demo", "trigger_type": "api", "major": "v2",
+        assert args == {"workflow_id": "wf", "name": "Demo", "trigger_type": "api", "version": "v2.sv0",
                         "slug": "demo", "mount": False, "enabled": True, "rate_limit_qps": 10}
         return {"deployment_id": dep_id, "_credential": {"api_key": "one-time-secret"}}
     monkeypatch.setattr(cli, "request", request)
     command = ["deployment", "create", "--workflow_id", "wf", "--name", "Demo", "--trigger_type", "api",
-               "--major", "v2", "--secret_file", str(secret)]
+               "--version", "v2.sv0", "--secret_file", str(secret)]
     assert cli.main(command, socket_path="test") == 0
     output = capsys.readouterr().out
     assert "one-time-secret" not in output and "_credential" not in json.loads(output)
@@ -91,7 +91,7 @@ def test_replaced_secret_path_reports_committed_failure(tmp_path, monkeypatch, c
     ("update", {"deployment_id": str(uuid4())}),
     ("update", {"deployment_id": str(uuid4()), "mount": "true"}),
     ("create", {"workflow_id": "wf", "name": "x", "trigger_type": "api"}),
-    ("create", {"workflow_id": "wf", "name": "x", "trigger_type": "api", "major": "v0"}),
+    ("create", {"workflow_id": "wf", "name": "x", "trigger_type": "api", "version": "v0.sv0"}),
     ("run", {"deployment_id": str(uuid4()), "inputs": []}),
     ("history", {"deployment_id": str(uuid4()), "execution_id": str(uuid4()), "limit": 20}),
     ("history", {"deployment_id": str(uuid4()), "after": "bad-cursor"}),
@@ -105,7 +105,7 @@ def test_reject_bad_contract(operation, args):
 def test_cursor_and_settings():
     cursor = base64.urlsafe_b64encode(json.dumps({"id": str(uuid4()), "submitted_at": "2026-01-01T00:00:00Z"}).encode()).decode()
     assert deployment_cli.validate("deployment.history", {"deployment_id": str(uuid4()), "after": cursor})["after"] == cursor
-    assert settings({"major": "v2", "mount": False}) == {"version_pin": "major", "pinned_major": 2, "pinned_sub": None, "mount_enabled": False}
+    assert settings({"version": "v2.sv0", "mount": False}) == {"version_pin": "specific", "pinned_major": 2, "pinned_sub": 0, "mount_enabled": False}
     assert settings({"version": "v3.sv4"}) == {"version_pin": "specific", "pinned_major": 3, "pinned_sub": 4}
 
 
@@ -113,7 +113,7 @@ def test_cursor_and_settings():
     ("create", {}, True), ("delete", {}, True), ("run", {}, True), ("enable", {}, True),
     ("disable", {}, False), ("rotate_key", {}, True),
     ("update", {"name": "renamed"}, False), ("update", {"mount": False}, False),
-    ("update", {"mount": True}, True), ("update", {"major": "v2"}, True),
+    ("update", {"mount": True}, True), ("update", {"version": "v2.sv0"}, True),
     ("update", {"rate_limit_qps": 5}, False), ("update", {"rate_limit_qps": 0}, True),
     ("update", {"rate_limit_qps": 11}, True),
 ])
@@ -225,3 +225,8 @@ def test_history_accepts_new_execution_statuses(monkeypatch, capsys, state):
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["deployment", "history", "--deployment_id", str(uuid4()), "--status", state], socket_path="test") == 0
     assert request.call_args.args[1]["status"] == state
+
+
+def test_deployment_rejects_floating_major():
+    with pytest.raises(ValueError, match='fixed --version'):
+        deployment_cli.validate('deployment.update', {'deployment_id': str(uuid4()), 'major': 'v1'})

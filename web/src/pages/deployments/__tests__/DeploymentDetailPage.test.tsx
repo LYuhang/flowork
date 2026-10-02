@@ -447,7 +447,9 @@ describe('<DeploymentDetailPage>', () => {
     await screen.findByText('Runtime instances');
     expect(screen.getByText('old-instance')).toBeInTheDocument();
     expect(screen.getByText('new-instance')).toBeInTheDocument();
-    expect(screen.getByText('v1.sv0')).toBeInTheDocument();
+    expect(screen.getAllByText('v1.sv0').length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: 'View serving version v1.sv0' })).toHaveAttribute('href', '/workflow/wf_42/version/v1.sv0');
+    expect(screen.getByRole('link', { name: 'View workflow version v1.sv1' })).toHaveAttribute('href', '/workflow/wf_42/version/v1.sv1');
     expect(screen.getByText('v1.sv1')).toBeInTheDocument();
     expect(screen.getByText('Serving')).toBeInTheDocument();
     expect(screen.getByText('Starting')).toBeInTheDocument();

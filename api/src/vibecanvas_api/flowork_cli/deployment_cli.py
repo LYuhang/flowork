@@ -42,7 +42,7 @@ def add_parser(groups):
         "rotate_key": "API deployments only. Old API key immediately stops working. Save the one-time replacement to --secret_file; never automatically rotate again after an unknown result.",
         "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url after human approval is reached or the observation wait expires. The admitted execution continues independently. Inspect that execution through history or its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
         "history": "Inspect deployment calls, not Task Center jobs. --execution_id selects exactly one call belonging to this deployment; otherwise a newest-first page with next_cursor (pass as --after). --output_dir exports this page, deployment status and hourly metrics to a NEW directory; default export window is the last seven days. These are invocation summaries, not complete node logs. No implicit latest execution.",
-        "create": "Create an enabled deployment by default; does not execute. Required --major/--version selects a branch or fixed snapshot. --secret_file is a NEW sandbox file for the one-time API key/webhook secret (0600); stdout never prints it. After an unknown result inspect list before retrying. --slug defaults to the lowercased name with non-ASCII/alphanumeric groups replaced by hyphens (fallback deployment); collisions are errors.",
+        "create": "Create an enabled deployment by default; does not execute. Required --version selects a fixed saved snapshot. --secret_file is a NEW sandbox file for the one-time API key/webhook secret (0600); stdout never prints it. After an unknown result inspect list before retrying. --slug defaults to the lowercased name with non-ASCII/alphanumeric groups replaced by hyphens (fallback deployment); collisions are errors.",
         "update": "Update ONLY supplied settings, not Workflow ID, trigger type or slug. Version changes and increased execution exposure may require approval. Use enable/disable for availability. Existing accepted calls retain their frozen version/mount.",
     }.items():
         leaf = command(actions, action, description)
@@ -51,7 +51,6 @@ def add_parser(groups):
         if action in {"create", "update"}:
             leaf.add_argument("--name", required=action == "create")
             version = leaf.add_mutually_exclusive_group(required=action == "create")
-            version.add_argument("--major", help="Follow this saved major, e.g. v2. Each accepted call freezes its latest subversion.")
             version.add_argument("--version", help="Fixed saved version, e.g. v2.sv3. Never infers a target from Chat state.")
             leaf.add_argument("--rate_limit_qps", type=int, help="Non-negative soft QPS cap, default 10 on create. 0 disables this rate limit, not a capacity guarantee.")
             leaf.add_argument("--mount", choices=("true", "false"), help="Expose deployment owner's authorized /mount. Default false on create; omission preserves on update. Never shares Chat /data or /memory.")
@@ -118,10 +117,10 @@ def validate(operation, arguments):
     for key in ("enabled", "mount", "export"):
         if key in value and type(value[key]) is not bool:
             raise ValueError(f"--{key} must be true or false.")
-    if "major" in value and "version" in value:
-        raise ValueError("Use --major or --version, not both.")
-    if action == "create" and not ({"major", "version"} & value.keys()):
-        raise ValueError("create requires --major or --version.")
+    if "major" in value:
+        raise ValueError("Deployments require a fixed --version, e.g. v2.sv3; --major is no longer supported.")
+    if action == "create" and not value.get("version"):
+        raise ValueError("create requires --version.")
     for key, pattern in (("major", r"v[1-9]\d*"), ("version", r"v[1-9]\d*\.sv\d+")):
         if key in value and (not isinstance(value[key], str) or not re.fullmatch(pattern, value[key]) or value[key].endswith("sv")):
             raise ValueError(f"Invalid --{key}. Use v2 for a major or v2.sv3 for a fixed version.")

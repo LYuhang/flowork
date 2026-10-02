@@ -103,7 +103,7 @@ def test_future_cron_start_is_a_lower_bound_not_an_off_cron_execution():
 
 
 @pytest.mark.asyncio
-async def test_execution_snapshots_follow_only_selected_branch_and_survive_updates(pg_engine):
+async def test_execution_snapshots_stay_fixed_across_workflow_edits(pg_engine):
     from vibecanvas_api.storage.db import session_scope
     from vibecanvas_api.storage.workflow_repo import WorkflowRepo
     from vibecanvas_api.storage.repo_tasks import TasksRepo
@@ -129,12 +129,12 @@ async def test_execution_snapshots_follow_only_selected_branch_and_survive_updat
         await repo.update_scheduled_execution(first_id, status="succeeded", result={"value": False})
         second = await repo.create_scheduled_execution(execution_id=second_id, tenant_id=tenant,
             schedule_id=schedule_id, workflow_id=workflow, run_key="two", trigger_type="manual", input_snapshot={"number": 2})
-        assert second.workflow_snapshot["version"] == "v1.sv2"
+        assert second.workflow_snapshot["version"] == "v1.sv1"
         assert second.workflow_snapshot["mount_enabled"] is True
-        await repo.update_schedule(schedule_id, workflow_selector={"version": "v1.sv1"}, start_at=None)
+        await repo.update_schedule(schedule_id, workflow_selector={"version": "v1.sv2"}, start_at=None)
         fixed = await repo.create_scheduled_execution(execution_id=uuid.uuid4(), tenant_id=tenant,
             schedule_id=schedule_id, workflow_id=workflow, run_key="three", trigger_type="manual", input_snapshot={})
-        assert fixed.workflow_snapshot["workflow"]["marker"] == "branch-one"
+        assert fixed.workflow_snapshot["workflow"]["marker"] == "branch-one-new"
     async with session_scope(tenant_id=str(tenant)) as session:
         first = await TasksRepo(session).get_scheduled_execution(first_id)
         assert first.workflow_snapshot["version"] == "v1.sv1"

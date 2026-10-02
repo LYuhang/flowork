@@ -133,9 +133,9 @@ describe('<CreateDeploymentModal>', () => {
     expect(callArg.slug).toBe('api-bot');
     expect(callArg.wf_id).toBe('wf_42');
     expect(callArg.trigger_type).toBe('api');
-    expect(callArg.version_pin).toBe('major');
+    expect(callArg.version_pin).toBe('specific');
+    expect(callArg.pinned_sub).toBe(2);
     expect(callArg.pinned_major).toBe(1);
-    expect(callArg.pinned_sub).toBeUndefined();
     expect(callArg.mount_enabled).toBe(false);
     expect(callArg.enabled).toBe(true);
   });

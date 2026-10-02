@@ -298,14 +298,9 @@ async def create_deployment(
     plaintext credentials...}``. Subsequent GETs (T5) MUST NOT include
     the plaintext credentials.
 
-    Resolution rules for ``pinned_major`` / ``pinned_sub``:
-    * ``version_pin='head'`` → both forced to ``None`` (the row tracks
-      the workflow's HEAD pointer; invocation resolves it at run time).
-    * ``version_pin='specific'`` + both supplied → trust the caller (FK
-      / CHECK constraint will reject an invalid pair at INSERT time).
-    * ``version_pin='specific'`` + either missing → default to the
-      workflow's current HEAD. 404 if the workflow has no versions yet
-      (a workflow with zero rows in ``workflow_versions`` is not deployable).
+    Explicit pins require both major and subversion and are validated before
+    creating credentials. Legacy HEAD/major input is resolved once and stored as
+    a specific pin. No created deployment follows later workflow edits.
 
     409 on IntegrityError: global partial UNIQUE on ``slug WHERE
     deleted_at IS NULL`` (migration 088) OR the ``wf_id`` FK to
@@ -325,43 +320,14 @@ async def create_deployment(
     )
     repo = DeploymentsRepo(session)
 
-    pinned_major = body.pinned_major
-    pinned_sub = body.pinned_sub
-    if body.version_pin == "head":
-        pinned_major = None
-        pinned_sub = None
-    elif body.version_pin == "major":
-        if pinned_major is None or pinned_major < 1:
-            raise HTTPException(422, "A positive pinned_major is required for major tracking.")
-        pinned_sub = None
-    else:  # 'specific'
-        if pinned_major is None or pinned_sub is None:
-            # Resolve to current HEAD. The session is already
-            # tenant-bound, so RLS hides foreign-tenant rows (a foreign
-            # wf_id is invisible → 404, same as a missing workflow).
-            row = (await session.execute(
-                text(
-                    "SELECT major, sub FROM workflow_versions "
-                    "WHERE wf_id = :w "
-                    "ORDER BY major DESC, sub DESC LIMIT 1"
-                ),
-                {"w": body.wf_id},
-            )).one_or_none()
-            if row is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=(
-                        f"workflow {body.wf_id} has no versions; cannot "
-                        "pin a specific version"
-                    ),
-                )
-            pinned_major = row.major
-            pinned_sub = row.sub
-
-    # Resolve before creating identities or secrets. Never fall back from a
-    # missing explicit branch/version to another branch.
+    # Legacy HEAD/major selectors resolve once at submission, never at invocation.
+    # An incomplete explicit pin must not silently select a different version.
+    if body.version_pin == "specific" and (body.pinned_major is None or body.pinned_sub is None):
+        raise HTTPException(422, "A complete pinned version is required.")
     selected_graph = await resolve_workflow(session, ctx.user_id, {"wf_id": body.wf_id,
-        "version_pin": body.version_pin, "pinned_major": pinned_major, "pinned_sub": pinned_sub})
+        "version_pin": body.version_pin, "pinned_major": body.pinned_major, "pinned_sub": body.pinned_sub})
+    pinned_major = selected_graph["__meta__"]["workflow_version"]
+    pinned_sub = selected_graph["__meta__"]["workflow_subversion"]
 
     # Tenant / user identity ONLY from auth context — never the body.
     dep_id = uuid.uuid4()
@@ -392,7 +358,7 @@ async def create_deployment(
         name=body.name,
         slug=body.slug,
         trigger_type=body.trigger_type,
-        version_pin=body.version_pin,
+        version_pin="specific",
         pinned_major=pinned_major,
         pinned_sub=pinned_sub,
         rate_limit_qps=body.rate_limit_qps,
@@ -770,7 +736,9 @@ async def patch_deployment(
             raise HTTPException(422, "A complete pinned version is required.")
         await _authorize_workflow_deploy(request=request, ctx=ctx, service=service, workflow_id=dep["wf_id"],
                                         consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
-        await resolve_workflow(session, ctx.user_id, {**dep, **fields})
+        graph = await resolve_workflow(session, ctx.user_id, {**dep, **fields})
+        fields.update(version_pin="specific", pinned_major=graph["__meta__"]["workflow_version"],
+                      pinned_sub=graph["__meta__"]["workflow_subversion"])
     authorized = await _authorize_deployment(
         request=request,
         ctx=ctx,

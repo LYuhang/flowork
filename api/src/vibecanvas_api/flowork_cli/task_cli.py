@@ -88,7 +88,7 @@ def add_parser(groups):
     for action in ("create", "update"):
         command = _command(actions, action,
             help="Create a batch task or recurring plan." if action == "create" else "Update supplied schedule fields; never changes existing execution snapshots.",
-            description=("batch_exec requires --workflow_id, --major/--version and --input_file, then submits asynchronously. Input columns match StartNode names. Repeat --mapping '{\"field\":\"answer\",\"source\":\"node_3.answer\",\"default\":null}' for OUTPUT columns, not input mapping. default only replaces absent outputs, never false/0/empty string. Fixed index/status/error/execution_time columns remain. schedule_run requires --workflow_id, --major/--version and --interval/--cron. Creates an ENABLED schedule by default; --paused only saves configuration. Read the returned hint; do not repeat submission."
+            description=("batch_exec requires --workflow_id, --version and --input_file, then submits asynchronously. Input columns match StartNode names. Repeat --mapping '{\"field\":\"answer\",\"source\":\"node_3.answer\",\"default\":null}' for OUTPUT columns, not input mapping. default only replaces absent outputs, never false/0/empty string. Fixed index/status/error/execution_time columns remain. schedule_run requires --workflow_id, --version and --interval/--cron. Creates an ENABLED schedule by default; --paused only saves configuration. Read the returned hint; do not repeat submission."
                 if action == "create" else "schedule_run only. Updates supplied fields; does not enable a paused schedule. --inputs/--inputs_file replaces the complete preset. Use --clear_start_at/--clear_end_at to remove bounds. Use enable/disable for future dispatch."))
         if action == "create":
             typed(command)
@@ -96,7 +96,6 @@ def add_parser(groups):
         else:
             target(command)
         selector = command.add_mutually_exclusive_group(required=action == "create")
-        selector.add_argument("--major", help="Saved major, e.g. v1. Batch freezes at submission; schedules resolve each execution.")
         selector.add_argument("--version", help="Pinned saved version, e.g. v1.sv2.")
         command.add_argument("--name", help="schedule_run only: plan display name; defaults to the workflow ID plus 'schedule'. Batch tasks do not have a custom name.")
         timing = command.add_mutually_exclusive_group()
@@ -224,11 +223,11 @@ def validate(operation, arguments):
     for key, pattern in (("major", r"v[1-9][0-9]*"), ("version", r"v[1-9][0-9]*\.sv[0-9]+")):
         if key in result and (not isinstance(result[key], str) or not re.fullmatch(pattern, result[key])):
             raise ValueError(f"Invalid --{key}; use v2 for major or v2.sv3 for version.")
-    if "major" in result and "version" in result:
-        raise ValueError("--major and --version are mutually exclusive.")
+    if "major" in result:
+        raise ValueError("Tasks require a fixed --version, e.g. v2.sv3; --major is no longer supported.")
     if operation.endswith(".create"):
-        if not result.get("workflow_id") or not ({"major", "version"} & result.keys()):
-            raise ValueError("Creation requires --workflow_id and exactly one of --major/--version.")
+        if not result.get("workflow_id") or not result.get("version"):
+            raise ValueError("Creation requires --workflow_id and --version.")
     if "inputs" in result and not isinstance(result["inputs"], dict):
         raise ValueError("Inputs must be a JSON object.")
     if "interval" in result and "cron" in result:

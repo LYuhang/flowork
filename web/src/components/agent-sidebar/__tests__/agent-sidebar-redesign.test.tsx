@@ -192,6 +192,95 @@ describe('ChatMessageList', () => {
     await waitFor(() => expect(onLoadOlderHistory).toHaveBeenCalledTimes(1));
   });
 
+  it('keeps the visible message in place across the loading header and a delayed prepend commit', async () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const animationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    let finish!: () => void;
+    const onLoadOlderHistory = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    const recent = [
+      { id: 'recent-user', role: 'user', content: 'recent request' },
+      { id: 'recent-agent', role: 'assistant', content: 'recent answer' },
+    ] as never;
+    const props = { wfId: 'wf', activeChatId: 'c1', historyItems: recent, hasOlderHistory: true, onLoadOlderHistory };
+    const { rerender } = render(<ChatMessageList {...props} olderHistoryLoading />);
+    const log = screen.getByRole('log', { name: 'Conversation' });
+    const header = () => log.querySelector('[data-role="agent-history-loading-older"]') ? 24 : 40;
+    Object.defineProperties(log, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, get: () => header() + log.querySelectorAll('[data-chat-render-key]').length * 200 },
+      scrollTop: { configurable: true, value: 20, writable: true },
+    });
+    const rectangle = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const index = Array.from(log.querySelectorAll('[data-chat-render-key]')).indexOf(this);
+      const top = index < 0 ? 0 : header() + index * 200 - log.scrollTop;
+      return { top, bottom: top + 200, height: 200, left: 0, right: 400, width: 400, x: 0, y: top, toJSON() {} };
+    });
+    try {
+      rerender(<ChatMessageList {...props} olderHistoryLoading={false} />);
+      fireEvent.scroll(log);
+      await waitFor(() => expect(onLoadOlderHistory).toHaveBeenCalledOnce());
+      const visible = log.querySelector<HTMLElement>('[data-chat-render-key="message:recent-user"]')!;
+      const before = visible.getBoundingClientRect().top;
+      rerender(<ChatMessageList {...props} olderHistoryLoading />);
+      expect(visible.getBoundingClientRect().top).toBe(before);
+      await act(async () => { finish(); await new Promise(resolve => setTimeout(resolve, 10)); });
+      rerender(<ChatMessageList {...props} olderHistoryLoading={false} historyItems={[
+        { id: 'older-user', role: 'user', content: 'older request' },
+        ...(recent as unknown as Array<{ id: string; role: string; content: string }>),
+      ] as never} />);
+      // Assert immediately after the DOM commit, without a timer or frame.
+      expect(visible.getBoundingClientRect().top).toBe(before);
+      expect(log.scrollTop).toBe(220);
+    } finally {
+      rectangle.mockRestore();
+      animationFrame.mockRestore();
+    }
+  });
+
+  it('does not apply an old pagination response to a newly selected conversation', async () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const animationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    let finish!: () => void;
+    const load = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    const props = { wfId: 'wf', activeChatId: 'c1', historyItems: [{ id: 'a', role: 'user', content: 'A' }] as never, hasOlderHistory: true, onLoadOlderHistory: load };
+    const { rerender } = render(<ChatMessageList {...props} olderHistoryLoading />);
+    const log = screen.getByRole('log', { name: 'Conversation' });
+    Object.defineProperties(log, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 900 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    });
+    try {
+      rerender(<ChatMessageList {...props} olderHistoryLoading={false} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+      await waitFor(() => expect(load).toHaveBeenCalledOnce());
+      rerender(<ChatMessageList {...props} activeChatId="c2" hasOlderHistory={false} historyItems={[{ id: 'b', role: 'user', content: 'B' }] as never} />);
+      log.scrollTop = 77;
+      await act(async () => { finish(); await new Promise(resolve => setTimeout(resolve, 10)); });
+      expect(log.scrollTop).toBe(77);
+    } finally {
+      animationFrame.mockRestore();
+    }
+  });
+
+  it('preserves a tool card and its expansion when an older page joins the group', () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const recent = { id: 'recent-tool-message', role: 'assistant', content: '',
+      tool_calls: [{ id: 'recent-call', name: 'get_workflow', arguments: '{}' }] };
+    const { rerender } = render(<ChatMessageList wfId="wf" activeChatId="c1" historyItems={[recent] as never} />);
+    const card = screen.getByRole('log').querySelector('[data-chat-render-key]');
+    const toggle = screen.getByRole('button', { expanded: false });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    rerender(<ChatMessageList wfId="wf" activeChatId="c1" historyItems={[
+      { id: 'older-tool-message', role: 'assistant', content: '',
+        tool_calls: [{ id: 'older-call', name: 'get_workflow', arguments: '{}' }] }, recent,
+    ] as never} />);
+    expect(screen.getByRole('log').querySelector('[data-chat-render-key]')).toBe(card);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveTextContent('2 tools used');
+  });
+
   it('exposes a named conversation log and announces stream boundaries without token spam', async () => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     const { container } = render(<ChatMessageList wfId="wf" activeChatId="c1" />);

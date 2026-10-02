@@ -6,7 +6,7 @@
  * history boundary are tagged `streaming` so their tool-call blocks auto-expand.
  * (Extracted from the former ChatSessionList right column.)
  */
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUpRight, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, CircleStop, Eye, Globe2, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -389,11 +389,11 @@ function messageKey(message: MergedMessage, index: number): string {
 }
 
 function toolGroupKey(item: { calls: MergedToolCall[]; startIndex: number }): string {
-  return `tool-group-${item.startIndex}-${item.calls[0]?.id ?? 'empty'}`;
+  return `tool-group-${item.calls[0]?.id ?? item.startIndex}`;
 }
 
 function interactiveArtifactKey(item: { call: MergedToolCall; index: number }): string {
-  return `interactive-artifact-${item.index}-${item.call.id}`;
+  return `interactive-artifact-${item.call.id}`;
 }
 
 export function ChatMessageList({
@@ -421,6 +421,13 @@ export function ChatMessageList({
   const shouldStickToBottomRef = useRef(true);
   const wasAutoStreamingRef = useRef(false);
   const loadingOlderRef = useRef(false);
+  const [paginationRevision, setPaginationRevision] = useState(0);
+  const paginationRef = useRef<{
+    chatKey: string | null;
+    settled: boolean;
+    anchor: { key: string; offset: number; top: number; height: number };
+  } | null>(null);
+  const readingAnchorRef = useRef<{ key: string; offset: number } | null>(null);
   const previousStreamAnnouncementRef = useRef({
     chatId: activeChatId,
     streaming: false,
@@ -549,49 +556,110 @@ export function ChatMessageList({
   }, [historyMessages, liveMessages, showStream]);
 
   const renderItems = useMemo(() => groupToolActivity(merged), [merged]);
-  const maybeLoadOlderHistory = useCallback(() => {
+  const [groupIdentity, setGroupIdentity] = useState(() => ({
+    items: renderItems,
+    chatKey: scrollStateKey,
+    keys: new Map<string, string>(),
+  }));
+  let groupKeys = groupIdentity.keys;
+  if (groupIdentity.items !== renderItems || groupIdentity.chatKey !== scrollStateKey ||
+      (groupKeys.size === 0 && renderItems.some(item => item.kind === 'tool_group'))) {
+    const previous = groupIdentity.chatKey === scrollStateKey ? groupIdentity.keys : new Map<string, string>();
+    groupKeys = new Map<string, string>();
+    const usedKeys = new Set<string>();
+    for (const item of renderItems) {
+      if (item.kind !== 'tool_group') continue;
+      // A page boundary can split a tool group. Reuse an existing call's
+      // identity when older calls join it, preserving DOM and expansion state.
+      const key = item.calls.map(call => previous.get(call.id))
+        .find((value): value is string => !!value && !usedKeys.has(value)) ?? toolGroupKey(item);
+      usedKeys.add(key);
+      for (const call of item.calls) groupKeys.set(call.id, key);
+    }
+    setGroupIdentity({ items: renderItems, chatKey: scrollStateKey, keys: groupKeys });
+  }
+  const captureViewport = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return null;
+    const top = el.getBoundingClientRect().top;
+    const item = Array.from(el.querySelectorAll<HTMLElement>('[data-chat-render-key]'))
+      .find(element => element.getBoundingClientRect().bottom > top);
+    return {
+      key: item?.dataset.chatRenderKey ?? '',
+      offset: item ? item.getBoundingClientRect().top - top : 0,
+      top: el.scrollTop,
+      height: el.scrollHeight,
+    };
+  }, []);
+
+  const restoreViewport = useCallback((anchor: { key: string; offset: number; top?: number; height?: number }) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const item = Array.from(el.querySelectorAll<HTMLElement>('[data-chat-render-key]'))
+      .find(element => element.dataset.chatRenderKey === anchor.key);
+    if (item) {
+      el.scrollTop += item.getBoundingClientRect().top - el.getBoundingClientRect().top - anchor.offset;
+    } else if (anchor.top != null && anchor.height != null) {
+      el.scrollTop = anchor.top + el.scrollHeight - anchor.height;
+    }
+  }, []);
+
+  const maybeLoadOlderHistory = useCallback((explicit = false) => {
     const el = scrollRef.current;
     if (!el || !hasOlderHistory || olderHistoryLoading || loadingOlderRef.current || !onLoadOlderHistory) return;
-    if (el.scrollTop > 80) return;
+    if (!explicit && el.scrollTop > 80) return;
+    const anchor = captureViewport();
+    if (!anchor) return;
+    const pending = { chatKey: scrollStateKey, settled: false, anchor };
+    paginationRef.current = pending;
     loadingOlderRef.current = true;
-    const previousScrollHeight = el.scrollHeight;
-    const containerTop = el.getBoundingClientRect().top;
-    const firstVisibleItem = Array.from(
-      el.querySelectorAll<HTMLElement>('[data-chat-render-key]'),
-    ).find((item) => item.getBoundingClientRect().bottom >= containerTop);
-    const anchor = firstVisibleItem
-      ? {
-          key: firstVisibleItem.dataset.chatRenderKey ?? '',
-          offset: firstVisibleItem.getBoundingClientRect().top - containerTop,
-        }
-      : null;
-    Promise.resolve(onLoadOlderHistory())
-      .finally(() => {
-        // Do not keep pagination correctness behind requestAnimationFrame.
-        // Browsers can heavily throttle animation frames in an obscured or
-        // background window, leaving this local guard locked indefinitely.
-        loadingOlderRef.current = false;
-        window.setTimeout(() => {
-          const current = scrollRef.current;
-          if (current) {
-            const anchoredItem = anchor
-              ? Array.from(
-                  current.querySelectorAll<HTMLElement>('[data-chat-render-key]'),
-                ).find((item) => item.dataset.chatRenderKey === anchor.key)
-              : null;
-            if (anchoredItem && anchor) {
-              const nextOffset =
-                anchoredItem.getBoundingClientRect().top - current.getBoundingClientRect().top;
-              current.scrollTop += nextOffset - anchor.offset;
-            } else {
-              // Fall back to height-delta anchoring when the previous first
-              // visible item was compacted or replaced while the page loaded.
-              current.scrollTop += current.scrollHeight - previousScrollHeight;
-            }
-          }
-        }, 0);
-      });
-  }, [hasOlderHistory, olderHistoryLoading, onLoadOlderHistory]);
+    shouldStickToBottomRef.current = false;
+    readingAnchorRef.current = anchor;
+    // The request can finish before React commits its state updates. Keep the
+    // snapshot until a layout effect observes the committed transcript.
+    Promise.resolve().then(onLoadOlderHistory).catch(() => {
+      // Keep the current viewport on failure; the load button remains retryable.
+    }).finally(() => {
+      if (paginationRef.current !== pending) return;
+      pending.settled = true;
+      setPaginationRevision(revision => revision + 1);
+    });
+  }, [captureViewport, hasOlderHistory, olderHistoryLoading, onLoadOlderHistory, scrollStateKey]);
+
+  useLayoutEffect(() => {
+    const pending = paginationRef.current;
+    if (!pending) return;
+    if (pending.chatKey !== scrollStateKey) {
+      paginationRef.current = null;
+      readingAnchorRef.current = null;
+      loadingOlderRef.current = false;
+      return;
+    }
+    restoreViewport(pending.anchor);
+    if (pending.settled && !olderHistoryLoading) {
+      paginationRef.current = null;
+      loadingOlderRef.current = false;
+      readingAnchorRef.current = captureViewport();
+    }
+  }, [historyItems, renderItems, olderHistoryLoading, paginationRevision, scrollStateKey, restoreViewport, captureViewport]);
+
+  useLayoutEffect(() => {
+    // Images and lazy tool cards may acquire their final height after the page
+    // commits. Preserve the same reading anchor through those layout changes.
+    const content = scrollRef.current?.firstElementChild;
+    const observer = content && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
+      if (!shouldStickToBottomRef.current && readingAnchorRef.current) {
+        restoreViewport(readingAnchorRef.current);
+      }
+    }) : null;
+    if (content) observer?.observe(content);
+    return () => {
+      observer?.disconnect();
+      paginationRef.current = null;
+      readingAnchorRef.current = null;
+      loadingOlderRef.current = false;
+    };
+  }, [scrollStateKey, restoreViewport]);
 
   // A history page is measured in durable message rows, while the transcript
   // can collapse many tool rows into one compact activity card.  In that
@@ -631,8 +699,11 @@ export function ChatMessageList({
         stickToBottom: !awayFromBottom,
       });
     }
+    const anchor = captureViewport();
+    readingAnchorRef.current = anchor;
+    if (anchor && paginationRef.current) paginationRef.current.anchor = anchor;
     maybeLoadOlderHistory();
-  }, [maybeLoadOlderHistory, scrollStateKey, setChatScrollPosition]);
+  }, [captureViewport, maybeLoadOlderHistory, scrollStateKey, setChatScrollPosition]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = scrollRef.current;
@@ -677,7 +748,7 @@ export function ChatMessageList({
   useEffect(() => {
     const streamJustStarted = isStreaming && !wasAutoStreamingRef.current;
     wasAutoStreamingRef.current = isStreaming;
-    if (!isStreaming) return;
+    if (!isStreaming || loadingOlderRef.current) return;
     if (!streamJustStarted && !shouldStickToBottomRef.current) return;
     requestAnimationFrame(() => scrollToBottom('auto'));
   }, [isStreaming, streamBuffer.length, merged.length, scrollToBottom]);
@@ -729,6 +800,7 @@ export function ChatMessageList({
       <div
         ref={scrollRef}
         className="chat-scrollbar flex-1 overflow-y-auto"
+        style={{ overflowAnchor: 'none' }}
         data-role="agent-message-list"
         role="log"
         aria-live="polite"
@@ -743,17 +815,17 @@ export function ChatMessageList({
           )}
         >
           {olderHistoryLoading && (
-            <div className="flex justify-center py-1 text-xs text-muted-foreground" data-role="agent-history-loading-older">
+            <div className="flex min-h-9 items-center justify-center py-1 text-xs text-muted-foreground" data-role="agent-history-loading-older">
               {t('agent.loading_older', 'Loading earlier messages...')}
             </div>
           )}
           {hasOlderHistory && !olderHistoryLoading && onLoadOlderHistory ? (
-            <div className="flex justify-center py-1">
+            <div className="flex min-h-9 items-center justify-center py-1">
               <button
                 type="button"
                 className="rounded-md px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 data-role="agent-history-load-older"
-                onClick={maybeLoadOlderHistory}
+                onClick={() => maybeLoadOlderHistory(true)}
               >
                 {t('agent.load_older', 'Load earlier messages')}
               </button>
@@ -790,7 +862,7 @@ export function ChatMessageList({
             <>
               {renderItems.map((item) => {
                 const key = item.kind === 'tool_group'
-                  ? toolGroupKey(item)
+                  ? groupKeys.get(item.calls[0]?.id ?? '') ?? toolGroupKey(item)
                   : item.kind === 'interactive_artifact'
                     ? interactiveArtifactKey(item)
                     : messageKey(item.message, item.index);
@@ -798,7 +870,7 @@ export function ChatMessageList({
                   <div
                     key={key}
                     data-chat-render-key={key}
-                    className="min-w-0 [content-visibility:auto] [contain-intrinsic-size:auto_120px]"
+                    className="min-w-0"
                   >
                     {item.kind === 'tool_group' ? (
                       <StableToolActivityGroup
@@ -812,7 +884,7 @@ export function ChatMessageList({
                         sourceMessageId={merged[item.startIndex]?.id}
                         showAvatar={item.showAvatar}
                         compact={compact}
-                        expansionKey={`${chatStateKey ?? chatClientStateKey({ account, scopeId: wfId, surface, chatId: 'draft' })}:tool:${toolGroupKey(item)}`}
+                        expansionKey={`${chatStateKey ?? chatClientStateKey({ account, scopeId: wfId, surface, chatId: 'draft' })}:tool:${key}`}
                       />
                     ) : item.kind === 'interactive_artifact' ? (
                       <Suspense fallback={

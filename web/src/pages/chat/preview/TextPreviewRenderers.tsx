@@ -16,6 +16,7 @@ import {
 import { Code2, Columns2, Eye, Pencil, LogOut, RotateCcw, Save } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { hasMarkdownMath, normalizeMathDelimiters } from '@/components/agent-sidebar/markdown-math';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,7 @@ import type { PreviewRendererProps } from './renderer-types';
 const CodePreviewEditor = lazy(() => import('./CodePreviewEditor').then(
   (module) => ({ default: module.CodePreviewEditor }),
 ));
+const MathMarkdown = lazy(() => import('@/components/agent-sidebar/MathMarkdown'));
 
 type TextKind = 'text' | 'markdown' | 'html';
 type DisplayMode = 'source' | 'preview' | 'split';
@@ -250,6 +252,8 @@ function MarkdownDocument({
   onOpenFile?: (path: string) => void;
 }) {
   const articleRef = useRef<HTMLElement>(null);
+  const math = hasMarkdownMath(value);
+  const Renderer = math ? MathMarkdown : ReactMarkdown;
   const resourceSessionKey = `${descriptor.revision}:${JSON.stringify(descriptor.fileRef)}`;
   const [resourceSessionState, setResourceSessionState] = useState<{
     key: string;
@@ -344,7 +348,8 @@ function MarkdownDocument({
   return (
     <article ref={articleRef} className="markdown-document" data-role="markdown-document">
       <div className="markdown-document-content">
-      <ReactMarkdown
+      <Suspense fallback={<span className="whitespace-pre-wrap">{value}</span>}>
+      <Renderer
         remarkPlugins={[remarkGfm]}
         components={{
           h1: renderHeading('h1'),
@@ -368,8 +373,9 @@ function MarkdownDocument({
           ),
         }}
       >
-        {value}
-      </ReactMarkdown>
+        {math ? normalizeMathDelimiters(value) : value}
+      </Renderer>
+      </Suspense>
       </div>
     </article>
   );

@@ -231,7 +231,7 @@ sudo apt-get install -y \
   libreoffice-writer-nogui \
   libreoffice-impress-nogui \
   libreoffice-calc-nogui \
-  poppler-utils
+  poppler-utils ffmpeg
 ```
 
 These are non-GUI packages; a desktop LibreOffice installation is not
@@ -242,12 +242,19 @@ manual installation, follow that script's architecture selection, SHA-256
 verification, package-metadata checks, and wrapper installation rather than
 downloading an unverified latest package.
 
+FFmpeg and FFprobe let the Agent generate and inspect real MP3, MP4 and WebM
+files. They are installed by the native bootstrap and the API runtime image.
+Browser audio/video previews still use the browser's supported codecs; FFmpeg
+is a generation dependency, not a server-side playback or transcoding service.
+
 Verify that the commands used by the document and diagram runtimes are
 available:
 
 ```bash
 libreoffice --version  # `soffice --version` is also accepted
 pdftoppm -v
+ffmpeg -version
+ffprobe -version
 command -v drawio flowork-drawio-export
 ```
 
@@ -634,9 +641,16 @@ submissions. For a public deployment, preserve WebSocket Upgrade headers on
 
 Frontend changes must include both `web/package.json` and `web/pnpm-lock.yaml`.
 The lockfile now includes `remark-math`, `rehype-katex` and KaTeX for message
-formulas; KaTeX CSS/fonts are bundled in the web build, with no external math CDN
+and Markdown-file formulas; KaTeX CSS/fonts are bundled in the web build, with no external math CDN
 or additional operating-system package required. Docker builds already install
 this same lockfile in `web/Dockerfile`.
+
+PDF previews also require the locked `pdfjs-dist` package's CMaps, standard
+fonts, ICC profiles and decoder resources. `web/scripts/pdfjs-assets.ts` includes
+them in every Vite build under `assets/pdfjs/<package-version>/` and serves them
+in development. Publish the entire generated `dist` directory, including these
+subdirectories; copying only JavaScript/CSS leaves some PDFs blank or missing
+text. These resources use the deployment's own origin and base path, not a CDN.
 
 For a native systemd installation, install dependencies and build as its service
 account **before** stopping the running service:

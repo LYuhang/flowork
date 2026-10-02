@@ -4,6 +4,7 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { interactiveBootstrapScriptSource } from './src/components/agent-sidebar/tool-render/interactive-html-runtime';
+import { pdfjsAssetsPlugin } from './scripts/pdfjs-assets';
 
 // `rollup-plugin-visualizer` writes `dist/stats.html` so we can audit which
 // modules dominate the bundle. We disable `open` (no DISPLAY in CI/devbox)
@@ -177,6 +178,7 @@ export default defineConfig({
   base: './',
   plugins: [
     react(),
+    pdfjsAssetsPlugin(),
     portableRuntimeAssetsPlugin(),
     enableVisualizer &&
       visualizer({

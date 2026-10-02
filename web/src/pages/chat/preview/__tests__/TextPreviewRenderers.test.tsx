@@ -57,6 +57,29 @@ beforeEach(() => {
 });
 
 describe('TextDocumentRenderer editing lifecycle', () => {
+  it('renders document math while preserving code and rejecting trusted TeX commands', async () => {
+    const source = String.raw`# Formula
+
+Inline $E = mc^2$ and \(x + 1\).
+
+\[
+\frac{1}{2}
+\]
+
+Literal code: `;
+    const markdown = source + '`$keep_literal$`\n\n'
+      + String.raw`$\href{javascript:alert(1)}{unsafe}$`;
+    const { container } = render(<MarkdownPreviewRenderer
+      descriptor={{ ...descriptor, content: { ...descriptor.content, inlineText: markdown } }}
+      loadAllowed
+      onDirtyChange={() => undefined}
+    />);
+    await waitFor(() => expect(container.querySelectorAll('.katex')).toHaveLength(4), { timeout: 15000 });
+    expect(container.querySelector('.katex-display')).toBeInTheDocument();
+    expect(screen.getByText('$keep_literal$')).toBeInTheDocument();
+    expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
+  }, 20000);
+
   it('exits a clean editing session directly', async () => {
     render(
       <MarkdownPreviewRenderer

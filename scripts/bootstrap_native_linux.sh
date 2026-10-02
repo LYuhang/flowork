@@ -66,7 +66,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   fonts-dejavu-core fonts-noto-cjk fonts-wqy-zenhei \
   xvfb xauth \
   libreoffice-writer-nogui libreoffice-impress-nogui libreoffice-calc-nogui \
-  poppler-utils
+  poppler-utils ffmpeg
 
 case "$(dpkg --print-architecture)" in
   amd64)
@@ -117,6 +117,8 @@ command -v pdftoppm >/dev/null || {
 }
 "$office_command" --version
 pdftoppm -v
+ffmpeg -version
+ffprobe -version
 
 node_is_compatible() {
   command -v node >/dev/null || return 1

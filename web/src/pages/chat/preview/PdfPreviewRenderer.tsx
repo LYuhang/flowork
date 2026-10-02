@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Minus, Plus } from 'lucide-react';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { getBasePath } from '@/lib/base-path';
 
 import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
@@ -86,7 +87,17 @@ function PdfPreviewContent({
             disableAutoFetch: true,
           };
       if (disposed) return;
-      task = pdfjs.getDocument(source);
+      const assets = new URL(`${getBasePath()}/assets/pdfjs/${pdfjs.version}/`, window.location.origin).href;
+      task = pdfjs.getDocument({
+        ...source,
+        cMapUrl: `${assets}cmaps/`,
+        cMapPacked: true,
+        standardFontDataUrl: `${assets}standard_fonts/`,
+        wasmUrl: `${assets}wasm/`,
+        iccUrl: `${assets}iccs/`,
+        // Use PDF.js's bundled JS fallback decoders under the application's CSP.
+        useWasm: false,
+      });
       const document = await task.promise;
       if (disposed) return;
       documentRef.current = document;

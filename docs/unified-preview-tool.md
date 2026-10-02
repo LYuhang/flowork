@@ -66,3 +66,49 @@ retain their historical behavior, but new previews do not advertise that flag.
 Regression coverage includes both modes, invalid sources, confirmation gates,
 legacy dispatch through MCP, hidden aliases, capability ceilings, stale file
 evidence, main-app sidebar expansion and compact-client behavior.
+
+## File preview acceptance (2026-10-02)
+
+On the deployed native service, the Flowork Agent generated actual files in one
+conversation and published a `render_preview` card for each file. Acceptance
+clicked those cards and their standalone Preview links in Chromium, inspected
+rendered content/screenshots, and checked the interactions below. Test account
+credentials, signed resource URLs and private conversation history are not
+stored in this repository.
+
+| Samples | Verified behavior |
+| --- | --- |
+| DOCX, PPTX, PDF | Two pages; Chinese/English text; page navigation changes rendered content |
+| XLSX | Formatting, cell values and both worksheets |
+| Markdown | Table, code block, formula and relative image |
+| HTML, HTM | Actual content inside the sandboxed preview iframe |
+| TXT, JSON, Python, YAML, XML | Text/code content |
+| CSV, TSV, JSONL, NDJSON | Parsed table headers and records |
+| Draw.io | Native diagram with two labeled nodes and a connector |
+| PNG, JPG, JPEG, GIF, WebP, SVG | Decoded images |
+| WAV, MP3, MP4, WebM | Loaded metadata and advancing playback; video dimensions |
+
+All 27 sample formats completed acceptance after these corrections:
+
+- PDF.js previously loaded pages but omitted text from the non-embedded CJK
+  font sample. The build now publishes the matching package's CMaps, fonts,
+  profiles and decoder resources locally. Verification included visible text
+  pixels, screenshot inspection and successful deployed resource requests.
+- Markdown file previews now reuse the safe math renderer already used by
+  chat messages, including TeX delimiter normalization and lazy-loaded styles.
+  Regression coverage preserves literal code and disallows trusted TeX links.
+- The native environment lacked FFmpeg for generating compressed media samples.
+  Native bootstrap and the API image now install FFmpeg/FFprobe. The same Agent
+  conversation then generated genuine MP3/H.264 MP4/WebM files for playback checks.
+
+Draw.io uses the external diagrams.net renderer and needs its network access;
+wait for the diagram to appear rather than accepting a loading state. This
+matrix covers representative supported formats, not every possible encoding,
+codec, malformed file or legacy Office extension. Legacy DOC/XLS/PPT and archive
+preview support is unchanged.
+
+Validation: seven Markdown preview regression tests, TypeScript build,
+production Vite build, deployment-path guard and native bootstrap shell syntax
+passed. Targeted ESLint still reports the pre-existing synchronous
+`setQuoteSelection(null)` effect; running ESLint against the original HEAD file
+reproduced the same finding. The new asset plugin and PDF renderer passed lint.

@@ -112,6 +112,7 @@ RUN set -eux; \
         ca-certificates=20250419 \
         curl=8.14.1-2+deb13u5 \
         file=1:5.46-5 \
+        ffmpeg=7:7.1.5-0+deb13u1 \
         git=1:2.47.3-0+deb13u1 \
         jq=1.7.1-6+deb13u4 \
         openssh-client=1:10.0p1-7+deb13u4 \

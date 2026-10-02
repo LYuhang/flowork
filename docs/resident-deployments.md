@@ -341,12 +341,22 @@ are accepted for compatibility but resolved once at submission and stored as a
 specific pin. Workflow edits never automatically upgrade these resources.
 Incomplete explicit deployment pins are rejected instead of selecting HEAD.
 
-Detail-page links open `/workflow/:wfId/version/:vKey`, the read-only saved
-canvas. Batch links use the frozen submission snapshot. Scheduled execution
+Detail-page links open `/preview?type=workflow&workflowId=…&version=vN.svM`,
+the isolated read-only saved canvas. The historical editor route remains an
+editing surface and is not used for resource version links. Deployment version
+fields show the clickable version number, without an extra action button.
+Batch links use the frozen submission snapshot. Scheduled execution
 links use the selected execution's snapshot, which can differ from the current
 schedule configuration after an explicit update. Deployment links distinguish
 its serving revision from configured/preparing versions. Unknown versions never
 fall back to the editable workflow or to its latest saved version.
+
+Clicking a node opens the shared workflow node-property Inspector in read-only
+mode. Execution/trace canvases also show that node's recorded inputs, outputs,
+status and errors from the selected execution; nodes without events are labeled
+accordingly. A version-only preview has no execution attached and never reads
+results from the live editor's run stores. Approval controls on execution nodes
+retain their existing authorization and behavior.
 
 Before upgrading an existing installation, back up its database and stop API,
 worker and sandboxd processes. With the normal privileged database configuration,

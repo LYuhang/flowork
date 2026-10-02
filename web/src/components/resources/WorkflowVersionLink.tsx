@@ -4,10 +4,11 @@ import { GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { workflowVersionHref } from '@/lib/workflow/version-link';
 
-export function WorkflowVersionLink({ workflowId, version, kind = 'snapshot' }: {
+export function WorkflowVersionLink({ workflowId, version, kind = 'snapshot', inline = false }: {
   workflowId: string | null | undefined;
   version: unknown;
   kind?: 'snapshot' | 'configured' | 'execution' | 'serving';
+  inline?: boolean;
 }) {
   const { t } = useTranslation();
   const href = workflowVersionHref(workflowId, version);
@@ -20,6 +21,8 @@ export function WorkflowVersionLink({ workflowId, version, kind = 'snapshot' }: 
   if (!href) return <span className="text-xs text-muted-foreground" role="status">
     {t('workflowVersionLink.unavailable', 'Exact workflow version is not yet available.')}
   </span>;
+  if (inline) return <Link to={href} className="rounded font-mono text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    title={t('workflowVersionLink.readOnly', 'Open the exact saved workflow version in a read-only canvas')} translate="no">{String(version)}</Link>;
   return <Button asChild variant="outline" size="sm">
     <Link to={href} title={t('workflowVersionLink.readOnly', 'Open the exact saved workflow version in a read-only canvas')}>
       <GitBranch className="size-4" aria-hidden="true" />

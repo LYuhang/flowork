@@ -8,7 +8,7 @@ import { WorkflowGraph, workflowDictToNodesEdges } from './WorkflowGraph';
 import { WorkflowSnapshotContext } from './WorkflowSnapshotContext';
 import { ExecutionHistoryContext } from './ExecutionHistoryContext';
 import { NodeJsonPreview } from './nodes/NodeJsonPreview';
-import { historicalNodeStatus } from './execution-state';
+import { ReadOnlyNodeDetails } from './inspector/ReadOnlyNodeDetails';
 import { autoLayout } from './auto-layout';
 
 export function ExecutionDetailPage() {
@@ -35,7 +35,6 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
   }, [eventsQuery.data]);
   if (detailQuery.isError || eventsQuery.isError) return <p role="alert" className="p-6">{t('execution.unavailable')}</p>;
   if (!detail) return <p role="status" className="p-6">{t('execution.loading')}</p>;
-  const selectedEvents = eventsQuery.data?.events.filter((event) => event.type === 'node_event' && event.node_id === selected) ?? [];
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-edge-structural px-4 py-3">
@@ -47,31 +46,25 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
         </div>
         <Button variant="outline" size="sm" onClick={() => { void detailQuery.refetch(); void eventsQuery.refetch(); }}>{t('execution.refresh')}</Button>
       </header>
+      <WorkflowSnapshotContext.Provider value={detail.workflow}>
+      <ExecutionHistoryContext.Provider value={{ detail, latestNodeEvents }}>
+      <ReactFlowProvider>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <main className="min-h-80 min-w-0 flex-1">
-          <WorkflowSnapshotContext.Provider value={detail.workflow}>
-            <ExecutionHistoryContext.Provider value={{ detail, latestNodeEvents }}>
-              <ReactFlowProvider>
-                <ExecutionGraph initialNodes={projection.nodes} edges={projection.edges} onSelect={setSelected} />
-              </ReactFlowProvider>
-            </ExecutionHistoryContext.Provider>
-          </WorkflowSnapshotContext.Provider>
+          <ExecutionGraph initialNodes={projection.nodes} edges={projection.edges} onSelect={setSelected} />
         </main>
-        <aside className="max-h-72 overflow-auto border-t border-edge-structural p-4 lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
+        <aside data-role="execution-inspector" className="max-h-72 overflow-auto border-t border-edge-structural p-4 lg:max-h-none lg:w-[420px] lg:max-w-[45%] lg:shrink-0 lg:border-l lg:border-t-0">
           <h2 className="mb-3 text-sm font-medium">{t('execution.inputs')}</h2>
           <div className="mb-4"><NodeJsonPreview value={detail.inputs} /></div>
-          <h2 className="mb-3 text-sm font-medium">{t('execution.nodeDetails')}{selected ? ` · ${selected}` : ''}</h2>
-          {selected ? selectedEvents.map((event) => {
-            const status = event.seq === latestNodeEvents[selected]?.seq ? historicalNodeStatus(event.status, detail.status) : event.status;
-            return <div key={event.seq} className="mb-3 border-b border-edge-structural pb-3">
-            <p className="mb-2 text-xs text-content-secondary">{t(`execution.status.${status === 'success' ? 'succeeded' : status === 'error' ? 'failed' : status === 'cancelled' ? 'cancelled' : 'running'}`)}</p>
-            {event.inputs !== undefined && <NodeJsonPreview value={{ inputs: event.inputs }} />}
-            {event.output !== undefined && <NodeJsonPreview value={{ output: event.output }} />}
-            {event.error_message && <p role="alert" className="break-words text-xs text-state-danger">{event.error_message}</p>}
-          </div>; })
+          <h2 className="mb-3 text-sm font-medium">{t('preview.workflow.nodeDetails')}{selected ? ` · ${selected}` : ''}</h2>
+          {selected ? <ReadOnlyNodeDetails workflowId={detail.wf_id} nodeId={selected}
+            events={eventsQuery.data?.events ?? []} executionStatus={detail.status} />
             : <p className="text-sm text-content-secondary">{t('execution.noNodeSelected')}</p>}
         </aside>
       </div>
+      </ReactFlowProvider>
+      </ExecutionHistoryContext.Provider>
+      </WorkflowSnapshotContext.Provider>
     </div>
   );
 }

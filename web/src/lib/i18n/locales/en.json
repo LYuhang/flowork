@@ -84,6 +84,7 @@
   "execution.status.cancelled": "Cancelled",
   "execution.status.timed_out": "Timed out",
   "execution.nodeDetails": "Node execution details",
+  "execution.nodeNotExecuted": "This node has no execution record in this run.",
   "execution.noNodeSelected": "Select a node to inspect its execution results.",
   "execution.refresh": "Refresh",
   "execution.myApprovals": "Awaiting my approval",

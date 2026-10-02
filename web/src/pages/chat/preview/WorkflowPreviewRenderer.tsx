@@ -15,7 +15,7 @@ import { getBasePath } from '@/lib/base-path';
 import { standaloneWorkflowPreviewHref } from '@/lib/preview/standalone-preview';
 import { WorkflowGraph, workflowDictToNodesEdges } from '@/pages/canvas/WorkflowGraph';
 import { WorkflowSnapshotContext } from '@/pages/canvas/WorkflowSnapshotContext';
-import { NodeTab } from '@/pages/canvas/inspector/NodeTab';
+import { ReadOnlyNodeDetails } from '@/pages/canvas/inspector/ReadOnlyNodeDetails';
 
 /** Keep the whole graph visible when the Inspector changes the canvas area. */
 function SnapshotViewport() {
@@ -109,7 +109,7 @@ function SnapshotCanvas({ graph, workflowId, version, focus, inspectorPlacement 
               <span className="text-xs text-muted-foreground">{t('preview.workflow.readOnly', 'Read only')}</span>
               <Button variant="ghost" size="icon" aria-label={t('close', 'Close')} onClick={() => setInspectorOpen(false)}><X className="h-4 w-4" /></Button>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto p-3"><NodeTab wfId={workflowId} readOnly /></div>
+            <div className="min-h-0 flex-1 overflow-auto p-3"><ReadOnlyNodeDetails workflowId={workflowId} nodeId={selected} /></div>
           </section>
         ) : null}
         </div>

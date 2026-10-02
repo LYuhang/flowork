@@ -3,6 +3,10 @@ import { workflowVersionHref, deploymentWorkflowVersion } from '../version-link'
 import type { Deployment } from '@/lib/api/deployments';
 
 describe('exact workflow version links', () => {
+  it('opens the isolated read-only preview, not the historical editor', () => {
+    expect(workflowVersionHref('wf /中文', 'v2.sv3'))
+      .toBe('/preview?type=workflow&workflowId=wf+%2F%E4%B8%AD%E6%96%87&version=v2.sv3');
+  });
   it.each(['head', 'v2', '', 'v0.sv1', 'v2.sv-1', undefined, null])('does not navigate an ambiguous version %s', version => {
     expect(workflowVersionHref('wf', version)).toBeNull();
   });

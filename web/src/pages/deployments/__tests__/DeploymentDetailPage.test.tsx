@@ -448,8 +448,11 @@ describe('<DeploymentDetailPage>', () => {
     expect(screen.getByText('old-instance')).toBeInTheDocument();
     expect(screen.getByText('new-instance')).toBeInTheDocument();
     expect(screen.getAllByText('v1.sv0').length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', { name: 'View serving version v1.sv0' })).toHaveAttribute('href', '/workflow/wf_42/version/v1.sv0');
-    expect(screen.getByRole('link', { name: 'View workflow version v1.sv1' })).toHaveAttribute('href', '/workflow/wf_42/version/v1.sv1');
+    for (const link of screen.getAllByRole('link', { name: 'v1.sv0' })) {
+      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v1.sv0');
+    }
+    expect(screen.queryByRole('link', { name: /View serving version/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'v1.sv1' })).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v1.sv1');
     expect(screen.getByText('v1.sv1')).toBeInTheDocument();
     expect(screen.getByText('Serving')).toBeInTheDocument();
     expect(screen.getByText('Starting')).toBeInTheDocument();

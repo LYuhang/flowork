@@ -1286,10 +1286,6 @@ export function DeploymentDetailPage() {
   const activeTab: TabKey = allowedTab ? tab : 'overview';
   const latestMetric = metricsQuery.data?.series.at(-1) ?? null;
   const linkedWorkflow = deploymentWorkflowVersion(dep);
-  const versionLabel = dep.version_pin === 'head'
-    ? t('deployments.detail.latestVersion', 'Latest version')
-    : dep.version_pin === 'major' ? t('tasks.version.latestMajor', '{{major}} · latest saved', { major: `v${dep.pinned_major}` })
-    : `v${dep.pinned_major ?? 0}.sv${dep.pinned_sub ?? 0}`;
   const healthStatus = latestMetric && latestMetric.calls > 0 && latestMetric.errors > 0
     ? 'warning'
     : dep.enabled
@@ -1317,12 +1313,11 @@ export function DeploymentDetailPage() {
       </div>}
       metadata={<>
         <span>{triggerLabel(dep, t)}</span>
-        <span>{versionLabel}</span>
+        <WorkflowVersionLink workflowId={dep.wf_id} version={linkedWorkflow.version} inline />
         <span>{t('deployments.detail.updated', 'Updated')}: {formatTime(dep.updated_at ?? dep.created_at)}</span>
         <ResourceProvenanceLine provenance={dep.provenance} />
       </>}
       actions={<>
-            <WorkflowVersionLink workflowId={dep.wf_id} version={linkedWorkflow.version} kind={linkedWorkflow.serving ? 'serving' : 'configured'} />
             <Button
               variant="outline"
               size="sm"

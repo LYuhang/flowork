@@ -70,6 +70,8 @@ interface NodePayload {
  */
 export interface NodeTabProps {
   wfId: string;
+  /** Explicit selection for isolated read-only snapshots and execution details. */
+  selectedNodeId?: string;
   /**
    * When true (T14: pinned historical version), the name + description
    * inputs are disabled and the field-/config-editor subtrees receive
@@ -78,11 +80,11 @@ export interface NodeTabProps {
   readOnly?: boolean;
 }
 
-export function NodeTab({ wfId, readOnly = false }: NodeTabProps) {
+export function NodeTab({ wfId, readOnly = false, selectedNodeId }: NodeTabProps) {
   const { t } = useTranslation();
   const snapshot = useWorkflowSnapshot();
   const nodes = useNodes();
-  const selected = nodes.find((n) => n.selected);
+  const selected = nodes.find((n) => selectedNodeId ? n.id === selectedNodeId : n.selected);
 
   if (!selected) {
     return (

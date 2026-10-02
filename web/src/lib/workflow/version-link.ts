@@ -3,7 +3,7 @@ import type { Task } from '@/lib/api/tasks';
 
 export function workflowVersionHref(workflowId: string | null | undefined, version: unknown): string | null {
   if (!workflowId || typeof version !== 'string' || !/^v[1-9]\d*\.sv\d+$/.test(version)) return null;
-  return `/workflow/${encodeURIComponent(workflowId)}/version/${version}`;
+  return `/preview?${new URLSearchParams({ type: 'workflow', workflowId, version })}`;
 }
 
 export function batchWorkflowVersion(task: Task): unknown {

@@ -174,11 +174,13 @@ describe('<DeploymentDetailPage>', () => {
       screen.getByRole('tab', { name: /^Settings$/i }),
     ).toBeInTheDocument();
 
-    // Overview is the default and owns editable basic information.
+    // Overview focuses on runtime; editable identity lives in Settings.
     expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Basic information')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
     expect(screen.getByText('Basic information')).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
     expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('API bot');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
@@ -190,7 +192,7 @@ describe('<DeploymentDetailPage>', () => {
     // Settings keeps high-risk API key rotation explicit.
     await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
     expect(screen.getByText('Traffic and runtime controls')).toBeInTheDocument();
-    expect(screen.queryByText('Basic information')).not.toBeInTheDocument();
+    expect(screen.getByText('Basic information')).toBeInTheDocument();
     expect(
       await screen.findByRole('button', { name: /rotate api key/i }),
     ).toBeInTheDocument();
@@ -216,6 +218,7 @@ describe('<DeploymentDetailPage>', () => {
     renderAt(DEP_ID);
     await screen.findByRole('heading', { level: 1, name: 'API bot' });
     await user.click(screen.getByRole('tab', { name: /^Activity$/i }));
+    await user.click(screen.getByRole('button', { name: /^Request records/ }));
 
     await waitFor(() => {
       expect(getHistory).toHaveBeenCalledWith(DEP_ID, expect.objectContaining({
@@ -271,6 +274,7 @@ describe('<DeploymentDetailPage>', () => {
     renderAt(DEP_ID);
     await screen.findByRole('heading', { level: 1, name: 'API bot' });
     await user.click(screen.getByRole('tab', { name: /^Activity$/i }));
+    await user.click(screen.getByRole('button', { name: /^Request records/ }));
 
     expect((await screen.findAllByText('run-new')).length).toBeGreaterThan(0);
     await user.click(screen.getByRole('button', { name: 'Load older records' }));
@@ -337,6 +341,7 @@ describe('<DeploymentDetailPage>', () => {
     renderAt(DEP_ID);
     await screen.findByRole('heading', { level: 1, name: 'API bot' });
     await user.click(screen.getByRole('tab', { name: /^Activity$/i }));
+    await user.click(screen.getByRole('button', { name: /^Request records/ }));
     await user.click(await screen.findByRole('button', { name: 'Load older records' }));
     expect(await screen.findAllByText('run-shared')).toHaveLength(2);
     expect(await screen.findAllByText('run-next')).toHaveLength(2);
@@ -380,6 +385,7 @@ describe('<DeploymentDetailPage>', () => {
     renderAt(DEP_ID);
     await screen.findByRole('heading', { level: 1, name: 'API bot' });
     await user.click(screen.getByRole('tab', { name: /^Activity$/i }));
+    await user.click(screen.getByRole('button', { name: /^Request records/ }));
     expect(await screen.findByText('Failed to load runs.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('No runs yet.')).toBeInTheDocument();
@@ -408,10 +414,8 @@ describe('<DeploymentDetailPage>', () => {
       series: [{ ts: '2026-05-24T10:00:00Z', calls: 0, errors: 0, latency_p50: 0, latency_p95: 0 }],
       bucket: 'hour', from: '2026-05-23T00:00:00Z', to: '2026-05-24T00:00:00Z',
     });
-    const user = userEvent.setup();
     renderAt(DEP_ID);
     await screen.findByRole('heading', { level: 1, name: 'API bot' });
-    await user.click(screen.getByRole('tab', { name: /^Activity$/i }));
     const chart = await screen.findByRole('img', { name: 'Errors; maximum 0 errors' });
     expect(chart.querySelector('circle')).toHaveAttribute('cy', '44');
     expect(chart.innerHTML).not.toMatch(/NaN|Infinity/);

@@ -73,6 +73,25 @@ async def download(ctx, identifier):
             'file_count':len(files)}
 
 
+async def refresh(ctx, cap, identifier):
+    from vibecanvas_api.agents.tools._session_fs import _require_session
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
+        params = resource_route_params(ctx, session)
+        auth = {key:value for key,value in params.items() if key != 'session'}
+        await skills._authorize_skill(skill_id=identifier, action=Action.USE,
+            consistency=ConsistencyPreference.HIGHER_CONSISTENCY, **auth)
+        row = await SkillsRepo(session).get(identifier)
+        if row is None or not row.get('current_revision_id'):
+            raise HTTPException(404, 'skill_version_unavailable')
+        await skills._authorize_skill_revision(revision_id=row['current_revision_id'], action=Action.USE,
+            consistency=ConsistencyPreference.HIGHER_CONSISTENCY, **auth)
+        sandbox = await _require_session(ctx)
+        result = await sandbox.refresh_chat_skill(chat_id=cap.chat_id, turn_id=cap.turn_id,
+            skill_id=str(identifier), revision_id=str(row['current_revision_id']), revision_hash=row['revision_hash'])
+        return {'status':'succeeded', 'skill_id':str(identifier), 'version':row['version'], **result,
+                'published':False, 'message':'Runtime Skill refreshed. Read SKILL.md again before using it.'}
+
+
 async def execute(call, arguments):
     cap, operation = call.capability, call.operation
     started = False
@@ -80,6 +99,8 @@ async def execute(call, arguments):
     try:
         args = validate(operation, arguments)
         ctx = await agent_context.resolve_context(cap)
+        if operation == 'skill.refresh':
+            return await refresh(ctx, cap, uuid.UUID(args['skill_id']))
         if operation == 'skill.download':
             return await download(ctx, uuid.UUID(args['skill_id']))
         deleting = operation == 'skill.delete'

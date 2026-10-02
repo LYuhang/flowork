@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps,
 import {
   ChevronRight,
 } from 'lucide-react';
+import { PackageFileActions, type PackageFileOperations } from '@/components/files/PackageFileActions';
+import { useTranslation } from 'react-i18next';
 import { FileWorkbenchPreview } from '@/components/files/FileWorkbenchPreview';
 import { PaneResizeHandle } from '@/components/ui/pane-resize-handle';
 import { usePersistedPaneWidth } from '@/components/ui/use-persisted-pane-width';
@@ -79,6 +81,7 @@ function visibleTreeItems(
 
 function SkillFileBrowserContent({
   files,
+  operations,
   skillMd,
   loadFile,
   labels,
@@ -86,6 +89,7 @@ function SkillFileBrowserContent({
   selectedPath,
   onSelectedPathChange,
 }: {
+  operations?: PackageFileOperations;
   files: string[];
   skillMd: string;
   loadFile: (path: string) => Promise<Blob>;
@@ -94,6 +98,7 @@ function SkillFileBrowserContent({
   selectedPath?: string;
   onSelectedPathChange?: (path: string) => void;
 }) {
+  const { t } = useTranslation();
   const treePane = usePersistedPaneWidth({
     storageKey: `vibecanvas:skill-tree-width:v1:${persistKey}`,
     defaultWidth: 256,
@@ -326,6 +331,7 @@ function SkillFileBrowserContent({
 
       <section className="min-h-96 min-w-0 flex-1 md:min-h-0">
         <FileWorkbenchPreview
+          actions={operations && <PackageFileActions path={selected} required={selected === 'SKILL.md'} operations={operations} savedHint={t('files.manage.skillSaved')} />}
           fileName={selected}
           mimeType={selected === 'SKILL.md' ? 'text/markdown' : loaded.kind === 'ready' ? loaded.blob.type : null}
           blob={selected !== 'SKILL.md' && loaded.kind === 'ready' ? loaded.blob : null}

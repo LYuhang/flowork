@@ -367,3 +367,47 @@ changes. It uses the encrypted schedule repository, leaves execution snapshots
 unchanged and preserves a serving deployment revision when it matches the saved
 configuration. Without such a revision, it resolves the configured selector once.
 Keep the ID/version report with the private deployment backup.
+
+
+### Detail-page information layout
+
+Deployment Overview owns runtime instances and monitoring; hourly metric rows
+are expandable below charts. Usage owns the endpoint, code examples and test
+request. Activity prioritizes workflow traces and approvals; lower-level request
+records remain expandable for source, timing and transport errors. Settings owns
+identity, traffic/runtime controls and secret rotation. Old `monitoring`, `code`,
+`test`, `runs`, `config` and `security` links retain useful destinations.
+
+Task Overview owns progress or terminal outcome (one set of batch counters).
+Configuration owns frozen batch inputs or schedule settings. Execution logs own
+traces, expandable schedule triggers and raw events. Evaluation remains separate.
+Version links resolve exact stored versions. Read-only workflow inspectors have
+Node and Run info tabs; Run info reads only the selected trace, never the editor's
+live execution store. Pure version previews explicitly have no attached run.
+
+Skill and Knowledge detail pages share Files and Overview; file operations save
+drafts and a separate confirmation publishes a version. MCP details use Overview,
+Tools and Connection & settings, with technical identity/JSON collapsed.
+
+`flowork-cli skill update --skill_id ID` refreshes one Skill in the active Chat's
+read-only `/skills` namespace without remounting or restarting it. It resolves the
+latest authorized immutable revision, stages files on the host, replaces that
+folder and removes obsolete files. `skill publish --skill_id ID --source_dir DIR`
+updates the platform package; the old `update --source_dir` spelling is preserved.
+Read the returned `runtime_path/SKILL.md` again after refresh. New Agent turns
+already hydrate published Skills automatically.
+
+
+Validation on the native deployment (2026-10-02): migration 154 was applied
+before restarting API, worker and sandboxd. With the test account, real API and
+browser checks covered Skill/Knowledge draft isolation, stale-write rejection,
+required-root protection, file create/edit/replace/delete, unsaved-change
+confirmation, publication and immutable historical reads. A live Agent in one
+continuous turn published a QA Skill, verified that its runtime copy remained
+old, explicitly refreshed it, verified new bytes and removal of obsolete files,
+and confirmed the mount was still read-only. Task, scheduled Task, Deployment,
+MCP and Skill tabs were inspected; successful and failed traces displayed
+separate node and run information. The inspected pages produced no JavaScript
+page errors. Desktop and narrow-screen layouts were checked without load tests.
+Private test fixtures, credentials, screenshots and deployment backups remain
+outside the repository.

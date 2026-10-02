@@ -267,3 +267,40 @@ export async function deleteKbFile(kbId: string, fileId: string): Promise<void> 
   });
   await okOrThrow(resp, 'deleteKbFile');
 }
+
+export interface KnowledgeSnapshot {
+  version: number;
+  base_version: number;
+  latest_version: number;
+  content_hash: string;
+  has_changes: boolean;
+  files: string[];
+  readme: string;
+  updated_at: string;
+}
+
+export async function getKnowledgeDraft(id: string): Promise<KnowledgeSnapshot> {
+  return jsonOrThrow(await authedFetch(`/api/v1/kb/${id}/draft`), 'getKnowledgeDraft');
+}
+export async function getKnowledgeVersions(id: string): Promise<Array<{version: number; file_count: number; created_at: string}>> {
+  return jsonOrThrow(await authedFetch(`/api/v1/kb/${id}/versions`), 'getKnowledgeVersions');
+}
+export async function getKnowledgeVersion(id: string, version: number): Promise<KnowledgeSnapshot> {
+  return jsonOrThrow(await authedFetch(`/api/v1/kb/${id}/versions/${version}`), 'getKnowledgeVersion');
+}
+export async function getKnowledgeVersionFile(id: string, version: number, path: string): Promise<Blob> {
+  const response = await authedFetch(`/api/v1/kb/${id}/versions/${version}/files/${path.split('/').map(encodeURIComponent).join('/')}`);
+  await okOrThrow(response, 'getKnowledgeVersionFile');
+  return response.blob();
+}
+export async function writeKnowledgeDraftFile(id: string, path: string, expectedHash: string, file?: File, create = false): Promise<KnowledgeSnapshot> {
+  const endpoint = `/api/v1/kb/${id}/draft/files/${path.split('/').map(encodeURIComponent).join('/')}`;
+  const body = new FormData();
+  if (file) body.append('file', file);
+  body.append('expected_hash', expectedHash);
+  body.append('create', String(create));
+  return jsonOrThrow(await authedFetch(file ? endpoint : `${endpoint}?${new URLSearchParams({expected_hash: expectedHash})}`, {method: file ? 'PUT' : 'DELETE', ...(file ? {body} : {})}), 'writeKnowledgeDraftFile');
+}
+export async function publishKnowledgeDraft(id: string, expectedHash: string): Promise<{version: number}> {
+  return jsonOrThrow(await authedFetch(`/api/v1/kb/${id}/versions`, {method: 'POST', body: JSON.stringify({expected_hash: expectedHash})}), 'publishKnowledgeDraft');
+}

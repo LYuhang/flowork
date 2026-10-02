@@ -46,6 +46,7 @@ vi.mock('@/lib/api/queries/skills', () => ({
         source: 'computed',
       },
     },
+    refetch: vi.fn(async () => ({})),
     isLoading: false,
     isError: false,
   })),
@@ -60,6 +61,7 @@ vi.mock('@/lib/api/queries/skills', () => ({
       has_changes: true,
       updated_at: '2026-06-03T00:00:00Z',
     },
+    refetch: vi.fn(async () => ({})),
     isLoading: false,
   })),
   useSkillVersions: vi.fn(() => ({
@@ -99,6 +101,7 @@ vi.mock('@/lib/api/queries/skills', () => ({
       skill_md: '---\nname: invoice-parser\ndescription: Historical parser instructions.\nversion: 1\n---\n\n# Historical instructions',
       body: '# Historical instructions',
     } : undefined,
+    refetch: vi.fn(async () => ({})),
     isLoading: false,
   })),
   useDeleteSkill: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
@@ -106,6 +109,9 @@ vi.mock('@/lib/api/queries/skills', () => ({
   usePublishSkillVersion: vi.fn(() => ({ mutateAsync: mutations.publish, isPending: false })),
 }));
 
+import en from '@/lib/i18n/locales/en.json';
+import { getSkillDraftFile, writeSkillDraftFile } from '@/lib/api/skills';
+vi.mock('@/lib/api/skills', () => ({getSkillFile:vi.fn(), getSkillVersionFile:vi.fn(), getSkillDraftFile:vi.fn(), writeSkillDraftFile:vi.fn()}));
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { SkillDetailPage } from '@/pages/skills/SkillDetailPage';
 
@@ -113,7 +119,7 @@ const testI18n = i18n.createInstance();
 void testI18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
-  resources: { en: { translation: {} } },
+  resources: { en: { translation: en } },
   interpolation: { escapeValue: false },
 });
 
@@ -142,6 +148,8 @@ function renderAt(id: string, suffix = '') {
 
 describe('<SkillDetailPage>', () => {
   beforeEach(() => {
+    vi.mocked(getSkillDraftFile).mockResolvedValue({size:25, arrayBuffer:async () => new TextEncoder().encode('# Draft instructions').buffer} as Blob);
+    vi.mocked(writeSkillDraftFile).mockReset().mockResolvedValue({} as never);
     mutations.saveDraft.mockReset().mockResolvedValue({});
     mutations.publish.mockReset().mockResolvedValue({});
   });
@@ -152,19 +160,18 @@ describe('<SkillDetailPage>', () => {
 
     // Heading — the skill name.
     expect(
-      screen.getByRole('heading', { name: 'Invoice Parser' }),
+      screen.getAllByRole('heading', { name: 'Invoice Parser', level:1 })[0],
     ).toBeInTheDocument();
 
     // The SKILL.md body surfaces in the Instructions tab.
-    await user.click(screen.getByRole('tab', { name: /instructions/i }));
+    await user.click(screen.getByRole('tab', { name: /^files$/i }));
     expect(
       screen.getByText(/Read the invoice and return the grand total\./),
     ).toBeInTheDocument();
 
     // The allowed-tools chips render.
-    await user.click(screen.getByRole('tab', { name: /requirements/i }));
-    expect(screen.getByText('read_file')).toBeInTheDocument();
-    expect(screen.getByText('write_file')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /^overview$/i }));
+    expect(screen.getByText('read_file, write_file')).toBeInTheDocument();
 
     // A Back link pointing at the list route.
     const back = screen.getByRole('link', { name: /back/i });
@@ -178,41 +185,42 @@ describe('<SkillDetailPage>', () => {
 
     expect(screen.queryByRole('textbox', { name: 'SKILL.md' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^edit$/i }));
-    const editor = screen.getByRole('textbox', { name: 'SKILL.md' });
+    await user.click(screen.getByRole('button', {name:'File actions'}));
+    await user.click(screen.getByRole('menuitem', {name:'Edit content'}));
+    const editor = screen.getByRole('textbox', { name: 'Content' });
+    await waitFor(() => expect(editor).toHaveValue('# Draft instructions'));
     expect((editor as HTMLTextAreaElement).value).toContain('# Draft instructions');
 
     await user.type(editor, '\n\nAdded rule.');
-    await user.click(screen.getByRole('button', { name: /save draft/i }));
-    await waitFor(() => expect(mutations.saveDraft).toHaveBeenCalledWith({
-      id: SKILL_ID,
-      skillMd: expect.stringContaining('Added rule.'),
-    }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(writeSkillDraftFile).toHaveBeenCalledWith(SKILL_ID, 'SKILL.md', 'b'.repeat(64), expect.any(File), false));
+    expect(mutations.publish).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: /new version/i }));
     const versionInput = screen.getByLabelText(/^version$/i);
     expect(versionInput).toHaveValue(3);
-    await user.click(screen.getByRole('button', { name: /create version/i }));
+    await user.click(screen.getByRole('button', { name: /^publish$/i }));
     await waitFor(() => expect(mutations.publish).toHaveBeenCalledWith({
       id: SKILL_ID,
       version: 3,
+      expectedHash: 'b'.repeat(64),
     }));
   });
 
-  it('protects unsaved Custom Skill edits when leaving the page', async () => {
+  it('protects unsaved file edits when closing the editor', async () => {
     const user = userEvent.setup();
     renderAt(SKILL_ID);
-
-    await user.click(screen.getByRole('button', { name: /^edit$/i }));
-    await user.type(screen.getByRole('textbox', { name: 'SKILL.md' }), '\nUnsaved rule.');
-    await user.click(screen.getByRole('link', { name: /back/i }));
-
-    expect(screen.getByRole('dialog')).toHaveTextContent('Unsaved changes');
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.getByRole('heading', { name: 'Invoice Parser' })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('link', { name: /back/i }));
-    await user.click(screen.getByRole('button', { name: 'Discard' }));
-    expect(await screen.findByText('Skill list')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name:/^edit$/i}));
+    await user.click(screen.getByRole('button', {name:'File actions'}));
+    await user.click(screen.getByRole('menuitem', {name:'Edit content'}));
+    const editor = screen.getByRole('textbox', {name:'Content'});
+    await waitFor(() => expect(editor).toHaveValue('# Draft instructions'));
+    await user.type(editor, ' Unsaved rule.');
+    await user.click(screen.getByRole('button', {name:/^Cancel$/}));
+    expect(screen.getByText('Your unsaved changes will be lost.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name:'Keep editing'}));
+    expect(editor).toHaveValue('# Draft instructions Unsaved rule.');
+    expect(writeSkillDraftFile).not.toHaveBeenCalled();
   });
 
   it('renders a selected historical version as a read-only snapshot', async () => {

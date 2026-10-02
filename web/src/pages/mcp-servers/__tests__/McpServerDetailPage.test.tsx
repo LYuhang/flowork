@@ -102,7 +102,7 @@ describe('<McpServerDetailPage>', () => {
     // Transport + endpoint surface on the page (transport appears in both
     // the sub-header chip and the config grid → assert ≥1).
     expect(screen.getAllByText('sse').length).toBeGreaterThan(0);
-    await user.click(screen.getByRole('tab', { name: /basic info/i }));
+    await user.click(screen.getByRole('tab', { name: /connection & settings/i }));
     expect(
       screen.getByText('https://search.example.com/sse'),
     ).toBeInTheDocument();

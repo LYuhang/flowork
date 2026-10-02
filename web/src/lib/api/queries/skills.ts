@@ -122,8 +122,8 @@ export const useSaveCustomSkill = () => {
 export const useSaveSkillDraft = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, skillMd }: { id: string; skillMd: string }) =>
-      saveSkillDraft(id, skillMd),
+    mutationFn: ({ id, skillMd, expectedHash }: { id: string; skillMd: string; expectedHash?: string }) =>
+      saveSkillDraft(id, skillMd, expectedHash),
     onSuccess: (draft) => {
       queryClient.setQueryData(draftKey(draft.skill_id), draft);
       void queryClient.invalidateQueries({ queryKey: itemKey(draft.skill_id) });
@@ -134,8 +134,8 @@ export const useSaveSkillDraft = () => {
 export const usePublishSkillVersion = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, version }: { id: string; version: number }) =>
-      publishSkillVersion(id, version),
+    mutationFn: ({ id, version, expectedHash }: { id: string; version: number; expectedHash?: string }) =>
+      publishSkillVersion(id, version, expectedHash),
     onSuccess: (skill) => {
       void queryClient.invalidateQueries({ queryKey: LIST_KEY });
       void queryClient.invalidateQueries({ queryKey: itemKey(skill.id) });

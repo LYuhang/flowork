@@ -1,3 +1,4 @@
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ExecutionFrame, ExecutionStatus } from '@/lib/api/queries/workflow-history';
@@ -15,8 +16,13 @@ export function ReadOnlyNodeDetails({ workflowId, nodeId, events, executionStatu
 }) {
   const { t } = useTranslation();
   const nodeEvents = events?.filter(event => event.type === 'node_event' && event.node_id === nodeId);
-  return <div className="space-y-4" data-role="readonly-node-details">
-    <NodeTab wfId={workflowId} readOnly selectedNodeId={nodeId} />
+  return <Tabs defaultValue="node" className="space-y-4" data-role="readonly-node-details">
+    <TabsList variant="underline" className="w-full justify-start">
+      <TabsTrigger value="node">{t('inspector.tab.node', 'Node')}</TabsTrigger>
+      <TabsTrigger value="run-node">{t('execution.nodeRunTab', 'Run info')}</TabsTrigger>
+    </TabsList>
+    <TabsContent value="node"><NodeTab wfId={workflowId} readOnly selectedNodeId={nodeId} /></TabsContent>
+    <TabsContent value="run-node">
     {nodeEvents ? <InspectorSection title={t('execution.nodeDetails')} icon={Activity}>
       {nodeEvents.length ? nodeEvents.map((event, index) => {
         const status = index === nodeEvents.length - 1 && executionStatus
@@ -29,6 +35,7 @@ export function ReadOnlyNodeDetails({ workflowId, nodeId, events, executionStatu
           {event.error_message && <p role="alert" className="whitespace-pre-wrap break-words text-xs text-state-danger">{event.error_message}</p>}
         </div>;
       }) : <p className="text-sm text-content-secondary">{t('execution.nodeNotExecuted', 'This node has no execution record in this run.')}</p>}
-    </InspectorSection> : null}
-  </div>;
+    </InspectorSection> : <p className="text-sm text-content-secondary">{t('execution.snapshotNoRun', 'This is a workflow version snapshot with no attached execution.')}</p>}
+    </TabsContent>
+  </Tabs>;
 }

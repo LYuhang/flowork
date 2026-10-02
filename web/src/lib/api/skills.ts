@@ -214,18 +214,18 @@ export async function getSkillDraft(id: string): Promise<SkillDraft> {
   return jsonOrThrow<SkillDraft>(response, 'getSkillDraft');
 }
 
-export async function saveSkillDraft(id: string, skillMd: string): Promise<SkillDraft> {
+export async function saveSkillDraft(id: string, skillMd: string, expectedHash?: string): Promise<SkillDraft> {
   const response = await authedFetch(`/api/v1/skills/${encodeURIComponent(id)}/draft`, {
     method: 'PUT',
-    body: JSON.stringify({ skill_md: skillMd }),
+    body: JSON.stringify({ skill_md: skillMd, expected_hash: expectedHash }),
   });
   return jsonOrThrow<SkillDraft>(response, 'saveSkillDraft');
 }
 
-export async function publishSkillVersion(id: string, version: number): Promise<Skill> {
+export async function publishSkillVersion(id: string, version: number, expectedHash?: string): Promise<Skill> {
   const response = await authedFetch(`/api/v1/skills/${encodeURIComponent(id)}/versions`, {
     method: 'POST',
-    body: JSON.stringify({ version }),
+    body: JSON.stringify({ version, expected_hash: expectedHash }),
   });
   return jsonOrThrow<Skill>(response, 'publishSkillVersion');
 }
@@ -274,4 +274,22 @@ export async function getCatalogSkillFile(
   const response = await authedFetch(`/api/v1/skills/catalog/file?${params}`);
   if (!response.ok) throw new Error(`getCatalogSkillFile failed: ${await errorDetail(response)}`);
   return response.blob();
+}
+
+export async function getSkillDraftFile(id: string, path: string): Promise<Blob> {
+  const response = await authedFetch(`/api/v1/skills/${encodeURIComponent(id)}/draft/files/${path.split('/').map(encodeURIComponent).join('/')}`);
+  if (!response.ok) throw new Error(await errorDetail(response));
+  return response.blob();
+}
+
+export async function writeSkillDraftFile(id: string, path: string, expectedHash: string, file?: File, create = false): Promise<SkillDraft> {
+  const endpoint = `/api/v1/skills/${encodeURIComponent(id)}/draft/files/${path.split('/').map(encodeURIComponent).join('/')}`;
+  const body = new FormData();
+  if (file) body.append('file', file);
+  body.append('expected_hash', expectedHash);
+  body.append('create', String(create));
+  const response = await authedFetch(file ? endpoint : `${endpoint}?${new URLSearchParams({expected_hash: expectedHash})}`, {
+    method: file ? 'PUT' : 'DELETE', ...(file ? { body } : {}),
+  });
+  return jsonOrThrow<SkillDraft>(response, 'writeSkillDraftFile');
 }

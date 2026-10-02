@@ -125,3 +125,42 @@ async def hydrate_runtime_skills(
                 shutil.rmtree(staging)
 
     return await asyncio.to_thread(_replace)
+
+
+async def refresh_runtime_skill(*, destination: str, tenant_id: str, skill_id: str, revision_id: str, revision_hash: str) -> int:
+    """Replace one published runtime copy under a stable /skills mount root."""
+    from vibecanvas_api.services.skill_bundle import validate_skill_files
+    async with session_scope(tenant_id=tenant_id) as session:
+        files = await SkillsRepo(session).read_revision_files(uuid.UUID(skill_id), uuid.UUID(revision_id))
+        if files is None:
+            raise LookupError('skill_version_unavailable')
+    _, files = validate_skill_files(files)
+    parent = os.path.dirname(destination)
+    os.makedirs(parent, exist_ok=True)
+
+    def install():
+        staging = tempfile.mkdtemp(prefix='.refresh-', dir=parent)
+        backup = f'{destination}.old-{uuid.uuid4().hex}'
+        try:
+            for path, _, data in files:
+                target = os.path.join(staging, *path.split('/'))
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, 'wb') as handle:
+                    handle.write(data)
+            # The parent mount stays in place. A failed rename restores the
+            # prior complete copy; obsolete package files disappear together.
+            if os.path.exists(destination):
+                os.replace(destination, backup)
+            try:
+                os.replace(staging, destination)
+            except BaseException:
+                if os.path.exists(backup):
+                    os.replace(backup, destination)
+                raise
+            if os.path.exists(backup):
+                shutil.rmtree(backup)
+            return len(files)
+        finally:
+            if os.path.exists(staging):
+                shutil.rmtree(staging)
+    return await asyncio.to_thread(install)

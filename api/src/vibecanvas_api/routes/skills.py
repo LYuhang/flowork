@@ -10,6 +10,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -74,6 +75,9 @@ from vibecanvas_api.services.skill_loader import parse_skill_md
 from vibecanvas_api.services.resource_provenance import (
     ResourceProvenanceBuilder,
 )
+from vibecanvas_api.config import config
+from vibecanvas_api.services.file_format import content_type_for
+from vibecanvas_api.services.knowledge_packages import normalize_package_path
 from vibecanvas_api.services.skill_bundle import (
     unpack_skill_zip, validate_skill_files,
 )
@@ -620,6 +624,98 @@ async def get_custom_skill_draft(
     )
 
 
+async def _editable_skill_files(skill_id, expected_hash, request, ctx, session, service):
+    sid = _parse_uuid(skill_id)
+    await _authorize_skill(request=request, ctx=ctx, service=service, skill_id=sid,
+                           action=Action.UPDATE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    repo = SkillsRepo(session)
+    # All draft and publication writers acquire this same identity lock.
+    await repo._lock_custom_skill(sid)
+    current = await repo.get(sid)
+    _require_owned_custom_skill(current, ctx.user_id)
+    draft = await repo.get_draft(sid)
+    token = draft["draft_hash"] if draft else current["revision_hash"]
+    if expected_hash != token:
+        raise HTTPException(status_code=409, detail="package_file_changed")
+    files = await repo.read_draft_files(sid) if draft else await repo.read_current_files(sid)
+    return sid, repo, files or []
+
+
+@router.get("/{skill_id}/draft/files/{path:path}")
+async def get_skill_draft_file(
+    skill_id: str, path: str, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    sid = _parse_uuid(skill_id)
+    await _authorize_skill(request=request, ctx=ctx, service=service, skill_id=sid, action=Action.VIEW)
+    repo = SkillsRepo(session)
+    current = await repo.get(sid)
+    if current is None or current.get("source") != "custom":
+        raise HTTPException(status_code=404, detail="custom skill not found")
+    files = await repo.read_draft_files(sid)
+    if files is None:
+        files = await repo.read_current_files(sid)
+    item = next((item for item in files or [] if item[0] == path), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="skill_file_not_found")
+    return Response(content=item[2], media_type=item[1] or "application/octet-stream",
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                             "Content-Disposition": "attachment"})
+
+
+@router.put("/{skill_id}/draft/files/{path:path}", response_model=SkillDraftOut)
+async def put_skill_draft_file(
+    skill_id: str, path: str, request: Request, file: UploadFile = File(...),
+    expected_hash: str = Form(...), create: bool = Form(False),
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    blob = await file.read(config.skills.max_file_bytes + 1)
+    if len(blob) > config.skills.max_file_bytes:
+        raise HTTPException(status_code=413, detail="skill_file_too_large")
+    await require_clean_upload(blob)
+    try:
+        path = normalize_package_path(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    sid, repo, files = await _editable_skill_files(skill_id, expected_hash, request, ctx, session, service)
+    exists = any(item[0] == path for item in files)
+    if create and exists:
+        raise HTTPException(status_code=409, detail="package_path_exists")
+    if not create and not exists:
+        raise HTTPException(status_code=409, detail="package_file_changed")
+    # A file cannot also be a directory in the published runtime tree.
+    if any(other.casefold() == path.casefold() and other != path
+           or other.casefold().startswith(path.casefold() + "/") or path.casefold().startswith(other.casefold() + "/")
+           for other, _, _ in files):
+        raise HTTPException(status_code=409, detail="package_path_exists")
+    updated = [item for item in files if item[0] != path]
+    updated.append((path, content_type_for(path, blob), blob))
+    try:
+        _, updated = validate_skill_files(updated)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await repo.save_draft(skill_id=sid, tenant_id=uuid.UUID(ctx.tenant_id), files=updated)
+    return await get_custom_skill_draft(skill_id, request, ctx, session, service)
+
+
+@router.delete("/{skill_id}/draft/files/{path:path}", response_model=SkillDraftOut)
+async def delete_skill_draft_file(
+    skill_id: str, path: str, request: Request, expected_hash: str = Query(...),
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    sid, repo, files = await _editable_skill_files(skill_id, expected_hash, request, ctx, session, service)
+    if path == "SKILL.md":
+        raise HTTPException(status_code=409, detail="skill_root_required")
+    if not any(item[0] == path for item in files):
+        raise HTTPException(status_code=409, detail="package_file_changed")
+    await repo.save_draft(skill_id=sid, tenant_id=uuid.UUID(ctx.tenant_id),
+                          files=[item for item in files if item[0] != path])
+    return await get_custom_skill_draft(skill_id, request, ctx, session, service)
+
+
 @router.put("/{skill_id}/draft", response_model=SkillDraftOut)
 async def save_custom_skill_draft(
     skill_id: str,
@@ -640,6 +736,8 @@ async def save_custom_skill_draft(
     repo = SkillsRepo(session)
     current = await repo.get(sid)
     _require_owned_custom_skill(current, ctx.user_id)
+    if body.expected_hash is not None:
+        await _editable_skill_files(skill_id, body.expected_hash, request, ctx, session, service)
     existing = await repo.read_draft_files(sid)
     if existing is None:
         existing = await repo.read_current_files(sid)
@@ -702,6 +800,8 @@ async def publish_custom_skill_version(
     files = await repo.read_draft_files(sid)
     if draft is None or files is None:
         raise HTTPException(status_code=409, detail="Save a draft before creating a version")
+    if body.expected_hash is not None and body.expected_hash != draft["draft_hash"]:
+        raise HTTPException(status_code=409, detail="package_file_changed")
     raw = next((data for path, _ct, data in files if path == "SKILL.md"), b"")
     try:
         versioned_md = _with_version(raw.decode("utf-8"), body.version)

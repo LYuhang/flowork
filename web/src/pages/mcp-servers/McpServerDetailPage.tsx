@@ -9,7 +9,6 @@ import {
   PlugZap,
   RefreshCw,
   Save,
-  ShieldAlert,
   Trash2,
   Unplug,
 } from 'lucide-react';
@@ -171,15 +170,14 @@ export function McpServerDetailPage() {
   }, [query, server?.connection_status]);
 
   const defaultTab = useMemo(() => {
-    if (!server) return 'basic';
+    if (!server) return 'overview';
     if (!server.enabled || (server.last_handshake_status ?? '').startsWith('error')) {
       return 'connection';
     }
-    return 'brief';
+    return 'overview';
   }, [server]);
-  const allowedTabs = ['basic', 'brief', 'connection', 'tools', 'security', 'config'];
   const requestedTab = searchParams.get('tab');
-  const activeTab = requestedTab && allowedTabs.includes(requestedTab) ? requestedTab : defaultTab;
+  const activeTab = requestedTab === 'tools' ? 'tools' : ['connection', 'security', 'config'].includes(requestedTab ?? '') ? 'connection' : ['overview','basic','brief'].includes(requestedTab ?? '') ? 'overview' : defaultTab;
 
   if (query.isLoading) {
     return (
@@ -321,7 +319,6 @@ export function McpServerDetailPage() {
       backTo="/mcp-servers"
       backLabel={t('mcp.back', 'Back')}
       title={server.name}
-      description={server.description || t('mcp.no_description', 'No description')}
       icon={PlugZap}
       status={<StatusBadge status={status.status}>{statusText}</StatusBadge>}
       metadata={<><span className="font-mono">{server.tool_prefix}</span><span>{server.transport}</span><span>{formatSource(server.description_source)}</span><ResourceProvenanceLine provenance={server.provenance} /></>}
@@ -365,19 +362,16 @@ export function McpServerDetailPage() {
           }}
           className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-edge-subtle bg-surface-work"
         >
-          <TabsList variant="underline" className="h-auto w-full justify-start px-4">
+          <TabsList variant="underline" className="chat-scrollbar h-auto w-full justify-start overflow-x-auto px-4">
             {[
-              ['basic', t('mcp.detail.tab.basic', 'Basic info')],
-              ['brief', t('mcp.detail.tab.brief', 'Brief description')],
-              ['connection', t('mcp.detail.tab.connection', 'Connection')],
+              ['overview', t('skills.detail.tab.overview', 'Overview')],
               ['tools', `${t('mcp.detail.tab.tools', 'Tools')} ${tools.length}`],
-              ['security', t('mcp.detail.tab.security', 'Security')],
-              ['config', t('mcp.detail.tab.config', 'Config')],
+              ['connection', t('mcp.detail.connectionSettings', 'Connection & settings')],
             ].map(([value, label]) => (
               <TabsTrigger
                 key={value}
                 value={value}
-                className="px-1 py-3"
+                className="shrink-0 px-1 py-3"
               >
                 {label}
                 {value === 'connection' && status.key === 'mcp.status.probe_failed' ? (
@@ -387,30 +381,7 @@ export function McpServerDetailPage() {
             ))}
           </TabsList>
 
-          <TabsContent value="basic" className="page-scroll-region mt-0 min-h-0 flex-1 p-5 data-[state=inactive]:hidden">
-            <SectionBlock title={t('mcp.detail.summary', 'Server summary')}>
-              <DetailSummary items={[
-                { label: t('mcp.detail.id', 'MCP ID'), value: <span className="flex min-w-0 items-center gap-2"><code className="min-w-0 break-all text-xs">{server.id}</code><CopyButton value={server.id} className="shrink-0" /></span>, wide: true },
-                { label: t('mcp.transport', 'Transport'), value: server.transport },
-                { label: t('mcp.detail.status', 'Status'), value: statusText },
-                { label: t('mcp.tool_prefix', 'Tool prefix'), value: <code>{server.tool_prefix}</code> },
-                { label: t('mcp.detail.created', 'Created'), value: formatTime(server.created_at) },
-                { label: t('mcp.detail.updated', 'Updated'), value: formatTime(server.updated_at) },
-                {
-                  label: t('mcp.endpoint', 'Endpoint'),
-                  wide: true,
-                  value: (
-                    <span className="flex items-center gap-2 rounded-md border border-edge-subtle bg-surface-sunken/35 px-3 py-2">
-                      <code className="min-w-0 flex-1 break-all text-xs">{server.endpoint}</code>
-                      <CopyButton value={server.endpoint} />
-                    </span>
-                  ),
-                },
-              ]} />
-            </SectionBlock>
-          </TabsContent>
-
-          <TabsContent value="brief" className="page-scroll-region mt-0 min-h-0 flex-1 p-5 data-[state=inactive]:hidden">
+          <TabsContent value="overview" className="page-scroll-region mt-0 min-h-0 flex-1 p-5 data-[state=inactive]:hidden">
             <div className="flex flex-col gap-4">
               <div>
                 <div className="mb-1 flex items-center justify-between gap-3">
@@ -444,9 +415,22 @@ export function McpServerDetailPage() {
                   </Button> : null}
               </div>
             </div>
+            <SectionBlock variant="plain" collapsible defaultOpen={false} title={t('mcp.detail.summary', 'Server summary')}>
+              <DetailSummary items={[
+                { label: t('mcp.detail.id', 'MCP ID'), value: <span className="flex min-w-0 items-center gap-2"><code className="min-w-0 break-all text-xs">{server.id}</code><CopyButton value={server.id} className="shrink-0" /></span>, wide: true },
+                { label: t('mcp.detail.created', 'Created'), value: formatTime(server.created_at) },
+                { label: t('mcp.detail.updated', 'Updated'), value: formatTime(server.updated_at) },
+              ]} />
+            </SectionBlock>
           </TabsContent>
 
           <TabsContent value="connection" className="page-scroll-region mt-0 min-h-0 flex-1 p-5 data-[state=inactive]:hidden">
+            <SectionBlock variant="plain" title={t('mcp.detail.configSummary', 'Effective configuration')}>
+              <DetailSummary items={[
+                {label:t('mcp.endpoint','Endpoint'),value:<span className="flex items-center gap-2"><code className="min-w-0 break-all text-xs">{server.endpoint}</code><CopyButton value={server.endpoint} /></span>,wide:true},
+                {label:t('mcp.tool_prefix','Tool prefix'),value:<code>{server.tool_prefix}</code>},
+              ]} />
+            </SectionBlock>
             {server.auth_mode === 'oauth' ? (
               <div className="space-y-5">
                 <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -509,6 +493,11 @@ export function McpServerDetailPage() {
                 ]} />
               </SectionBlock>
             )}
+            <SectionBlock variant="plain" collapsible defaultOpen={false}
+              title={t('mcp.detail.rawConfig','Raw JSON')} actions={<CopyButton value={configJson} />}>
+              <pre className="max-h-96 overflow-auto rounded border p-3 text-xs">{configJson}</pre>
+              <p className="mt-3 text-xs text-muted-foreground">{t('mcp.detail.secretEncrypted','Encrypted and never returned in plaintext')}</p>
+            </SectionBlock>
           </TabsContent>
 
           <TabsContent value="tools" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden p-0 data-[state=inactive]:hidden">
@@ -533,50 +522,6 @@ export function McpServerDetailPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="security" className="page-scroll-region mt-0 min-h-0 flex-1 p-5 data-[state=inactive]:hidden">
-            <SectionBlock
-              title={t('mcp.detail.security.title', 'Review external access before use')}
-              icon={<ShieldAlert className="size-4 text-state-warning" aria-hidden="true" />}
-            >
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {t(
-                    'mcp.detail.security.body',
-                    'MCP servers can expose tools that read, write, or call external services. This page shows the latest probed tools; audit logs should record install, probe, load, and tool-call events.',
-                  )}
-                </p>
-              <DetailSummary className="mt-4" items={[
-                { label: t('mcp.detail.auth_type', 'Auth type'), value: server.auth_mode },
-                { label: t('mcp.detail.exposedTools', 'Exposed tools'), value: tools.length },
-                { label: t('mcp.endpoint', 'Network destination'), value: server.endpoint, wide: true },
-                { label: t('mcp.detail.last_probe', 'Last verification'), value: server.last_handshake_at ? formatTime(server.last_handshake_at) : t('mcp.detail.never', 'Never') },
-                { label: t('mcp.detail.secretHandling', 'Secret handling'), value: t('mcp.detail.secretEncrypted', 'Encrypted and never returned in plaintext') },
-              ]} />
-            </SectionBlock>
-          </TabsContent>
-
-          <TabsContent value="config" className="page-scroll-region mt-0 min-h-0 flex-1 p-5 data-[state=inactive]:hidden">
-            <SectionBlock
-              title={t('mcp.detail.configSummary', 'Effective configuration')}
-              description={t('mcp.detail.configHelp', 'Use the formatted summary for review. Raw JSON is available for diagnostics or copying.')}
-              actions={<CopyButton value={configJson} />}
-            >
-              <DetailSummary items={[
-                { label: t('mcp.transport', 'Transport'), value: server.transport },
-                { label: t('mcp.tool_prefix', 'Tool prefix'), value: <code>{server.tool_prefix}</code> },
-                { label: t('mcp.endpoint', 'Endpoint'), value: server.endpoint, wide: true },
-                { label: t('mcp.detail.status', 'Enabled'), value: server.enabled ? t('common.yes', 'Yes') : t('common.no', 'No') },
-                { label: t('mcp.detail.auth_type', 'Authentication'), value: server.auth_config?.type ?? 'none' },
-              ]} />
-              <details className="mt-4 rounded-md border border-edge-subtle">
-                <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-content-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-                  {t('mcp.detail.rawConfig', 'Raw JSON')}
-                </summary>
-                <pre className="max-h-[24rem] overflow-auto border-t border-edge-subtle bg-surface-sunken/35 p-4 text-xs leading-relaxed">
-                  {configJson}
-                </pre>
-              </details>
-            </SectionBlock>
-          </TabsContent>
         </Tabs>
         <Dialog open={confirmation !== null} onOpenChange={(open) => !open && setConfirmation(null)}>
           <DialogContent>

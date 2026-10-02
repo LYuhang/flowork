@@ -382,7 +382,7 @@ export function TaskDetailPage() {
   const [logRange, setLogRange] = useState<LogRangeValue>({ range: "all", from: "", to: "" });
   const [logOrder, setLogOrder] = useState<LogSortOrder>("desc");
   const eventLogRegionRef = useRef<HTMLDivElement>(null);
-  const activeTab = ["logs", "evaluation"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "overview";
+  const activeTab = ["logs", "evaluation", "settings"].includes(searchParams.get("tab") ?? "") ? searchParams.get("tab")! : "overview";
   const logBounds = useMemo(
     () => resolveLogRange(logRange),
     [logRange],
@@ -664,7 +664,7 @@ export function TaskDetailPage() {
   const canViewResult = !ACTIVE_STATUSES.includes(task.status) && !!(task.result as { artifact_uris?: { jsonl?: string } } | null)?.artifact_uris?.jsonl;
   const selectTab = (tab: string) => {
     const next = new URLSearchParams(searchParams);
-    if (tab === "logs" || tab === "evaluation") next.set("tab", tab);
+    if (tab === "logs" || tab === "evaluation" || tab === "settings") next.set("tab", tab);
     else next.delete("tab");
     setSearchParams(next, { replace: true });
   };
@@ -674,17 +674,11 @@ export function TaskDetailPage() {
       resourceKind="task"
       backTo="/tasks"
       backLabel={t("taskDetail.backToList", "Back to tasks")}
-      title={taskDisplayName(
+      title={isScheduledRun && scheduledQuery.data?.schedule.name || taskDisplayName(
         task,
         task.task_type === "scheduled_run"
           ? t("tasks.type.scheduled_run", "Scheduled run")
           : t("tasks.type.batch_exec", "Batch execution"),
-      )}
-      description={t(
-        `tasks.type.${task.task_type}.description`,
-        task.task_type === "scheduled_run"
-          ? "Run a workflow automatically on a recurring schedule."
-          : "Run one workflow across a table of records and collect row-level results.",
       )}
       icon={ListChecks}
       status={
@@ -701,12 +695,12 @@ export function TaskDetailPage() {
           <span className="min-w-0 break-all font-mono">{t("tasks.col.workflow", "Workflow")}: {task.workflow_id}</span>
           <CopyButton className="shrink-0" value={task.workflow_id} />
         </span>}
+        <WorkflowVersionLink workflowId={linkedWorkflowId} version={linkedVersion}
+          inline kind={isScheduledRun ? configuredVersion ? "configured" : "execution" : "snapshot"} />
         <ResourceProvenanceLine provenance={task.provenance} />
       </>)}
       actions={
         <>
-              <WorkflowVersionLink workflowId={linkedWorkflowId} version={linkedVersion}
-                kind={isScheduledRun ? configuredVersion ? "configured" : "execution" : "snapshot"} />
               {canDownload && (
                 <>
                   <DropdownMenu>
@@ -811,7 +805,7 @@ export function TaskDetailPage() {
       className="max-w-5xl gap-0"
     >
       <Tabs
-        value={activeTab}
+        value={isScheduledRun && activeTab === "evaluation" ? "overview" : activeTab}
         onValueChange={selectTab}
         className="shrink-0"
       >
@@ -826,6 +820,7 @@ export function TaskDetailPage() {
           <TabsTrigger value="logs" className="shrink-0">
             {t("taskDetail.tab.logs", "Execution logs")}
           </TabsTrigger>
+          <TabsTrigger value="settings" className="shrink-0">{t("taskDetail.tab.settings", "Configuration")}</TabsTrigger>
           {!isScheduledRun && <TabsTrigger value="evaluation">{t("evaluation.title", "Evaluation")}</TabsTrigger>}
         </TabsList>
 
@@ -834,21 +829,46 @@ export function TaskDetailPage() {
         {/* An idle schedule has no meaningful completion percentage. */}
         {(!isScheduledRun || task.status === "running") && <SectionBlock
           variant="plain"
-          title={t("tasks.col.progress", "Progress")}
-          description={rowCounts
+          title={summary ? t("taskDetail.summary", "Summary") : t("tasks.col.progress", "Progress")}
+          description={!summary && rowCounts
             ? t("taskDetail.rowsProgress", "{{done}} of {{total}} rows done", { done: rowCounts.done, total: rowCounts.total })
-            : t("taskDetail.progressDescription", "Live completion and execution timing for this task.")}
-          actions={<span className="text-sm font-semibold tabular-nums text-content-secondary">{pct}%</span>}
+            : undefined}
+          actions={!summary ? <span className="text-sm font-semibold tabular-nums text-content-secondary">{pct}%</span> : undefined}
         >
-          {rowCounts ? <span className="sr-only" data-testid="row-progress">
+          {!summary && rowCounts ? <span className="sr-only" data-testid="row-progress">
             {t("taskDetail.rowsProgress", "{{done}} of {{total}} rows done", { done: rowCounts.done, total: rowCounts.total })}
           </span> : null}
-          <ProgressState
+          {summary ? (
+            <dl className="grid grid-cols-3 gap-x-6 gap-y-2 text-sm">
+              <div className="flex flex-col">
+                <dt className="text-xs text-muted-foreground">
+                  {t("taskDetail.rowsTotal", "Rows total")}
+                </dt>
+                <dd className="tabular-nums">{summary.rows_total ?? "—"}</dd>
+              </div>
+              <div className="flex flex-col">
+                <dt className="text-xs text-muted-foreground">
+                  {t("taskDetail.rowsOk", "Rows ok")}
+                </dt>
+                <dd className="tabular-nums text-state-success">
+                  {summary.rows_ok ?? "—"}
+                </dd>
+              </div>
+              <div className="flex flex-col">
+                <dt className="text-xs text-muted-foreground">
+                  {t("taskDetail.rowsFailed", "Rows failed")}
+                </dt>
+                <dd className="tabular-nums text-destructive">
+                  {summary.rows_failed ?? "—"}
+                </dd>
+              </div>
+            </dl>
+          ) : <ProgressState
             status={taskStatusTone(task.status)}
             label={<span className="sr-only">{t("tasks.col.progress", "Progress")}</span>}
             progressLabel={t("tasks.col.progress", "Progress")}
             value={pct}
-          />
+          />}
           <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-xs sm:grid-cols-3">
             <div className="flex flex-col">
               <dt className="text-muted-foreground">
@@ -871,6 +891,56 @@ export function TaskDetailPage() {
           </dl>
         </SectionBlock>}
 
+        {isScheduledRun && (
+          <div className="contents">
+            {scheduledQuery.data ? (
+              <OperationalSummary
+                label={t("tasks.scheduled.operationalSummary", "Schedule summary")}
+                className="mt-5"
+                items={[
+                  {
+                    label: t("tasks.scheduled.nextRun", "Next run"),
+                    value: formatTime(scheduledQuery.data.schedule.next_run_at),
+                    tone: task.status === "paused" ? "neutral" : "info",
+                  },
+                  {
+                    label: t("taskDetail.lastRun", "Last run"),
+                    value: formatTime(scheduledQuery.data.schedule.last_run_at),
+                  },
+                  {
+                    label: t("tasks.scheduled.lastStatus", "Last status"),
+                    value: scheduledQuery.data.schedule.last_status
+                      ? t(`tasks.executionStatus.${scheduledQuery.data.schedule.last_status}`, scheduledQuery.data.schedule.last_status)
+                      : "—",
+                    tone: scheduledQuery.data.schedule.last_status === "succeeded" ? "success" : "neutral",
+                  },
+                ]}
+              />
+            ) : null}
+
+          </div>
+        )}
+
+        {/* Error block (failed only) */}
+        {task.status === "failed" && task.error && (
+          <ActionableError
+            title={t("taskDetail.error", "Task execution failed")}
+            description={humanTaskError(
+              task.error,
+              t(
+                "taskDetail.errorHint",
+                "The task could not finish. Review the input and workflow configuration, then run it again.",
+              ),
+            )}
+            technicalDetails={task.error}
+            technicalDetailsLabel={t("technicalDetails", "Technical details")}
+          />
+        )}
+
+        </TabsContent>
+
+        <TabsContent value="settings" className="mt-0">
+        {!isScheduledRun && !batchSetup && <p className="py-6 text-sm text-muted-foreground">{t("taskDetail.noConfiguration", "No saved input configuration is available for this task.")}</p>}
         {batchSetup && (
           <SectionBlock
             variant="plain"
@@ -904,34 +974,7 @@ export function TaskDetailPage() {
           </SectionBlock>
         )}
 
-        {isScheduledRun && (
-          <div className="contents">
-            {scheduledQuery.data ? (
-              <OperationalSummary
-                label={t("tasks.scheduled.operationalSummary", "Schedule summary")}
-                className="mt-5"
-                items={[
-                  {
-                    label: t("tasks.scheduled.nextRun", "Next run"),
-                    value: formatTime(scheduledQuery.data.schedule.next_run_at),
-                    tone: task.status === "paused" ? "neutral" : "info",
-                  },
-                  {
-                    label: t("tasks.scheduled.lastStatus", "Last status"),
-                    value: scheduledQuery.data.schedule.last_status
-                      ? t(`tasks.executionStatus.${scheduledQuery.data.schedule.last_status}`, scheduledQuery.data.schedule.last_status)
-                      : "—",
-                    tone: scheduledQuery.data.schedule.last_status === "succeeded" ? "success" : "neutral",
-                  },
-                  {
-                    label: t("tasks.scheduled.runHistory", "Run history"),
-                    value: executions.length,
-                    hint: t("tasks.scheduled.executionsRecorded", "Recorded executions"),
-                    tone: "info",
-                  },
-                ]}
-              />
-            ) : null}
+          {isScheduledRun && (
             <SectionBlock
               variant="plain"
               title={t("tasks.scheduled.configuration", "Schedule configuration")}
@@ -946,18 +989,6 @@ export function TaskDetailPage() {
                   <DetailSummary
                     className="mt-1 max-w-3xl gap-x-10 gap-y-6"
                     items={[
-                    {
-                      label: t("tasks.scheduled.name", "Name"),
-                      value: scheduledQuery.data.schedule.name,
-                      wide: true,
-                    },
-                    {
-                      label: t("tasks.col.workflow", "Workflow"),
-                      value: <span className="flex min-w-0 items-start gap-1">
-                        <span className="min-w-0 break-all font-mono text-xs leading-7" translate="no">{scheduledQuery.data.schedule.workflow_id}</span>
-                        <CopyButton className="shrink-0" value={scheduledQuery.data.schedule.workflow_id} />
-                      </span>,
-                    },
                     {
                       label: t("tasks.scheduled.timing", "Timing"),
                       value: scheduledQuery.data.schedule.schedule_type === "interval"
@@ -995,10 +1026,18 @@ export function TaskDetailPage() {
                 </div>
               )}
             </SectionBlock>
+          )}
+        </TabsContent>
 
+        {/* Live event log */}
+        <TabsContent value="logs" className="mt-0">
+          {capabilities.has("inspect_runs") && <ExecutionHistory key={taskId} source="task" sourceId={taskId ?? ''} />}
+          {isScheduledRun && (
             <SectionBlock
               variant="plain"
-              title={t("tasks.scheduled.runHistory", "Run history")}
+              collapsible
+              defaultOpen={false}
+              title={t("taskDetail.triggerHistory", "Schedule triggers")}
               description={t("tasks.scheduled.runHistoryDescription", "Select an execution to focus its timing, result, and event context.")}
               actions={executionsQuery.isFetching ? <span className="text-xs text-muted-foreground">{t("tasks.loading", "Loading…")}</span> : null}
             >
@@ -1077,74 +1116,11 @@ export function TaskDetailPage() {
                 </div>
               )}
             </SectionBlock>
-          </div>
-        )}
-
-        {/* Summary card (finished only) */}
-        {summary && (
+          )}
           <SectionBlock
             variant="plain"
-            title={t("taskDetail.summary", "Summary")}
-            description={t("taskDetail.summaryDescription", "Outcome of the completed batch and access to its result files.")}
-          >
-            <dl className="grid grid-cols-3 gap-x-6 gap-y-2 text-sm">
-              <div className="flex flex-col">
-                <dt className="text-xs text-muted-foreground">
-                  {t("taskDetail.rowsTotal", "Rows total")}
-                </dt>
-                <dd className="tabular-nums">{summary.rows_total ?? "—"}</dd>
-              </div>
-              <div className="flex flex-col">
-                <dt className="text-xs text-muted-foreground">
-                  {t("taskDetail.rowsOk", "Rows ok")}
-                </dt>
-                <dd className="tabular-nums text-state-success">
-                  {summary.rows_ok ?? "—"}
-                </dd>
-              </div>
-              <div className="flex flex-col">
-                <dt className="text-xs text-muted-foreground">
-                  {t("taskDetail.rowsFailed", "Rows failed")}
-                </dt>
-                <dd className="tabular-nums text-destructive">
-                  {summary.rows_failed ?? "—"}
-                </dd>
-              </div>
-            </dl>
-            {canDownload ? (
-              <p className="mt-3 border-t pt-3 text-xs leading-5 text-muted-foreground">
-                {t(
-                  "taskDetail.storageHint",
-                  "Result files are stored under this task in Storage. Open Storage to preview individual artifacts or download them here.",
-                )}
-              </p>
-            ) : null}
-          </SectionBlock>
-        )}
-
-        {/* Error block (failed only) */}
-        {task.status === "failed" && task.error && (
-          <ActionableError
-            title={t("taskDetail.error", "Task execution failed")}
-            description={humanTaskError(
-              task.error,
-              t(
-                "taskDetail.errorHint",
-                "The task could not finish. Review the input and workflow configuration, then run it again.",
-              ),
-            )}
-            technicalDetails={task.error}
-            technicalDetailsLabel={t("technicalDetails", "Technical details")}
-          />
-        )}
-
-        </TabsContent>
-
-        {/* Live event log */}
-        <TabsContent value="logs" className="mt-0">
-          {capabilities.has("inspect_runs") && <ExecutionHistory key={taskId} source="task" sourceId={taskId ?? ''} />}
-          <SectionBlock
-            variant="plain"
+            collapsible
+            defaultOpen={false}
             title={t("taskDetail.events", "Events")}
             description={t("taskDetail.eventsDescription", "Live execution updates. Expand an event only when technical details are needed.")}
             contentClassName="min-w-0"

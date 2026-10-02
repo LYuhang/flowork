@@ -11,10 +11,10 @@ try:
 except ImportError:
     import knowledge_cli
 
-READ_OPERATIONS = frozenset({'skill.check', 'skill.download'})
+READ_OPERATIONS = frozenset({'skill.check', 'skill.download', 'skill.refresh'})
 WRITE_OPERATIONS = frozenset({'skill.create', 'skill.update', 'skill.delete'})
 OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS
-ACTIONS = {'init', 'check', 'download', 'create', 'update', 'delete'}
+ACTIONS = {'init', 'check', 'download', 'create', 'update', 'publish', 'delete'}
 
 
 def add_commands(commands):
@@ -23,15 +23,16 @@ def add_commands(commands):
         'init': 'Create a local empty Skill template in a NEW directory. Does not publish. Edit SKILL.md before check/create.',
         'check': 'Validate ALL files in --source_dir against platform Skill rules. Does not publish a version.',
         'create': 'Validate and publish a new custom Skill from ALL files in --source_dir, including hidden files. Root SKILL.md is required; symlinks are rejected.',
-        'update': 'Replace the ENTIRE package and unpublished draft of your OWN custom Skill with --source_dir, validate, and publish the next version automatically. Absent files are removed. Catalog or other users\' Skills cannot be edited. Inspect get after unknown outcomes before retrying.',
+        'publish': 'Replace the ENTIRE package and unpublished draft of your OWN custom Skill with --source_dir, validate, and publish the next version automatically. Absent files are removed. Catalog or other users\' Skills cannot be edited. Inspect get after unknown outcomes before retrying.',
+        'update': 'Refresh this Chat sandbox Skill folder from the latest authorized published version. Does not publish or modify the platform Skill. --source_dir is a legacy alias for skill publish.',
         'download': 'Download the latest authorized Skill package into a NEW directory. Never overwrite existing local edits. Read SKILL.md; edit files, check, then update your own custom Skill.',
     }
     for action, description in descriptions.items():
         leaf = commands.add_parser(action, help=description, description=description, allow_abbrev=False)
-        if action in {'download', 'update', 'delete'}:
+        if action in {'download', 'update', 'publish', 'delete'}:
             leaf.add_argument('--skill_id', required=True)
-        if action in {'check', 'create', 'update'}:
-            leaf.add_argument('--source_dir', required=True)
+        if action in {'check', 'create', 'update', 'publish'}:
+            leaf.add_argument('--source_dir', required=action != 'update')
         if action in {'download', 'init'}:
             leaf.add_argument('--output_dir', required=action == 'init')
         if action == 'init':
@@ -58,7 +59,8 @@ def validate(operation, arguments):
 
 
 def execute(args, endpoint, cli):
-    operation = 'skill.' + args.action
+    operation = ('skill.refresh' if args.action == 'update' and not getattr(args, 'source_dir', None)
+                 else 'skill.update' if args.action == 'publish' else 'skill.' + args.action)
     dispatched = False
     destination = None
     try:

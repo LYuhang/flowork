@@ -59,3 +59,23 @@ def test_delete_dispatches_only_identifier_as_write(monkeypatch, capsys):
     assert calls == [({'skill_id': identifier}, {'operation': 'skill.delete'})]
     assert 'skill.delete' in cli.WRITE_OPERATIONS
     assert json.loads(capsys.readouterr().out)['deleted']
+
+
+def test_update_without_source_refreshes_runtime_only(monkeypatch, capsys):
+    calls=[]
+    monkeypatch.setattr(cli,'request',lambda endpoint,args,**kwargs:calls.append((args,kwargs)) or {'published':False,'version':3})
+    identifier=str(uuid4())
+    assert cli.main(['skill','update','--skill_id',identifier],socket_path='test') == 0
+    assert calls == [({'skill_id':identifier},{'operation':'skill.refresh'})]
+    assert 'skill.refresh' in cli.READ_OPERATIONS
+    assert 'skill.refresh' not in cli.WRITE_OPERATIONS
+    assert json.loads(capsys.readouterr().out)['published'] is False
+
+
+def test_publish_command_is_explicit_platform_write(tmp_path,monkeypatch,capsys):
+    (tmp_path/'SKILL.md').write_text('---\nname: example\ndescription: Example\n---\nInstructions')
+    calls=[]
+    monkeypatch.setattr(cli,'request',lambda endpoint,args,**kwargs:calls.append(kwargs['operation']) or {'version':2})
+    assert cli.main(['skill','publish','--skill_id',str(uuid4()),'--source_dir',str(tmp_path)],socket_path='test') == 0
+    assert calls == ['skill.update']
+    capsys.readouterr()

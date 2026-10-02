@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { PaneResizeHandle } from '@/components/ui/pane-resize-handle';
 import { usePersistedPaneWidth } from '@/components/ui/use-persisted-pane-width';
+import type { PackageFileOperations } from '@/components/files/PackageFileActions';
 import { type KbFile } from '@/lib/api/kb';
 import { cn } from '@/lib/utils';
 import { KnowledgeFilePreview } from '@/pages/knowledge/KnowledgeFilePreview';
@@ -92,6 +93,9 @@ function visibleItems(
 export function KnowledgeSourceExplorer({
   kbId,
   files,
+  operations,
+  revisionKey,
+  loadFile,
   canUpdate,
   uploading,
   deleting,
@@ -99,6 +103,9 @@ export function KnowledgeSourceExplorer({
   onDeleteFiles,
   onDelete,
 }: {
+  operations?: PackageFileOperations;
+  revisionKey?: string;
+  loadFile?: (path: string) => Promise<Blob>;
   kbId: string;
   files: KbFile[];
   canUpdate: boolean;
@@ -328,7 +335,7 @@ export function KnowledgeSourceExplorer({
 
       <section className="min-h-96 min-w-0 flex-1 md:min-h-0" aria-live="polite">
         {selected ? (
-          <KnowledgeFilePreview kbId={kbId} file={selected} />
+          <KnowledgeFilePreview kbId={kbId} file={selected} operations={operations} revisionKey={revisionKey} loadFile={loadFile} />
         ) : null}
       </section>
     </div>

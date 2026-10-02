@@ -1046,6 +1046,20 @@ class SandboxSession:
         finally:
             self._end_activity()
 
+    async def refresh_chat_skill(self, *, chat_id: str, turn_id: str, skill_id: str, revision_id: str, revision_hash: str) -> dict:
+        """Host-authorized refresh of one Skill in one active Chat namespace."""
+        from vibecanvas_api.services.runtime_skills import refresh_runtime_skill, runtime_skill_scope, runtime_skill_root
+        skill_id = str(uuid.UUID(skill_id))
+        revision_id = str(uuid.UUID(revision_id))
+        async with self._lock:
+            if self.closed or not self.skills_dir or turn_id not in self._runtime_brokers:
+                raise RuntimeError('The originating Agent turn is no longer active')
+            count = await refresh_runtime_skill(
+                destination=os.path.join(self.skills_dir, runtime_skill_scope(chat_id), skill_id),
+                tenant_id=self.tenant_id, skill_id=skill_id, revision_id=revision_id, revision_hash=revision_hash,
+            )
+        return {'file_count':count, 'runtime_path':runtime_skill_root(chat_id, skill_id), 'revision_hash':revision_hash}
+
     async def prepare_workflow_skills(self, snapshot: dict) -> dict:
         """Materialize a host-authorized snapshot under the stable RO mount.
 

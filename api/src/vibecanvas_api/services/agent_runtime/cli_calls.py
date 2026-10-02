@@ -52,7 +52,7 @@ async def _work(call, token, arguments):
         elif call.operation.startswith("deployment."):
             from .cli_deployments import execute
             result = await execute(call, arguments)
-        elif call.operation in {"skill.create", "skill.update", "skill.check", "skill.download", "skill.delete"}:
+        elif call.operation in {"skill.create", "skill.update", "skill.check", "skill.download", "skill.refresh", "skill.delete"}:
             from .cli_skills import execute
             result = await execute(call, arguments)
         elif call.operation.startswith("knowledge."):

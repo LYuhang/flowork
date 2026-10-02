@@ -40,9 +40,8 @@ Index maintenance is automatic and is not part of the normal user workflow.
 The content pane selects a viewer from the file itself: Markdown uses a
 document reading layout, source files use syntax highlighting with line
 numbers and folding, and images, audio, video, and PDF use native media
-surfaces. Office documents and unsupported binary formats remain clearly
-identified and available for download rather than being rendered as plain
-text.
+surfaces. Supported Office documents use dedicated document viewers. Unsupported binary
+formats remain clearly identified and available for download.
 
 Use **Upload knowledge** to create a package from a complete local folder or
 ZIP archive. The importer preserves nested paths, accepts a single outer folder
@@ -50,11 +49,25 @@ used only for transport, and verifies that `README.md` is at the logical root
 before creating anything. It also rejects path traversal, duplicate paths,
 encrypted or non-regular ZIP entries, oversized files, and oversized packages.
 
-Inside a package, right-click the file tree (or use its **File actions** menu on
-touch devices) to upload files or a folder. Right-click a folder to upload into
-that location or delete the folder; right-click a file to delete it. Deleting a
-non-empty folder requires confirmation, and the root `README.md` cannot be
-deleted.
+Choose **Edit** to open the shared package draft. File actions support creating
+UTF-8 text files, editing text up to 2 MiB, uploading or replacing any supported
+file, and deleting non-root files. Folder upload and deletion remain available
+in the tree. `README.md` can be edited or replaced, but cannot be deleted.
+
+All these file changes are saved to the draft. **New version → Publish** makes
+one complete snapshot available to Agents and schedules its search indexing.
+Closing the editor preserves saved draft changes. The version selector opens
+immutable historical files; drafts and history never become search inputs.
+The Overview tab contains identity, timestamps, and current indexing state.
+
+Knowledge history is encrypted in PostgreSQL independently of indexed-file GC.
+Migration 154 creates its RLS-protected snapshot table. Existing installations
+retain the current publication lazily on first version access or modification;
+previous versions that were never retained cannot be reconstructed. An Agent's
+explicit whole-package CLI publication also preserves history and supersedes
+the shared unpublished draft. Browser edits carry a draft hash and reject stale
+writes with HTTP 409, including a concurrent Agent publication. There is no new
+runtime service or queue component.
 
 ## Working with the Agent
 
@@ -74,9 +87,10 @@ Chat sandbox. Ordinary filesystem tools handle reading, searching, editing,
 and reorganizing local files. This keeps file operations transparent and
 prevents the Knowledge integration from duplicating the Agent's file tools.
 
-Publication replaces the entire file tree and increments the current version;
-files absent from the submitted package are removed. There is no expected-version
-guard: concurrent publications serialize, and the last commit wins. Fetch the
+CLI publication replaces the entire file tree and increments the current version;
+files absent from the submitted package are removed. The CLI upload has no
+expected-version guard: concurrent CLI publications serialize, and the last
+commit wins. Browser draft editing and publication require their captured hash. Fetch the
 latest package and reconcile changes before publishing to avoid overwriting
 someone else's work. Search indexing is asynchronous; a pending or failed index
 does not mean the saved files need to be uploaded again.

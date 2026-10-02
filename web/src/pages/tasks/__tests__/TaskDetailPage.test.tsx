@@ -153,7 +153,7 @@ describe("<TaskDetailPage>", () => {
     task.payload = { major: 'v9', workflow_snapshot: { version: 'v2.sv3' } };
     vi.mocked(getTask).mockResolvedValue(task);
     renderAt(TASK_ID);
-    expect(await screen.findByRole('link', { name: 'View workflow version v2.sv3' }))
+    expect(await screen.findByRole('link', { name: 'v2.sv3' }))
       .toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3');
   });
 
@@ -236,7 +236,11 @@ describe("<TaskDetailPage>", () => {
     expect(screen.getByText("10")).toBeInTheDocument();
     expect(screen.getByText("8")).toBeInTheDocument();
     expect(screen.getAllByText("2").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Task setup")).not.toBeInTheDocument();
+    expect(screen.queryByText("100%")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Configuration" }));
     expect(screen.getByText("Task setup")).toBeInTheDocument();
+    expect(screen.queryByText("Rows ok")).not.toBeInTheDocument();
     expect(screen.getByText("/reports/results.xlsx")).toBeInTheDocument();
     // Download link → backend redirect endpoint
     expect(screen.getByRole("button", { name: /download/i })).toBeInTheDocument();
@@ -268,6 +272,7 @@ describe("<TaskDetailPage>", () => {
 
     await screen.findByRole("tab", { name: "Execution logs" });
     await user.click(screen.getByRole("tab", { name: "Execution logs" }));
+    await user.click(screen.getByRole("button", { name: /^Events/ }));
     expect(await screen.findByText("No events yet.")).toBeInTheDocument();
     expect(document.querySelector('[data-role="task-event-log-scroll-region"]')).toHaveClass(
       "max-h-[65dvh]",
@@ -321,6 +326,7 @@ describe("<TaskDetailPage>", () => {
 
     await screen.findByRole("tab", { name: "Execution logs" });
     await user.click(screen.getByRole("tab", { name: "Execution logs" }));
+    await user.click(screen.getByRole("button", { name: /^Events/ }));
     await screen.findByText("2 visible · 2 loaded");
     expect(screen.getByRole("combobox", { name: "Severity" })).toBeInTheDocument();
     expect(screen.getByTestId("task-event-filters").firstElementChild).toHaveClass("flex-wrap");
@@ -392,12 +398,17 @@ describe("<TaskDetailPage>", () => {
 
     renderAt(TASK_ID);
 
+    await screen.findByRole("tab", { name: "执行日志" });
+    expect(screen.queryByTestId("schedule-configuration-details")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "执行日志" }));
+    await user.click(screen.getByRole("button", { name: /^调度记录/ }));
     expect(await screen.findByText(/手动触发/)).toBeInTheDocument();
     for (const link of await screen.findAllByRole('link', { name: '查看所选执行版本 v2.sv3' })) {
       expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3');
     }
     expect(screen.getAllByText("成功").length).toBeGreaterThan(0);
     expect(screen.getByText(/未发送/)).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "配置" }));
     const scheduleConfiguration = screen.getByTestId("schedule-configuration-details");
     expect(scheduleConfiguration.querySelector("dl")).toHaveClass("max-w-3xl", "sm:grid-cols-2");
     expect(screen.getByText("每日汇总").closest("div")).not.toHaveClass(
@@ -406,6 +417,7 @@ describe("<TaskDetailPage>", () => {
     expect(screen.getByText("每日汇总")).not.toHaveClass("text-right");
     expect(screen.getByText("每天 09:00")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "执行日志" }));
+    await user.click(screen.getByRole("button", { name: /^事件/ }));
     expect(screen.getByRole("combobox", { name: "严重程度" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "事件类型" })).toBeInTheDocument();
     expect(screen.queryByText("succeeded")).not.toBeInTheDocument();
@@ -447,6 +459,7 @@ describe("<TaskDetailPage>", () => {
 
     renderAt(TASK_ID);
     await user.click(await screen.findByRole("tab", { name: "Execution logs" }));
+    await user.click(screen.getByRole("button", { name: /^Events/ }));
     expect(await screen.findByText("live replacement")).toBeInTheDocument();
     expect(screen.queryByText("historical copy")).not.toBeInTheDocument();
     expect(screen.getByText("1 visible · 1 loaded")).toBeInTheDocument();
@@ -520,6 +533,7 @@ describe("<TaskDetailPage>", () => {
 
     renderAt(TASK_ID);
     await user.click(await screen.findByRole("tab", { name: "Execution logs" }));
+    await user.click(screen.getByRole("button", { name: /^Events/ }));
     expect(await screen.findByText("latest event")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Load older records" }));
@@ -551,6 +565,7 @@ describe("<TaskDetailPage>", () => {
 
     renderAt(TASK_ID);
     await user.click(await screen.findByRole("tab", { name: "Execution logs" }));
+    await user.click(screen.getByRole("button", { name: /^Events/ }));
     expect(await screen.findByText("Failed to load logs.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("No events yet.")).toBeInTheDocument();

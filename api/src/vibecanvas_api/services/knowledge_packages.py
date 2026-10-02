@@ -52,7 +52,7 @@ def normalize_package_path(value: str) -> str:
         or any(ord(character) < 32 for character in supplied)
         or path.is_absolute()
         or len(path.parts) > MAX_PACKAGE_DEPTH
-        or any(part in {"", ".", ".."} for part in path.parts)
+        or any(part in {"", ".", ".."} for part in supplied.split("/"))
     ):
         raise ValueError(f"invalid Knowledge package path: {value!r}")
     return path.as_posix()
@@ -215,6 +215,8 @@ async def replace_package(
     if expected_version is not None and kb.package_version != expected_version:
         raise RuntimeError(f"knowledge_version_conflict:{kb.package_version}")
 
+    from vibecanvas_api.services.knowledge_versions import archive_current, save_snapshot, clear_draft
+    await archive_current(session, kb)
     repo = KbRepo(session)
     for previous in await repo.list_files(kb_id):
         await repo.soft_delete_file(previous.id)
@@ -251,6 +253,8 @@ async def replace_package(
         if status == "pending":
             pending.append(row.id)
     kb.package_version = next_version
+    await save_snapshot(session, kb, package, version=next_version, base_version=next_version)
+    await clear_draft(session, kb.id)
     await session.flush()
     return next_version, pending
 

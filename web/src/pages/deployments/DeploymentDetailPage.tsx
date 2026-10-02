@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -48,6 +48,7 @@ import {
   type Deployment,
   type HistoryItem,
   type MetricsPoint,
+  type MetricsResponse,
 } from '@/lib/api/deployments';
 import { useFormatDateTime } from '@/lib/timezone';
 import { ExecutionHistory } from '@/components/logs/execution-history';
@@ -81,7 +82,7 @@ type CodeLanguage = 'curl' | 'python' | 'javascript';
 
 function deploymentDetailTab(value: string | null): TabKey {
   if (value === 'usage' || value === 'code' || value === 'test') return 'usage';
-  if (value === 'activity' || value === 'runs' || value === 'monitoring') return 'activity';
+  if (value === 'activity' || value === 'runs') return 'activity';
   if (value === 'settings' || value === 'config' || value === 'security') return 'settings';
   if (value === 'terminal') return 'terminal';
   return 'overview';
@@ -107,18 +108,16 @@ function triggerLabel(dep: Deployment, t: TFunction): string {
 function OverviewTab({
   dep,
   latestMetric,
-  canUpdate,
 }: {
   dep: Deployment;
   latestMetric: MetricsPoint | null;
-  canUpdate: boolean;
 }) {
   const { t } = useTranslation();
   const formatTime = useFormatDateTime();
   const errorRate =
     latestMetric && latestMetric.calls > 0
       ? `${Math.round((latestMetric.errors / latestMetric.calls) * 1000) / 10}%`
-      : '0%';
+      : '—';
 
   return (
     <div>
@@ -151,7 +150,6 @@ function OverviewTab({
           },
         ]}
       />
-      <BasicInfoSection dep={dep} canUpdate={canUpdate} />
       <DeploymentInstances dep={dep} />
     </div>
   );
@@ -160,7 +158,6 @@ function OverviewTab({
 function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: boolean }) {
   const { t } = useTranslation();
   const formatTime = useFormatDateTime();
-  const endpoint = new URL(resolveApiUrl(endpointFor(dep)), window.location.href).href;
   const copyable = (value: string, label: string) => (
     <span className="flex min-w-0 items-start gap-2">
       <span className="min-w-0 flex-1 break-all font-mono text-xs leading-7" translate="no">{value}</span>
@@ -197,7 +194,7 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
           setEditing(true);
         }}>
           <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
-          {t('deployments.detail.editBasic', 'Edit')}
+          {t('deployments.detail.rename', 'Rename')}
         </Button>
       ) : null}
     >
@@ -234,12 +231,9 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
         <DetailSummary
           className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-4 gap-x-8 gap-y-5 sm:p-5"
           items={[
-            { label: t('deployments.create.fields.name', 'Name'), value: dep.name },
-            { label: t('deployments.create.fields.triggerType', 'Trigger type'), value: triggerLabel(dep, t) },
             { label: t('deployments.detail.deploymentId', 'Deployment ID'), value: copyable(dep.id, t('deployments.detail.deploymentId', 'Deployment ID')) },
             { label: t('deployments.create.fields.slug', 'Slug'), value: copyable(dep.slug, t('deployments.create.fields.slug', 'Slug')) },
             { label: t('deployments.create.fields.wfId', 'Workflow ID'), value: copyable(dep.wf_id, t('deployments.create.fields.wfId', 'Workflow ID')), wide: true },
-            { label: t('deployments.detail.endpoint', 'Endpoint'), value: copyable(endpoint, t('deployments.detail.endpoint', 'Endpoint')), wide: true },
             { label: t('deployments.detail.createdAt', 'Created'), value: formatTime(dep.created_at) },
             { label: t('deployments.detail.updatedAt', 'Updated'), value: dep.updated_at ? formatTime(dep.updated_at) : '—' },
           ]}
@@ -319,10 +313,7 @@ function ConfigTab({ dep }: { dep: Deployment }) {
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">{t('deployments.detail.trafficControl', 'Traffic and runtime controls')}</h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('deployments.settings.intro', 'Review how each change takes effect before saving.')}</p>
-          {dep.rollout_status && <p className="mt-2 text-xs text-content-secondary">
-            {t('deployments.runtime.rollout', 'Deployment state')}: {t(`deployments.runtime.${dep.rollout_status}`, dep.rollout_status)}
-            {' · '}{t('deployments.runtime.activeVersion', 'Serving version')}: {dep.runtime?.instances.find(instance => instance.id === dep.active_revision_id)?.version ?? '—'}
-          </p>}
+
         </div>
       </header>
       <div className="divide-y divide-edge-subtle px-5 sm:px-6">
@@ -688,7 +679,6 @@ function RunsTab({ depId, active }: { depId: string; active: boolean }) {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
-  if (!active) return null;
   if (query.isLoading) {
     return <div className="empty-state">{t('tasks.loading', 'Loading…')}</div>;
   }
@@ -912,19 +902,11 @@ function MetricLineChart({
   );
 }
 
-function MonitoringTab({ depId, active, onTest }: { depId: string; active: boolean; onTest: () => void }) {
+function MonitoringTab({ query, onTest }: { query: UseQueryResult<MetricsResponse>; onTest?: () => void }) {
   const { t } = useTranslation();
   const formatTime = useFormatDateTime();
-  const query = useQuery({
-    queryKey: ['deployment-metrics', depId, 'last-24-hours'],
-    queryFn: () => getMetrics(depId, { ...last24HoursRange(), bucket: 'hour' }),
-    enabled: active,
-    refetchOnWindowFocus: false,
-    refetchInterval: active ? 10_000 : false,
-  });
   const series = query.data?.series ?? [];
 
-  if (!active) return null;
   if (query.isLoading) return <div className="empty-state">{t('tasks.loading', 'Loading…')}</div>;
   if (query.isError) {
     return (
@@ -955,10 +937,10 @@ function MonitoringTab({ depId, active, onTest }: { depId: string; active: boole
             <div className="empty-state-copy">
               {t('deployments.detail.noMetricsHint', 'Metrics appear after an API, webhook, or Test request. Run a test to verify the deployment and generate its first data point.')}
             </div>
-            <Button size="sm" variant="outline" onClick={onTest}>
+            {onTest && <Button size="sm" variant="outline" onClick={onTest}>
               <Play className="mr-2 h-4 w-4" aria-hidden="true" />
               {t('deployments.detail.runTest', 'Run a test')}
-            </Button>
+            </Button>}
           </div>
         ) : (
           <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -969,7 +951,7 @@ function MonitoringTab({ depId, active, onTest }: { depId: string; active: boole
         )}
       </section>
       {series.length > 0 && (
-        <div className="overflow-x-auto border-y border-edge-subtle">
+        <SectionBlock variant="plain" collapsible defaultOpen={false} title={t("deployments.detail.metricValues", "Hourly metric values")} contentClassName="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b bg-surface-sunken text-left text-xs font-medium text-muted-foreground">
               <tr>
@@ -992,7 +974,7 @@ function MonitoringTab({ depId, active, onTest }: { depId: string; active: boole
               ))}
             </tbody>
           </table>
-        </div>
+        </SectionBlock>
       )}
     </div>
   );
@@ -1211,7 +1193,6 @@ function SecurityTab({ dep }: { dep: Deployment }) {
 
 export function DeploymentDetailPage() {
   const { t } = useTranslation();
-  const formatTime = useFormatDateTime();
   const { depId } = useParams<{ depId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [shareOpen, setShareOpen] = useState(false);
@@ -1235,11 +1216,11 @@ export function DeploymentDetailPage() {
     refetchOnWindowFocus: false,
   });
   const metricsQuery = useQuery({
-    queryKey: ['deployment-metrics', depId, 'last-24-hours', 'summary'],
+    queryKey: ['deployment-metrics', depId, 'last-24-hours'],
     queryFn: () => getMetrics(depId!, { ...last24HoursRange(), bucket: 'hour' }),
-    enabled: !!depId && !!query.data?.access?.capabilities.includes('inspect_runs'),
+    enabled: !!depId && tab === 'overview' && !!query.data?.access?.capabilities.includes('inspect_runs'),
     refetchOnWindowFocus: false,
-    refetchInterval: 15_000,
+    refetchInterval: tab === 'overview' ? 15_000 : false,
   });
   const workflowQuery = useWorkflow(query.data?.wf_id ?? '');
   const workflowSnapshot = workflowQuery.data?.workflow as Record<string, unknown> | null | undefined;
@@ -1280,17 +1261,10 @@ export function DeploymentDetailPage() {
   const canManageSecret = capabilities.has('manage_secret');
   const allowedTab = tab === 'activity'
     ? canInspectRuns
-    : tab === 'settings'
-      ? canUpdate || canManageSecret
-      : tab === 'terminal' ? canUpdate : true;
+    : tab === 'terminal' ? canUpdate : true;
   const activeTab: TabKey = allowedTab ? tab : 'overview';
   const latestMetric = metricsQuery.data?.series.at(-1) ?? null;
   const linkedWorkflow = deploymentWorkflowVersion(dep);
-  const healthStatus = latestMetric && latestMetric.calls > 0 && latestMetric.errors > 0
-    ? 'warning'
-    : dep.enabled
-      ? 'success'
-      : 'neutral';
 
   return (
     <EntityDetailShell
@@ -1303,18 +1277,11 @@ export function DeploymentDetailPage() {
         <StatusBadge status={dep.enabled ? 'success' : 'neutral'}>
           {dep.enabled ? t('deployments.status.active', 'Active') : t('deployments.status.disabled', 'Disabled')}
         </StatusBadge>
-        <StatusBadge status={healthStatus}>
-          {latestMetric && latestMetric.errors > 0
-            ? t('deployments.detail.healthAttention', 'Health needs attention')
-            : dep.enabled
-              ? t('deployments.detail.healthy', 'Healthy')
-              : t('deployments.detail.inactive', 'Inactive')}
-        </StatusBadge>
+
       </div>}
       metadata={<>
         <span>{triggerLabel(dep, t)}</span>
         <WorkflowVersionLink workflowId={dep.wf_id} version={linkedWorkflow.version} inline />
-        <span>{t('deployments.detail.updated', 'Updated')}: {formatTime(dep.updated_at ?? dep.created_at)}</span>
         <ResourceProvenanceLine provenance={dep.provenance} />
       </>}
       actions={<>
@@ -1323,7 +1290,7 @@ export function DeploymentDetailPage() {
               size="sm"
               onClick={() => void Promise.all([
                 query.refetch(),
-                metricsQuery.refetch(),
+                ...(canInspectRuns ? [metricsQuery.refetch()] : []),
               ])}
             >
               <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -1352,14 +1319,14 @@ export function DeploymentDetailPage() {
             </TabsTrigger>
             {canInspectRuns ? <TabsTrigger value="activity" className="shrink-0">{t('deployments.detail.tabs.activity', 'Activity')}</TabsTrigger> : null}
             {canUpdate ? <TabsTrigger value="terminal" className="shrink-0">{t('deployments.terminal.title')}</TabsTrigger> : null}
-            {canUpdate || canManageSecret ? <TabsTrigger value="settings" className="shrink-0">{t('deployments.detail.tabs.settings', 'Settings')}</TabsTrigger> : null}
+            <TabsTrigger value="settings" className="shrink-0">{t('deployments.detail.tabs.settings', 'Settings')}</TabsTrigger>
           </TabsList>
           <TabsContent value="overview">
             <OverviewTab
               dep={dep}
               latestMetric={latestMetric}
-              canUpdate={canUpdate}
             />
+            {canInspectRuns && <MonitoringTab query={metricsQuery} onTest={canExecute ? () => setTab('usage') : undefined} />}
           </TabsContent>
           <TabsContent value="usage" className="space-y-8">
             <UsageEndpoint dep={dep} />
@@ -1374,18 +1341,21 @@ export function DeploymentDetailPage() {
           </TabsContent>
           <TabsContent value="activity" className="space-y-8">
             <ExecutionHistory key={depId} source="deployment" sourceId={depId} />
-            <section className="space-y-3">
-              <h2 className="text-sm font-semibold">{t('deployments.detail.recentRuns', 'Recent runs')}</h2>
+            <SectionBlock variant="plain" collapsible defaultOpen={false}
+              title={t('deployments.detail.requestRecords', 'Request records')}
+              description={t('deployments.detail.requestRecordsHelp', 'Inspect request source, timing and transport errors. Workflow traces and approvals are listed above.')} >
               <RunsTab depId={depId} active={activeTab === 'activity'} />
-            </section>
-            <MonitoringTab depId={depId} active={activeTab === 'activity'} onTest={() => setTab('usage')} />
+            </SectionBlock>
           </TabsContent>
           <TabsContent value="terminal">
             {canUpdate && activeTab === 'terminal' ? <DeploymentTerminal dep={dep} /> : null}
           </TabsContent>
-          <TabsContent value="settings" className="grid items-start gap-5 pt-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
-            {canUpdate ? <ConfigTab dep={dep} /> : null}
-            {canManageSecret ? <SecurityTab dep={dep} /> : null}
+          <TabsContent value="settings" className="space-y-5 pt-3">
+            <BasicInfoSection dep={dep} canUpdate={canUpdate} />
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_19rem]">
+              {canUpdate ? <ConfigTab dep={dep} /> : null}
+              {canManageSecret ? <SecurityTab dep={dep} /> : null}
+            </div>
           </TabsContent>
         </Tabs>
         <ResourceShareDialog

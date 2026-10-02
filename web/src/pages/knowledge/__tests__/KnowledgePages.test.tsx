@@ -5,11 +5,13 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import i18n from 'i18next';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { createMemoryRouter, RouterProvider } from 'react-router';
+import en from '@/lib/i18n/locales/en.json';
 import type { ResourceAccess } from '@/lib/api/organizations';
 import type { KbListItem } from '@/lib/api/kb';
 
 vi.mock('@/lib/api/kb', () => ({
+  getKnowledgeDraft: vi.fn(), getKnowledgeVersions:vi.fn(), getKnowledgeVersion:vi.fn(), getKnowledgeVersionFile:vi.fn(), writeKnowledgeDraftFile:vi.fn(), publishKnowledgeDraft:vi.fn(),
   createKb: vi.fn(),
   importKb: vi.fn(),
   deleteKb: vi.fn(),
@@ -22,8 +24,8 @@ vi.mock('@/lib/api/kb', () => ({
 }));
 
 import {
+  getKnowledgeDraft, getKnowledgeVersions, getKnowledgeVersion, getKnowledgeVersionFile, writeKnowledgeDraftFile,
   deleteKb,
-  deleteKbFile,
   getKbFileRaw,
   getKb,
   listKbFiles,
@@ -36,7 +38,7 @@ const testI18n = i18n.createInstance();
 void testI18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
-  resources: { en: { translation: {} } },
+  resources: { en: { translation: en } },
   interpolation: { escapeValue: false },
 });
 
@@ -50,12 +52,7 @@ function renderPage(ui: ReactElement, initialEntry = '/knowledge') {
   return render(
     <QueryClientProvider client={client}>
       <I18nextProvider i18n={testI18n}>
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <Routes>
-            <Route path="/knowledge" element={ui} />
-            <Route path="/knowledge/:kbId" element={ui} />
-          </Routes>
-        </MemoryRouter>
+        <RouterProvider router={createMemoryRouter([{path:'/knowledge',element:ui},{path:'/knowledge/:kbId',element:ui}],{initialEntries:[initialEntry]})} />
       </I18nextProvider>
     </QueryClientProvider>,
   );
@@ -100,7 +97,12 @@ describe('Knowledge pages', () => {
     vi.mocked(getKbFileRaw).mockResolvedValue(new Blob(['# Handbook\n\nRelease trains run every Tuesday.'], { type: 'text/markdown' }));
     vi.mocked(listKbFiles).mockReset();
     vi.mocked(deleteKb).mockReset();
-    vi.mocked(deleteKbFile).mockReset();
+    const snapshot = {version:3,base_version:3,latest_version:3,content_hash:'original',has_changes:false,files:['README.md','broken.txt'],readme:'# Handbook',updated_at:''};
+    vi.mocked(getKnowledgeDraft).mockResolvedValue(snapshot);
+    vi.mocked(getKnowledgeVersion).mockResolvedValue(snapshot);
+    vi.mocked(getKnowledgeVersions).mockResolvedValue([{version:3,file_count:2,created_at:''}]);
+    vi.mocked(getKnowledgeVersionFile).mockResolvedValue(new Blob(['# Handbook\n\nRelease trains run every Tuesday.'], {type:'text/markdown'}));
+    vi.mocked(writeKnowledgeDraftFile).mockReset().mockResolvedValue({...snapshot,files:['README.md'],has_changes:true,content_hash:'changed'});
   });
 
   it('renders searchable knowledge rows and the dedicated empty state', async () => {
@@ -152,16 +154,17 @@ describe('Knowledge pages', () => {
 
     expect(await screen.findByText('Product handbook')).toBeInTheDocument();
     expect(screen.queryByText('How this knowledge base is used')).not.toBeInTheDocument();
-    expect(screen.getByRole('tree', { name: 'Files' })).toBeInTheDocument();
+    expect(await screen.findByRole('tree', { name: 'Files' })).toBeInTheDocument();
     expect(screen.queryByText('Index status')).not.toBeInTheDocument();
     expect(screen.queryByText('Chunks')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reindex' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'File actions' }));
+    await user.click(screen.getByRole('button', { name: /^Edit$/i }));
+    await user.click(screen.getAllByRole('button', { name: 'File actions' })[0]!);
     expect(screen.getByRole('menuitem', { name: 'Upload files' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Upload folder' })).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(await screen.findByText('Release trains run every Tuesday.')).toBeInTheDocument();
-    expect(getKbFileRaw).toHaveBeenCalledWith('kb-1', 'file-1');
+    expect(getKnowledgeVersionFile).toHaveBeenCalledWith('kb-1', expect.any(Number), 'README.md');
     await user.click(screen.getByRole('treeitem', { name: /broken.txt/ }));
     expect(screen.getAllByText('broken.txt').length).toBeGreaterThan(0);
     expect(screen.queryByRole('tab', { name: 'Retrieval' })).not.toBeInTheDocument();
@@ -194,19 +197,23 @@ describe('Knowledge pages', () => {
       access: detail.access,
       provenance: detail.provenance,
     }]);
-    vi.mocked(deleteKbFile).mockResolvedValue(undefined);
+
+    const fileSnapshot = {version:3,base_version:3,latest_version:3,content_hash:'original',has_changes:false,files:['README.md','handbook.pdf'],readme:'# Handbook',updated_at:''};
+    vi.mocked(getKnowledgeDraft).mockResolvedValue(fileSnapshot);
+    vi.mocked(getKnowledgeVersion).mockResolvedValue(fileSnapshot);
     const user = userEvent.setup();
     renderPage(<KnowledgeDetailPage />, '/knowledge/kb-1?tab=sources');
 
     expect((await screen.findAllByText('handbook.pdf')).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: /^Edit$/i }));
     fireEvent.contextMenu(screen.getByRole('treeitem', { name: /handbook.pdf/ }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
-    expect(screen.getByText('handbook.pdf will be permanently deleted from this knowledge folder.')).toBeInTheDocument();
-    expect(vi.mocked(deleteKbFile)).not.toHaveBeenCalled();
+    expect(screen.getByText('handbook.pdf will be removed from the draft. Published versions are unchanged.')).toBeInTheDocument();
+    expect(writeKnowledgeDraftFile).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Delete' }));
-    await waitFor(() => expect(deleteKbFile).toHaveBeenCalledWith('kb-1', 'file-1'));
+    await waitFor(() => expect(writeKnowledgeDraftFile).toHaveBeenCalledWith('kb-1', expect.any(String), 'original'));
   });
 
   it('requires confirmation before deleting a knowledge base', async () => {
@@ -218,7 +225,7 @@ describe('Knowledge pages', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
-    expect(screen.getByText('Product handbook and all files in this knowledge folder will be permanently deleted.')).toBeInTheDocument();
+    expect(screen.getByText('Product handbook and all files in the package will be deleted.')).toBeInTheDocument();
     expect(vi.mocked(deleteKb)).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Delete' }));

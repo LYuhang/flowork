@@ -103,6 +103,7 @@ from vibecanvas_api.schemas.access import (
     access_from_decision,
     decision_allows_content,
 )
+from vibecanvas_api.services.knowledge_versions import archive_current, clear_draft
 from vibecanvas_api.services.kb_search import (
     EncryptedKbSearchLimitError,
     KbSearchService,
@@ -862,14 +863,14 @@ async def delete_kb(
 # ----------------------------------------------------------------- file CRUD
 
 
-@router.post("/{kb_id}/files")
-async def upload_file(
+async def _write_file(
     kb_id: uuid.UUID,
     request: Request,
     file: UploadFile = File(...),
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
+    replace_id: uuid.UUID | None = None,
 ):
     """Add one raw file to a Knowledge package.
 
@@ -896,7 +897,7 @@ async def upload_file(
         )
 
     # Step 1: validate.
-    blob = await file.read()
+    blob = await file.read(MAX_FILE_SIZE_BYTES + 1)
     if len(blob) > MAX_FILE_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -910,14 +911,23 @@ async def upload_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="knowledge_package_path_invalid",
         ) from exc
-    if any(
-        existing.name.casefold() == package_path.casefold()
-        for existing in await repo.list_files(kb_id)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="knowledge_package_path_exists",
-        )
+    existing_files = await repo.list_files(kb_id)
+    previous = next((item for item in existing_files if item.id == replace_id), None)
+    if replace_id is not None:
+        if previous is None:
+            raise HTTPException(status_code=409, detail="package_file_changed")
+        # Replacement preserves the path, including the mandatory root README.
+        package_path = previous.name
+    if any(item.id != replace_id and (
+        item.name.casefold() == package_path.casefold()
+        or item.name.casefold().startswith(package_path.casefold() + "/")
+        or package_path.casefold().startswith(item.name.casefold() + "/")
+    ) for item in existing_files):
+        raise HTTPException(status_code=409, detail="knowledge_package_path_exists")
+    if len(existing_files) + (0 if previous else 1) > 256 or sum(
+        item.file_size for item in existing_files if item.id != replace_id
+    ) + len(blob) > MAX_PACKAGE_BYTES:
+        raise HTTPException(status_code=413, detail="knowledge_package_too_large")
     mime_type = resolve_package_content_type(
         package_path,
         blob,
@@ -935,6 +945,10 @@ async def upload_file(
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
 
+    await archive_current(session, kb)
+    if previous is not None:
+        await repo.soft_delete_file(previous.id)
+        await session.flush()
     kb_file = await repo.create_file(
             kb_id=kb_id,
             tenant_id=kb.tenant_id,
@@ -947,8 +961,8 @@ async def upload_file(
             status="pending" if parser_type != "binary" else "stored",
             object_store_key=None,
         )
-    await session.commit()
-    await _rebind_tenant_guc(session, ctx.active_organization_id)
+    # Keep the row lock and old-file retirement in one transaction until the
+    # replacement bytes are stored; a failed object write preserves the old file.
 
     # Step 3: write blob to object_store (BLOCKING — to_thread).
     # ``put_bytes`` returns a URI; we store the BARE KEY on the row
@@ -967,6 +981,9 @@ async def upload_file(
     # Step 4: update DB row with the key.
     await repo.set_object_store_key(kb_file.id, object_key)
     await repo.bump_package_version(kb_id)
+    await session.refresh(kb)
+    await archive_current(session, kb)
+    await clear_draft(session, kb_id)
     await session.commit()
     await _rebind_tenant_guc(session, ctx.active_organization_id)
 
@@ -985,6 +1002,15 @@ async def upload_file(
         "task_id": str(task_id) if task_id else None,
         "status": kb_file.status,
     }
+
+
+@router.post("/{kb_id}/files")
+async def upload_file(
+    kb_id: uuid.UUID, request: Request, file: UploadFile = File(...),
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    return await _write_file(kb_id, request, file, ctx, session, service)
 
 
 @router.get("/{kb_id}/files", response_model=list[KbFileOut])
@@ -1091,7 +1117,8 @@ async def delete_file(
         action=Action.DELETE,
     )
     repo = KbRepo(session)
-    if await repo.get_active(kb_id, for_update=True) is None:
+    kb = await repo.get_active(kb_id, for_update=True)
+    if kb is None:
         raise HTTPException(status_code=404, detail="kb_not_found")
     file_obj = await repo.get_file(file_id)
     if not file_obj or file_obj.kb_id != kb_id:
@@ -1112,8 +1139,12 @@ async def delete_file(
         action=Action.DELETE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
+    await archive_current(session, kb)
     await repo.soft_delete_file(file_id)
     await repo.bump_package_version(kb_id)
+    await session.refresh(kb)
+    await archive_current(session, kb)
+    await clear_draft(session, kb_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1351,3 +1382,158 @@ async def search(
             detail={"code": str(exc)},
         ) from exc
     return {"results": [r.model_dump() for r in results]}
+
+
+# Drafts and published snapshots share the same Knowledge permissions as files.
+class KnowledgeDraftPublish(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_hash: str
+
+
+async def _versioned_kb(kb_id, request, ctx, session, service, *, write=False):
+    await _authorize_knowledge_base(
+        request=request, ctx=ctx, service=service, knowledge_base_id=kb_id,
+        action=Action.UPDATE if write else Action.VIEW,
+        consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
+    )
+    kb = await KbRepo(session).get_active(kb_id, for_update=True)
+    if kb is None:
+        raise HTTPException(status_code=404, detail="kb_not_found")
+    await archive_current(session, kb)
+    return kb
+
+
+async def _knowledge_draft_state(session, kb, expected_hash=None):
+    from vibecanvas_api.services.knowledge_versions import read_snapshot, snapshot_row
+    row = await snapshot_row(session, kb.id, 0)
+    row = row or await snapshot_row(session, kb.id, kb.package_version)
+    if row is None:
+        raise HTTPException(status_code=409, detail="knowledge_package_unavailable")
+    if expected_hash is not None and (expected_hash != row['content_hash'] or row['base_version'] != kb.package_version):
+        raise HTTPException(status_code=409, detail="package_file_changed")
+    files = await read_snapshot(session, kb.id, row['version'])
+    return row, files
+
+
+def _knowledge_snapshot_out(row, files, latest_version):
+    return {
+        'version': row['version'], 'base_version': row['base_version'],
+        'content_hash': row['content_hash'], 'has_changes': row['version'] == 0,
+        'latest_version': latest_version,
+        'files': [item.path for item in files],
+        'readme': next((item.data.decode('utf-8', errors='replace') for item in files if item.path.casefold() == 'readme.md'), ''),
+        'updated_at': row['updated_at'].isoformat(),
+    }
+
+
+@router.get('/{kb_id}/draft')
+async def get_knowledge_draft(kb_id: uuid.UUID, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service)):
+    kb = await _versioned_kb(kb_id, request, ctx, session, service)
+    row, files = await _knowledge_draft_state(session, kb)
+    return _knowledge_snapshot_out(row, files, kb.package_version)
+
+
+@router.get('/{kb_id}/versions')
+async def list_knowledge_versions(kb_id: uuid.UUID, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service)):
+    kb = await _versioned_kb(kb_id, request, ctx, session, service)
+    rows = (await session.execute(text('''SELECT version,file_count,size_bytes,created_at
+        FROM knowledge_package_snapshots WHERE kb_id=:id AND version>0 ORDER BY version DESC'''), {'id':kb.id})).mappings().all()
+    return [dict(row) for row in rows]
+
+
+@router.get('/{kb_id}/versions/{version}')
+async def get_knowledge_version(kb_id: uuid.UUID, version: int, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service)):
+    from vibecanvas_api.services.knowledge_versions import read_snapshot, snapshot_row
+    kb = await _versioned_kb(kb_id, request, ctx, session, service)
+    row = await snapshot_row(session, kb_id, version) if version > 0 else None
+    if row is None:
+        raise HTTPException(status_code=404, detail='knowledge_version_not_found')
+    files = await read_snapshot(session, kb_id, version)
+    return _knowledge_snapshot_out(row, files, kb.package_version)
+
+
+@router.get('/{kb_id}/versions/{version}/files/{path:path}')
+async def get_knowledge_version_file(kb_id: uuid.UUID, version: int, path: str, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service)):
+    from vibecanvas_api.services.knowledge_versions import read_snapshot
+    kb = await _versioned_kb(kb_id, request, ctx, session, service)
+    if version == 0:
+        _, files = await _knowledge_draft_state(session, kb)
+    else:
+        files = await read_snapshot(session, kb_id, version) if version > 0 else None
+    item = next((item for item in files or [] if item.path == path), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail='kb_file_not_found')
+    return Response(item.data, media_type=item.content_type or 'application/octet-stream',
+                    headers={'Cache-Control':'no-store','Content-Disposition':'attachment','X-Content-Type-Options':'nosniff'})
+
+
+@router.put('/{kb_id}/draft/files/{path:path}')
+async def put_knowledge_draft_file(kb_id: uuid.UUID, path: str, request: Request,
+    file: UploadFile = File(...), expected_hash: str = Form(...), create: bool = Form(False),
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service)):
+    from vibecanvas_api.services.knowledge_packages import validate_package
+    from vibecanvas_api.services.knowledge_versions import save_snapshot
+    kb = await _versioned_kb(kb_id, request, ctx, session, service, write=True)
+    _, files = await _knowledge_draft_state(session, kb, expected_hash)
+    blob = await file.read(MAX_FILE_SIZE_BYTES + 1)
+    if len(blob) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail='kb_file_too_large')
+    await require_clean_upload(blob)
+    try:
+        path = normalize_package_path(path)
+        exists = any(item.path == path for item in files)
+        if create and exists:
+            raise HTTPException(status_code=409, detail='package_path_exists')
+        if not create and not exists:
+            raise HTTPException(status_code=409, detail='package_file_changed')
+        if any(item.path != path and (item.path.casefold() == path.casefold()
+            or item.path.casefold().startswith(path.casefold() + '/')
+            or path.casefold().startswith(item.path.casefold() + '/')) for item in files):
+            raise HTTPException(status_code=409, detail='package_path_exists')
+        if path.casefold() == 'readme.md':
+            blob.decode('utf-8')
+        updated = validate_package([item for item in files if item.path != path] + [PackageFile(path, blob, resolve_package_content_type(path, blob, file.content_type))])
+    except (ValueError, UnicodeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row = await save_snapshot(session, kb, updated, version=0, base_version=kb.package_version)
+    return _knowledge_snapshot_out(row, updated, kb.package_version)
+
+
+@router.delete('/{kb_id}/draft/files/{path:path}')
+async def delete_knowledge_draft_file(kb_id: uuid.UUID, path: str, request: Request,
+    expected_hash: str = Query(...), ctx: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db), service: AuthzService = Depends(get_authz_service)):
+    from vibecanvas_api.services.knowledge_versions import save_snapshot
+    kb = await _versioned_kb(kb_id, request, ctx, session, service, write=True)
+    _, files = await _knowledge_draft_state(session, kb, expected_hash)
+    if path.casefold() == 'readme.md':
+        raise HTTPException(status_code=409, detail='knowledge_root_readme_required')
+    if not any(item.path == path for item in files):
+        raise HTTPException(status_code=409, detail='package_file_changed')
+    updated = [item for item in files if item.path != path]
+    row = await save_snapshot(session, kb, updated, version=0, base_version=kb.package_version)
+    return _knowledge_snapshot_out(row, updated, kb.package_version)
+
+
+@router.post('/{kb_id}/versions')
+async def publish_knowledge_draft(kb_id: uuid.UUID, body: KnowledgeDraftPublish, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service)):
+    kb = await _versioned_kb(kb_id, request, ctx, session, service, write=True)
+    row, files = await _knowledge_draft_state(session, kb, body.expected_hash)
+    if row['version'] != 0:
+        raise HTTPException(status_code=409, detail='knowledge_draft_required')
+    version, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(ctx.user_id),
+                                             expected_version=kb.package_version, files=files)
+    await session.commit()
+    await enqueue_package_indexing(tenant_id=ctx.tenant_id, user_id=ctx.user_id, file_ids=pending)
+    return {'version':version, 'indexing_files':len(pending)}

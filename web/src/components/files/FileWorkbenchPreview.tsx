@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Download, LoaderCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -14,6 +14,7 @@ const CodePreviewEditor = lazy(() => import('@/pages/chat/preview/CodePreviewEdi
 ));
 
 type FileWorkbenchPreviewProps = {
+  actions?: ReactNode;
   fileName: string;
   mimeType?: string | null;
   blob?: Blob | null;
@@ -49,6 +50,7 @@ function useObjectUrl(blob: Blob | null): string | null {
  */
 export function FileWorkbenchPreview({
   fileName,
+  actions,
   mimeType,
   blob = null,
   text: providedText = null,
@@ -191,6 +193,7 @@ export function FileWorkbenchPreview({
         <span className="hidden rounded-full border border-edge-subtle bg-surface-sunken px-2 py-0.5 text-xs font-medium text-content-secondary sm:inline-flex">
           {typeLabel}
         </span>
+        {actions}
         {objectUrl ? (
           <Button variant="ghost" size="sm" asChild>
             <a href={objectUrl} download={displayName} aria-label={t('files.preview.download', 'Download {{name}}', { name: displayName })}>

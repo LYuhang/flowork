@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { CanvasChatContext, type OpenCanvasChat, type CanvasChatPoint as Point } from './CanvasChatContext';
+import { CanvasChatContext, CanvasChatControlsContext, CanvasChatReferenceContext, type OpenCanvasChat, type CanvasChatPoint as Point } from './CanvasChatContext';
 import { MessageSquare, WandSparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,10 @@ import { useCommitWorkflow } from '@/lib/api/mutations/workflow-ops';
 import { useConversationHistory } from '@/lib/chat/use-conversation-history';
 import { CHAT_RECONCILE_INTERVAL_MS, reconcileChatWithServer } from '@/lib/api/sse/chat-reconcile';
 import { runAgentTurn } from '@/lib/api/sse/run-agent-turn';
-import { chatAccountNamespace } from '@/lib/chat/state-key';
+import { toast } from 'sonner';
+import { workflowReference } from '@/lib/preview/workflow-reference';
+import { useChatStreamStore } from '@/stores/chat-stream';
+import { chatClientStateKey, chatAccountNamespace } from '@/lib/chat/state-key';
 import { useAuthStore } from '@/stores/auth';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
 import { fileRefFromAgentPath } from '@/lib/preview/protocol';
@@ -47,6 +50,9 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
   wfId: string; readOnly: boolean; storageKey: string; children: ReactNode;
 }) {
   const { t } = useTranslation();
+  const account = useAuthStore(state => state.user);
+  const [referencing, setReferencing] = useState(false);
+  const referenceCommit = useCommitWorkflow(wfId);
   const sessions = useChatSessions(wfId, 'chat');
   const create = useCreateChatSession();
   const [selectedId, setSelectedId] = useState<string | null>(() => rememberedChat(storageKey));
@@ -107,14 +113,17 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
   }, [persisted]);
   useEffect(() => {
     if (!open) return;
-    const outside = (event: PointerEvent) => {
-      if (!(event.target instanceof Element) || panel.current?.contains(event.target)) return;
+    const outside = (event: MouseEvent) => {
+      if (event.button !== 0 || !(event.target instanceof Element) || panel.current?.contains(event.target)) return;
       // Composer menus and dialogs use portals; interacting with them is not
       // a canvas click. Only the canvas itself collapses the conversation.
+      // A touch long press can finish with a synthetic click on its node.
+      // Keep the active composer available while the context menu is open.
+      if (document.querySelector('[data-role="canvas-context-menu"][data-state="open"]')) return;
       if (event.target.closest('.react-flow__pane, .react-flow__node, .react-flow__edge')) dismiss();
     };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
+    document.addEventListener('click', outside);
+    return () => document.removeEventListener('click', outside);
   }, [dismiss, open]);
 
   useEffect(() => {
@@ -178,19 +187,68 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
       : t('canvasChat.global');
   const sameMajor = currentBaseVersion?.startsWith(`v${binding?.major_version}.sv`);
   const title = selected?.chat_context || (binding ? `[${version}] ${targetLabel}` : t('chat_history', 'Chat History'));
-  const disabledReason = readOnly ? t('canvasChat.readOnly')
+  const disabledReason = referencing ? t('canvasChat.savingReference', 'Saving context…') : readOnly ? t('canvasChat.readOnly')
     : draft && !sameMajor ? t('canvasChat.contextChanged') : null;
   const openFile = (path: string) => {
     const ref = fileRefFromAgentPath(path, { projectId: selected?.project_id ?? undefined, runId: wfId });
     if (ref) window.open(standalonePreviewHref(ref, 'auto', selectedId ? { chatId: selectedId } : null), '_blank', 'noopener,noreferrer');
   };
 
+  const referenceEnabled = open && !!visibleChatId && transcript.ready && !disabledReason;
+  const addReference = async (target: components['schemas']['WorkflowChatTarget']) => {
+    if (!referenceEnabled || !visibleChatId || preparing.current) return;
+    const chatId = visibleChatId;
+    const key = chatClientStateKey({ account, scopeId: wfId, surface: 'chat', chatId });
+    const state = useWorkflowEditStore.getState();
+    if (!state.baseVersion || !state.draft) return;
+    preparing.current = true;
+    setReferencing(true);
+    try {
+      // A resource reference always names a persisted immutable version. Save
+      // dirty canvas content first so newly added/edited objects are included.
+      let version = state.baseVersion;
+      if (state.isDirty()) {
+        const result = await referenceCommit.mutateAsync(state.draft);
+        if (useWorkflowEditStore.getState().isDirty()) throw new Error('context_changed');
+        version = `v${result.active_v}.sv${result.active_sv}`;
+      }
+      if (!lifecycle.current.mounted || lifecycle.current.selectedId !== chatId || lifecycle.current.readOnly)
+        throw new Error('context_changed');
+      const node = target.kind === 'node' && target.node_id ? state.draft[target.node_id] : null;
+      const label = target.kind === 'node' ? `${t('canvasChat.node')} ${node && typeof node === 'object' && 'node_name' in node ? node.node_name : target.node_id}`
+        : target.kind === 'edge' ? `${t('canvasChat.edge')} ${target.source} → ${target.target}` : t('canvasChat.global');
+      const attachment = workflowReference(wfId, version, `[${version}] ${label}`,
+        target.kind === 'node' && target.node_id ? [target.node_id] : [],
+        target.kind === 'edge' && target.source && target.target ? [{ source: target.source, target: target.target }] : []);
+      const store = useChatStreamStore.getState();
+      const existing = store.pendingAttachments[key] ?? [];
+      if (existing.some(item => item.type === 'resource' && JSON.stringify(item.resource) === JSON.stringify(attachment.resource)
+        && JSON.stringify(item.selector) === JSON.stringify(attachment.selector))) return;
+      if (existing.length >= 32) {
+        toast.error(t('composer.attachment_limit', { count: 32 }));
+        return;
+      }
+      // The shared composer persists and sends these through the existing
+      // typed attachment protocol, including server-side source authorization.
+      store.addAttachment(key, attachment);
+      requestAnimationFrame(() => panel.current?.querySelector('textarea')?.focus());
+    } catch {
+      toast.error(t('composer.context.addFailed', 'Could not add this reference. Its source may be unavailable; retry without losing your selection.'));
+    } finally { preparing.current = false; setReferencing(false); }
+  };
+
+  const controls = <div className="flex shrink-0 items-center gap-0.5 [&_button]:h-8 [&_button]:w-8 [&_button]:rounded-full" data-role="canvas-chat-launcher">
+    {!readOnly && <Button variant="ghost" size="icon" aria-label={t('canvasChat.open')}
+      title={t('canvasChat.open')} data-action="canvas-new-chat"
+      onClick={() => openAt({ kind: 'workflow' }, { x: window.innerWidth - 416, y: 100 })}>
+      <MessageSquare className="h-4 w-4" />
+    </Button>}
+    <ChatHistoryMenu wfId={wfId} activeChatId={selectedId} onSelect={selectHistory} workflowContextOnly />
+  </div>;
   return <CanvasChatContext.Provider value={openAt}>
-    {children}
-    {!open && <div className="absolute bottom-4 right-4 z-20 flex items-center rounded-full border bg-background p-1 shadow-sm" data-role="canvas-chat-launcher">
-      <Button variant="ghost" size="icon" aria-label={t('canvasChat.open')} onClick={() => setOpen(true)}><MessageSquare className="h-4 w-4" /></Button>
-      <ChatHistoryMenu wfId={wfId} activeChatId={selectedId} onSelect={selectHistory} workflowContextOnly />
-    </div>}
+    <CanvasChatControlsContext.Provider value={controls}>
+      <CanvasChatReferenceContext.Provider value={{ enabled: referenceEnabled, add: addReference }}>{children}</CanvasChatReferenceContext.Provider>
+    </CanvasChatControlsContext.Provider>
     <div ref={panel} hidden={!open} role="dialog" aria-label={title} data-role="canvas-chat"
       onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); dismiss(); } }}
       className="fixed z-40 flex min-h-[320px] min-w-[300px] resize flex-col overflow-hidden rounded-xl border bg-background shadow-xl"

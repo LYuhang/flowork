@@ -23,8 +23,8 @@
  */
 import { useRef, useState, type ReactNode } from 'react';
 import { useNodePicker } from './NodePickerContext';
-import { Plus, Copy, ClipboardPaste, Trash2, WandSparkles } from 'lucide-react';
-import { useOpenCanvasChat } from './CanvasChatContext';
+import { Plus, Copy, ClipboardPaste, Trash2, WandSparkles, Quote } from 'lucide-react';
+import { useOpenCanvasChat, useCanvasChatReference } from './CanvasChatContext';
 import type { components } from '@/lib/api/schema';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -53,6 +53,8 @@ export function ContextMenuLayer({
   const { t } = useTranslation();
   const showNodePicker = useNodePicker();
   const openChat = useOpenCanvasChat();
+  const reference = useCanvasChatReference();
+  const addingReference = useRef(false);
   const [chatTarget, setChatTarget] = useState<components['schemas']['WorkflowChatTarget'] | null>(null);
   const openingChat = useRef(false);
   const openingNodePicker = useRef(false);
@@ -74,7 +76,7 @@ export function ContextMenuLayer({
   const selectedNode = nodes.find((n) => n.selected);
   const selectedEdge = edges.find((e) => e.selected);
 
-  const handleContextMenu = (e: React.MouseEvent) => {
+  const handleContextMenu = (e: React.MouseEvent | React.PointerEvent) => {
     setMenuCoord({ x: e.clientX, y: e.clientY });
     const element = e.target instanceof Element ? e.target : null;
     const nodeId = element?.closest('.react-flow__node')?.getAttribute('data-id');
@@ -120,11 +122,21 @@ export function ContextMenuLayer({
 
   return (
     <ContextMenu>
-        <ContextMenuTrigger asChild onContextMenu={handleContextMenu}>
+        <ContextMenuTrigger asChild onContextMenu={handleContextMenu}
+          // Radix opens touch/pen menus from a long-press timer, without a
+          // contextmenu event. Capture the target before that timer opens it.
+          onPointerDownCapture={handleContextMenu}>
           <div className="h-full w-full">{children}</div>
         </ContextMenuTrigger>
         {!readOnly && (
-          <ContextMenuContent className="min-w-56" onCloseAutoFocus={(event) => {
+          <ContextMenuContent data-role="canvas-context-menu" className="min-w-56" onCloseAutoFocus={(event) => {
+            if (addingReference.current) {
+              event.preventDefault();
+              addingReference.current = false;
+              const target = chatTarget;
+              if (target) requestAnimationFrame(() => { void reference?.add(target); });
+              return;
+            }
             if (openingChat.current) {
               event.preventDefault();
               openingChat.current = false;
@@ -145,6 +157,10 @@ export function ContextMenuLayer({
             {openChat && <ContextMenuItem data-action="context-chat" disabled={!chatTarget}
               onSelect={() => { openingChat.current = true; }}>
               <WandSparkles className="mr-2 h-4 w-4" />{t('canvasChat.here', 'Chat here')}
+            </ContextMenuItem>}
+            {reference && <ContextMenuItem data-action="context-reference" disabled={!chatTarget || !reference.enabled}
+              onSelect={() => { addingReference.current = true; }}>
+              <Quote className="mr-2 h-4 w-4" />{t('canvasChat.reference', 'Reference as context')}
             </ContextMenuItem>}
             <ContextMenuSeparator />
               <ContextMenuItem

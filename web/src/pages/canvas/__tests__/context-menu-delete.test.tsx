@@ -92,6 +92,21 @@ describe('ContextMenuLayer delete-edge', () => {
 });
 
 describe('ContextMenuLayer contextual conversation', () => {
+  it.each(['node', 'edge', 'workflow'])('captures %s context for a touch long press without contextmenu', async (kind) => {
+    const open = vi.fn();
+    selection.edges = [{ id: 'from->to', source: 'from', target: 'to', selected: false }];
+    render(<ReactFlowProvider><CanvasChatContext.Provider value={open}>
+      <ContextMenuLayer><div data-testid="touch-target"
+        className={kind === 'node' ? 'react-flow__node' : kind === 'edge' ? 'react-flow__edge' : 'react-flow__pane'}
+        data-id={kind === 'node' ? 'touched' : kind === 'edge' ? 'from->to' : undefined} /></ContextMenuLayer>
+    </CanvasChatContext.Provider></ReactFlowProvider>);
+    fireEvent.pointerDown(screen.getByTestId('touch-target'), { pointerType: 'touch', clientX: 120, clientY: 160 });
+    const item = await screen.findByText('Chat here');
+    expect(item.closest('[role="menuitem"]')).not.toHaveAttribute('data-disabled');
+    fireEvent.click(item);
+    await waitFor(() => expect(open).toHaveBeenCalledWith(expect.objectContaining({ kind }), expect.any(Object)));
+  });
+
   it('uses the right-clicked node even when a different node is selected', async () => {
     const open = vi.fn();
     selection.nodes = [{ id: 'selected', selected: true }, { id: 'clicked', selected: false }];

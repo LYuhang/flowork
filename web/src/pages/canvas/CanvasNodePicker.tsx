@@ -12,6 +12,7 @@ import { NodePickerContext, type NodePickerPoint } from './NodePickerContext';
 import { NODE_CATALOG, nodeDescKey, nodeInsertPayload } from './explorer/nodeCatalog';
 import { NODE_COLORS, NODE_ICONS, NODE_LABELS, DEFAULT_NODE_ICON } from './nodes/NODE_TYPES';
 import { availableNodePosition, NODE_PICKER_GROUPS, NODE_SEARCH_ALIASES } from './nodePickerCatalog';
+import { useCanvasChatControls } from './CanvasChatContext';
 const recentKey = 'flowork:recent-node-types';
 function readRecent(): string[] {
   try {
@@ -21,6 +22,7 @@ function readRecent(): string[] {
 }
 export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; readOnly: boolean }) {
   const { t } = useTranslation();
+  const chatControls = useCanvasChatControls();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [point, setPoint] = useState<NodePickerPoint | null>(null);
@@ -77,7 +79,7 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
         {point && <PopoverAnchor className="pointer-events-none fixed h-px w-px" style={{ left: point.x, top: point.y }} />}
         <div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center">
           <div role="toolbar" aria-label={t('canvas.tools.label', 'Canvas tools')} data-canvas-toolbar
-            className="pointer-events-auto flex items-center gap-1 rounded-full border border-edge-structural bg-popover/95 p-1.5 shadow-lg backdrop-blur-sm">
+            className="pointer-events-auto flex max-w-[calc(100%-16px)] flex-wrap justify-center items-center gap-1 rounded-full border border-edge-structural bg-popover/95 p-1.5 shadow-lg backdrop-blur-sm">
           <Controls orientation="horizontal" showInteractive={!readOnly}
             fitViewOptions={{ padding: 0.16, minZoom: 0.1, maxZoom: 1, duration: 200 }}
             className="!static !m-0 !translate-x-0 !gap-0.5 !border-0 !bg-transparent !shadow-none [&>button]:!h-8 [&>button]:!w-8 [&>button]:!rounded-full [&>button]:!border-0 [&>button]:!bg-transparent [&>button:hover]:!bg-accent" />
@@ -86,6 +88,8 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
             onClick={() => { setPoint(null); flowPoint.current = null; setQuery(''); }}>
             <Plus className="h-4 w-4" />{t('nodePicker.add', 'Add node')}
           </Button></PopoverTrigger></>}
+          {chatControls && <div aria-hidden="true" className="mx-1 h-5 w-px bg-border" />}
+          {chatControls}
           </div>
         </div>
         <PopoverContent side={point ? 'right' : 'top'} align={point ? 'start' : 'center'} sideOffset={10} collisionPadding={12}

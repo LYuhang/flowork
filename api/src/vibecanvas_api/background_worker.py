@@ -55,6 +55,9 @@ def main() -> None:
     DBOS.apply_schedules(SCHEDULES)
     start_worker_metrics_server()
 
+    from vibecanvas_api.services.schedule_timer import ScheduleTimer
+    schedule_timer = ScheduleTimer()
+    schedule_timer.start()
     stopped = threading.Event()
 
     def _stop(_signum, _frame) -> None:
@@ -65,6 +68,7 @@ def main() -> None:
     try:
         stopped.wait()
     finally:
+        schedule_timer.stop()
         DBOS.destroy(workflow_completion_timeout_sec=30)
 
 

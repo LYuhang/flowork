@@ -106,6 +106,12 @@ def schedule_to_out(schedule) -> dict:
 
 
 def execution_to_out(execution) -> dict:
+    scheduled_at = None
+    if execution.trigger_type == "scheduled":
+        try:
+            scheduled_at = datetime.fromisoformat(execution.run_key.split(":", 1)[1]).isoformat()
+        except (ValueError, IndexError, AttributeError):
+            pass  # Older/manual records need not contain a planned timestamp.
     return {
         "id": str(execution.id),
         "schedule_id": str(execution.schedule_id),
@@ -114,6 +120,7 @@ def execution_to_out(execution) -> dict:
         "run_key": execution.run_key,
         "status": execution.status,
         "trigger_type": execution.trigger_type,
+        "scheduled_at": scheduled_at,
         "triggered_at": execution.triggered_at.isoformat() if execution.triggered_at else None,
         "started_at": execution.started_at.isoformat() if execution.started_at else None,
         "finished_at": execution.finished_at.isoformat() if execution.finished_at else None,

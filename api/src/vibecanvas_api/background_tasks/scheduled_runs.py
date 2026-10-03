@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import redis
 import structlog
@@ -219,6 +219,11 @@ async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
                 cron_expr=schedule.cron_expr,
                 base=now,
             )
+            if schedule.schedule_type == "interval":
+                # Skip missed slots without shifting the original cadence.
+                interval = timedelta(seconds=schedule.interval_seconds)
+                elapsed = max(0, (now - schedule.next_run_at) // interval)
+                next_run = schedule.next_run_at + (elapsed + 1) * interval
             run_key = f"{schedule.id}:{schedule.next_run_at.isoformat()}"
             active = (await session.execute(
                 select(ScheduledRunExecution.id).where(

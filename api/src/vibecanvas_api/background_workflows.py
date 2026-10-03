@@ -276,7 +276,8 @@ SCHEDULES = [
     {
         "schedule_name": "flowork-scheduled-run-dispatcher",
         "workflow_fn": dispatch_due_workflow,
-        "schedule": "0 * * * * *",
+        # Repair only; the worker deadline timer handles normal dispatch.
+        "schedule": "0 */5 * * * *",
         "queue_name": "control",
     },
     {

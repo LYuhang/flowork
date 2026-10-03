@@ -887,10 +887,7 @@ export function ChatPage() {
     }
     terminalStatusRef.current = current;
   }, [activeChatId, backgroundJobs, t]);
-  const backgroundViewAvailable = (
-    activeChatSession?.runtime_type !== 'codex'
-    || backgroundJobs.length > 0
-  );
+  const backgroundViewAvailable = backgroundJobs.length > 0;
   // A default/unchanged title is not evidence of an empty transcript (for
   // example, a chat materialized by attachment upload before its first Turn).
   const showConversation = activeChatStartedThisView
@@ -1125,6 +1122,7 @@ export function ChatPage() {
             <span className="hidden sm:inline">{t('chat.toolbar.previewShort', 'Preview')}</span>
           </Button>
         </ChatToolbarTooltip>
+        {backgroundViewAvailable && (
         <ChatToolbarTooltip label={t('chat.toolbar.activity', 'Activity')}>
           <Button
             variant={
@@ -1167,6 +1165,7 @@ export function ChatPage() {
             ) : null}
           </Button>
         </ChatToolbarTooltip>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

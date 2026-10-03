@@ -10,7 +10,7 @@ from sqlalchemy import func, or_, select
 from vibecanvas_api.services.sandbox.coordinator import dispose_sandbox_rpc_client
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.task_worker import STALE_SECONDS, WorkerClaim
-from vibecanvas_api.storage.models_tasks import ScheduledRunExecution, Task
+from vibecanvas_api.storage.models_tasks import ScheduledRunExecution, Task, TaskSchedule
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 from vibecanvas_api.storage.sync_session import short_admin_session
 
@@ -57,6 +57,9 @@ async def _fence(kind, resource_id, cutoff):
 async def _finalize(kind, resource_id, token):
     model = Task if kind == "batch" else ScheduledRunExecution
     async with short_admin_session() as session:
+        if kind == "schedule":
+            schedule_id = select(ScheduledRunExecution.schedule_id).where(ScheduledRunExecution.id == resource_id).scalar_subquery()
+            await session.execute(select(TaskSchedule.id).where(TaskSchedule.id == schedule_id).with_for_update())
         row = await session.get(model, resource_id, with_for_update=True, populate_existing=True)
         if (row is None or row.worker_token != token or not row.worker_recovery_pending
                 or row.status not in {"running", "cancelling"}):
@@ -78,11 +81,8 @@ async def _finalize(kind, resource_id, token):
             status = "cancelled" if row.status == "cancelling" else "failed"
             await repo.update_scheduled_execution(row.id, status=status, finished_at=now,
                 error=UNKNOWN_OUTCOME, result={"outcome_unknown": True, "worker_lost": True})
-            await repo.update_schedule(schedule.id, last_run_at=now, last_status=status)
             task_id = schedule.task_id
-            task_status = "failed" if schedule.enabled else "paused"
-            await repo.update_status(task_id, status=task_status, error=UNKNOWN_OUTCOME,
-                finished_at=now, result={"outcome_unknown": True, "worker_lost": True})
+            task_status = (await repo.refresh_scheduled_task(task_id)).status
         row.worker_recovery_pending = False
         # Revocation persists after recovery, so a delayed old write cannot
         # mutate the terminal state, even after the heartbeat sweep is done.

@@ -34,6 +34,7 @@ def compute_next_run_at(
     interval_seconds: int | None = None,
     cron_expr: str | None = None,
     start_at: datetime | None = None,
+    run_at: datetime | None = None,
     base: datetime | None = None,
 ) -> datetime | None:
     """Return the next future fire time in UTC.
@@ -44,6 +45,13 @@ def compute_next_run_at(
     now = ensure_utc(base) or utc_now()
     start = ensure_utc(start_at)
     tz = ZoneInfo(timezone_name or "UTC")
+    if schedule_type == "once":
+        if run_at is None or run_at.tzinfo is None or run_at.utcoffset() is None:
+            raise ValueError("run_at must include a timezone offset")
+        target = ensure_utc(run_at)
+        if target <= now:
+            raise ValueError("run_at must be in the future")
+        return target
     if schedule_type == "interval":
         seconds = int(interval_seconds or 0)
         if seconds <= 0:
@@ -87,6 +95,7 @@ def schedule_to_out(schedule) -> dict:
         "name": schedule.name,
         "enabled": schedule.enabled,
         "schedule_type": schedule.schedule_type,
+        "run_at": schedule.run_at.isoformat() if getattr(schedule, "run_at", None) else None,
         "cron_expr": schedule.cron_expr,
         "interval_seconds": schedule.interval_seconds,
         "timezone": schedule.timezone,

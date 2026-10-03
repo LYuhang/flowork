@@ -1,3 +1,4 @@
+import { ScheduledRunCreatePanel } from './ScheduledRunCreatePanel';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -36,21 +37,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import type { SearchSelectOption } from '@/components/ui/search-select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   cancelTask,
-  createScheduledRun,
   getTaskSummary,
   listTasks,
   pauseScheduledRun,
@@ -65,9 +56,7 @@ import {
 import { useWorkspaceList } from '@/lib/api/queries/workflows';
 import { TaskWorkflowVersion } from './TaskWorkflowVersion';
 import { useTaskWorkflowVersion } from './useTaskWorkflowVersion';
-import { getStartNodeFields } from '@/lib/workflow/start-node';
 import { useFormatDateTime } from '@/lib/timezone';
-import { TIMEZONE_GROUPS } from '@/lib/timezone-list';
 import { ManagementPageShell, ManagementToolbar } from '@/components/layout/management-page-shell';
 import { OperationalSummary } from '@/components/layout/operational-summary';
 import { ResourceShareDialog } from '@/components/modals/ResourceShareDialog';
@@ -77,7 +66,6 @@ import { CompactEmptyState } from '@/components/presentation/CompactEmptyState';
 import { AsyncState } from '@/components/ui/async-state';
 import { ResourceIcon } from '@/components/presentation/ResourceIcon';
 import { ResourceProvenanceLine } from '@/components/resources/ResourceProvenanceLine';
-import { describeCronExpression, scheduleLocale } from '@/lib/cron-description';
 import { SharedResourceList } from '@/components/resources/SharedResourceList';
 import {
   ResourceScopeSwitch,
@@ -99,6 +87,8 @@ const BATCH_STATUS_OPTIONS: TaskStatus[] = [
   'cancelled',
 ];
 const SCHEDULED_STATUS_OPTIONS: TaskStatus[] = [
+  'queued',
+  'finished',
   'enabled',
   'paused',
   'running',
@@ -182,6 +172,9 @@ function formatScheduleProgress(
   const next = typeof payload.next_run_at === 'string' ? payload.next_run_at : null;
   const last = typeof payload.last_status === 'string' ? payload.last_status : null;
   if (task.status === 'paused') return t('tasks.scheduleProgress.paused', 'Paused');
+  if (Number(payload.running_count ?? 0) || Number(payload.queued_count ?? 0)) {
+    return t('tasks.scheduled.activeSummary', '{{running}} running · {{queued}} queued', {running: Number(payload.running_count ?? 0), queued: Number(payload.queued_count ?? 0)});
+  }
   if (task.status === 'running') {
     return last
       ? t('tasks.scheduleProgress.runningWithLast', 'Running · last {{status}}', { status: last })
@@ -368,470 +361,6 @@ function BatchTaskCreatePanel({
             </div>
           )}
         </div>
-      </div>
-    </section>
-  );
-}
-
-function parsePresetValue(raw: string, type: string): unknown {
-  const value = raw.trim();
-  if (value === '') return '';
-  const lower = type.toLowerCase();
-  if (lower.includes('int') || lower.includes('float') || lower.includes('number')) {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : value;
-  }
-  if (lower.includes('bool')) {
-    if (/^(true|yes|1)$/i.test(value)) return true;
-    if (/^(false|no|0)$/i.test(value)) return false;
-    return value;
-  }
-  if (lower.includes('list') || lower.includes('array') || lower.includes('object') || lower.includes('dict')) {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value;
-    }
-  }
-  return raw;
-}
-
-type ScheduleFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'custom';
-
-function splitTime(value: string): { hour: number; minute: number } {
-  const [rawHour, rawMinute] = value.split(':');
-  return {
-    hour: Math.min(23, Math.max(0, Number(rawHour) || 0)),
-    minute: Math.min(59, Math.max(0, Number(rawMinute) || 0)),
-  };
-}
-
-function scheduleCron({
-  frequency,
-  time,
-  hourlyMinute,
-  weekday,
-  monthday,
-  customCron,
-}: {
-  frequency: ScheduleFrequency;
-  time: string;
-  hourlyMinute: number;
-  weekday: number;
-  monthday: number;
-  customCron: string;
-}): string {
-  const { hour, minute } = splitTime(time);
-  if (frequency === 'hourly') return `${hourlyMinute} * * * *`;
-  if (frequency === 'daily') return `${minute} ${hour} * * *`;
-  if (frequency === 'weekly') return `${minute} ${hour} * * ${weekday}`;
-  if (frequency === 'monthly') return `${minute} ${hour} ${monthday} * *`;
-  return customCron.trim();
-}
-
-/** Convert an IANA-zone wall clock to an ISO instant without assuming that
- * the selected schedule timezone equals the browser timezone. */
-function zonedWallClockToIso(value: string, timezone: string): string | null {
-  if (!value) return null;
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
-  if (!match) return null;
-  const target = match.slice(1).map(Number);
-  const targetUtc = Date.UTC(target[0], target[1] - 1, target[2], target[3], target[4]);
-  let instant = targetUtc;
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  });
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = Object.fromEntries(
-      formatter.formatToParts(new Date(instant))
-        .filter((part) => part.type !== 'literal')
-        .map((part) => [part.type, Number(part.value)]),
-    );
-    const observedUtc = Date.UTC(
-      parts.year, parts.month - 1, parts.day, parts.hour, parts.minute,
-    );
-    instant += targetUtc - observedUtc;
-  }
-  return new Date(instant).toISOString();
-}
-
-function ScheduledRunCreatePanel({
-  onCancel,
-  onCreated,
-}: {
-  onCancel: () => void;
-  onCreated: (taskId: string) => void;
-}) {
-  const { t, i18n } = useTranslation();
-  const workflowsQuery = useWorkspaceList(200, 0);
-  const workflows = useMemo(() => workflowsQuery.data?.items ?? [], [workflowsQuery.data?.items]);
-  const workflowSelectOptions = useMemo(() => workflowOptions(workflows), [workflows]);
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState('');
-  const effectiveWorkflowId = selectedWorkflowId || workflows[0]?.wf_id || '';
-  const [customName, setCustomName] = useState<string | null>(null);
-  const [scheduleMode, setScheduleMode] = useState<'calendar' | 'interval'>('calendar');
-  const [frequency, setFrequency] = useState<ScheduleFrequency>('daily');
-  const [time, setTime] = useState('09:00');
-  const [hourlyMinute, setHourlyMinute] = useState(0);
-  const [weekday, setWeekday] = useState(1);
-  const [monthday, setMonthday] = useState(1);
-  const [customCron, setCustomCron] = useState('0 9 * * *');
-  const [intervalValue, setIntervalValue] = useState(1);
-  const [intervalUnit, setIntervalUnit] = useState<'minutes' | 'hours' | 'days'>('hours');
-  const [timezone, setScheduleTimezone] = useState(
-    Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-  );
-  const [startAt, setStartAt] = useState('');
-  const [endAt, setEndAt] = useState('');
-  const [enabled, setEnabled] = useState(true);
-  const [mountEnabled, setMountEnabled] = useState(false);
-  const [notifySuccess, setNotifySuccess] = useState(false);
-  const [notifyFailure, setNotifyFailure] = useState(true);
-  const [inputValues, setInputValues] = useState<Record<string, string>>({});
-  const cronExpr = scheduleCron({
-    frequency, time, hourlyMinute, weekday, monthday, customCron,
-  });
-  const intervalSeconds = intervalValue * (
-    intervalUnit === 'minutes' ? 60 : intervalUnit === 'hours' ? 3_600 : 86_400
-  );
-
-  const selectedWorkflow = workflows.find((wf) => wf.wf_id === effectiveWorkflowId);
-  const name = customName ?? (
-    selectedWorkflow
-      ? `${selectedWorkflow.workflow_name || selectedWorkflow.wf_id} schedule`
-      : 'Scheduled run'
-  );
-  const versionSelection = useTaskWorkflowVersion(effectiveWorkflowId);
-  const snapshotQuery = versionSelection.snapshot;
-  const workflowSnapshot = snapshotQuery.data?.workflow as Record<string, unknown> | null | undefined;
-  const fields = useMemo(() => getStartNodeFields(workflowSnapshot), [workflowSnapshot]);
-
-  const createMutation = useMutation({
-    mutationFn: () => {
-      const input_preset: Record<string, unknown> = {};
-      for (const field of fields) {
-        input_preset[field.name] = parsePresetValue(inputValues[field.name] ?? '', field.type);
-      }
-      return createScheduledRun({
-        name,
-        workflow_id: effectiveWorkflowId,
-        ...versionSelection.target,
-        enabled,
-        schedule_type: scheduleMode === 'calendar' ? 'cron' : 'interval',
-        interval_seconds: scheduleMode === 'interval' ? intervalSeconds : null,
-        cron_expr: scheduleMode === 'calendar' ? cronExpr : null,
-        timezone,
-        start_at: zonedWallClockToIso(startAt, timezone),
-        end_at: zonedWallClockToIso(endAt, timezone),
-        input_preset,
-        mount_enabled: mountEnabled,
-        notification_policy: {
-          enabled: notifySuccess || notifyFailure,
-          on: [
-            ...(notifySuccess ? ['succeeded'] : []),
-            ...(notifyFailure ? ['failed'] : []),
-          ],
-          channels: ['in_app'],
-          include_detail_link: true,
-        },
-      });
-    },
-    onSuccess: (data) => {
-      toast.success(t('tasks.scheduled.created', 'Scheduled run created'));
-      onCreated(data.task.id);
-    },
-    onError: (e) => {
-      toast.error(
-        `${t('tasks.scheduled.createFailed', 'Create scheduled run failed')}: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
-      );
-    },
-  });
-
-  return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden border border-edge-structural bg-surface-work" data-testid="task-scheduled-create-panel">
-      <div className="shrink-0 border-b bg-surface-sunken/70 px-4 py-3">
-        <div>
-          <div className="text-base font-semibold">
-            {t('tasks.new.scheduledTitle', 'Scheduled run setup')}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t('tasks.new.scheduledDesc', 'Run one workflow on a simple schedule with fixed preset input.')}
-          </p>
-        </div>
-      </div>
-
-      <div className="page-scroll-region grid flex-1 content-start gap-4 p-4 lg:grid-cols-[320px_minmax(0,1fr)]" data-role="task-create-scroll-region">
-        <aside className="space-y-3">
-          <div className="rounded-lg border bg-background p-3">
-            <label className="text-sm font-medium" htmlFor="task-scheduled-name">
-              {t('tasks.scheduled.name', 'Name')}
-            </label>
-            <Input
-              id="task-scheduled-name"
-              className="mt-2"
-              value={name}
-              onChange={(event) => setCustomName(event.target.value)}
-            />
-          </div>
-
-          <div className="rounded-lg border bg-background p-3">
-            <label className="text-sm font-medium" htmlFor="task-scheduled-workflow">
-              {t('tasks.new.workflow', 'Workflow')}
-            </label>
-            <Suspense fallback={<DeferredControlFallback className="mt-2 h-10 w-full" />}>
-              <SearchSelect
-                value={effectiveWorkflowId}
-                options={workflowSelectOptions}
-                onValueChange={setSelectedWorkflowId}
-                placeholder={t('tasks.new.selectWorkflow', 'Select a workflow to configure the batch task.')}
-                searchPlaceholder={t('tasks.new.searchWorkflow', 'Search workflow name, ID, or description')}
-                emptyText={t('tasks.new.noWorkflowMatches', 'No workflows match your search.')}
-                disabled={workflowsQuery.isLoading || workflows.length === 0}
-                className="mt-2"
-                triggerClassName="w-full"
-              />
-            </Suspense>
-            <TaskWorkflowVersion selection={versionSelection} />
-            {selectedWorkflow && (
-              <div className="mt-3 rounded-md bg-surface-sunken p-2 text-xs text-muted-foreground">
-                <div className="truncate font-medium text-foreground">
-                  {selectedWorkflow.workflow_name}
-                </div>
-                <div className="truncate font-mono">{selectedWorkflow.wf_id}</div>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-lg border bg-background p-3">
-            <div className="text-sm font-medium">{t('tasks.scheduled.timing', 'Timing')}</div>
-            <Select
-              value={scheduleMode}
-              onValueChange={(value) => setScheduleMode(value as 'calendar' | 'interval')}
-            >
-              <SelectTrigger className="mt-3 w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="calendar">{t('tasks.scheduled.calendarSchedule', 'At a specific time')}</SelectItem>
-                <SelectItem value="interval">{t('tasks.scheduled.intervalSchedule', 'At a fixed interval')}</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {scheduleMode === 'calendar' ? (
-              <div className="mt-3 grid gap-3">
-                <Select value={frequency} onValueChange={(value) => setFrequency(value as ScheduleFrequency)}>
-                  <SelectTrigger className="w-full" aria-label={t('tasks.scheduled.frequency', 'Frequency')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="hourly">{t('tasks.scheduled.hourly', 'Hourly')}</SelectItem>
-                    <SelectItem value="daily">{t('tasks.scheduled.daily', 'Daily')}</SelectItem>
-                    <SelectItem value="weekly">{t('tasks.scheduled.weekly', 'Weekly')}</SelectItem>
-                    <SelectItem value="monthly">{t('tasks.scheduled.monthly', 'Monthly')}</SelectItem>
-                    <SelectItem value="custom">{t('tasks.scheduled.customCron', 'Custom cron')}</SelectItem>
-                  </SelectContent>
-                </Select>
-                {frequency === 'hourly' ? (
-                  <label className="grid gap-1.5 text-xs text-muted-foreground">
-                    {t('tasks.scheduled.minuteOfHour', 'Minute of the hour')}
-                    <Input type="number" min={0} max={59} value={hourlyMinute} onChange={(event) => setHourlyMinute(Math.min(59, Math.max(0, Number(event.target.value))))} />
-                  </label>
-                ) : frequency === 'custom' ? (
-                  <label className="grid gap-1.5 text-xs text-muted-foreground">
-                    {t('tasks.scheduled.cronExpression', 'Cron expression')}
-                    <Input className="font-mono" value={customCron} onChange={(event) => setCustomCron(event.target.value)} placeholder="0 9 * * *" />
-                    <span>
-                      {t('tasks.scheduled.schedulePreview', 'Schedule preview: {{schedule}}', {
-                        schedule: describeCronExpression(customCron, scheduleLocale(i18n.resolvedLanguage)).text,
-                      })}
-                    </span>
-                  </label>
-                ) : (
-                  <>
-                    {frequency === 'weekly' ? (
-                      <Select value={String(weekday)} onValueChange={(value) => setWeekday(Number(value))}>
-                        <SelectTrigger aria-label={t('tasks.scheduled.dayOfWeek', 'Day of week')}><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {[
-                            { value: 1, label: 'Monday' }, { value: 2, label: 'Tuesday' },
-                            { value: 3, label: 'Wednesday' }, { value: 4, label: 'Thursday' },
-                            { value: 5, label: 'Friday' }, { value: 6, label: 'Saturday' },
-                            { value: 0, label: 'Sunday' },
-                          ].map(({ value, label }) => (
-                            <SelectItem key={value} value={String(value)}>
-                              {t(`tasks.scheduled.weekday.${value}`, label)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : null}
-                    {frequency === 'monthly' ? (
-                      <label className="grid gap-1.5 text-xs text-muted-foreground">
-                        {t('tasks.scheduled.dayOfMonth', 'Day of month')}
-                        <Input type="number" min={1} max={31} value={monthday} onChange={(event) => setMonthday(Math.min(31, Math.max(1, Number(event.target.value))))} />
-                      </label>
-                    ) : null}
-                    <label className="grid gap-1.5 text-xs text-muted-foreground">
-                      {t('tasks.scheduled.runTime', 'Run time')}
-                      <Input type="time" step={60} value={time} onChange={(event) => setTime(event.target.value)} />
-                    </label>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(8rem,0.8fr)] gap-2">
-                <Input type="number" min={1} value={intervalValue} onChange={(event) => setIntervalValue(Math.max(1, Number(event.target.value)))} aria-label={t('tasks.scheduled.intervalValue', 'Interval value')} />
-                <Select value={intervalUnit} onValueChange={(value) => setIntervalUnit(value as typeof intervalUnit)}>
-                  <SelectTrigger aria-label={t('tasks.scheduled.intervalUnit', 'Interval unit')}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="minutes">{t('tasks.scheduled.minutes', 'Minutes')}</SelectItem>
-                    <SelectItem value="hours">{t('tasks.scheduled.hours', 'Hours')}</SelectItem>
-                    <SelectItem value="days">{t('tasks.scheduled.days', 'Days')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <label className="mt-3 grid gap-1.5 text-xs text-muted-foreground">
-              {t('tasks.scheduled.timezone', 'Timezone')}
-              <Select value={timezone} onValueChange={setScheduleTimezone}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIMEZONE_GROUPS.map((group) => (
-                    <SelectGroup key={group.region}>
-                      <SelectLabel>{group.region}</SelectLabel>
-                      {group.zones.map((zone) => <SelectItem key={zone.value} value={zone.value}>{zone.label}</SelectItem>)}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-
-            <details className="group mt-3 rounded-md border border-edge-subtle bg-surface-sunken/45">
-              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs font-medium text-content-secondary">
-                {t('tasks.scheduled.timeframe', 'Start and end')}
-                <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
-              </summary>
-              <div className="grid gap-3 border-t border-edge-subtle px-3 py-3">
-                <label className="grid gap-1.5 text-xs text-muted-foreground">
-                  {t('tasks.scheduled.startAt', 'Start at (optional)')}
-                  <Input type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} />
-                </label>
-                <label className="grid gap-1.5 text-xs text-muted-foreground">
-                  {t('tasks.scheduled.endAt', 'End at (optional)')}
-                  <Input type="datetime-local" value={endAt} min={startAt || undefined} onChange={(event) => setEndAt(event.target.value)} />
-                </label>
-              </div>
-            </details>
-
-            <div className="mt-3 rounded-md border border-edge-subtle bg-surface-sunken/45 px-3 py-2 text-xs leading-5 text-muted-foreground">
-              {t('tasks.scheduled.overlapHint', 'If the previous run is still active, the next occurrence is skipped. Automatic reruns are not created.')}
-            </div>
-            <label className="mt-3 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
-              />
-              {t('tasks.scheduled.enabled', 'Enable after creation')}
-            </label>
-            <label className="mt-2 flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={mountEnabled}
-                onChange={(event) => setMountEnabled(event.target.checked)}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="block">{t('tasks.scheduled.mountUserStorage', 'Mount user storage')}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {t('tasks.scheduled.mountUserStorageHint', 'Allow each run to access files under /mount.')}
-                </span>
-              </span>
-            </label>
-          </div>
-        </aside>
-
-        <div className="space-y-4">
-          <div className="rounded-lg border bg-background p-3">
-            <div className="text-sm font-medium">
-              {t('tasks.scheduled.inputPreset', 'Workflow input preset')}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('tasks.scheduled.inputHint', 'Dynamic values should be computed inside the workflow. These values are reused for every scheduled run.')}
-            </p>
-            {snapshotQuery.isLoading && effectiveWorkflowId ? (
-              <div className="mt-4 text-sm text-muted-foreground">
-                {t('tasks.new.loadingWorkflow', 'Loading workflow...')}
-              </div>
-            ) : fields.length === 0 ? (
-              <div className="mt-4 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                {t('tasks.scheduled.noFields', 'No StartNode input fields found.')}
-              </div>
-            ) : (
-              <div className="mt-3 grid gap-3">
-                {fields.map((field) => (
-                  <label key={field.name} className="grid gap-1 text-sm">
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{field.name}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{field.type}</span>
-                    </span>
-                    <textarea
-                      value={inputValues[field.name] ?? ''}
-                      onChange={(event) =>
-                        setInputValues((prev) => ({ ...prev, [field.name]: event.target.value }))
-                      }
-                      className="min-h-20 rounded-md border bg-background px-3 py-2 font-mono text-xs"
-                    />
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-lg border bg-background p-3">
-            <div className="text-sm font-medium">
-              {t('tasks.scheduled.notifications', 'Notifications')}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-4 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={notifyFailure}
-                  onChange={(event) => setNotifyFailure(event.target.checked)}
-                />
-                {t('tasks.scheduled.notifyFailure', 'Failure')}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={notifySuccess}
-                  onChange={(event) => setNotifySuccess(event.target.checked)}
-                />
-                {t('tasks.scheduled.notifySuccess', 'Success')}
-              </label>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t('tasks.scheduled.notificationHint', 'Notifications will include a link back to the execution detail.')}
-            </p>
-          </div>
-
-        </div>
-      </div>
-      <div className="flex shrink-0 justify-end gap-2 border-t bg-surface-raised px-4 py-3">
-        <Button variant="outline" onClick={onCancel}>
-          {t('common.cancel', 'Cancel')}
-        </Button>
-        <Button
-          onClick={() => createMutation.mutate()}
-          disabled={!effectiveWorkflowId || !versionSelection.selector || versionSelection.loading || versionSelection.error || snapshotQuery.isLoading || snapshotQuery.isError || createMutation.isPending}
-        >
-          {t('common.finish', 'Finish')}
-        </Button>
       </div>
     </section>
   );
@@ -1336,7 +865,7 @@ export function TasksListPage() {
                                     {t('tasks.scheduled.runNow', 'Run now')}
                                   </DropdownMenuItem>
                                 ) : null}
-                                {task.status === 'paused' && capabilities.has('update') ? (
+                                {((task.payload as Record<string, unknown> | null)?.schedule_enabled === false || task.status === 'paused') && capabilities.has('update') ? (
                                   <DropdownMenuItem
                                     onClick={(event) => {
                                       event.stopPropagation();
@@ -1350,7 +879,7 @@ export function TasksListPage() {
                                   >
                                     {t('tasks.scheduled.resume', 'Resume schedule')}
                                   </DropdownMenuItem>
-                                ) : capabilities.has('update') ? (
+                                ) : capabilities.has('update') && !(task.payload as Record<string, unknown> | null)?.schedule_completed ? (
                                   <DropdownMenuItem
                                     onClick={(event) => {
                                       event.stopPropagation();

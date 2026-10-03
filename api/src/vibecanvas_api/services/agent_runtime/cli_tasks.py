@@ -209,9 +209,11 @@ def _parse_time(value):
 
 def _schedule_body(arguments, *, create):
     result = {key: arguments[key] for key in ("name", "workflow_id", "major", "version", "timezone") if key in arguments}
-    for key in ("start_at", "end_at"):
+    for key in ("start_at", "end_at", "run_at"):
         if key in arguments:
             result[key] = _parse_time(arguments[key])
+    if "run_at" in arguments:
+        result.update(schedule_type="once", cron_expr=None, interval_seconds=None, start_at=None, end_at=None)
     if "interval" in arguments:
         result.update(schedule_type="interval", interval_seconds=arguments["interval"], cron_expr=None)
     if "cron" in arguments:
@@ -353,12 +355,10 @@ async def _read(ctx, operation, arguments, emit):
                 execution = await routes.get_scheduled_run_execution(task_id, uuid.UUID(arguments["execution_id"]), **common)
             page = await routes.list_task_events(task_id, **common, after_seq=arguments.get("after", 0),
                 before_seq=arguments.get("before"), event_type=[], limit=arguments.get("limit", 100),
-                from_=start, to=end, order="asc")
+                from_=start, to=end, order="asc",
+                execution_id=uuid.UUID(arguments["execution_id"]) if execution else None)
             items = page["items"]
             cursor = items[-1]["id"] if items else arguments.get("after", 0)
-            if execution:
-                target = execution["id"]
-                items = [event for event in items if (event["payload"].get("data") or {}).get("execution_id") == target or (event["payload"].get("scope") or {}).get("id") == target]
             terminal = execution["status"] in {"succeeded", "failed", "cancelled", "skipped"} if execution else task["status"] in TERMINAL
             evaluation_status = None
             if not execution:

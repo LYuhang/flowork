@@ -46,6 +46,7 @@ import { NodeExecutePanel } from '@/pages/canvas/inspector/NodeExecutePanel';
 import { InfoTab } from '@/pages/canvas/inspector/InfoTab';
 import { WorkflowRunTab } from '@/pages/canvas/inspector/WorkflowRunTab';
 import { BatchTab } from '@/pages/canvas/inspector/BatchTab';
+import { ScheduleTab } from './ScheduleTab';
 import { WorkflowCheckDialog } from '@/components/modals/WorkflowCheckDialog';
 import { useUIStore } from '@/stores/ui';
 import { useExecStreamStore } from '@/stores/exec-stream';
@@ -67,7 +68,7 @@ export interface RightInspectorProps {
 
 type Scope = 'node' | 'workflow';
 const NODE_TABS = ['node', 'run-node', 'info'] as const;
-const WORKFLOW_TABS = ['run', 'batch'] as const;
+const WORKFLOW_TABS = ['run', 'batch', 'schedule'] as const;
 
 export function RightInspector({ wfId, readOnly = false, canExecute = false, variant = 'default' }: RightInspectorProps) {
   const { t } = useTranslation();
@@ -252,6 +253,9 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, var
               <TabsTrigger value="batch" data-testid="inspector-tab-batch">
                 {t('inspector.tab.batch', 'Batch')}
               </TabsTrigger>
+              <TabsTrigger value="schedule" data-testid="inspector-tab-schedule">
+                {t('inspector.tab.schedule', 'Schedule')}
+              </TabsTrigger>
             </TabsList>
           ) : (
             <div className="px-4 py-6 text-sm text-muted-foreground">
@@ -304,6 +308,9 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, var
                 className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-3 data-[state=inactive]:hidden"
               >
                 <BatchTab wfId={wfId} active={activeTab === 'batch'} />
+              </TabsContent>
+              <TabsContent value="schedule" className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden">
+                <ScheduleTab key={wfId} wfId={wfId} />
               </TabsContent>
             </>
           ) : null}

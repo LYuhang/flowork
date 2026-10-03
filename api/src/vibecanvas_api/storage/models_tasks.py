@@ -175,6 +175,7 @@ class TaskSchedule(Base):
         nullable=False, server_default=text("true"), default=True,
     )
     schedule_type: Mapped[str] = mapped_column(Text, nullable=False)
+    run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     cron_expr: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     interval_seconds: Mapped[Optional[int]] = mapped_column(nullable=True)
     timezone: Mapped[str] = mapped_column(Text, nullable=False, server_default="UTC")
@@ -194,7 +195,7 @@ class TaskSchedule(Base):
         nullable=False, server_default=text("false"), default=False,
     )
     concurrency_policy: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default="skip_if_running", default="skip_if_running",
+        Text, nullable=False, server_default="allow", default="allow",
     )
     failure_policy: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="none", default="none",
@@ -214,9 +215,10 @@ class TaskSchedule(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("schedule_type IN ('interval', 'cron')", name="ck_task_schedules_type"),
+        CheckConstraint("schedule_type IN ('interval', 'cron', 'once')", name="ck_task_schedules_type"),
+        CheckConstraint("(schedule_type = 'once') = (run_at IS NOT NULL)", name="ck_task_schedules_run_at"),
         CheckConstraint(
-            "concurrency_policy IN ('skip_if_running')",
+            "concurrency_policy IN ('allow')",
             name="ck_task_schedules_concurrency_policy",
         ),
         CheckConstraint("failure_policy IN ('none')", name="ck_task_schedules_failure_policy"),

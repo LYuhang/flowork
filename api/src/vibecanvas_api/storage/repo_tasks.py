@@ -456,6 +456,7 @@ class TasksRepo:
         to: datetime | None = None,
         limit: int = 500,
         descending: bool = False,
+        execution_id: uuid.UUID | None = None,
     ) -> list[TaskEvent]:
         stmt = select(TaskEvent).where(TaskEvent.task_id == task_id)
         if after_seq is not None:
@@ -469,20 +470,36 @@ class TasksRepo:
         if to is not None:
             stmt = stmt.where(TaskEvent.ts <= to)
         order = TaskEvent.id.desc() if descending else TaskEvent.id.asc()
-        result = await self.session.execute(stmt.order_by(order).limit(limit))
-        rows = list(result.scalars().all())
-        for row in rows:
-            row.payload = await self._decrypt_document(
-                tenant_id=row.tenant_id,
-                resource_type="task",
-                resource_id=str(row.task_id),
-                purpose="task_event",
-                record_id=str(row.encryption_record_id),
-                key_id=row.payload_key_id,
-                ciphertext=row.payload_ciphertext,
-                nonce=row.payload_nonce,
-            )
-        return rows
+        # Event payloads are encrypted. Scan in bounded pages and apply the
+        # execution predicate before the public limit/cursor, not afterwards.
+        matches = []
+        batch_size = max(limit, 200) if execution_id else limit
+        cursor = None
+        while True:
+            page_stmt = stmt
+            if cursor is not None:
+                page_stmt = page_stmt.where(TaskEvent.id < cursor if descending else TaskEvent.id > cursor)
+            result = await self.session.execute(page_stmt.order_by(order).limit(batch_size))
+            rows = list(result.scalars().all())
+            for row in rows:
+                row.payload = await self._decrypt_document(
+                    tenant_id=row.tenant_id, resource_type="task", resource_id=str(row.task_id),
+                    purpose="task_event", record_id=str(row.encryption_record_id),
+                    key_id=row.payload_key_id, ciphertext=row.payload_ciphertext, nonce=row.payload_nonce,
+                )
+                if execution_id:
+                    data = row.payload.get("data") or {}
+                    scope = row.payload.get("scope") or {}
+                    if data.get("execution_id") != str(execution_id) and not (
+                        scope.get("type") == "scheduled_run_execution" and scope.get("id") == str(execution_id)
+                    ):
+                        continue
+                matches.append(row)
+                if len(matches) == limit:
+                    return matches
+            if len(rows) < batch_size:
+                return matches
+            cursor = rows[-1].id
 
     async def latest_event_seq(self, task_id: uuid.UUID) -> int:
         result = await self.session.execute(
@@ -591,17 +608,25 @@ class TasksRepo:
         service_account_id: uuid.UUID | None = None,
         workflow_selector: dict | None = None,
         start_at: str | None = None,
+        run_at: datetime | None = None,
     ) -> tuple[Task, TaskSchedule]:
         from vibecanvas_api.services.task_snapshots import freeze_workflow
         selector = workflow_selector or {}
         snapshot = await freeze_workflow(self.session, user_id, workflow_id,
                                         major=selector.get("major"), version=selector.get("version"))
         workflow_selector = {"version": snapshot["version"]}
+        from vibecanvas_engine.utils import normalize_inputs_for_fields, start_node_input_fields
+        input_preset = normalize_inputs_for_fields(input_preset, start_node_input_fields(snapshot["workflow"]))
         task_private = {
             "payload": {
                 "name": name,
                 "schedule_id": str(schedule_id),
                 "schedule_type": schedule_type,
+                "run_at": run_at.isoformat() if run_at else None,
+                "schedule_enabled": enabled,
+                "schedule_completed": False,
+                "running_count": 0,
+                "queued_count": 0,
                 "cron_expr": cron_expr,
                 "interval_seconds": interval_seconds,
                 "timezone": timezone,
@@ -658,6 +683,7 @@ class TasksRepo:
             workflow_id=workflow_id,
             enabled=enabled,
             schedule_type=schedule_type,
+            run_at=run_at,
             cron_expr=cron_expr,
             interval_seconds=interval_seconds,
             timezone=timezone,
@@ -710,7 +736,7 @@ class TasksRepo:
             "name", "enabled", "schedule_type", "cron_expr", "interval_seconds",
             "timezone", "input_preset", "mount_enabled", "notification_policy",
             "next_run_at", "end_at", "last_run_at", "last_status",
-            "workflow_selector", "start_at",
+            "workflow_selector", "start_at", "run_at",
         }
         unknown = set(fields) - allowed
         if unknown:
@@ -742,6 +768,64 @@ class TasksRepo:
             setattr(schedule, key, value)
         await self.session.flush()
         return schedule
+
+    async def refresh_scheduled_task(self, task_id: uuid.UUID) -> Task:
+        """Rebuild the task summary from executions, serializing concurrent writers.
+
+        Completion order is not occurrence order. Never let an older worker's
+        final write overwrite a newer occurrence or hide active executions.
+        """
+        # Dispatch/control routes also lock schedule before task.
+        schedule = await self.get_schedule_by_task(task_id, for_update=True)
+        if schedule is None:
+            raise LookupError("Schedule not found")
+        task = (await self.session.execute(
+            select(Task).where(Task.id == task_id).with_for_update()
+        )).scalar_one()
+        await self._materialize_task(task)
+        rows = (await self.session.execute(
+            select(ScheduledRunExecution.status, func.count())
+            .where(ScheduledRunExecution.schedule_id == schedule.id)
+            .group_by(ScheduledRunExecution.status)
+        )).all()
+        counts = dict(rows)
+        latest_rows, _ = await self.list_scheduled_executions(schedule_id=schedule.id, limit=1)
+        latest = latest_rows[0] if latest_rows else None
+        consumed_once = False
+        if schedule.schedule_type == "once" and schedule.run_at is not None:
+            consumed_once = (await self.session.execute(select(ScheduledRunExecution.id).where(
+                ScheduledRunExecution.schedule_id == schedule.id,
+                ScheduledRunExecution.run_key == f"{schedule.id}:{schedule.run_at.isoformat()}",
+            ).limit(1))).first() is not None
+        active = counts.get("running", 0) + counts.get("cancelling", 0)
+        queued = counts.get("queued", 0)
+        if active:
+            status = "running"
+        elif queued:
+            status = "queued"
+        elif consumed_once and latest:
+            status = "finished" if latest.status in {"succeeded", "skipped"} else latest.status
+        else:
+            status = "enabled" if schedule.enabled else "paused"
+        payload = dict(task.payload or {})
+        payload.update(name=schedule.name, schedule_type=schedule.schedule_type,
+            run_at=schedule.run_at.isoformat() if schedule.run_at else None,
+            cron_expr=schedule.cron_expr, interval_seconds=schedule.interval_seconds,
+            timezone=schedule.timezone, schedule_enabled=schedule.enabled,
+            end_at=schedule.end_at.isoformat() if schedule.end_at else None,
+            notification_policy=schedule.notification_policy,
+            schedule_completed=consumed_once,
+            next_run_at=schedule.next_run_at.isoformat() if schedule.next_run_at else None,
+            running_count=active, queued_count=queued,
+            last_status=latest.status if latest else None)
+        await self.update_schedule(schedule.id,
+            last_run_at=latest.triggered_at if latest else None,
+            last_status=latest.status if latest else None)
+        await self.update_status(task_id, status=status, payload=payload,
+            result=None, error=None,
+            started_at=latest.started_at if latest else None,
+            finished_at=None if active or queued else latest.finished_at if latest else None)
+        return task
 
     async def create_scheduled_execution(
         self,
@@ -843,7 +927,7 @@ class TasksRepo:
         )
         count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
         rows = await self.session.execute(
-            stmt.order_by(desc(ScheduledRunExecution.triggered_at)).limit(limit).offset(offset)
+            stmt.order_by(desc(ScheduledRunExecution.triggered_at), desc(ScheduledRunExecution.id)).limit(limit).offset(offset)
         )
         count = await self.session.execute(count_stmt)
         executions = list(rows.scalars().all())

@@ -40,7 +40,7 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
     monkeypatch.setattr(worker, "_snapshot_schedule", lambda _: {"enabled": False})
     updates = []
     monkeypatch.setattr(worker, "_update_execution", lambda eid, **kw: updates.append(kw))
-    for name in ("_update_task", "_update_schedule", "_emit"):
+    for name in ("_refresh_task", "_emit"):
         monkeypatch.setattr(worker, name, lambda *a, **kw: None)
 
     async def execute(**kw):

@@ -140,6 +140,7 @@ class ScheduledRunCreateBody(BaseModel):
     version: str | None = None
     enabled: bool = True
     schedule_type: str = "interval"
+    run_at: datetime | None = None
     interval_seconds: int | None = None
     cron_expr: str | None = None
     timezone: str = "UTC"
@@ -158,6 +159,7 @@ class ScheduledRunPatchBody(BaseModel):
     version: str | None = None
     enabled: bool | None = None
     schedule_type: str | None = None
+    run_at: datetime | None = None
     interval_seconds: int | None = None
     cron_expr: str | None = None
     timezone: str | None = None
@@ -485,8 +487,14 @@ async def create_scheduled_run(
         service=service,
         workflow_id=body.workflow_id,
     )
-    if body.schedule_type not in {"interval", "cron"}:
-        raise HTTPException(status_code=422, detail="schedule_type must be interval or cron")
+    if body.schedule_type not in {"interval", "cron", "once"}:
+        raise HTTPException(status_code=422, detail="schedule_type must be interval, cron or once")
+    if body.schedule_type == "once" and any(v is not None for v in (
+        body.cron_expr, body.interval_seconds, body.start_at, body.end_at,
+    )):
+        raise HTTPException(status_code=422, detail="once uses run_at, not recurring timing fields")
+    if body.schedule_type != "once" and body.run_at is not None:
+        raise HTTPException(status_code=422, detail="run_at is only valid for once schedules")
     if body.schedule_type == "interval" and (body.interval_seconds or 0) <= 0:
         raise HTTPException(status_code=422, detail="interval_seconds must be positive")
     if body.schedule_type == "cron" and not body.cron_expr:
@@ -505,10 +513,11 @@ async def create_scheduled_run(
                 interval_seconds=body.interval_seconds,
                 cron_expr=body.cron_expr,
                 start_at=body.start_at,
+                run_at=body.run_at,
             )
-            if body.enabled
-            else None
         )
+        if not body.enabled:
+            next_run_at = None
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     normalized_end_at = (
@@ -554,6 +563,7 @@ async def create_scheduled_run(
             name=body.name.strip() or "Scheduled run",
             enabled=body.enabled,
             schedule_type=body.schedule_type,
+            run_at=body.run_at,
             cron_expr=body.cron_expr,
             interval_seconds=body.interval_seconds,
             timezone=body.timezone or "UTC",
@@ -566,6 +576,8 @@ async def create_scheduled_run(
             workflow_selector={"version": snapshot["version"]},
             start_at=body.start_at.isoformat() if body.start_at else None,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(status_code=404, detail=f"workflow {body.workflow_id} not found") from exc
     await repo.insert_event(
@@ -703,14 +715,14 @@ async def update_scheduled_run(
     )
     repo = TasksRepo(session)
     task = await repo.get(task_id)
-    schedule = await repo.get_schedule_by_task(task_id)
+    schedule = await repo.get_schedule_by_task(task_id, for_update=True)
     if task is None or schedule is None:
         raise HTTPException(status_code=404, detail=f"scheduled run {task_id} not found")
     fields = {}
-    for key in ("name", "schedule_type", "interval_seconds", "cron_expr", "timezone", "input_preset", "mount_enabled", "end_at"):
+    for key in ("name", "schedule_type", "interval_seconds", "cron_expr", "timezone", "input_preset", "mount_enabled", "end_at", "run_at"):
         if key in body.model_fields_set:
             value = getattr(body, key)
-            if value is not None or key in {"end_at", "interval_seconds", "cron_expr"}:
+            if value is not None or key in {"end_at", "interval_seconds", "cron_expr", "run_at"}:
                 fields[key] = value
     if body.notification_policy is not None:
         fields["notification_policy"] = merge_notification_policy(body.notification_policy)
@@ -724,10 +736,22 @@ async def update_scheduled_run(
     enabled = schedule.enabled if body.enabled is None else body.enabled
     schedule_type = fields.get("schedule_type", schedule.schedule_type)
     if "schedule_type" in fields:
-        fields["cron_expr" if schedule_type == "interval" else "interval_seconds"] = None
-    timing_changed = bool(body.model_fields_set & {"schedule_type", "interval_seconds", "cron_expr", "timezone", "start_at", "end_at", "enabled"})
+        if schedule_type != "cron":
+            fields["cron_expr"] = None
+        if schedule_type != "interval":
+            fields["interval_seconds"] = None
+        if schedule_type != "once":
+            fields["run_at"] = None
+        else:
+            fields.update(start_at=None, end_at=None)
+    timing_changed = bool(body.model_fields_set & {"schedule_type", "interval_seconds", "cron_expr", "timezone", "start_at", "end_at", "enabled", "run_at"})
     next_run_at = schedule.next_run_at
     try:
+        if schedule_type == "once" and any(fields.get(k, getattr(schedule, k, None)) is not None
+                                           for k in ("cron_expr", "interval_seconds", "start_at", "end_at")):
+            raise ValueError("once uses run_at, not recurring timing fields")
+        if schedule_type != "once" and fields.get("run_at", getattr(schedule, "run_at", None)) is not None:
+            raise ValueError("run_at is only valid for once schedules")
         if timing_changed:
             saved_start = fields.get("start_at", getattr(schedule, "start_at", None))
             next_run_at = compute_next_run_at(
@@ -735,7 +759,10 @@ async def update_scheduled_run(
                 interval_seconds=fields.get("interval_seconds", schedule.interval_seconds),
                 cron_expr=fields.get("cron_expr", schedule.cron_expr),
                 start_at=datetime.fromisoformat(saved_start) if saved_start else None,
-            ) if enabled else None
+                run_at=fields.get("run_at", getattr(schedule, "run_at", None)),
+            ) if enabled or body.model_fields_set != {"enabled"} else None
+            if not enabled:
+                next_run_at = None
         end_at = fields.get("end_at", schedule.end_at)
         if end_at is not None and next_run_at is not None and end_at < next_run_at:
             raise ValueError("end_at must not be earlier than the next scheduled run")
@@ -757,11 +784,7 @@ async def update_scheduled_run(
             task.service_account_id,
             status="active",
         )
-    await repo.update_status(
-        task_id,
-        status="enabled" if enabled else "paused",
-        payload=_schedule_task_payload(schedule),
-    )
+    await repo.refresh_scheduled_task(task_id)
     updated_task = await repo.get(task_id)
     assert updated_task is not None
     return {
@@ -790,7 +813,7 @@ async def pause_scheduled_run(
         action=Action.UPDATE,
     )
     repo = TasksRepo(session)
-    schedule = await repo.get_schedule_by_task(task_id)
+    schedule = await repo.get_schedule_by_task(task_id, for_update=True)
     if schedule is None:
         raise HTTPException(status_code=404, detail=f"scheduled run {task_id} not found")
     await _authorize_task(
@@ -802,7 +825,7 @@ async def pause_scheduled_run(
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
     schedule = await repo.update_schedule(schedule.id, enabled=False, next_run_at=None)
-    await repo.update_status(task_id, status="paused", payload=_schedule_task_payload(schedule))
+    await repo.refresh_scheduled_task(task_id)
     return {"status": "paused", "schedule": schedule_to_out(schedule)}
 
 
@@ -822,7 +845,7 @@ async def resume_scheduled_run(
         action=Action.RESUME,
     )
     repo = TasksRepo(session)
-    schedule = await repo.get_schedule_by_task(task_id)
+    schedule = await repo.get_schedule_by_task(task_id, for_update=True)
     if schedule is None:
         raise HTTPException(status_code=404, detail=f"scheduled run {task_id} not found")
     try:
@@ -832,6 +855,7 @@ async def resume_scheduled_run(
             interval_seconds=schedule.interval_seconds,
             cron_expr=schedule.cron_expr,
             start_at=datetime.fromisoformat(schedule.start_at) if getattr(schedule, "start_at", None) else None,
+            run_at=getattr(schedule, "run_at", None),
         )
         if schedule.end_at is not None and next_run_at > schedule.end_at:
             raise ValueError("Schedule end time has passed; update it before resuming.")
@@ -852,7 +876,7 @@ async def resume_scheduled_run(
             task.service_account_id,
             status="active",
         )
-    await repo.update_status(task_id, status="enabled", payload=_schedule_task_payload(schedule))
+    await repo.refresh_scheduled_task(task_id)
     return {"status": "enabled", "schedule": schedule_to_out(schedule)}
 
 
@@ -876,8 +900,6 @@ async def run_scheduled_now(
     schedule = await repo.get_schedule_by_task(task_id, for_update=True)
     if task is None or schedule is None:
         raise HTTPException(status_code=404, detail=f"scheduled run {task_id} not found")
-    if await repo.has_active_scheduled_execution(schedule.id):
-        raise HTTPException(status_code=409, detail="a scheduled execution is already active")
     await _authorize_task(
         request=request,
         ctx=ctx,
@@ -899,25 +921,7 @@ async def run_scheduled_now(
     )
     if execution is None:
         raise HTTPException(status_code=409, detail="duplicate scheduled execution")
-    await repo.insert_event(
-        task_id,
-        "state",
-        {
-            "schema_version": 1,
-            "level": "info",
-            "category": "scheduled_run",
-            "action": "scheduled_run.manual_queued",
-            "message": "Manual scheduled run queued.",
-            "task_status": "running",
-            "sandbox_status": "pending",
-            "scope": {"type": "scheduled_run_execution", "id": str(execution_id), "name": None},
-            "progress": None,
-            "data": {"execution_id": str(execution_id), "schedule_id": str(schedule.id)},
-            "error": None,
-        },
-        uuid.UUID(ctx.tenant_id),
-    )
-    await repo.update_status(task_id, status="running", background_job_id=str(execution_id))
+    await repo.refresh_scheduled_task(task_id)
     await session.flush()
     await _send_scheduled_execution(
         session=session,
@@ -1135,21 +1139,8 @@ async def get_scheduled_run_execution_events(
     execution = await repo.get_scheduled_execution(execution_id)
     if schedule is None or execution is None or execution.schedule_id != schedule.id:
         raise HTTPException(status_code=404, detail=f"execution {execution_id} not found")
-    events = await repo.events_for_task(task_id=task_id, limit=limit)
-    filtered = []
-    for event in events:
-        payload = event.payload or {}
-        data = payload.get("data") if isinstance(payload, dict) else None
-        scope = payload.get("scope") if isinstance(payload, dict) else None
-        if (
-            isinstance(data, dict)
-            and data.get("execution_id") == str(execution_id)
-        ) or (
-            isinstance(scope, dict)
-            and scope.get("id") == str(execution_id)
-        ):
-            filtered.append(event)
-    return {"items": [_event_to_out(x) for x in filtered], "limit": limit}
+    events = await repo.events_for_task(task_id=task_id, execution_id=execution_id, limit=limit)
+    return {"items": [_event_to_out(x) for x in events], "limit": limit}
 
 
 @router.post("/scheduled-runs/{task_id}/executions/{execution_id}/cancel")
@@ -1194,18 +1185,19 @@ async def cancel_scheduled_run_execution(
         finished_at=cancelled_at if queued else None,
         error="Cancelled by user.",
     )
+    task = await repo.refresh_scheduled_task(task_id)
     if queued:
-        await repo.update_schedule(schedule.id, last_run_at=cancelled_at, last_status="cancelled")
+        return {"status": state}
     await repo.insert_event(
         task_id,
-        "terminal" if queued else "state",
+        "state",
         {
             "schema_version": 1,
             "level": "warning",
             "category": "scheduled_run",
             "action": f"scheduled_run.{state}",
             "message": "Scheduled execution cancellation requested.",
-            "task_status": ("enabled" if schedule.enabled else "paused") if queued else "cancelling",
+            "task_status": task.status,
             "sandbox_status": "releasing",
             "scope": {"type": "scheduled_run_execution", "id": str(execution_id), "name": None},
             "progress": None,
@@ -1214,7 +1206,6 @@ async def cancel_scheduled_run_execution(
         },
         uuid.UUID(ctx.tenant_id),
     )
-    await repo.update_status(task_id, status=("enabled" if schedule.enabled else "paused") if queued else "cancelling")
     return {"status": state}
 
 
@@ -1657,6 +1648,7 @@ async def list_task_events(
     from_: Annotated[datetime | None, Query(alias="from")] = None,
     to: Annotated[datetime | None, Query()] = None,
     order: Annotated[Literal["asc", "desc"], Query()] = "desc",
+    execution_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
@@ -1685,6 +1677,11 @@ async def list_task_events(
             detail="from must be before or equal to to",
         )
     repo = TasksRepo(session)
+    if execution_id is not None:
+        schedule = await repo.get_schedule_by_task(task_id)
+        execution = await repo.get_scheduled_execution(execution_id)
+        if schedule is None or execution is None or execution.schedule_id != schedule.id:
+            raise HTTPException(status_code=404, detail="Execution not found in this task.")
     descending = order == "desc"
     events = await repo.events_for_task(
         task_id=task_id,
@@ -1695,6 +1692,7 @@ async def list_task_events(
         to=to,
         limit=limit + 1,
         descending=descending,
+        execution_id=execution_id,
     )
     page = events[:limit]
     return {

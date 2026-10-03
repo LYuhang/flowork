@@ -27,6 +27,7 @@ import { useActiveHistoryExecution } from './ExecutionHistoryContext';
 import { useCallback, useRef, useState } from 'react';
 import {
   AlertCircle,
+  CalendarClock,
   Download,
   FolderTree,
   GitBranchPlus,
@@ -481,6 +482,13 @@ export function CanvasToolbar({
       >
         <Layers className="h-4 w-4 2xl:mr-2" />
         <span className="hidden 2xl:inline">{t('canvas.runBatch', 'Run Batch')}</span>
+      </Button>
+      <Button variant="outline" className="h-9 w-9 px-0 2xl:w-auto 2xl:px-4"
+        data-action="canvas-run-schedule" disabled={!canExecute}
+        title={t('inspector.tab.schedule', 'Schedule')}
+        onClick={() => { deselectAll(); setInspectorOpen(true); requestInspectorTab('workflow', 'schedule'); }}>
+        <CalendarClock className="h-4 w-4 2xl:mr-2" />
+        <span className="hidden 2xl:inline">{t('inspector.tab.schedule', 'Schedule')}</span>
       </Button>
       <Button
         ref={settingsButtonRef}

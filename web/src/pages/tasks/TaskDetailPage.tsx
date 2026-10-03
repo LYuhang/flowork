@@ -232,6 +232,7 @@ function eventTaskPatch(task: Task, frame: TaskEventFrame): Partial<Task> | null
   if (isTaskStatus(payload.task_status)) {
     patch.status = payload.task_status;
   }
+  if (task.task_type === "scheduled_run") return Object.keys(patch).length ? patch : null;
   if (payload.sandbox_status && typeof payload.sandbox_status === "string") {
     patch.sandbox_status = payload.sandbox_status as Task["sandbox_status"];
   }
@@ -408,9 +409,39 @@ export function TaskDetailPage() {
     refetchOnWindowFocus: false,
   });
 
+  const scheduledQuery = useQuery({
+    queryKey: ["task", taskId, "scheduled-run"],
+    queryFn: () => getScheduledRun(taskId!),
+    enabled: !!taskId && taskQuery.data?.task_type === "scheduled_run",
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      return data?.schedule.enabled || ["queued", "running"].includes(data?.task.status ?? "") ? POLL_INTERVAL_MS : false;
+    },
+    refetchOnWindowFocus: false,
+  });
+  const executionsQuery = useQuery({
+    queryKey: ["task", taskId, "scheduled-run", "executions"],
+    queryFn: () => listScheduledRunExecutions(taskId!, { limit: 50 }),
+    enabled: !!taskId && taskQuery.data?.task_type === "scheduled_run",
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      return scheduledQuery.data?.schedule.enabled || data?.items.some((x) => x.status === "running" || x.status === "queued")
+        ? POLL_INTERVAL_MS
+        : false;
+    },
+    refetchOnWindowFocus: false,
+  });
+  const executions = useMemo(() => executionsQuery.data?.items ?? [], [executionsQuery.data?.items]);
+  const selectedExecution = useMemo(() => {
+    if (!executions.length) return null;
+    return executions.find((x) => x.id === selectedExecutionId) ?? executions[0];
+  }, [executions, selectedExecutionId]);
+
+
   const eventsQuery = useInfiniteQuery({
-    queryKey: ["task", taskId, "events", eventTypeFilter, logRange, logOrder],
+    queryKey: ["task", taskId, "events", selectedExecution?.id, eventTypeFilter, logRange, logOrder],
     queryFn: ({ pageParam }) => getTaskEvents(taskId!, {
+      execution_id: selectedExecution?.id,
       limit: 50,
       order: logOrder,
       event_type: eventTypeFilter === "all" ? undefined : [eventTypeFilter],
@@ -423,8 +454,8 @@ export function TaskDetailPage() {
     }),
     initialPageParam: null as number | null,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
-    placeholderData: (previousData) => previousData,
-    enabled: !!taskId && (taskQuery.data?.access?.capabilities.includes("inspect_runs") ?? false),
+    enabled: !!taskId && (taskQuery.data?.access?.capabilities.includes("inspect_runs") ?? false)
+      && (taskQuery.data?.task_type !== "scheduled_run" || !!selectedExecution),
     refetchOnWindowFocus: false,
   });
   const latestEventSeq = eventsQuery.data?.pages[0]?.latest_seq ?? 0;
@@ -433,33 +464,6 @@ export function TaskDetailPage() {
     (taskQuery.data?.access?.capabilities.includes("inspect_runs") ?? false) && eventsQuery.isSuccess,
     latestEventSeq,
   );
-  const scheduledQuery = useQuery({
-    queryKey: ["task", taskId, "scheduled-run"],
-    queryFn: () => getScheduledRun(taskId!),
-    enabled: !!taskId && taskQuery.data?.task_type === "scheduled_run",
-    refetchInterval: (q) => {
-      const data = q.state.data;
-      return data?.task.status === "running" ? POLL_INTERVAL_MS : false;
-    },
-    refetchOnWindowFocus: false,
-  });
-  const executionsQuery = useQuery({
-    queryKey: ["task", taskId, "scheduled-run", "executions"],
-    queryFn: () => listScheduledRunExecutions(taskId!, { limit: 50 }),
-    enabled: !!taskId && taskQuery.data?.task_type === "scheduled_run",
-    refetchInterval: (q) => {
-      const data = q.state.data;
-      return data?.items.some((x) => x.status === "running" || x.status === "queued")
-        ? POLL_INTERVAL_MS
-        : false;
-    },
-    refetchOnWindowFocus: false,
-  });
-  const executions = useMemo(() => executionsQuery.data?.items ?? [], [executionsQuery.data?.items]);
-  const selectedExecution = useMemo(() => {
-    if (!executions.length) return null;
-    return executions.find((x) => x.id === selectedExecutionId) ?? executions[0];
-  }, [executions, selectedExecutionId]);
 
   useEffect(() => {
     if (!taskId || stream.events.length === 0) return;
@@ -645,11 +649,10 @@ export function TaskDetailPage() {
   const isScheduledRun = task.task_type === "scheduled_run";
   // A schedule can remain enabled after one execution fails.
   const displayStatus = isScheduledRun && scheduledQuery.data
+    && scheduledQuery.data.schedule.schedule_type !== 'once'
     && ["failed", "enabled", "paused"].includes(task.status)
     ? scheduledQuery.data.schedule.enabled ? "enabled" : "paused"
     : visibleTaskStatus(task.status);
-  const scheduledFailure = isScheduledRun && task.status !== "running"
-    && (task.status === "failed" || scheduledQuery.data?.schedule.last_status === "failed");
   const isCancellable = !isScheduledRun && capabilities.has("cancel") && CANCELLABLE.includes(task.status);
   const isResumable = !isScheduledRun && capabilities.has("resume") && RESUMABLE.includes(task.status)
     && (task.result as { can_resume?: boolean } | null)?.can_resume !== false
@@ -768,12 +771,12 @@ export function TaskDetailPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => runNowMutation.mutate()}
-                      disabled={runNowMutation.isPending || task.status === "running"}
+                      disabled={runNowMutation.isPending}
                     >
                       {t("tasks.scheduled.runNow", "Run now")}
                     </Button>
                   ) : null}
-                  {capabilities.has("update") ? task.status === "paused" ? (
+                  {capabilities.has("update") && !(task.payload as Record<string, unknown> | null)?.schedule_completed ? !scheduledQuery.data?.schedule.enabled ? (
                       <Button
                         variant="outline"
                         size="sm"
@@ -792,7 +795,7 @@ export function TaskDetailPage() {
                         {t("tasks.scheduled.pause", "Pause schedule")}
                       </Button>
                     ) : null}
-                  {selectedExecution?.status === "running" && capabilities.has("cancel") && (
+                  {selectedExecution && ["queued", "running"].includes(selectedExecution.status) && capabilities.has("cancel") && (
                     <Button
                       variant="destructive"
                       size="sm"
@@ -909,6 +912,13 @@ export function TaskDetailPage() {
                 className="mt-5"
                 items={[
                   {
+                    label: t('tasks.scheduled.activeRuns', 'Active executions'),
+                    value: t('tasks.scheduled.activeSummary', '{{running}} running · {{queued}} queued', {
+                      running: Number((task.payload as Record<string, unknown> | null)?.running_count ?? 0),
+                      queued: Number((task.payload as Record<string, unknown> | null)?.queued_count ?? 0),
+                    }),
+                  },
+                  {
                     label: t("tasks.scheduled.nextRun", "Next run"),
                     value: formatTime(scheduledQuery.data.schedule.next_run_at),
                     tone: task.status === "paused" ? "neutral" : "info",
@@ -931,18 +941,11 @@ export function TaskDetailPage() {
           </div>
         )}
 
-        {/* Execution failures do not imply that the recurring schedule stopped. */}
-        {(isScheduledRun ? scheduledFailure : task.status === "failed") && task.error && (
+        {!isScheduledRun && task.status === "failed" && task.error && (
           <ActionableError
-            title={isScheduledRun ? t("taskDetail.scheduledLastFailed") : t("taskDetail.error", "Task execution failed")}
-            actionLabel={isScheduledRun ? t("taskDetail.viewExecutionLogs") : undefined}
-            onAction={isScheduledRun ? () => selectTab("logs") : undefined}
+            title={t("taskDetail.error", "Task execution failed")}
             description={<span className="whitespace-pre-wrap break-words">{humanTaskError(
-              task.error,
-              isScheduledRun ? t("taskDetail.scheduledErrorHint") : t(
-                "taskDetail.errorHint",
-                "The task could not finish. Review the input and workflow configuration, then run it again.",
-              ),
+              task.error, t("taskDetail.errorHint", "The task could not finish. Review the input and workflow configuration, then run it again."),
             )}</span>}
             technicalDetails={task.error}
             technicalDetailsLabel={t("technicalDetails", "Technical details")}
@@ -1003,7 +1006,9 @@ export function TaskDetailPage() {
                     items={[
                     {
                       label: t("tasks.scheduled.timing", "Timing"),
-                      value: scheduledQuery.data.schedule.schedule_type === "interval"
+                      value: scheduledQuery.data.schedule.schedule_type === "once"
+                        ? `${t("tasks.scheduled.fixedTime", "Fixed time — once")} · ${formatTime(scheduledQuery.data.schedule.run_at, { timeZone: scheduledQuery.data.schedule.timezone, timeStyle: "medium" })}`
+                        : scheduledQuery.data.schedule.schedule_type === "interval"
                         ? t("tasks.scheduled.everySeconds", "Every {{count}} seconds", {
                             count: scheduledQuery.data.schedule.interval_seconds ?? 0,
                           })

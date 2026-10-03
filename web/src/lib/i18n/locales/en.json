@@ -3500,7 +3500,7 @@
   ,"tasks.scheduled.minuteOfHour": "Minute of the hour"
   ,"tasks.scheduled.minutes": "Minutes"
   ,"tasks.scheduled.monthly": "Monthly"
-  ,"tasks.scheduled.overlapHint": "If the previous run is still active, the next occurrence is skipped. Automatic reruns are not created."
+  ,"tasks.scheduled.overlapHint": "Each occurrence runs independently, even while a previous run is active. Runs may queue when capacity is unavailable."
   ,"tasks.scheduled.runTime": "Run time"
   ,"tasks.scheduled.startAt": "Start at (optional)"
   ,"tasks.scheduled.timeframe": "Start and end"
@@ -3861,5 +3861,33 @@
   "canvas.tools.zoomIn": "Zoom in",
   "canvas.tools.zoomOut": "Zoom out",
   "canvas.tools.fitView": "Fit to view",
-  "canvas.tools.interactive": "Toggle canvas interaction"
+  "canvas.tools.interactive": "Toggle canvas interaction",
+  "inspector.tab.schedule": "Schedule",
+  "tasks.scheduled.fixedTime": "Fixed time — once",
+  "tasks.scheduled.runAt": "Run once at",
+  "tasks.scheduled.selectTime": "Select year, month, day, hour, minute and second.",
+  "tasks.scheduled.futureRequired": "Choose a future date and time.",
+  "tasks.scheduled.versionRequired": "Choose a saved workflow version.",
+  "tasks.scheduled.saveCreate": "Save and create scheduled task",
+  "tasks.scheduled.createEnable": "Create and enable",
+  "tasks.scheduled.createTask": "Create task",
+  "tasks.scheduled.createAnother": "Create another",
+  "tasks.scheduled.versionChanged": "The displayed version changed. Review the task configuration.",
+  "tasks.scheduled.activeRuns": "Active executions",
+  "tasks.scheduled.activeSummary": "{{running}} running · {{queued}} queued",
+  "dateTime.open": "Choose date and time",
+  "dateTime.previous": "Previous month",
+  "dateTime.next": "Next month",
+  "dateTime.year": "Year",
+  "dateTime.month": "Month",
+  "dateTime.hour": "Hour",
+  "dateTime.minute": "Minute",
+  "dateTime.second": "Second",
+  "tasks.scheduled.invalidInput": "Check input {{field}} ({{type}}).",
+  "tasks.scheduled.inputsReset": "The workflow version or inputs changed. Please review the inputs.",
+  "tasks.scheduled.oncePreview": "Runs once at {{time}} · {{timezone}}.",
+  "scheduleTime.incomplete": "Enter a complete date and time.",
+  "scheduleTime.invalid": "Invalid date or time.",
+  "scheduleTime.nonexistent": "This local time does not exist in the selected timezone. Choose another time.",
+  "scheduleTime.ambiguous": "This local time occurs twice. Choose UTC or a different time to make the instant explicit."
 }

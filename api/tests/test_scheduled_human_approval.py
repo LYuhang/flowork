@@ -44,7 +44,7 @@ def resume_authorization_fixture(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", ["approve", "reject", "timeout", "cancel", "history_cancel", "process_loss"])
-async def test_scheduled_review_waits_skips_overlap_and_persists_result(pg_engine, monkeypatch, outcome):
+async def test_scheduled_review_allows_overlap_and_persists_isolated_result(pg_engine, monkeypatch, outcome):
     if not shutil.which("bwrap"):
         pytest.skip("bubblewrap is required")
     tenant, actor, wf_id = await _seed_tenant_user_workflow(pg_engine)
@@ -143,7 +143,9 @@ async def test_scheduled_review_waits_skips_overlap_and_persists_result(pg_engin
                     break
                 if run.done():
                     await run
-                    pytest.fail("scheduled worker ended before approval")
+                    async with session_scope(tenant_id=str(tenant)) as db:
+                        ended = await TasksRepo(db).get_scheduled_execution(execution_id)
+                        pytest.fail(f"scheduled worker ended before approval: {ended.error}")
                 await asyncio.sleep(0.05)
         assert manager.get_session.call_args.kwargs["lease"] == "resident"
         assert detail["source_type"] == "task" and detail["source_id"] == str(task_id)
@@ -151,17 +153,17 @@ async def test_scheduled_review_waits_skips_overlap_and_persists_result(pg_engin
         async with session_scope(tenant_id=str(tenant)) as db:
             assert (await TasksRepo(db).get_scheduled_execution(execution_id)).status == "running"
         await worker._dispatch_due_scheduled_runs()
-        enqueue.assert_not_awaited()
+        enqueue.assert_awaited_once()
         async with session_scope(tenant_id=str(tenant)) as db:
             repo = TasksRepo(db)
             rows, total = await repo.list_scheduled_executions(schedule_id=schedule_id)
-            skipped = next(row for row in rows if row.id != execution_id)
-            assert total == 2 and skipped.status == "skipped"
-            assert skipped.error == "skipped_previous_run_active" and skipped.finished_at is not None
+            overlap = next(row for row in rows if row.id != execution_id)
+            assert total == 2 and overlap.status == "queued"
+            assert overlap.error is None and overlap.started_at is None and overlap.finished_at is None
             assert (await repo.get_schedule(schedule_id)).next_run_at > datetime.now(timezone.utc)
         # Repeating the tick does not queue or accumulate another execution.
         await worker._dispatch_due_scheduled_runs()
-        enqueue.assert_not_awaited()
+        enqueue.assert_awaited_once()
         if outcome in {"approve", "reject"}:
             async with session_scope(tenant_id=str(tenant)) as db:
                 await WorkflowHistoryRepo(db).request_decision(
@@ -198,14 +200,17 @@ async def test_scheduled_review_waits_skips_overlap_and_persists_result(pg_engin
                 assert actual.result["execution_url"] == f"/workflow-executions/{execution_id}"
                 events = await WorkflowHistoryRepo(db).events(str(execution_id))
                 assert any(e.get("node_id") == "node_3" and e.get("status") == "success" for e in events)
-            assert (await repo.get_schedule(schedule_id)).last_status == status
-            # A later due time creates exactly one fresh invocation after the
-            # prior one ended. Skipped ticks were not queued for catch-up.
+            assert (await repo.get_schedule(schedule_id)).last_status == "queued"
+            task = await repo.get(task_id)
+            assert task.status == "queued" and task.payload["queued_count"] == 1
+            assert task.result is None and task.error is None
+            # A later due time creates one new invocation, independently of
+            # the queued occurrence and the outcome of the first execution.
             await repo.update_schedule(schedule_id, next_run_at=datetime.now(timezone.utc) - timedelta(seconds=1))
         await worker._dispatch_due_scheduled_runs()
-        enqueue.assert_awaited_once()
+        assert enqueue.await_count == 2
         admitted = UUID(enqueue.await_args.kwargs["kwargs"]["execution_id"])
-        assert admitted not in {execution_id, skipped.id}
+        assert admitted not in {execution_id, overlap.id}
         assert not session._history_executions.groups
         assert session._begin_activity.call_count == session._end_activity.call_count
     finally:

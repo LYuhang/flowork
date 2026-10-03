@@ -159,7 +159,8 @@ export interface ScheduledRunConfig {
   start_at?: string | null;
   name: string;
   enabled: boolean;
-  schedule_type: 'interval' | 'cron';
+  schedule_type: 'interval' | 'cron' | 'once';
+  run_at?: string | null;
   cron_expr: string | null;
   interval_seconds: number | null;
   timezone: string;
@@ -207,7 +208,8 @@ export interface ScheduledRunCreateBody {
   major?: string | null;
   version?: string | null;
   enabled?: boolean;
-  schedule_type: 'interval' | 'cron';
+  schedule_type: 'interval' | 'cron' | 'once';
+  run_at?: string | null;
   interval_seconds?: number | null;
   cron_expr?: string | null;
   timezone?: string;
@@ -337,7 +339,8 @@ export async function createScheduledRun(
     body: JSON.stringify(body),
   });
   if (!resp.ok) {
-    throw new Error(`createScheduledRun failed: ${resp.status} ${resp.statusText}`);
+    const problem = await resp.json().catch(() => ({}));
+    throw new Error(typeof problem.detail === 'string' ? problem.detail : `Request failed (${resp.status})`);
   }
   return (await resp.json()) as ScheduledRunResponse;
 }
@@ -437,6 +440,7 @@ export async function cancelScheduledExecution(
 export async function getTaskEvents(
   id: string,
   params: {
+    execution_id?: string;
     after_seq?: number;
     before_seq?: number;
     event_type?: TaskEventType[];
@@ -447,6 +451,7 @@ export async function getTaskEvents(
   } = {},
 ): Promise<TaskEventsResponse> {
   const qs = new URLSearchParams();
+  if (params.execution_id) qs.set('execution_id', params.execution_id);
   if (params.after_seq !== undefined) qs.set('after_seq', String(params.after_seq));
   if (params.before_seq !== undefined) qs.set('before_seq', String(params.before_seq));
   for (const t of params.event_type ?? []) qs.append('event_type', t);

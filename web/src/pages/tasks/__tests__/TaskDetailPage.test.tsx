@@ -339,7 +339,7 @@ describe("<TaskDetailPage>", () => {
     expect(screen.queryByText("Row one")).not.toBeInTheDocument();
   });
 
-  it.each([true, false])("separates schedule enabled=%s from a failed execution and shows node-map errors", async (enabled) => {
+  it.each([true, false])("keeps execution failures out of the schedule overview (enabled=%s)", async (enabled) => {
     const user = userEvent.setup();
     const scheduledTask = makeTask({ status: enabled ? "failed" : "paused", error: JSON.stringify({node_2: "[NodeId: node_2] Image path is empty"}) });
     scheduledTask.task_type = "scheduled_run";
@@ -377,7 +377,7 @@ describe("<TaskDetailPage>", () => {
         input_preset: {},
         mount_enabled: false,
         notification_policy: {},
-        concurrency_policy: "skip",
+        concurrency_policy: "allow",
         failure_policy: "continue",
         catchup_policy: false,
         next_run_at: "2026-05-25T01:00:00Z",
@@ -396,11 +396,12 @@ describe("<TaskDetailPage>", () => {
     });
 
     renderAt(TASK_ID);
-    expect(await screen.findByText("Last scheduled execution failed")).toBeInTheDocument();
-    expect(screen.getByText("node_2: [NodeId: node_2] Image path is empty")).toBeInTheDocument();
+    await screen.findAllByText(enabled ? "Enabled" : "Paused");
+    expect(screen.queryByText("Last scheduled execution failed")).not.toBeInTheDocument();
+    expect(screen.queryByText("node_2: [NodeId: node_2] Image path is empty")).not.toBeInTheDocument();
     expect((await screen.findAllByText(enabled ? "Enabled" : "Paused")).length).toBeGreaterThan(0);
     expect(screen.queryByText("The task could not finish. Review the input and workflow configuration, then run it again.")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", {name: "View execution logs"}));
+    await user.click(screen.getByRole("tab", {name: "Execution logs"}));
     expect(screen.getByRole("tab", {name: "Execution logs"})).toHaveAttribute("data-state", "active");
   });
 
@@ -443,7 +444,7 @@ describe("<TaskDetailPage>", () => {
         input_preset: {},
         mount_enabled: false,
         notification_policy: {},
-        concurrency_policy: "skip",
+        concurrency_policy: "allow",
         failure_policy: "continue",
         catchup_policy: false,
         next_run_at: "2026-05-25T01:00:00Z",

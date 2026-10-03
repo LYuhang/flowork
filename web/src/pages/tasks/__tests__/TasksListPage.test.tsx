@@ -216,7 +216,7 @@ describe('<TasksListPage>', () => {
 
     expect(await screen.findByText('Scheduled run setup')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Finish' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create and enable' })).toBeInTheDocument();
   });
 
   it('offers precise calendar and monthly schedule controls', async () => {
@@ -229,7 +229,7 @@ describe('<TasksListPage>', () => {
     await user.click(screen.getByRole('option', { name: 'Monthly' }));
     expect(screen.getByText('Day of month')).toBeInTheDocument();
     expect(screen.getByText('Run time')).toBeInTheDocument();
-    expect(screen.getByText(/previous run is still active/i)).toBeInTheDocument();
+    expect(screen.getByText(/each occurrence runs independently/i)).toBeInTheDocument();
   });
 
   it('keeps status choices in one multi-select and renders only selected chips', async () => {

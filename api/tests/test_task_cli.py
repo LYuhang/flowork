@@ -7,6 +7,30 @@ import pytest
 from vibecanvas_api.flowork_cli import cli, task_cli
 
 
+def test_one_time_schedule_cli_preserves_time_and_uses_shared_create(monkeypatch, capsys):
+    seen = []
+    def request(endpoint, arguments, **kwargs):
+        seen.append(arguments)
+        return {"id": "task", "status": "enabled"}
+    monkeypatch.setattr(cli, "request", request)
+    assert cli.main(["task", "create", "--task-type", "schedule_run", "--workflow-id", "wf",
+        "--version", "v2.sv3", "--run-at", "2030-10-05T09:30:17+08:00"], socket_path="test") == 0
+    assert seen[0]["run_at"] == "2030-10-05T09:30:17+08:00"
+    assert seen[0]["version"] == "v2.sv3"
+    from vibecanvas_api.services.agent_runtime.cli_tasks import _schedule_body
+    body = _schedule_body(seen[0], create=True)
+    assert body.schedule_type == "once"
+    assert body.run_at.second == 17
+    assert body.interval_seconds is None and body.cron_expr is None
+
+
+@pytest.mark.parametrize("extra", [{"interval": 60}, {"cron": "0 9 * * *"}, {"start_at": "2030-01-01T00:00:00Z"}])
+def test_once_rejects_recurring_configuration(extra):
+    with pytest.raises(ValueError):
+        task_cli.validate("task.create", {"task_type": "schedule_run", "workflow_id": "wf", "version": "v1.sv0",
+            "run_at": "2030-10-05T09:30:17+08:00", **extra})
+
+
 def test_repeated_mapping_order_and_json_defaults(tmp_path, monkeypatch, capsys):
     source = tmp_path / "rows.csv"
     source.write_text("value\n1\n")

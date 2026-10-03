@@ -78,7 +78,11 @@ def _publish(task_id: uuid.UUID, tenant_id: uuid.UUID, message: dict) -> None:
 def _emit(task_id: uuid.UUID, tenant_id: uuid.UUID, event_type: str, payload: dict) -> None:
     async def _runner(session) -> int:
         await assert_worker_owner(session)
-        return await TasksRepo(session).insert_event(task_id, event_type, payload, tenant_id)
+        repo = TasksRepo(session)
+        task = await repo.get(task_id)
+        if task is not None:
+            payload["task_status"] = task.status
+        return await repo.insert_event(task_id, event_type, payload, tenant_id)
 
     ev_id = run_in_short_session(_runner)
     _publish(
@@ -88,10 +92,13 @@ def _emit(task_id: uuid.UUID, tenant_id: uuid.UUID, event_type: str, payload: di
     )
 
 
-def _update_task(task_id: uuid.UUID, **fields: object) -> None:
+def _refresh_task(task_id: uuid.UUID) -> None:
     async def _runner(session) -> None:
+        repo = TasksRepo(session)
+        # Control routes lock schedule before execution; workers use the same order.
+        await repo.get_schedule_by_task(task_id, for_update=True)
         await assert_worker_owner(session)
-        await TasksRepo(session).update_status(task_id, **fields)
+        await repo.refresh_scheduled_task(task_id)
 
     run_in_short_session(_runner)
 
@@ -100,14 +107,6 @@ def _update_execution(execution_id: uuid.UUID, **fields: object) -> None:
     async def _runner(session) -> None:
         await assert_worker_owner(session)
         await TasksRepo(session).update_scheduled_execution(execution_id, **fields)
-
-    run_in_short_session(_runner)
-
-
-def _update_schedule(schedule_id: uuid.UUID, **fields: object) -> None:
-    async def _runner(session) -> None:
-        await assert_worker_owner(session)
-        await TasksRepo(session).update_schedule(schedule_id, **fields)
 
     run_in_short_session(_runner)
 
@@ -168,22 +167,6 @@ def _scheduled_execution_lease(
     return run_in_short_session(_runner)
 
 
-def _schedule_task_payload(schedule: dict, *, next_run_at: datetime | None = None) -> dict:
-    payload = {
-        "name": schedule["name"],
-        "schedule_id": str(schedule["id"]),
-        "schedule_type": schedule["schedule_type"],
-        "cron_expr": schedule.get("cron_expr"),
-        "interval_seconds": schedule.get("interval_seconds"),
-        "timezone": schedule.get("timezone") or "UTC",
-        "next_run_at": next_run_at.isoformat() if next_run_at else None,
-        "end_at": schedule.get("end_at").isoformat() if schedule.get("end_at") else None,
-        "last_status": schedule.get("last_status"),
-        "notification_policy": schedule.get("notification_policy") or {},
-    }
-    return payload
-
-
 def dispatch_due_scheduled_runs() -> None:
     asyncio.run(_dispatch_due_scheduled_runs())
 
@@ -212,7 +195,7 @@ async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
             schedule = await repo.get_schedule(schedule.id)
             if schedule is None or schedule.next_run_at is None:
                 continue
-            next_run = compute_next_run_at(
+            next_run = None if schedule.schedule_type == "once" else compute_next_run_at(
                 schedule_type=schedule.schedule_type,
                 timezone_name=schedule.timezone,
                 interval_seconds=schedule.interval_seconds,
@@ -225,67 +208,6 @@ async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
                 elapsed = max(0, (now - schedule.next_run_at) // interval)
                 next_run = schedule.next_run_at + (elapsed + 1) * interval
             run_key = f"{schedule.id}:{schedule.next_run_at.isoformat()}"
-            active = (await session.execute(
-                select(ScheduledRunExecution.id).where(
-                    ScheduledRunExecution.schedule_id == schedule.id,
-                    ScheduledRunExecution.status.in_(("queued", "running", "cancelling")),
-                ).limit(1)
-            )).first()
-            schedule_snapshot = {
-                "id": schedule.id,
-                "name": schedule.name,
-                "schedule_type": schedule.schedule_type,
-                "cron_expr": schedule.cron_expr,
-                "interval_seconds": schedule.interval_seconds,
-                "timezone": schedule.timezone,
-                "end_at": schedule.end_at,
-                "last_status": schedule.last_status,
-                "notification_policy": schedule.notification_policy,
-            }
-            task = await repo.get(schedule.task_id)
-            if task is None:
-                continue
-            task_payload = dict(task.payload or {})
-            task_payload.update(
-                _schedule_task_payload(schedule_snapshot, next_run_at=next_run)
-            )
-
-            if active:
-                execution_id = uuid.uuid4()
-                skipped = await repo.create_scheduled_execution(
-                    execution_id=execution_id,
-                    tenant_id=schedule.tenant_id,
-                    schedule_id=schedule.id,
-                    workflow_id=schedule.workflow_id,
-                    run_key=run_key,
-                    trigger_type="scheduled",
-                    input_snapshot=schedule.input_preset or {},
-                    status="skipped",
-                )
-                if skipped is not None:
-                    await repo.update_scheduled_execution(
-                        execution_id,
-                        finished_at=now,
-                        error="skipped_previous_run_active",
-                    )
-                    await repo.insert_event(schedule.task_id, "log", {
-                        "schema_version": 1,
-                        "level": "info", "category": "scheduled_run",
-                        "action": "scheduled_run.skipped_previous_run_active",
-                        "message": "Skipped because a previous execution is still active.",
-                        "task_status": task.status,
-                        "data": {"execution_id": str(execution_id), "schedule_id": str(schedule.id),
-                                 "status": "skipped", "reason": "skipped_previous_run_active"},
-                    }, schedule.tenant_id)
-                await repo.update_schedule(
-                    schedule.id,
-                    next_run_at=next_run,
-                    last_run_at=now,
-                    last_status="skipped",
-                )
-                await repo.update_status(schedule.task_id, payload=task_payload)
-                continue
-
             execution_id = uuid.uuid4()
             inserted = await repo.create_scheduled_execution(
                 execution_id=execution_id,
@@ -297,7 +219,6 @@ async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
                 input_snapshot=schedule.input_preset or {},
             )
             await repo.update_schedule(schedule.id, next_run_at=next_run)
-            await repo.update_status(schedule.task_id, payload=task_payload)
             if inserted is not None:
                 await enqueue_background_job_in_transaction(
                     session,
@@ -306,6 +227,7 @@ async def _dispatch_due_scheduled_runs(limit: int = 50) -> None:
                     queue=route_for("scheduled_run"),
                     kwargs={"execution_id": str(execution_id)},
                 )
+            await repo.refresh_scheduled_task(schedule.task_id)
 
 
 def execute_scheduled_run(
@@ -380,12 +302,7 @@ async def _execute_owned_scheduled_run(
             finished_at=finished,
             error="service_account_unavailable",
         )
-        _update_task(
-            task_id,
-            status="failed",
-            error="service_account_unavailable",
-            finished_at=finished,
-        )
+        _refresh_task(task_id)
         _emit(task_id, tenant_uuid, "terminal", {
             "schema_version": 1,
             "level": "error",
@@ -406,8 +323,7 @@ async def _execute_owned_scheduled_run(
         })
         return
     user_id = str(lease.created_by)
-    started = datetime.now(timezone.utc)
-    _update_task(task_id, status="running", started_at=started, error=None)
+    _refresh_task(task_id)
     _emit(task_id, tenant_uuid, "state", {
         "schema_version": 1,
         "level": "info",
@@ -573,12 +489,7 @@ async def _execute_owned_scheduled_run(
         error_message = "Execution cancelled."
 
     finished = datetime.now(timezone.utc)
-    task_status = "enabled"
     schedule_snapshot = _snapshot_schedule(schedule_id)
-    if not schedule_snapshot.get("enabled", True):
-        task_status = "paused"
-    elif final_status == "failed":
-        task_status = "failed"
     _update_execution(
         execution_id,
         status=final_status,
@@ -590,19 +501,7 @@ async def _execute_owned_scheduled_run(
             final_status,
         ),
     )
-    _update_schedule(
-        schedule_id,
-        last_run_at=finished,
-        last_status=final_status,
-    )
-    _update_task(
-        task_id,
-        status=task_status,
-        progress=0,
-        result=result_payload,
-        error=error_message,
-        finished_at=finished,
-    )
+    _refresh_task(task_id)
     _emit(task_id, tenant_uuid, "terminal", {
         "schema_version": 1,
         "level": "info" if final_status == "succeeded" else "error",
@@ -613,7 +512,6 @@ async def _execute_owned_scheduled_run(
             if final_status == "succeeded"
             else error_message or f"Scheduled run {final_status}."
         ),
-        "task_status": task_status,
         "sandbox_status": "released",
         "scope": {"type": "scheduled_run_execution", "id": str(execution_id), "name": None},
         "progress": None,

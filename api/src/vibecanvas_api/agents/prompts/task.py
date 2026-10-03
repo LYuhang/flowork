@@ -15,6 +15,12 @@ submitting. Batch creation freezes the saved graph, input data and mount setting
 Resume uses the SAME Task ID and snapshot, skipping successful rows. Both task types require --version vN.svM. Schedules retain this fixed version
 until explicitly updated; --major is not supported. Never infer the target from global HEAD or a prior Chat binding.
 
+For schedules, select exactly one cadence: --run-at ISO-8601 with timezone for one future execution,
+--cron for recurring calendar times, or --interval seconds for recurring intervals. Each occurrence
+is independent and may overlap earlier runs or approval waits. Query history for execution IDs.
+Pausing stops future dispatch, not already queued or running executions. A one-time schedule
+has no next occurrence after dispatch; failed work is not automatically rerun.
+
 Prepare batch input files with column names matching StartNode input names.
 Repeat --mapping with flat JSON {field,source,default?}: field is the RESULT
 column, source is node_id.output_field. This is NOT input-column mapping.
@@ -54,8 +60,9 @@ enabled/paused state. status/logs/download/cancel REQUIRE --execution-id in
 addition to --task-id and --task-type; they never select the latest implicitly.
 Use exact commands returned in history entries. run queues one manual execution
 without enabling the plan; enable/disable control future dispatch, not active
-execution. cancel targets one execution. No overlapping runs, catch-up or
-automatic reruns. Dynamic inputs belong inside the workflow, not its preset.
+executions. cancel targets one execution. Each occurrence is independent;
+active runs do not block new occurrences, which may queue if capacity is full.
+Periodic downtime catch-up and automatic reruns are not enabled. Dynamic inputs belong inside the workflow, not its preset.
 
 history is the execution/attempt index, logs contains execution events, and
 download retrieves business results. For diagnosis use logs --output-dir with

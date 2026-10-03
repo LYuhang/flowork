@@ -3500,7 +3500,7 @@
   ,"tasks.scheduled.minuteOfHour": "每小时的第几分钟"
   ,"tasks.scheduled.minutes": "分钟"
   ,"tasks.scheduled.monthly": "每月"
-  ,"tasks.scheduled.overlapHint": "如果上一次运行仍未结束，将跳过下一次计划运行，且不会自动补跑。"
+  ,"tasks.scheduled.overlapHint": "每个计划时间都会触发独立执行，即使上一次尚未完成。资源不足时可能排队。"
   ,"tasks.scheduled.runTime": "运行时间"
   ,"tasks.scheduled.startAt": "开始时间（可选）"
   ,"tasks.scheduled.timeframe": "开始与结束时间"
@@ -3861,5 +3861,33 @@
   "canvas.tools.zoomIn": "放大",
   "canvas.tools.zoomOut": "缩小",
   "canvas.tools.fitView": "居中适配",
-  "canvas.tools.interactive": "切换画布交互锁定"
+  "canvas.tools.interactive": "切换画布交互锁定",
+  "inspector.tab.schedule": "定时执行",
+  "tasks.scheduled.fixedTime": "固定时间，仅执行一次",
+  "tasks.scheduled.runAt": "单次执行时间",
+  "tasks.scheduled.selectTime": "请选择年、月、日、时、分、秒。",
+  "tasks.scheduled.futureRequired": "请选择未来的日期和时间。",
+  "tasks.scheduled.versionRequired": "请选择已保存的 Workflow 版本。",
+  "tasks.scheduled.saveCreate": "保存并创建定时任务",
+  "tasks.scheduled.createEnable": "创建并启用",
+  "tasks.scheduled.createTask": "创建任务",
+  "tasks.scheduled.createAnother": "再建一个",
+  "tasks.scheduled.versionChanged": "画布版本已变化，请重新检查任务配置。",
+  "tasks.scheduled.activeRuns": "活跃执行",
+  "tasks.scheduled.activeSummary": "运行中 {{running}} 次 · 排队 {{queued}} 次",
+  "dateTime.open": "选择日期和时间",
+  "dateTime.previous": "上个月",
+  "dateTime.next": "下个月",
+  "dateTime.year": "年",
+  "dateTime.month": "月",
+  "dateTime.hour": "时",
+  "dateTime.minute": "分",
+  "dateTime.second": "秒",
+  "tasks.scheduled.invalidInput": "请检查输入 {{field}}（{{type}}）。",
+  "tasks.scheduled.inputsReset": "Workflow 版本或输入字段已变化，请重新确认输入。",
+  "tasks.scheduled.oncePreview": "将在 {{time}}（{{timezone}}）执行一次。",
+  "scheduleTime.incomplete": "请输入完整的日期和时间。",
+  "scheduleTime.invalid": "日期或时间无效。",
+  "scheduleTime.nonexistent": "所选时区因夏令时跳过了这个时间，请重新选择。",
+  "scheduleTime.ambiguous": "所选时区的这个时间出现两次，请切换为 UTC 或选择其他时间以明确执行时刻。"
 }

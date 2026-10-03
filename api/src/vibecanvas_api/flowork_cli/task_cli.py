@@ -80,8 +80,8 @@ def add_parser(groups):
 
     for action in ("create", "update"):
         command = _command(actions, action,
-            help="Create a batch task or recurring plan." if action == "create" else "Update supplied schedule fields; never changes existing execution snapshots.",
-            description=("batch_exec requires --workflow-id, --version and --input-file, then submits asynchronously. Input columns match StartNode names. Repeat --mapping '{\"field\":\"answer\",\"source\":\"node_3.answer\",\"default\":null}' for OUTPUT columns, not input mapping. default only replaces absent outputs, never false/0/empty string. Fixed index/status/error/execution_time columns remain. schedule_run requires --workflow-id, --version and --interval/--cron. Creates an ENABLED schedule by default; --paused only saves configuration. Read the returned hint; do not repeat submission."
+            help="Create a batch task, one-time schedule or recurring plan." if action == "create" else "Update supplied schedule fields; never changes existing execution snapshots.",
+            description=("batch_exec requires --workflow-id, --version and --input-file, then submits asynchronously. Input columns match StartNode names. Repeat --mapping '{\"field\":\"answer\",\"source\":\"node_3.answer\",\"default\":null}' for OUTPUT columns, not input mapping. default only replaces absent outputs, never false/0/empty string. Fixed index/status/error/execution_time columns remain. schedule_run requires --workflow-id, --version and --run-at/--interval/--cron. Creates an ENABLED schedule by default; --paused only saves configuration. Read the returned hint; do not repeat submission."
                 if action == "create" else "schedule_run only. Updates supplied fields; does not enable a paused schedule. --input/--input-file replaces the complete preset. Use --clear-start-at/--clear-end-at to remove bounds. Use enable/disable for future dispatch."))
         if action == "create":
             typed(command)
@@ -92,7 +92,8 @@ def add_parser(groups):
         selector.add_argument("--version", help="Pinned saved version, e.g. v1.sv2.")
         command.add_argument("--name", help="schedule_run only: plan display name; defaults to the workflow ID plus 'schedule'. Batch tasks do not have a custom name.")
         timing = command.add_mutually_exclusive_group()
-        timing.add_argument("--interval", type=int, help="schedule_run only: positive interval in seconds; create requires interval or cron.")
+        timing.add_argument("--interval", type=int, help="schedule_run only: positive interval in seconds; create requires run-at, interval or cron.")
+        timing.add_argument("--run-at", help="schedule_run only: run once at an ISO-8601 timestamp with timezone, including seconds.")
         timing.add_argument("--cron", help="schedule_run only: five-field cron expression.")
         command.add_argument("--timezone", help="schedule_run only: IANA timezone; defaults to UTC at creation.")
         for boundary in ("start", "end"):
@@ -143,7 +144,7 @@ def validate(operation, arguments):
     if operation == "task.history" and supplied_type != "schedule_run":
         raise ValueError("history only supports schedule_run; use task logs for batch execution and resume activity.")
     common = {"task_id"}
-    schedule_fields = {"name", "major", "version", "interval", "cron", "timezone",
+    schedule_fields = {"name", "major", "version", "interval", "cron", "run_at", "timezone",
                        "start_at", "end_at", "inputs", "mount", "notify"}
     allowed = {
         "task.list": {"task_type", "status", "workflow_id", "limit", "offset"},
@@ -218,15 +219,17 @@ def validate(operation, arguments):
             raise ValueError("Creation requires --workflow-id and --version.")
     if "inputs" in result and not isinstance(result["inputs"], dict):
         raise ValueError("Inputs must be a JSON object.")
-    if "interval" in result and "cron" in result:
-        raise ValueError("--interval and --cron are mutually exclusive.")
+    if len({"interval", "cron", "run_at"} & result.keys()) > 1:
+        raise ValueError("--run-at, --interval and --cron are mutually exclusive.")
+    if "run_at" in result and ({"start_at", "end_at"} & result.keys()):
+        raise ValueError("--run-at cannot be combined with --start-at or --end-at.")
     if "cron" in result and (not isinstance(result["cron"], str) or len(result["cron"].split()) != 5):
         raise ValueError("--cron must have five fields.")
-    if operation == "task.schedule_run.create" and not ({"interval", "cron"} & result.keys()):
-        raise ValueError("Supply --interval or --cron.")
+    if operation == "task.schedule_run.create" and not ({"interval", "cron", "run_at"} & result.keys()):
+        raise ValueError("Supply --run-at, --interval or --cron.")
     if operation == "task.schedule_run.update" and result.keys() == {"task_id", "task_type"}:
         raise ValueError("Supply at least one schedule field to update.")
-    for key in ("start_at", "end_at", "from_time", "to_time"):
+    for key in ("run_at", "start_at", "end_at", "from_time", "to_time"):
         if key in result and result[key] is not None:
             try:
                 value = datetime.fromisoformat(result[key].replace("Z", "+00:00"))

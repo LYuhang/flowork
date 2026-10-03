@@ -281,7 +281,7 @@ async def _purge_runtime_state(lease: PurgeLease) -> None:
     volume_provider = get_project_runtime_volume_provider()
     deleted_runtime_scopes: set[tuple[str, str]] = set()
     for coordinate in coordinates:
-        workspace_scope_id = project_workspace_scope_id(coordinate.project_id)
+        workspace_scope_id = project_workspace_scope_id(coordinate.project_id, workflow_id=coordinate.workflow_id)
         key = (str(coordinate.tenant_id), workspace_scope_id)
         if key in deleted_runtime_scopes:
             continue

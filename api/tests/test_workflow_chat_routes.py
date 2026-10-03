@@ -55,27 +55,16 @@ async def test_create_retry_history_metadata_and_hidden_project(client, web_cook
     assert item["created_at"] and item["updated_at"]
     workspace = await client.get("/api/v1/chats/workspace", params={"chat_id": "canvas-history"})
     assert workspace.status_code == 200, workspace.text
-    from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
-    private_scope = project_workspace_scope_id(item["project_id"])
-    assert private_scope != wf_id
-    assert workspace.json()["workspace_scope_id"] == private_scope
+    assert workspace.json()["workspace_scope_id"] == wf_id
     project_workspace = await client.get(f"/api/v1/projects/{item['project_id']}/workspace")
     assert project_workspace.status_code == 200, project_workspace.text
-    assert project_workspace.json()["workspace_scope_id"] == private_scope
-    from vibecanvas_api.services.sandbox.manager import SandboxManager
-    manager = SandboxManager(max_resident=1, idle_ttl_s=10)
-    assert await manager._workflow_chat_owner(me["tenant_id"], private_scope, me["user_id"]) == wf_id
-    with pytest.raises((LookupError, PermissionError)):
-        await manager._workflow_chat_owner(me["tenant_id"], private_scope, str(uuid.uuid4()))
-    # The same Project identifier in another tenant cannot attach this workspace.
-    with pytest.raises(LookupError):
-        await manager._workflow_chat_owner(str(uuid.uuid4()), private_scope, me["user_id"])
+    assert project_workspace.json()["workspace_scope_id"] == wf_id
     from sqlalchemy import text
     async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         rows = (await session.execute(text(
             "SELECT scope_id, path FROM vfs_artifacts WHERE path = '/chats/canvas-history/.keep'"
         ))).all()
-        assert rows == [(private_scope, "/chats/canvas-history/.keep")]
+        assert rows == [(wf_id, "/chats/canvas-history/.keep")]
 
     async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         await WorkflowRepo(session, me["user_id"]).commit(wf_id, graph, target_major=1)

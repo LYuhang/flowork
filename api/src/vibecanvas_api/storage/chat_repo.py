@@ -193,7 +193,7 @@ class ChatRepo:
         self._s.add(chat)
         await self._s.flush()
         await VfsRepo(self._s, object_store=get_object_store()).upsert_artifact_bytes(
-            wf_id=project_workspace_scope_id(project_id), tenant=str(tenant_id),
+            wf_id=project_workspace_scope_id(project_id, workflow_id=project.workflow_id), tenant=str(tenant_id),
             path=f"{chat_working_directory(chat_id)}/.keep", data=b"",
             content_type="application/x-directory",
         )

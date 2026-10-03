@@ -43,7 +43,6 @@ from vibecanvas_engine.sandbox_bus import (
 )
 
 from vibecanvas_api.services.deployment_completion import complete_before_cancelling
-from vibecanvas_api.services.chat_workspace import project_id_from_workspace_scope
 
 from vibecanvas_api.config import config
 from vibecanvas_api.services.agent_runtime.codex_account import (
@@ -556,10 +555,6 @@ class SandboxSession:
         self._snapshot_error: str | None = None
         self._last_activity_sequence: int | None = None
         self._activity_was_busy = False
-        # Canvas conversations retain private Project mounts and Runtime workers,
-        # but only the parent Workflow is registered for capacity and idle TTL.
-        self._workflow_parent: SandboxSession | None = None
-        self._chat_workspaces: dict[str, SandboxSession] = {}
 
     def _transition_lifecycle(
         self,
@@ -649,9 +644,6 @@ class SandboxSession:
             )
         )
         busy = bool(inflight or broker_count or writeback_busy or guest_busy)
-        for child in getattr(self, "_chat_workspaces", {}).values():
-            if not child.closed:
-                busy = bool(child.observe_activity(now=observed_at)["busy"]) or busy
         sequence_value = pool_state.get("activity_sequence")
         sequence = int(sequence_value) if isinstance(sequence_value, int) else None
         sequence_advanced = bool(
@@ -741,11 +733,10 @@ class SandboxSession:
         async with self._lock:
             if self.closed or self._lifecycle_state == "hibernated":
                 return False
-            if self.observe_activity()["busy"]:
+            if _session_inflight_operations(self) != 0:
                 return False
             self._transition_lifecycle(SessionLifecycleState.HIBERNATING)
             try:
-                await self._close_chat_workspaces()
                 pool = self._fileop_pool
                 if pool is not None and not await asyncio.to_thread(pool.is_quiescent):
                     # Activity that outlived a host waiter is not a snapshot
@@ -2159,8 +2150,6 @@ class SandboxSession:
             raise RuntimeError(
                 f"sandbox session is {state}; reacquire it before starting work"
             )
-        if getattr(self, "_workflow_parent", None) is not None:
-            self._workflow_parent._begin_activity()
         self._inflight_operations += 1
         self.last_used = time.monotonic()
 
@@ -2180,8 +2169,6 @@ class SandboxSession:
             # daemon poll. A host-authoritative abandoned job or guest activity
             # keeps `busy` true; otherwise the silence clock starts now.
             self.observe_activity(now=now)
-        if getattr(self, "_workflow_parent", None) is not None:
-            self._workflow_parent._end_activity()
 
     async def _submit_fileop(self, op: dict, *, timeout: float = 30.0) -> dict:
         """Run one file operation under the shared sliding-idle lease."""
@@ -2363,7 +2350,7 @@ class SandboxSession:
                     self.workflow_run_id,
                     self.tenant_id,
                     self.workflow_run_dir,
-                    self.workflow_run_id,
+                    self.wf_id,
                 )
         except Exception as exc:
             failures.append(exc)
@@ -2845,11 +2832,6 @@ class SandboxSession:
         async with self._transition_lock:
             await self._close_once()
 
-    async def _close_chat_workspaces(self) -> None:
-        for scope_id, child in list(getattr(self, "_chat_workspaces", {}).items()):
-            await child.close()
-            self._chat_workspaces.pop(scope_id, None)
-
     async def _close_once(self) -> None:
         """Release one session while holding the lifecycle transition lock."""
         if self.closed or self._lifecycle_state == SessionLifecycleState.CLOSED.value:
@@ -2869,9 +2851,6 @@ class SandboxSession:
                            exc_info=True)
         if self._lifecycle_state != SessionLifecycleState.RELEASING.value:
             self._transition_lifecycle(SessionLifecycleState.RELEASING)
-        # Persist private workers before removing the shared /run projection.
-        # Failed child persistence leaves the parent retained for retry too.
-        await self._close_chat_workspaces()
         execution_pool = getattr(self, "_workflow_rpc_pool", None)
         if execution_pool is not None:
             # Stop workflow writers before persisting/unmounting shared files.
@@ -3485,73 +3464,6 @@ class SandboxManager:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    def _loaded_workspaces(self):
-        """Root sessions and their worker contexts; not independent TTL slots."""
-        for parent in self._sessions.values():
-            yield parent
-            children = getattr(parent, "_chat_workspaces", {})
-            if isinstance(children, dict):
-                yield from children.values()
-
-    def _loaded_workspace(self, tenant_id: str, scope_id: str):
-        return next((s for s in self._loaded_workspaces()
-                     if s.tenant_id == tenant_id and s.wf_id == scope_id and not s.closed), None)
-
-    async def _workflow_chat_owner(self, tenant_id: str, scope_id: str, user_id: str | None):
-        project_id = project_id_from_workspace_scope(scope_id)
-        if project_id is None:
-            return None
-        from sqlalchemy import select
-        from vibecanvas_api.storage.models import ChatProject
-        async with short_session_scope(tenant_id=tenant_id, user_id=user_id) as db:
-            row = (await db.execute(select(ChatProject.workflow_id, ChatProject.creator_user_id).where(
-                ChatProject.project_id == project_id,
-                ChatProject.tenant_id == uuid.UUID(tenant_id),
-                ChatProject.deleted_at.is_(None),
-            ))).first()
-        if row is None:
-            raise LookupError("project workspace no longer exists")
-        if row.workflow_id is None:
-            return None
-        if str(row.creator_user_id) != user_id:
-            raise PermissionError("workflow chat workspace belongs to another user")
-        return str(row.workflow_id)
-
-    async def _get_workflow_chat_workspace(
-        self, tenant_id: str, scope_id: str, user_id: str, workflow_id: str,
-        *, expose_runtime: bool,
-    ) -> SandboxSession:
-        parent = await self.get_session(tenant_id, workflow_id, user_id=user_id,
-                                        expose_run=True, expose_runtime=False)
-        # Protect creation (including awaits in hydration) from parent idle
-        # retirement. The registry lock deduplicates concurrent first sends.
-        parent._begin_activity()
-        try:
-            async with self._acquisition_lock((tenant_id, scope_id)):
-                if parent.closed or _session_lifecycle_state(parent) != "warm":
-                    raise RuntimeError("workflow sandbox was released; reacquire it")
-                child = parent._chat_workspaces.get(scope_id)
-                if child is not None and not child.closed:
-                    if child.user_id != user_id:
-                        raise PermissionError("workflow chat workspace belongs to another user")
-                    if (not expose_runtime or child.runtime_dir) and not child._requires_rehydrate:
-                        return child
-                    if child.observe_activity()["busy"]:
-                        raise RuntimeError("workflow chat worker is busy; retry after its current turn")
-                    await child.close()
-                child = await self._build_session(
-                    tenant_id, scope_id, user_id=user_id, expose_run=True,
-                    expose_runtime=expose_runtime, expose_mount=True, isolate_projection=True,
-                )
-                child._workflow_parent = parent
-                child.workflow_run_id = workflow_id
-                child.workflow_run_dir = parent.workflow_run_dir
-                parent._chat_workspaces[scope_id] = child
-                self._closed_markers.pop((tenant_id, scope_id), None)
-                return child
-        finally:
-            parent._end_activity()
-
     async def get_session(self, tenant_id: str, wf_id: str,
                           user_id: str | None = None,
                           expose_run: bool = True,
@@ -3570,11 +3482,6 @@ class SandboxManager:
         overlay dir."""
         if workspace_profile not in {"chat", "execution"}:
             raise ValueError("invalid_workspace_profile")
-        workflow_id = await self._workflow_chat_owner(tenant_id, wf_id, user_id)
-        if workflow_id is not None:
-            return await self._get_workflow_chat_workspace(
-                tenant_id, wf_id, user_id, workflow_id, expose_runtime=expose_runtime,
-            )
         acquire_started = time.perf_counter()
         key = (tenant_id, wf_id)
         # Restore outside the manager-wide registry lock. The Session's own
@@ -3691,7 +3598,7 @@ class SandboxManager:
         sandbox merely to discover that the original worker owns the broker.
         """
         async with self._lock:
-            session = self._loaded_workspace(tenant_id, wf_id)
+            session = self._sessions.get((tenant_id, wf_id))
             if session is None or session.closed:
                 return None
             if _session_lifecycle_state(session) != "warm":
@@ -3723,11 +3630,7 @@ class SandboxManager:
                     "error": "sandbox_persistence_incomplete" if retained is not None else None,
                     "resources": {**_session_resource_status(retained or object()), "lifecycle_state": "releasing"},
                 }
-            session = self._loaded_workspace(tenant_id, wf_id)
-            if session is not None:
-                parent = getattr(session, "_workflow_parent", None)
-                if isinstance(parent, SandboxSession):
-                    session = parent
+            session = self._sessions.get(key)
             if session is not None and not session.closed:
                 lifecycle_state = _session_lifecycle_state(session)
                 if lifecycle_state == "hibernated":
@@ -3872,7 +3775,7 @@ class SandboxManager:
         victim = None
         closing = None
         async with self._lock:
-            victim = self._sessions.pop(key, None) or self._failed_closes.get(key) or self._loaded_workspace(tenant_id, wf_id)
+            victim = self._sessions.pop(key, None) or self._failed_closes.get(key)
             self._closed_markers[key] = time.monotonic()
             if victim is not None and wf_id.startswith(("batch-", "schedule-")):
                 self._retiring_task_sessions[key] = victim
@@ -3951,10 +3854,9 @@ class SandboxManager:
         """
         victims: list[SandboxSession] = []
         async with self._lock:
-            keys = {key for key in self._sessions if key[0] == tenant_id}
-            keys.update(key for key in self._failed_closes if key[0] == tenant_id)
+            keys = [key for key in self._sessions if key[0] == tenant_id]
             for key in keys:
-                victim = self._sessions.pop(key, None) or self._failed_closes[key]
+                victim = self._sessions.pop(key)
                 self._closed_markers[key] = time.monotonic()
                 victims.append(victim)
         for victim in victims:
@@ -3972,12 +3874,12 @@ class SandboxManager:
         """
         victims: list[SandboxSession] = []
         async with self._lock:
-            candidates = list(self._loaded_workspaces()) + list(self._failed_closes.values())
-            for victim in candidates:
-                if victim.user_id != user_id or victim in victims:
-                    continue
-                key = (victim.tenant_id, victim.wf_id)
-                self._sessions.pop(key, None)
+            keys = [
+                key for key, session in self._sessions.items()
+                if session.user_id == user_id
+            ]
+            for key in keys:
+                victim = self._sessions.pop(key)
                 self._closed_markers[key] = time.monotonic()
                 victims.append(victim)
         for victim in victims:
@@ -4063,11 +3965,15 @@ class SandboxManager:
         """
         victims: list[SandboxSession] = []
         async with self._lock:
-            for session in list(self._loaded_workspaces()):
-                if (session.tenant_id == tenant_id and session.user_id == user_id
-                        and session._bound_runtime_uses_codex_account):
-                    self._sessions.pop((tenant_id, session.wf_id), None)
-                    victims.append(session)
+            keys = [
+                key
+                for key, session in self._sessions.items()
+                if key[0] == tenant_id
+                and session.user_id == user_id
+                and session._bound_runtime_uses_codex_account
+            ]
+            for key in keys:
+                victims.append(self._sessions.pop(key))
         for victim in victims:
             self._schedule_close(victim, reason="codex_account_disconnected")
         return len(victims)
@@ -4082,12 +3988,12 @@ class SandboxManager:
         key = (tenant_id, wf_id)
         async with self._lock:
             sessions = []
-            direct = self._loaded_workspace(tenant_id, wf_id)
+            direct = self._sessions.get(key)
             if direct is not None and not direct.closed:
                 sessions.append(direct)
             if path.startswith("/mount/"):
-                for session in self._loaded_workspaces():
-                    if session.tenant_id != tenant_id or session.closed or session is direct:
+                for (tenant, _sid), session in self._sessions.items():
+                    if tenant != tenant_id or session.closed or session is direct:
                         continue
                     if getattr(session, "mount_scope_id", None) == wf_id:
                         sessions.append(session)
@@ -4118,12 +4024,12 @@ class SandboxManager:
         key = (tenant_id, wf_id)
         async with self._lock:
             sessions = []
-            direct = self._loaded_workspace(tenant_id, wf_id)
+            direct = self._sessions.get(key)
             if direct is not None and not direct.closed:
                 sessions.append(direct)
             if path.startswith("/mount/"):
-                for session in self._loaded_workspaces():
-                    if session.tenant_id != tenant_id or session.closed or session is direct:
+                for (tenant, _sid), session in self._sessions.items():
+                    if tenant != tenant_id or session.closed or session is direct:
                         continue
                     if getattr(session, "mount_scope_id", None) == wf_id:
                         sessions.append(session)
@@ -4162,8 +4068,7 @@ class SandboxManager:
                              expose_run: bool = True,
                              expose_runtime: bool = False,
                              expose_mount: bool = True,
-                             workspace_profile: str = "chat",
-                             isolate_projection: bool = False) -> SandboxSession:
+                             workspace_profile: str = "chat") -> SandboxSession:
         """Materialize Chat/user VFS mounts and construct the session.
 
         ``build_run_context`` (blocking DB+ObjectStore+FS, run off-loop) gives
@@ -4202,7 +4107,6 @@ class SandboxManager:
             pool_runs_root = os.path.dirname(run_dir) if run_dir else None
             store = get_object_store()
             if run_dir and (not isinstance(store, FilesystemObjectStore)
-                            or isolate_projection
                             or not expose_mount or wf_id.startswith(("schedule-", "batch-", "deployment-"))):
                 # Task execution and no-mount sessions must not see neighbouring
                 # tenant workspaces (or their hydrated mounts) through /runs.
@@ -4401,7 +4305,7 @@ class SandboxManager:
                 self._closed_markers.pop(k, None)
                 victims.append(victim)
                 reaped += 1
-            skill_sessions = list(self._loaded_workspaces())
+            skill_sessions = list(self._sessions.values())
         for session in skill_sessions:
             try:
                 await session.maintain_workflow_skills()

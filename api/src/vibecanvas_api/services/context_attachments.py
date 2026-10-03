@@ -220,7 +220,7 @@ class ContextResolver:
         digest = hashlib.sha256(data).hexdigest()
         name = posixpath.basename(resolved.file_ref.path)
         path = f'/chats/{self.chat_id}/contexts/{digest[:24]}/{name}'
-        scope = project_workspace_scope_id(inventory['project_id'])
+        scope = project_workspace_scope_id(inventory['project_id'], workflow_id=inventory.get('workflow_id'))
         await VfsRepo(self.session, object_store=store).upsert_artifact_bytes(
             wf_id=scope, tenant=self.auth.tenant_id, path=path, data=data,
             content_type=resolved.row.content_type or 'application/octet-stream')

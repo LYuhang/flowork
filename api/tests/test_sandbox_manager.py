@@ -731,9 +731,6 @@ async def test_session_snapshot_restores_same_fileop_pool(monkeypatch, tmp_path)
     class Pool:
         size = 2
 
-        def activity_snapshot(self):
-            return {}
-
         def __init__(self) -> None:
             self.restored: ServeSnapshot | None = None
 

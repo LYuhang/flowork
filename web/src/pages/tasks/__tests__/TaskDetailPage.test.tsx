@@ -339,6 +339,71 @@ describe("<TaskDetailPage>", () => {
     expect(screen.queryByText("Row one")).not.toBeInTheDocument();
   });
 
+  it.each([true, false])("separates schedule enabled=%s from a failed execution and shows node-map errors", async (enabled) => {
+    const user = userEvent.setup();
+    const scheduledTask = makeTask({ status: enabled ? "failed" : "paused", error: JSON.stringify({node_2: "[NodeId: node_2] Image path is empty"}) });
+    scheduledTask.task_type = "scheduled_run";
+    const execution: ScheduledRunExecution = {
+      id: "11111111-1111-1111-1111-111111111111",
+      schedule_id: "22222222-2222-2222-2222-222222222222",
+      workflow_id: "wf_42",
+      version: "v2.sv3",
+      run_key: "manual-1",
+      status: "succeeded",
+      trigger_type: "manual",
+      triggered_at: "2026-05-24T10:00:00Z",
+      started_at: "2026-05-24T10:00:01Z",
+      finished_at: "2026-05-24T10:01:00Z",
+      input_snapshot: {},
+      result: {},
+      results_uri: null,
+      error: null,
+      run_state: {},
+      notification_state: { status: "skipped" },
+    };
+    vi.mocked(getTask).mockResolvedValue(scheduledTask);
+    vi.mocked(getScheduledRun).mockResolvedValue({
+      task: scheduledTask,
+      schedule: {
+        id: execution.schedule_id,
+        task_id: TASK_ID,
+        workflow_id: "wf_42",
+        name: "每日汇总",
+        enabled,
+        schedule_type: "cron",
+        cron_expr: "0 9 * * *",
+        interval_seconds: null,
+        timezone: "Asia/Shanghai",
+        input_preset: {},
+        mount_enabled: false,
+        notification_policy: {},
+        concurrency_policy: "skip",
+        failure_policy: "continue",
+        catchup_policy: false,
+        next_run_at: "2026-05-25T01:00:00Z",
+        end_at: null,
+        last_run_at: "2026-05-24T01:00:00Z",
+        last_status: "failed",
+        created_at: "2026-05-20T01:00:00Z",
+        updated_at: "2026-05-24T01:00:00Z",
+      },
+    });
+    vi.mocked(listScheduledRunExecutions).mockResolvedValue({
+      items: [execution],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+
+    renderAt(TASK_ID);
+    expect(await screen.findByText("Last scheduled execution failed")).toBeInTheDocument();
+    expect(screen.getByText("node_2: [NodeId: node_2] Image path is empty")).toBeInTheDocument();
+    expect((await screen.findAllByText(enabled ? "Enabled" : "Paused")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("The task could not finish. Review the input and workflow configuration, then run it again.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "View execution logs"}));
+    expect(screen.getByRole("tab", {name: "Execution logs"})).toHaveAttribute("data-state", "active");
+  });
+
   it("renders scheduled-run state, trigger, and filter labels in Chinese", async () => {
     const user = userEvent.setup();
     await testI18n.changeLanguage("zh");

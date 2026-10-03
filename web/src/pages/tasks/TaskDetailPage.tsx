@@ -297,7 +297,11 @@ function humanTaskError(raw: string, fallback: string): string {
       const nestedMessage = nested.message ?? nested.detail ?? nested.reason;
       if (typeof nestedMessage === 'string' && nestedMessage.trim()) return nestedMessage.trim();
     }
-    return fallback;
+    const nodeErrors = Object.entries(record)
+      .filter(([key, value]) => typeof value === 'string' && value.trim()
+        && (key.startsWith('node_') || value.includes('[NodeId:')))
+      .map(([key, value]) => `${key}: ${String(value).trim()}`);
+    return nodeErrors.length ? nodeErrors.join('\n') : fallback;
   } catch {
     return raw.trim() || fallback;
   }
@@ -636,10 +640,16 @@ export function TaskDetailPage() {
   }
 
   const task = taskQuery.data;
-  const displayStatus = visibleTaskStatus(task.status);
   const capabilities = new Set(task.access?.capabilities ?? []);
   const pct = Math.round((task.progress ?? 0) * 100);
   const isScheduledRun = task.task_type === "scheduled_run";
+  // A schedule can remain enabled after one execution fails.
+  const displayStatus = isScheduledRun && scheduledQuery.data
+    && ["failed", "enabled", "paused"].includes(task.status)
+    ? scheduledQuery.data.schedule.enabled ? "enabled" : "paused"
+    : visibleTaskStatus(task.status);
+  const scheduledFailure = isScheduledRun && task.status !== "running"
+    && (task.status === "failed" || scheduledQuery.data?.schedule.last_status === "failed");
   const isCancellable = !isScheduledRun && capabilities.has("cancel") && CANCELLABLE.includes(task.status);
   const isResumable = !isScheduledRun && capabilities.has("resume") && RESUMABLE.includes(task.status)
     && (task.result as { can_resume?: boolean } | null)?.can_resume !== false
@@ -921,17 +931,19 @@ export function TaskDetailPage() {
           </div>
         )}
 
-        {/* Error block (failed only) */}
-        {task.status === "failed" && task.error && (
+        {/* Execution failures do not imply that the recurring schedule stopped. */}
+        {(isScheduledRun ? scheduledFailure : task.status === "failed") && task.error && (
           <ActionableError
-            title={t("taskDetail.error", "Task execution failed")}
-            description={humanTaskError(
+            title={isScheduledRun ? t("taskDetail.scheduledLastFailed") : t("taskDetail.error", "Task execution failed")}
+            actionLabel={isScheduledRun ? t("taskDetail.viewExecutionLogs") : undefined}
+            onAction={isScheduledRun ? () => selectTab("logs") : undefined}
+            description={<span className="whitespace-pre-wrap break-words">{humanTaskError(
               task.error,
-              t(
+              isScheduledRun ? t("taskDetail.scheduledErrorHint") : t(
                 "taskDetail.errorHint",
                 "The task could not finish. Review the input and workflow configuration, then run it again.",
               ),
-            )}
+            )}</span>}
             technicalDetails={task.error}
             technicalDetailsLabel={t("technicalDetails", "Technical details")}
           />

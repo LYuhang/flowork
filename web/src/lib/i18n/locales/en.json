@@ -3832,5 +3832,8 @@
   "mcp.detail.connectionSettings": "Connection & settings",
   "files.manage.indexErrors": "Indexing failures",
   "files.manage.deleteDraftFolder": "{{name}} and its {{count}} files will be removed from the draft. Published versions are unchanged.",
-  "files.manage.deleteDraftFile": "{{name}} will be removed from the draft. Published versions are unchanged."
+  "files.manage.deleteDraftFile": "{{name}} will be removed from the draft. Published versions are unchanged.",
+  "taskDetail.scheduledLastFailed": "Last scheduled execution failed",
+  "taskDetail.scheduledErrorHint": "Open execution logs to inspect the failed run and its node errors. The schedule status is shown separately.",
+  "taskDetail.viewExecutionLogs": "View execution logs"
 }

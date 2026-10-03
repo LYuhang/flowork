@@ -3832,5 +3832,8 @@
   "mcp.detail.connectionSettings": "连接与配置",
   "files.manage.indexErrors": "索引失败",
   "files.manage.deleteDraftFolder": "将从草稿中移除 {{name}} 及其中的 {{count}} 个文件，已发布版本不受影响。",
-  "files.manage.deleteDraftFile": "将从草稿中移除 {{name}}，已发布版本不受影响。"
+  "files.manage.deleteDraftFile": "将从草稿中移除 {{name}}，已发布版本不受影响。",
+  "taskDetail.scheduledLastFailed": "上次定时执行失败",
+  "taskDetail.scheduledErrorHint": "请在执行日志中查看该次执行及节点错误。定时计划是否启用单独显示。",
+  "taskDetail.viewExecutionLogs": "查看执行日志"
 }

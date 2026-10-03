@@ -189,7 +189,7 @@ class RuntimeInstruction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instruction_id: str = Field(pattern=r"^[a-z][a-z0-9_.:-]{0,127}$")
-    kind: Literal["command_context", "skill_selection"]
+    kind: Literal["command_context", "skill_selection", "workflow_context"]
     scope: Literal["chat", "turn"]
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     version: int = Field(ge=1)
@@ -198,7 +198,7 @@ class RuntimeInstruction(BaseModel):
 
     @model_validator(mode="after")
     def validate_instruction_scope(self) -> "RuntimeInstruction":
-        expected = "turn" if self.kind == "skill_selection" else "chat"
+        expected = "chat" if self.kind == "command_context" else "turn"
         if self.scope != expected:
             raise ValueError("instruction scope does not match its kind")
         return self
@@ -585,6 +585,8 @@ class RuntimeCapabilities(BaseModel):
 
 
 RUNTIME_EVENT_TYPES = Literal[
+    # Private audit input; persisted encrypted, never projected to the UI.
+    "runtime.input",
     "runtime.started",
     "runtime.completed",
     "runtime.failed",

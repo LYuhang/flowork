@@ -123,6 +123,9 @@ from ..services.agent_runtime.mcp_host_resolution import (
     resolve_platform_mcp_authority,
 )
 from ..services.agent_runtime.instructions import command_instructions_for_modes
+from ..services.workflow_chat_context import (
+    WorkflowChatBinding, WorkflowContextError, resolve_workflow_chat_context,
+)
 from ..services.agent_runtime.history_recovery import (
     build_durable_history_snapshot,
 )
@@ -240,7 +243,7 @@ async def _new_chat_project(project_repo, session, auth, *, chat_id, surface, pr
             await project_repo.create(project_id=expected_id, name=name or "Browser chat", surface="browser")
         return expected_id
     project = await _require_project(project_repo, project_id)
-    if project.surface != "chat":
+    if project.surface != "chat" or project.workflow_id is not None:
         raise HTTPException(status_code=404, detail="project_not_found")
     return project.project_id
 
@@ -471,17 +474,54 @@ async def create_chat_session(
         action=Action.CREATE,
     )
     surface = "browser" if scope_id == _browser_carrier_scope_id(auth.user_id) else "chat"
-    project_id = await _new_chat_project(
-        project_repo, session, auth, chat_id=chat_id, surface=surface,
-        project_id=body.project_id, name="Browser chat",
-    )
+    workflow_binding = body.workflow_context
+    name = "New chat"
+    if workflow_binding is not None:
+        if (workflow_binding.workflow_id != scope_id
+                or _is_internal_carrier_scope(scope_id, auth.user_id)
+                or body.project_id is not None):
+            raise HTTPException(status_code=422, detail="invalid_workflow_chat_binding")
+        await _authorize_chat_carrier(
+            request=request, auth=auth, service=service, workflow_repo=wf_repo,
+            scope_id=scope_id, action=Action.UPDATE,
+        )
+        existing_binding = await chat_repo.get_workflow_context(chat_id)
+        if existing_binding is not None and existing_binding != workflow_binding.model_dump(mode="json"):
+            raise HTTPException(status_code=409, detail="workflow_chat_binding_conflict")
+        if existing_binding is None:
+            try:
+                context, _instruction = await resolve_workflow_chat_context(
+                    wf_repo, workflow_binding, chat_id=chat_id, creating=True,
+                )
+            except WorkflowContextError as exc:
+                raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+            target = workflow_binding.target
+            label = "Workflow"
+            if target.kind == "node":
+                node = context["nodes"][target.node_id]
+                label = str(node.get("node_name") or target.node_id)
+            elif target.kind == "edge":
+                label = f"{target.source} → {target.target}"
+            name = f"[{context['version']}] {label}"[:120]
+        project = await project_repo.for_workflow(scope_id)
+        project_id = project.project_id
+    else:
+        project_id = await _new_chat_project(
+            project_repo, session, auth, chat_id=chat_id, surface=surface,
+            project_id=body.project_id, name="Browser chat",
+        )
     try:
         await chat_repo.register_session(
-            scope_id, chat_id=chat_id, name="New chat", surface=surface,
+            scope_id, chat_id=chat_id, name=name, surface=surface,
             project_id=project_id,
+            major_version=workflow_binding.major_version if workflow_binding else 1,
         )
+        if workflow_binding is not None:
+            await chat_repo.bind_workflow_context(chat_id, workflow_binding.model_dump(mode="json"))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="chat_not_found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
     await project_repo.touch(project_id)
     await _commit_new_chat_projection(
         request=request, session=session, auth=auth, chat_id=chat_id,
@@ -492,6 +532,8 @@ async def create_chat_session(
     return ChatListItem(
         chat_id=chat_id, project_id=project_id, scope_id=scope_id,
         surface=surface, chat_context=item["chat_context"],
+        workflow_context=item.get("workflow_context"),
+        updated_at=item.get("updated_at"), last_message_at=item.get("last_message_at"),
         created_at=datetime.fromtimestamp(item["created_at"], timezone.utc).isoformat(),
         runtime_type=item["runtime_type"],
         browser_control_status=item["browser_control_status"],
@@ -1208,6 +1250,9 @@ def _session_to_list_item(
             session.get("chat_context", "") if can_view_content else ""
         ),
         created_at=str(session.get("created_at", "")),
+        updated_at=session.get("updated_at"),
+        last_message_at=session.get("last_message_at"),
+        workflow_context=session.get("workflow_context") if can_view_content else None,
         browser_control_status=session.get("browser_control_status", "inactive"),
         runtime_type=session.get("runtime_type") if can_view_content else None,
         access=access_from_decision(decision) if decision else None,
@@ -2976,8 +3021,29 @@ async def post_message(
             detail={"code": "mcp_selection_unavailable", "message": str(exc)},
         ) from exc
 
+    workflow_context_snapshot = None
+    workflow_instruction = None
+    workflow_binding_data = await chat_repo.get_workflow_context(chat_id)
+    if workflow_binding_data is not None:
+        workflow_binding = WorkflowChatBinding.model_validate(workflow_binding_data)
+        if workflow_binding.workflow_id != scope_id:
+            raise HTTPException(status_code=409, detail="workflow_chat_binding_conflict")
+        await _authorize_chat_carrier(
+            request=http_request, auth=auth, service=authz_service, workflow_repo=wf_repo,
+            scope_id=scope_id, action=Action.UPDATE,
+        )
+        try:
+            workflow_context_snapshot, workflow_instruction = await resolve_workflow_chat_context(
+                wf_repo, workflow_binding, chat_id=chat_id,
+                creating=not any(item["chat_id"] == chat_id and item.get("last_message_at") for item in sessions),
+            )
+        except WorkflowContextError as exc:
+            raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+
     # Load the chat's persisted active_modes, then apply this turn's command.
     active_modes = await chat_repo.get_active_modes(chat_id)
+    if workflow_instruction is not None:
+        active_modes = active_modes | {"workflow"}
     # `/command` mode system: commands are sticky built-in capabilities. The
     # active set gates tools; the user message carries command_activation meta so
     # CommandContextEdit can inject protocol text at the latest command position.
@@ -3330,6 +3396,8 @@ async def post_message(
         activated_this_turn=effective_activated_this_turn,
         active_diagram=await chat_repo.get_active_diagram(chat_id),
     )
+    if workflow_instruction is not None:
+        runtime_instructions.append(workflow_instruction)
     active_platform_mcps = platform_mcp_names_for_modes(
         effective_active_modes,
         runtime_type=runtime_type.value,
@@ -3543,6 +3611,11 @@ async def post_message(
                     settings.reasoning_effort if settings is not None else None
                 ),
                 "command": cmd,
+                "workflow_context": workflow_context_snapshot,
+                "runtime_message": user_message,
+                "resolved_runtime_instructions": [
+                    item.model_dump(mode="json") for item in runtime_instructions
+                ],
                 "runtime_instructions": [
                     {
                         "instruction_id": item.instruction_id,

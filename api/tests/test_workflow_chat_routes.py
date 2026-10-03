@@ -1,0 +1,103 @@
+"""Canvas Chat resource creation on the shared Chat HTTP/storage path."""
+import uuid
+
+import pytest
+
+from vibecanvas_api.config import config
+from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
+from vibecanvas_api.storage.db import session_scope
+from vibecanvas_api.storage.workflow_repo import WorkflowRepo
+
+
+@pytest.fixture
+def web_cookies(monkeypatch):
+    monkeypatch.setattr(config, "environment", "test")
+    monkeypatch.setattr(config, "web_session_cookie_secure", False)
+    monkeypatch.setattr(config, "distributed_auth_rate_limit_enabled", False)
+    monkeypatch.setattr(config, "web_session_cookie_enabled", True)
+    monkeypatch.setattr(config.public_urls, "public_url", "")
+
+
+async def setup(client):
+    registered = await client.post("/api/v1/auth/register", headers={"Origin": "http://testserver"},
+        json={"email": f"canvas-{uuid.uuid4().hex}@example.com", "username": "Canvas", "password": "pw12345678"})
+    assert registered.status_code == 201, registered.text
+    me_response = await client.get("/api/v1/auth/me")
+    assert me_response.status_code == 200, me_response.text
+    me = me_response.json()
+    headers = {"Origin": "http://testserver", "X-CSRF-Token": client.cookies.get("vibecanvas-web-csrf")}
+    wf_id = "wf-" + uuid.uuid4().hex[:12]
+    graph = {"focus": {"node_id": "focus", "node_type": "CodeNode", "node_name": "Clean data",
+                       "node_config": {"code": "return {}"}, "children": []}}
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        await WorkflowRepo(session, me["user_id"]).create_workflow(
+            wf_id=wf_id, name="Canvas workflow", initial_workflow=graph)
+    return me, headers, wf_id, graph
+
+
+def payload(wf_id, sub=0):
+    return {"workflow_context": {"workflow_id": wf_id, "major_version": 1,
+            "initial_subversion": sub, "target": {"kind": "node", "node_id": "focus"}}}
+
+
+@pytest.mark.asyncio
+async def test_create_retry_history_metadata_and_hidden_project(client, web_cookies):
+    me, headers, wf_id, graph = await setup(client)
+    path = f"/api/v1/chat-scopes/{wf_id}/chats/canvas-history"
+    created = await client.put(path, headers=headers, json=payload(wf_id))
+    assert created.status_code == 200, created.text
+    item = created.json()
+    assert item["workflow_context"]["workflow_id"] == wf_id
+    assert item["workflow_context"]["initial_subversion"] == 0
+    assert "Clean data" in item["chat_context"]
+    assert item["created_at"] and item["updated_at"]
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        await WorkflowRepo(session, me["user_id"]).commit(wf_id, graph, target_major=1)
+        assert await ChatProjectRepo(session, me["user_id"]).list() == []
+    # A retried successful create stays idempotent even after the graph advances.
+    replay = await client.put(path, headers=headers, json=payload(wf_id))
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["project_id"] == item["project_id"]
+    assert replay.json()["workflow_context"] == item["workflow_context"]
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        sessions = await ChatRepo(session, me["user_id"]).list_sessions(wf_id)
+        assert len(sessions) == 1
+        assert sessions[0]["workflow_context"]["initial_subversion"] == 0
+    stale = await client.put(f"/api/v1/chat-scopes/{wf_id}/chats/stale", headers=headers, json=payload(wf_id))
+    assert stale.status_code == 409, stale.text
+    fresh = await client.put(f"/api/v1/chat-scopes/{wf_id}/chats/fresh", headers=headers, json=payload(wf_id, 1))
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()["project_id"] == item["project_id"]
+    rebound = await client.put(path, headers=headers, json=payload(wf_id, 1))
+    assert rebound.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_rejects_wrong_workflow_missing_target_and_manual_project(client, web_cookies):
+    _, headers, wf_id, _ = await setup(client)
+    path = f"/api/v1/chat-scopes/{wf_id}/chats/canvas-invalid"
+    wrong = await client.put(path, headers=headers, json=payload("other-workflow"))
+    assert wrong.status_code == 422
+    missing = payload(wf_id)
+    missing["workflow_context"]["target"]["node_id"] = "deleted-node"
+    response = await client.put(path, headers=headers, json=missing)
+    assert response.status_code == 409
+    response = await client.put(path, headers=headers, json={**payload(wf_id), "project_id": "arbitrary"})
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_concurrent_canvas_chats_share_internal_project(client, web_cookies):
+    import asyncio
+    me, headers, wf_id, _ = await setup(client)
+    responses = await asyncio.gather(*(
+        client.put(f"/api/v1/chat-scopes/{wf_id}/chats/parallel-{i}", headers=headers, json=payload(wf_id))
+        for i in range(3)
+    ))
+    assert all(response.status_code == 200 for response in responses), [response.text for response in responses]
+    assert len({response.json()["project_id"] for response in responses}) == 1
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        sessions = await ChatRepo(session, me["user_id"]).list_sessions(wf_id)
+        assert len(sessions) == 3
+        assert {item["workflow_context"]["target"]["node_id"] for item in sessions} == {"focus"}

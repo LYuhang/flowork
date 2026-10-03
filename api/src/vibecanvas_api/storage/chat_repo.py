@@ -213,6 +213,50 @@ class ChatRepo:
             project_id,
         )
 
+    async def get_workflow_context(self, chat_id: str) -> dict | None:
+        chat = (await self._s.execute(select(Chat).where(
+            Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
+            Chat.deleted_at.is_(None),
+        ))).scalar_one_or_none()
+        if chat is None:
+            return None
+        await self._materialize_chat_private(chat)
+        value = chat.meta.get("workflow_context")
+        return dict(value) if isinstance(value, dict) else None
+
+    async def bind_workflow_context(self, chat_id: str, binding: dict) -> dict:
+        """Persist a canvas target once; history resumes never rebind a Chat.
+
+        The route must authorize Workflow editing and resolve the requested
+        version first. Chat ownership and workflow scope are enforced here too.
+        """
+        from vibecanvas_api.services.workflow_chat_context import WorkflowChatBinding
+
+        target = WorkflowChatBinding.model_validate(binding)
+        chat = (await self._s.execute(select(Chat).where(
+            Chat.chat_id == chat_id,
+            Chat.creator_user_id == self._user_id,
+            Chat.scope_id == target.workflow_id,
+            Chat.deleted_at.is_(None),
+        ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+        if chat is None:
+            raise LookupError("chat_not_found")
+        await self._materialize_chat_private(chat)
+        value = target.model_dump(mode="json")
+        existing = chat.meta.get("workflow_context")
+        if existing is not None:
+            if existing != value:
+                raise ValueError("workflow_chat_binding_conflict")
+            return dict(existing)
+        if chat.last_message_at is not None:
+            raise ValueError("workflow_chat_binding_after_first_message")
+        await self._store_chat_private(
+            chat, name=chat.name, meta={**chat.meta, "workflow_context": value},
+        )
+        chat.major_version = target.major_version
+        await self._s.flush()
+        return value
+
     async def list_sessions(self, scope_id: str,
                             major_version: int = 0,
                             surface: str | None = None) -> list[dict]:
@@ -241,7 +285,10 @@ class ChatRepo:
                  "browser_control_status": c.browser_control_status,
                  "major_version": c.major_version,
                  "active_modes": list((c.meta or {}).get("active_modes", [])),
-                 "created_at": c.created_at.timestamp()} for c in rows]
+                 "created_at": c.created_at.timestamp(),
+                 "updated_at": c.updated_at.isoformat(),
+                 "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
+                 "workflow_context": (c.meta or {}).get("workflow_context")} for c in rows]
 
     async def list_authorized_sessions(
         self,
@@ -295,6 +342,9 @@ class ChatRepo:
                     (chat.meta or {}).get("active_modes", [])
                 ),
                 "created_at": chat.created_at.timestamp(),
+                "updated_at": chat.updated_at.isoformat(),
+                "last_message_at": chat.last_message_at.isoformat() if chat.last_message_at else None,
+                "workflow_context": (chat.meta or {}).get("workflow_context"),
             }
             for chat in rows
         ]

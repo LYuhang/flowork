@@ -232,6 +232,9 @@ class ChatProject(Base):
         ForeignKey("content_encryption_keys.key_id", ondelete="RESTRICT"),
         nullable=False,
     )
+    workflow_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("workflows.wf_id", ondelete="RESTRICT"), nullable=True,
+    )
     name: str = ""
     surface: Mapped[str] = mapped_column(Text, nullable=False, server_default="chat")
     runtime_type: Mapped[str] = mapped_column(Text, nullable=False)
@@ -246,6 +249,8 @@ class ChatProject(Base):
     updated_at: Mapped[datetime] = _ts()
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     __table_args__ = (
+        Index("uq_project_workflow_owner", "tenant_id", "creator_user_id", "workflow_id",
+              unique=True, postgresql_where=text("workflow_id IS NOT NULL AND deleted_at IS NULL")),
         Index("uq_project_runtime_session", "runtime_session_id", unique=True),
         Index(
             "ix_chat_projects_owner_updated",

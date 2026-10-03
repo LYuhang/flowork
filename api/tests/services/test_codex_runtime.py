@@ -1456,6 +1456,12 @@ async def test_codex_retries_one_empty_provider_completion(monkeypatch):
         "turn/start",
         "turn/start",
     ]
+    audit = [message["event"]["payload"] for message in channel.sent
+             if message.get("event", {}).get("type") == "runtime.input"]
+    assert [item["reason"] for item in audit] == ["user_turn", "empty_completion_retry"]
+    assert [item["input"] for item in audit] == [
+        params["input"] for method, params in client.requests if method == "turn/start"
+    ]
     assert any(
         message.get("event", {}).get("payload", {}).get("payload", {}).get("code")
         == "codex_empty_completion_retry"
@@ -1644,6 +1650,13 @@ async def test_codex_publishes_reviewed_document_through_completion_hub(
     assert gateway_calls == [
         ("render_preview", {"type": "file", "source": "/data/deck.pptx"}),
     ]
+    audit = [message["event"]["payload"] for message in channel.sent
+             if message.get("event", {}).get("type") == "runtime.input"]
+    assert len(audit) == 1
+    assert audit[0]["input"] == turn_starts[0]["input"]
+    assert "Create and review the document." in audit[0]["input"][0]["text"]
+    assert audit[0]["stage"] == "prepared_for_submission"
+
     events = [message["event"] for message in channel.sent if "event" in message]
     preview = next(
         event for event in events
@@ -2563,6 +2576,8 @@ async def test_codex_request_user_input_resumes_the_same_native_turn(monkeypatch
     )
 
     events = [message["event"] for message in channel.sent if "event" in message]
+    # Input audit events are private; retain the public event ordering contract.
+    events = [event for event in events if event["type"] != "runtime.input"]
     assert [event["type"] for event in events] == [
         "runtime.started",
         "checkpoint",
@@ -2731,6 +2746,8 @@ async def test_codex_aggregate_hub_has_no_retired_business_approval_bridge(monke
     assert len(gateways) == 1
 
     events = [message["event"] for message in channel.sent if "event" in message]
+    # Input audit events are private; retain the public event ordering contract.
+    events = [event for event in events if event["type"] != "runtime.input"]
     assert [event["type"] for event in events] == [
         "runtime.started",
         "checkpoint",
@@ -2888,6 +2905,8 @@ async def test_codex_runtime_translates_app_server_stream_to_stable_events(monke
     await run_codex_turn(channel, request)
 
     events = [message["event"] for message in channel.sent if "event" in message]
+    # Input audit events are private; retain the public event ordering contract.
+    events = [event for event in events if event["type"] != "runtime.input"]
     assert [event["type"] for event in events] == [
         "runtime.started",
         "checkpoint",
@@ -3112,6 +3131,8 @@ async def test_codex_runtime_closes_tool_carrier_before_tool_result(monkeypatch)
     await run_codex_turn(channel, request)
 
     events = [message["event"] for message in channel.sent if "event" in message]
+    # Input audit events are private; retain the public event ordering contract.
+    events = [event for event in events if event["type"] != "runtime.input"]
     assert [event["type"] for event in events] == [
         "runtime.started",
         "checkpoint",
@@ -3238,6 +3259,8 @@ async def test_codex_render_interactive_gate_ends_turn_at_completed_tool_boundar
     await run_codex_turn(channel, request)
 
     events = [message["event"] for message in channel.sent if "event" in message]
+    # Input audit events are private; retain the public event ordering contract.
+    events = [event for event in events if event["type"] != "runtime.input"]
     assert [event["type"] for event in events] == [
         "runtime.started",
         "checkpoint",

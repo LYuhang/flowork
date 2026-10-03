@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator, model_valida
 from vibecanvas_api.schemas.context_attachments import ContextAttachment
 
 from vibecanvas_api.schemas.access import ResourceAccessOut
+from vibecanvas_api.services.workflow_chat_context import WorkflowChatBinding
 
 
 class ChatListItem(BaseModel):
@@ -19,6 +20,9 @@ class ChatListItem(BaseModel):
     surface: Literal["chat", "browser"] = "chat"
     chat_context: str = ""
     created_at: str = ""
+    updated_at: str | None = None
+    last_message_at: str | None = None
+    workflow_context: WorkflowChatBinding | None = None
     browser_control_status: Literal[
         "inactive", "attaching", "attached", "lost",
     ] = "inactive"
@@ -28,6 +32,7 @@ class ChatListItem(BaseModel):
 
 class ChatCreateBody(BaseModel):
     project_id: str | None = None
+    workflow_context: WorkflowChatBinding | None = None
 
 
 class ChatRenameBody(BaseModel):

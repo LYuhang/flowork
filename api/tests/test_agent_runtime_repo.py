@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
 from sqlalchemy import text
 
 from vibecanvas_api.storage.agent_runtime_repo import AgentRuntimeRepo
+from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
 from vibecanvas_api.storage.chat_repo import ChatRepo
 from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
 from vibecanvas_api.storage.db import session_scope
@@ -268,3 +270,90 @@ async def test_codex_thread_ref_rotates_only_with_matching_previous_ref(
                 state_ref="codex-thread-3",
                 previous_state_ref="codex-thread-1",
             )
+
+
+@pytest.mark.asyncio
+async def test_runtime_inputs_are_encrypted_private_and_preserve_original(pg_engine):
+    tenant_id, user_id = await _seed(pg_engine)
+    me = {"tenant_id": tenant_id, "user_id": user_id}
+    chat_id = f"c_audit_{uuid.uuid4().hex[:8]}"
+    await _insert_chat(tenant_id, user_id, chat_id)
+    context = dict(tenant_id=me["tenant_id"], user_id=me["user_id"])
+    run_id = f"turn_audit_{uuid.uuid4().hex}"
+    original = "/workflow 修改节点"
+    expanded = "<system-reminder>private instructions</system-reminder>修改节点"
+    async with session_scope(**context) as session:
+        await AgentRunsRepo(session).create(
+            run_id=run_id, tenant_id=me["tenant_id"], chat_id=chat_id,
+            creator_user_id=me["user_id"], client_request_id=run_id,
+            input_snapshot={"content": original, "resolved_runtime_instructions": [{"content": "private instructions"}]},
+        )
+    for event_id in ("audit-1", "audit-1", "audit-2"):
+        async with session_scope(**context) as session:
+            await AgentRunsRepo(session).record_runtime_input(
+                run_id, chat_id=chat_id, creator_user_id=me["user_id"],
+                event_id=event_id, payload={"input": [{"type": "text", "text": expanded}]},
+            )
+    async with session_scope(**context) as session:
+        repo = AgentRunsRepo(session)
+        run = await repo.get(run_id)
+        assert run.input_snapshot["content"] == original
+        assert len(run.input_snapshot["runtime_inputs"]) == 2
+        assert run.input_snapshot["runtime_inputs"][0]["payload"]["input"][0]["text"] == expanded
+        assert expanded not in run.private_ciphertext
+        assert await repo.list_events(run_id, 0) == []
+        diagnostics = await repo.list_debug_turns(chat_id, creator_user_id=me["user_id"])
+        assert "private instructions" not in json.dumps(diagnostics, default=str)
+    async with session_scope(**context) as session:
+        with pytest.raises(LookupError):
+            await AgentRunsRepo(session).record_runtime_input(
+                run_id, chat_id="another_chat", creator_user_id=me["user_id"],
+                event_id="wrong-chat", payload={},
+            )
+
+    async with session_scope(**context) as session:
+        with pytest.raises(LookupError):
+            await AgentRunsRepo(session).record_runtime_input(
+                run_id, chat_id=chat_id, creator_user_id=str(uuid.uuid4()),
+                event_id="wrong-owner", payload={},
+            )
+    async with session_scope(**context) as session:
+        await AgentRunsRepo(session).append_event(
+            run_id=run_id, seq=1, event_type="error", tenant_id=tenant_id,
+            payload={"code": "model_failure", "message": "Model unavailable"},
+        )
+    async with session_scope(**context) as session:
+        run = await AgentRunsRepo(session).get(run_id)
+        assert run.error_message == "Model unavailable"
+        assert run.input_snapshot["content"] == original
+        assert len(run.input_snapshot["runtime_inputs"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_history_binding_is_immutable_and_scoped(pg_engine):
+    tenant_id, user_id = await _seed(pg_engine)
+    scope = dict(tenant_id=tenant_id, user_id=user_id)
+    binding = {"workflow_id": "wf-history", "major_version": 2,
+               "initial_subversion": 3, "target": {"kind": "node", "node_id": "focus"}}
+    async with session_scope(**scope) as session:
+        project = await ChatProjectRepo(session, user_id).create(name="Canvas")
+        repo = ChatRepo(session, user_id)
+        chat_id = await repo.register_session("wf-history", project_id=project["project_id"],
+                                             name="[v2.sv3] Code", chat_id="canvas-history")
+        stored = await repo.bind_workflow_context(chat_id, binding)
+        assert await repo.bind_workflow_context(chat_id, binding) == stored
+    async with session_scope(**scope) as session:
+        repo = ChatRepo(session, user_id)
+        history = await repo.list_sessions("wf-history")
+        assert history[0]["workflow_context"] == stored
+        assert history[0]["major_version"] == 2
+        assert history[0]["created_at"] and history[0]["updated_at"]
+        assert await repo.list_sessions("another-workflow") == []
+        with pytest.raises(ValueError, match="workflow_chat_binding_conflict"):
+            await repo.bind_workflow_context(chat_id, {**binding, "major_version": 3})
+    async with session_scope(**scope) as session:
+        with pytest.raises(LookupError):
+            await ChatRepo(session, user_id).bind_workflow_context(
+                chat_id, {**binding, "workflow_id": "another-workflow"})
+    async with session_scope(**scope) as session:
+        assert await ChatRepo(session, str(uuid.uuid4())).list_sessions("wf-history") == []

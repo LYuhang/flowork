@@ -31,6 +31,7 @@ from vibecanvas_api.services.agent_runtime.protocol import (
 from vibecanvas_api.services.agent_runtime.registry import create_runtime_adapter
 from vibecanvas_api.services.sandbox.coordinator import get_sandbox_coordinator
 from vibecanvas_api.storage.agent_runtime_repo import AgentRuntimeRepo
+from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.hitl_repo import HitlRepo
 
@@ -69,7 +70,7 @@ def private_runtime_root(runtime_type: RuntimeType) -> str:
 
 def _product_events(event: RuntimeEvent) -> list[tuple[str, dict]]:
     """Project one SDK-neutral RuntimeEvent into durable product events."""
-    if event.type in {"runtime.started", "runtime.completed"}:
+    if event.type in {"runtime.started", "runtime.completed", "runtime.input"}:
         return []
     if event.type == "runtime.failed":
         raise RuntimeError(str(event.payload.get("message") or "agent runtime failed"))
@@ -784,6 +785,24 @@ class AgentRuntimeOrchestrator:
                         chat_id=turn_request.chat_id,
                         turn_id=turn_request.turn_id,
                     )
+                if event.type == "runtime.input":
+                    if (
+                        event.chat_id != turn_request.chat_id
+                        or event.turn_id != turn_request.turn_id
+                        or event.runtime_session_id != turn_request.runtime_session_id
+                    ):
+                        raise RuntimeError("runtime input audit binding mismatch")
+                    async with session_scope(
+                        tenant_id=turn_request.tenant_id, user_id=turn_request.user_id
+                    ) as session:
+                        await AgentRunsRepo(session).record_runtime_input(
+                            turn_request.turn_id,
+                            chat_id=turn_request.chat_id,
+                            creator_user_id=turn_request.user_id,
+                            event_id=event.event_id,
+                            payload=event.payload,
+                        )
+                    continue
                 if event.type == "runtime.started":
                     runtime_ready_at = perf_counter()
                     yield (

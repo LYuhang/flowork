@@ -214,6 +214,41 @@ class AgentRunsRepo:
             True,
         )
 
+    async def record_runtime_input(
+        self,
+        run_id: str,
+        *,
+        chat_id: str,
+        creator_user_id: str | uuid.UUID,
+        event_id: str,
+        payload: dict,
+    ) -> None:
+        """Append a private submission snapshot without changing display history."""
+        row = (await self.session.execute(
+            select(AgentRun).where(
+                AgentRun.run_id == run_id,
+                AgentRun.chat_id == chat_id,
+                AgentRun.creator_user_id == _uuid(creator_user_id),
+            ).with_for_update().execution_options(populate_existing=True)
+        )).scalar_one_or_none()
+        run = await self._materialize_run(row)
+        if run is None:
+            raise LookupError("runtime input audit Run not found")
+        snapshot = dict(run.input_snapshot)
+        submissions = list(snapshot.get("runtime_inputs") or [])
+        if any(item.get("event_id") == event_id for item in submissions):
+            return
+        submissions.append({
+            "event_id": event_id,
+            "recorded_at": _now().isoformat(),
+            "payload": payload,
+        })
+        snapshot["runtime_inputs"] = submissions
+        await self._store_run_private(
+            run, input_snapshot=snapshot, error_message=run.error_message,
+        )
+        await self.session.flush()
+
     async def get(self, run_id: str) -> AgentRun | None:
         return await self._materialize_run(
             await self.session.get(AgentRun, run_id)

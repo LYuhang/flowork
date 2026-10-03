@@ -1269,7 +1269,7 @@ def _turn_input(
     instructions = [
         item
         for item in request.instructions
-        if item.kind == "skill_selection" or (item.kind == "command_context" and item.activated_this_turn)
+        if item.scope == "turn" or (item.kind == "command_context" and item.activated_this_turn)
     ]
     if request.runtime_state_ref is None or recovered_native_history:
         # A prior attempt may have persisted sticky capability activation but
@@ -1278,7 +1278,7 @@ def _turn_input(
         instructions = [
             item
             for item in request.instructions
-            if item.kind in {"command_context", "skill_selection"}
+            if item.kind in {"command_context", "skill_selection", "workflow_context"}
         ]
     contexts = [item.content for item in instructions]
     if recovered_native_history:
@@ -2575,8 +2575,26 @@ async def run_codex_turn(
             turn_params["model"] = selected_model
         if request.reasoning_effort:
             turn_params["effort"] = request.reasoning_effort
+
+        async def submit_turn(params: dict[str, Any], *, reason: str) -> dict:
+            # Capture every final input at the submission boundary, including
+            # native retries. Never include connection credentials/environment.
+            await emit("runtime.input", {
+                "schema_version": 1,
+                "stage": "prepared_for_submission",
+                "reason": reason,
+                "continuation_index": request.continuation_index,
+                "thread_id": params["threadId"],
+                "client_user_message_id": params["clientUserMessageId"],
+                "input": params["input"],
+                "model": params.get("model"),
+                "reasoning_effort": params.get("effort"),
+                "recovered_native_history": recovered_native_history,
+            })
+            return await client.request("turn/start", params, timeout_s=45.0)
+
         phase_started = perf_counter()
-        started = await client.request("turn/start", turn_params, timeout_s=45.0)
+        started = await submit_turn(turn_params, reason="user_turn")
         turn = started.get("turn")
         turn_id = str(turn.get("id") if isinstance(turn, dict) else "")
         if not turn_id:
@@ -3352,10 +3370,8 @@ async def run_codex_turn(
                         retry_params["model"] = selected_model
                     if request.reasoning_effort:
                         retry_params["effort"] = request.reasoning_effort
-                    retried = await client.request(
-                        "turn/start",
-                        retry_params,
-                        timeout_s=45.0,
+                    retried = await submit_turn(
+                        retry_params, reason="empty_completion_retry",
                     )
                     retry_turn = retried.get("turn")
                     turn_id = str(
@@ -3441,10 +3457,8 @@ async def run_codex_turn(
                         continuation_params["model"] = selected_model
                     if request.reasoning_effort:
                         continuation_params["effort"] = request.reasoning_effort
-                    continued = await client.request(
-                        "turn/start",
-                        continuation_params,
-                        timeout_s=45.0,
+                    continued = await submit_turn(
+                        continuation_params, reason="command_completion",
                     )
                     continuation_turn = continued.get("turn")
                     turn_id = str(

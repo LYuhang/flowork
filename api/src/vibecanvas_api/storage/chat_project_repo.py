@@ -71,7 +71,7 @@ class ChatProjectRepo:
         )
         return project
 
-    async def create(self, *, name: str, project_id: str | None = None, surface: str = "chat") -> dict:
+    async def create(self, *, name: str, project_id: str | None = None, surface: str = "chat", workflow_id: str | None = None) -> dict:
         from .agent_runtime_repo import AgentRuntimeRepo
 
         preferences = await AgentRuntimeRepo(self._session, self._user_id).get_preferences()
@@ -83,6 +83,7 @@ class ChatProjectRepo:
             tenant_id=await self._tenant_id(),
             creator_user_id=self._user_id,
             surface=surface,
+            workflow_id=workflow_id,
             runtime_type=runtime_type,
             runtime_session_id=f"rt_{runtime_type}_{uuid.uuid4().hex}",
         )
@@ -101,6 +102,29 @@ class ChatProjectRepo:
             path="/memory/.keep", content="", content_type="application/x-directory",
         )
         return self._project(project)
+
+    async def for_workflow(self, workflow_id: str) -> ChatProject:
+        """Get/create the owner's hidden Project under a transaction fence.
+
+        Workflow authorization is performed by the caller. A previously deleted
+        Project remains deleted; a later new conversation receives a new Project.
+        """
+        tenant_id = await self._tenant_id()
+        await self._session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"workflow-chat-project:{tenant_id}:{self._user_id}:{workflow_id}"},
+        )
+        project = (await self._session.execute(select(ChatProject).where(
+            ChatProject.workflow_id == workflow_id,
+            ChatProject.creator_user_id == self._user_id,
+            ChatProject.deleted_at.is_(None),
+        ))).scalar_one_or_none()
+        if project is None:
+            created = await self.create(name="Workflow chats", workflow_id=workflow_id)
+            project = await self.get(created["project_id"])
+        if project is None:
+            raise RuntimeError("Workflow Chat Project was not persisted")
+        return project
 
     async def get(self, project_id: str, *, for_update: bool = False) -> ChatProject | None:
         query = select(ChatProject).where(
@@ -189,6 +213,7 @@ class ChatProjectRepo:
             select(ChatProject).where(
                 ChatProject.creator_user_id == self._user_id,
                 ChatProject.surface == surface,
+                ChatProject.workflow_id.is_(None),
                 ChatProject.deleted_at.is_(None),
             ).order_by(ChatProject.updated_at.desc(), ChatProject.created_at.desc())
         )).scalars().all())
@@ -271,6 +296,7 @@ class ChatProjectRepo:
     ) -> dict:
         return {
             "project_id": project.project_id,
+            "workflow_id": project.workflow_id,
             "surface": project.surface,
             "name": project.name or "Untitled project",
             "runtime_type": project.runtime_type,

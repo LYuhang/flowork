@@ -132,3 +132,57 @@ async def test_orchestrator_streams_codex_through_resident_sandbox() -> None:
     assert manager.calls
     assert manager.calls[0][0][1] == "workspace"
     assert manager.calls[0][1]["lease"] == "interactive"
+
+
+@pytest.mark.asyncio
+async def test_runtime_input_is_persisted_privately_before_public_events(monkeypatch):
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+    from vibecanvas_api.services.agent_runtime import orchestrator as module
+
+    payload = {"input": [{"type": "text", "text": "private command context"}]}
+    record = AsyncMock()
+    session_marker = object()
+
+    @asynccontextmanager
+    async def scope(**identity):
+        assert identity == {"tenant_id": "tenant", "user_id": "user"}
+        yield session_marker
+
+    class Repo:
+        def __init__(self, session):
+            assert session is session_marker
+
+        record_runtime_input = staticmethod(record)
+
+    class Sandbox(_Sandbox):
+        async def run_agent_runtime_stream(self, request):
+            yield {
+                "chat_id": request["chat_id"], "turn_id": request["turn_id"],
+                "runtime_type": "codex", "runtime_session_id": "runtime",
+                "event_id": "private-input", "seq": 1,
+                "type": "runtime.input", "payload": payload,
+            }
+            async for event in super().run_agent_runtime_stream(request):
+                yield {**event, "seq": event["seq"] + 1}
+
+    monkeypatch.setattr(module, "session_scope", scope)
+    monkeypatch.setattr(module, "AgentRunsRepo", Repo)
+    manager = _Manager()
+    manager.session = Sandbox()
+    common = dict(tenant_id="tenant", user_id="user", chat_id="chat",
+                  runtime_type="codex", runtime_session_id="runtime",
+                  runtime_root="/runtime/.codex")
+    events = [event async for event in AgentRuntimeOrchestrator(manager).stream_turn(
+        open_request=RuntimeOpenRequest(**common),
+        turn_request=RuntimeTurnRequest(**common, turn_id="turn",
+            message={"role": "user", "content": "hello"},
+            model={"id": "gpt-test", "connection_type": "chatgpt_account"}),
+        workspace_scope_id="workspace", stop_event=asyncio.Event(),
+    )]
+    record.assert_awaited_once_with(
+        "turn", chat_id="chat", creator_user_id="user",
+        event_id="private-input", payload=payload,
+    )
+    assert "private command context" not in str(events)
+    assert events[-1][0] == "CHAT_EVENT"

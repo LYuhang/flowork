@@ -21,6 +21,8 @@ the teardown commit, so it genuinely covers the durable write).
 
 from __future__ import annotations
 
+from vibecanvas_api.services.task_notifications import NotificationPolicy
+
 import uuid
 
 from fastapi import (
@@ -1317,6 +1319,7 @@ class BatchSubmitBody(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    notification_policy: NotificationPolicy = Field(default_factory=dict)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     data_source: dict
     column_mapping: dict

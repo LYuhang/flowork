@@ -19,6 +19,7 @@
  *      A no-batch-yet empty state when the list is empty.
  */
 import { EvaluationEditor } from '@/pages/tasks/EvaluationEditor';
+import { TaskNotificationOptions, emptyNotifications, notificationsValid } from '@/pages/tasks/TaskNotificationOptions';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -34,7 +35,7 @@ import {
   type Task,
   type TaskStatus,
 } from '@/lib/api/tasks';
-import { useWorkflowTasks } from '@/lib/api/queries/tasks';
+import { WorkflowTaskList } from './WorkflowTaskList';
 import { useTaskStream } from '@/lib/api/sse/run-task-stream';
 import { readVfs } from '@/lib/api/vfs';
 import { parseExcel } from '@/lib/batch/excel';
@@ -53,7 +54,6 @@ import {
   toWireColumns,
   type BatchColumnsState,
 } from '@/pages/canvas/inspector/batch-output-columns-model';
-import { useFormatDateTime } from '@/lib/timezone';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
 import { useCommitWorkflow } from '@/lib/api/mutations/workflow-ops';
 import { saveBeforeRun } from '@/lib/workflow/save-before-run';
@@ -121,11 +121,10 @@ export function BatchTab({
   onSubmitted,
 }: BatchTabProps) {
   const { t } = useTranslation();
-  // Render UTC timestamps in the user's chosen timezone (reactive).
-  const fmtTime = useFormatDateTime();
   const navigate = useNavigate();
   const draft = useWorkflowEditStore((s) => s.draft);
   const dirty = useWorkflowEditStore((s) => s.dirty);
+  const baseVersion = useWorkflowEditStore((s) => s.baseVersion);
   const workflowForBatch = workflow ?? draft;
   const startNodeFields = getStartNodeFields(workflowForBatch);
 
@@ -161,6 +160,7 @@ export function BatchTab({
   // setup; the DATA SOURCE is not persisted (per-run input). Lazy initializers
   // read localStorage once on mount.
   const saved = loadBatchConfig(wfId);
+  const [notifications, setNotifications] = useState(emptyNotifications);
   const [evaluation, setEvaluation] = useState({ enabled: false, script: '' });
   const [outputPath, setOutputPath] = useState<string>(() => saved?.outputPath ?? '');
   const [outputSheet, setOutputSheet] = useState<string>(() => saved?.outputSheet ?? '');
@@ -194,7 +194,6 @@ export function BatchTab({
   // RightInspector keeps this form mounted so an uploaded file is not lost
   // when the user checks Run. Pause the 5 s task polling while the hidden tab
   // is inactive; hidden work must not compete with the canvas main thread.
-  const tasksQuery = useWorkflowTasks(wfId, active && showTaskList);
   const qc = useQueryClient();
 
   function clearParsed() {
@@ -343,7 +342,7 @@ export function BatchTab({
   });
 
   async function onSubmit() {
-    if (!rows.length || (evaluation.enabled && !evaluation.script.trim())) return;
+    if (!notificationsValid(notifications) || !rows.length || (evaluation.enabled && !evaluation.script.trim())) return;
     // Flip mapping direction: UI keys by workflow_field, backend expects
     // {csv_column: workflow_field}.
     const column_mapping: Record<string, string> = {};
@@ -354,8 +353,9 @@ export function BatchTab({
     // Excel path (.xlsx/.xls) also carries the sheet name to write into.
     const trimmedOutput = outputPath.trim();
     const workflowMetadata = workflowForBatch?.__meta__ as { workflow_version?: number } | undefined;
-    const batchTarget = versionTarget ?? (workflowMetadata?.workflow_version
-      ? { major: `v${workflowMetadata.workflow_version}` } : {});
+    let batchTarget = versionTarget ?? (workflow == null && baseVersion
+      ? { version: baseVersion }
+      : workflowMetadata?.workflow_version ? { major: `v${workflowMetadata.workflow_version}` } : {});
     const trimmedSheet = outputSheet.trim();
     const output: BatchOutputSpec | null = trimmedOutput
       ? {
@@ -372,14 +372,15 @@ export function BatchTab({
     await saveBeforeRun({
       dirty: workflow == null && dirty && draft != null,
       draft: workflowForBatch,
-      save: (wf) =>
-        commit.mutateAsync(
-          wf as components['schemas']['CommitRequest']['workflow'],
-        ),
+      save: async (wf) => {
+        const saved = await commit.mutateAsync(wf as components['schemas']['CommitRequest']['workflow']);
+        batchTarget = { version: `v${saved.active_v}.sv${saved.active_sv}` };
+      },
       run: () =>
         mutation.mutateAsync({
           ...batchTarget,
           ...(evaluation.enabled ? { evaluation } : {}),
+          notification_policy: { ...notifications, email: notifications.enabled ? notifications.email.trim() : '' },
           data_source: { rows },
           column_mapping,
           output,
@@ -402,7 +403,6 @@ export function BatchTab({
     );
   }
 
-  const tasks = tasksQuery.data?.items ?? [];
 
   return (
     <div className="space-y-4" data-testid="batch-tab">
@@ -693,69 +693,19 @@ export function BatchTab({
         </span>
       </label>
 
+      <TaskNotificationOptions value={notifications} onChange={setNotifications} disabled={mutation.isPending || commit.isPending} />
       <EvaluationEditor value={evaluation} onChange={setEvaluation} disabled={mutation.isPending || commit.isPending} />
 
       <Button
         className="w-full"
         onClick={() => void onSubmit()}
-        disabled={!rows.length || (evaluation.enabled && !evaluation.script.trim()) || mutation.isPending || commit.isPending}
+        disabled={!notificationsValid(notifications) || !rows.length || (evaluation.enabled && !evaluation.script.trim()) || mutation.isPending || commit.isPending}
         data-testid="batch-submit"
       >
         {t('canvas.batch.runOnRows', 'Run on {{count}} rows', { count: rows.length })}
       </Button>
 
-      {showTaskList && (
-        <section className="border-t border-edge-subtle pt-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-ui font-medium">
-              {t('canvas.batch.tasksTitle', 'This workflow’s batch runs')}
-            </h3>
-            <Link
-              to="/tasks"
-              className="text-meta text-primary underline-offset-4 hover:underline"
-              data-testid="batch-view-task-center"
-            >
-              {t('canvas.batch.viewInTaskCenter', 'View in Task Center')}
-            </Link>
-          </div>
-
-          {tasksQuery.isLoading ? (
-            <p className="text-meta">
-              {t('tasks.loading', 'Loading…')}
-            </p>
-          ) : tasks.length === 0 ? (
-            <p className="text-meta" data-testid="batch-no-tasks">
-              {t('canvas.batch.noBatchYet', 'No batch runs yet for this workflow.')}
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-1" data-testid="batch-task-list">
-              {tasks.map((task) => (
-                <li key={task.id} className="border-b border-edge-subtle last:border-b-0">
-                  <button
-                    type="button"
-                    onClick={() => setOpenTaskId(task.id)}
-                    className="interactive-row flex min-h-10 w-full items-center justify-between gap-2 px-2 py-1.5 text-left"
-                    data-testid="batch-task-row"
-                    data-task-id={task.id}
-                  >
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {task.id.slice(0, 8)}…
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {fmtTime(task.submitted_at)}
-                      </span>
-                      <StatusBadge status={taskStatusTone(task.status)} data-testid="batch-task-status">
-                        {t(`tasks.status.${task.status}`, task.status)}
-                      </StatusBadge>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
+      {showTaskList && <WorkflowTaskList key={wfId} wfId={wfId} taskType="batch_exec" active={active} onOpen={setOpenTaskId} />}
     </div>
   );
 }

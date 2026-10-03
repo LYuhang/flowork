@@ -382,6 +382,8 @@ export function TasksListPage() {
   const statusFilter = (searchParams.get('status') ?? '')
     .split(',')
     .filter((value): value is TaskStatus => allowedStatuses.includes(value as TaskStatus));
+  const workflowFilter = searchParams.get('workflow_id') ?? '';
+  const filterWorkflows = useWorkspaceList(200, 0);
   const queryText = searchParams.get('q') ?? '';
   const rawOffset = Number.parseInt(searchParams.get('offset') ?? '0', 10);
   const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
@@ -412,12 +414,13 @@ export function TasksListPage() {
   });
 
   const listQuery = useQuery({
-    queryKey: ['tasks', { activeType, statusFilter, queryText, offset }],
+    queryKey: ['tasks', { activeType, statusFilter, queryText, workflowFilter, offset }],
     queryFn: () =>
       listTasks({
         status: statusFilter.length ? statusFilter : undefined,
         task_type: [activeType],
         q: queryText || undefined,
+        workflow_id: workflowFilter || undefined,
         limit: PAGE_SIZE,
         offset,
     }),
@@ -434,8 +437,8 @@ export function TasksListPage() {
   });
 
   const summaryQuery = useQuery({
-    queryKey: ['tasks', 'summary', activeType],
-    queryFn: () => getTaskSummary({ task_type: [activeType] }),
+    queryKey: ['tasks', 'summary', activeType, workflowFilter],
+    queryFn: () => getTaskSummary({ task_type: [activeType], workflow_id: workflowFilter || undefined }),
     refetchInterval: (query) => {
       const data = query.state.data;
       return (data?.active ?? 0) > 0 ? TASK_LIST_REFETCH_ACTIVE_MS : TASK_LIST_REFETCH_IDLE_MS;
@@ -665,6 +668,13 @@ export function TasksListPage() {
               />
             </form>
             <div className="flex flex-wrap items-center gap-2">
+              <Suspense fallback={null}>
+                <SearchSelect value={workflowFilter} onValueChange={value => updateListParams({ workflow_id: value || null, offset: null })}
+                  options={workflowOptions(filterWorkflows.data?.items ?? []).concat(workflowFilter && !filterWorkflows.data?.items.some(w => w.wf_id === workflowFilter) ? [{ value: workflowFilter, label: workflowFilter }] : [])}
+                  placeholder={t('tasks.related.filter', 'Filter by Workflow')}
+                  searchPlaceholder={t('tasks.related.filter', 'Filter by Workflow')} />
+              </Suspense>
+              {workflowFilter && <Button variant="ghost" size="sm" onClick={() => updateListParams({ workflow_id: null, offset: null })}>{t('tasks.related.clear', 'All workflows')}</Button>}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button

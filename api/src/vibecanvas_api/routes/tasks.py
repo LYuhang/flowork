@@ -8,6 +8,8 @@ status snapshots live in the JSON payload.
 """
 from __future__ import annotations
 
+from vibecanvas_api.services.task_notifications import NotificationPolicy
+
 import asyncio
 import json
 import uuid
@@ -148,7 +150,7 @@ class ScheduledRunCreateBody(BaseModel):
     end_at: datetime | None = None
     input_preset: dict = Field(default_factory=dict)
     mount_enabled: bool = False
-    notification_policy: dict = Field(default_factory=lambda: dict(DEFAULT_NOTIFICATION_POLICY))
+    notification_policy: NotificationPolicy = Field(default_factory=lambda: dict(DEFAULT_NOTIFICATION_POLICY))
 
 
 class ScheduledRunPatchBody(BaseModel):
@@ -167,7 +169,7 @@ class ScheduledRunPatchBody(BaseModel):
     end_at: datetime | None = None
     input_preset: dict | None = None
     mount_enabled: bool | None = None
-    notification_policy: dict | None = None
+    notification_policy: NotificationPolicy | None = None
 
 
 # Status sets — keep at module scope so they're cheap to import-time
@@ -207,6 +209,7 @@ async def _task_to_out(
         "progress": t.progress,
         "task_type": t.task_type,
         "workflow_id": t.workflow_id,
+        "workflow_version": getattr(t, "workflow_version", None) if can_view_content else None,
         "payload": t.payload if can_view_content else {},
         "result": t.result if can_view_content else None,
         "results_uri": t.results_uri if can_view_content else None,
@@ -451,6 +454,7 @@ async def list_tasks(
 @router.get("/summary")
 async def tasks_summary(
     request: Request,
+    workflow_id: str | None = None,
     task_type: list[str] | None = Query(default=None),
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
@@ -465,6 +469,7 @@ async def tasks_summary(
     return await TasksRepo(session).summary_for_tenant(
         task_ids=authorized_ids,
         task_type=task_type,
+        workflow_id=workflow_id,
     )
 
 

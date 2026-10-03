@@ -74,6 +74,7 @@ async def _load_batch_payload(task_id: str) -> dict[str, Any]:
             "mount_enabled": payload.get("mount_enabled", True),  # Legacy batches implicitly mounted storage.
             "resume": task.status == "resuming",
             "workflow_snapshot": payload.get("workflow_snapshot"),
+            "notification_policy": payload.get("notification_policy", {}),
         }
 
 

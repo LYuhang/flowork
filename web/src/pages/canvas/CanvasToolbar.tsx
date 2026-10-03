@@ -6,7 +6,7 @@
  *   - Undo  — local in-memory undo from `useWorkflowEditStore`.
  *   - Redo  — local in-memory redo from `useWorkflowEditStore`.
  *   - Save  — commit the current draft.
- *   - Execute / Run Batch — open the inspector's run surfaces.
+ *   - Execute — open the inspector's run surfaces.
  *
  * Every actionable control carries a `data-action="<name>"` attribute so
  * the future T15 CommandPalette can dispatch synthetic clicks against the
@@ -19,19 +19,16 @@
  * history. Committed workflow versions are managed through the version UI.
  *
  * Execute flow:
- *   - The Execute / Run Batch buttons only open the Inspector's workflow Run or
- *     Batch tab. The actual Execute/Cancel control lives in that tab so the
+ *   - The Execute button opens the Inspector, which contains Run, Batch and Schedule tabs. The actual Execute/Cancel control lives in that tab so the
  *     run form and its lifecycle are controlled from one place.
  */
 import { useActiveHistoryExecution } from './ExecutionHistoryContext';
 import { useCallback, useRef, useState } from 'react';
 import {
   AlertCircle,
-  CalendarClock,
   Download,
   FolderTree,
   GitBranchPlus,
-  Layers,
   LayoutGrid,
   MoreHorizontal,
   PanelRight,
@@ -227,11 +224,7 @@ export function CanvasToolbar({
     setInspectorOpen(true); // auto-open the Inspector to the Run tab
     requestInspectorTab('workflow', 'run');
   };
-  const onToolbarRunBatch = () => {
-    deselectAll();
-    setInspectorOpen(true); // auto-open the Inspector to the Batch tab
-    requestInspectorTab('workflow', 'batch');
-  };
+
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newVersionOpen, setNewVersionOpen] = useState(false);
@@ -471,24 +464,6 @@ export function CanvasToolbar({
       >
         <Play className="mr-2 h-4 w-4" />
         {t('execute', 'Execute')}
-      </Button>
-      <Button
-        variant="outline"
-        className="h-9 w-9 px-0 2xl:w-auto 2xl:px-4"
-        data-action="canvas-run-batch"
-        disabled={!canExecute}
-        title={t('canvas.runBatch.openPanel', 'Open batch panel')}
-        onClick={onToolbarRunBatch}
-      >
-        <Layers className="h-4 w-4 2xl:mr-2" />
-        <span className="hidden 2xl:inline">{t('canvas.runBatch', 'Run Batch')}</span>
-      </Button>
-      <Button variant="outline" className="h-9 w-9 px-0 2xl:w-auto 2xl:px-4"
-        data-action="canvas-run-schedule" disabled={!canExecute}
-        title={t('inspector.tab.schedule', 'Schedule')}
-        onClick={() => { deselectAll(); setInspectorOpen(true); requestInspectorTab('workflow', 'schedule'); }}>
-        <CalendarClock className="h-4 w-4 2xl:mr-2" />
-        <span className="hidden 2xl:inline">{t('inspector.tab.schedule', 'Schedule')}</span>
       </Button>
       <Button
         ref={settingsButtonRef}

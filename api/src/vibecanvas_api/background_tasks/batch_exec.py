@@ -225,6 +225,7 @@ def _batch_exec_owned(
     mount_enabled: bool = True,
     resume: bool = False,
     workflow_snapshot: dict | None = None,
+    notification_policy: dict | None = None,
 ):
     """Run ``workflow_id`` once per row of ``data_source.rows``.
 
@@ -419,6 +420,8 @@ def _batch_exec_owned(
         batch_result = asyncio.run(_run_on_isolated_worker_loop())
         summary = batch_result.summary
         final_status = batch_result.status
+        from vibecanvas_api.services.task_notifications import notification_state
+        notification_state(notification_policy or {}, {"finished": "succeeded", "finished_with_errors": "failed"}.get(final_status, final_status))
         final_snapshot = _task_snapshot(t_uuid)
         visible_progress = float(final_snapshot.get("progress") or 0)
         terminal_fields = {
@@ -515,6 +518,8 @@ def _batch_exec_owned(
             if service_account_error
             else "task_execution_error"
         )
+        from vibecanvas_api.services.task_notifications import notification_state
+        notification_state(notification_policy or {}, "failed")
         err_msg = (
             "The batch execution identity is unavailable."
             if service_account_error

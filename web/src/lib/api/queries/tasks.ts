@@ -15,7 +15,7 @@
  * status snapshot — mirrors `TaskDetailPage`'s two-channel split.
  */
 import { useQuery } from '@tanstack/react-query';
-import { listTasks, type TaskListResponse } from '@/lib/api/tasks';
+import { listTasks, type TaskType, type TaskListResponse } from '@/lib/api/tasks';
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -24,10 +24,10 @@ const POLL_INTERVAL_MS = 5_000;
  * `submitted_at desc`). Disabled until a real `wfId`. Polls while mounted so a
  * freshly-submitted run appears + advances without a manual refresh.
  */
-export function useWorkflowTasks(wfId: string | undefined, enabled = true) {
+export function useWorkflowTasks(wfId: string | undefined, enabled = true, taskType: TaskType = 'batch_exec', offset = 0) {
   return useQuery<TaskListResponse>({
-    queryKey: ['tasks', 'workflow', wfId],
-    queryFn: () => listTasks({ workflow_id: wfId, limit: 50 }),
+    queryKey: ['tasks', 'workflow', wfId, taskType, offset],
+    queryFn: () => listTasks({ workflow_id: wfId, task_type: [taskType], limit: 10, offset }),
     enabled: !!wfId && enabled,
     refetchInterval: enabled ? POLL_INTERVAL_MS : false,
     refetchOnWindowFocus: false,

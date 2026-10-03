@@ -3889,5 +3889,14 @@
   "scheduleTime.incomplete": "请输入完整的日期和时间。",
   "scheduleTime.invalid": "日期或时间无效。",
   "scheduleTime.nonexistent": "所选时区因夏令时跳过了这个时间，请重新选择。",
-  "scheduleTime.ambiguous": "所选时区的这个时间出现两次，请切换为 UTC 或选择其他时间以明确执行时刻。"
+  "scheduleTime.ambiguous": "所选时区的这个时间出现两次，请切换为 UTC 或选择其他时间以明确执行时刻。",
+  "tasks.notifications.success": "成功时通知",
+  "tasks.notifications.failure": "失败时通知",
+  "tasks.notifications.email": "执行通知用户 Email",
+  "tasks.related.title": "关联任务 · 所有版本",
+  "tasks.related.empty": "暂无关联任务",
+  "tasks.related.copyId": "复制 ID",
+  "tasks.related.details": "详情 ↗",
+  "tasks.related.filter": "按 Workflow 筛选",
+  "tasks.related.clear": "全部 Workflow"
 }

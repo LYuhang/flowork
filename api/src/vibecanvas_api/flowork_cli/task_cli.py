@@ -106,7 +106,8 @@ def add_parser(groups):
         inputs.add_argument("--input-file", help="Batch: input table file. Schedule: JSON input object file.")
         command.add_argument("--mount", choices=("true", "false"),
             help="Expose user storage /mount. Creation defaults to false; omission during update preserves current setting. Frozen on submission; batch resume reuses it. Never shares Chat /data or /memory.")
-        command.add_argument("--notify", help="Schedule: succeeded,failed or none; defaults to failed.")
+        command.add_argument("--notify-email", help="Recipient email; required with --notify succeeded and/or failed.")
+        command.add_argument("--notify", help="Batch or schedule: succeeded,failed or none; defaults to none. Delivery is not implemented yet.")
         if action == "create":
             command.add_argument("--paused", action="store_true", default=None, help="schedule_run only: create a paused plan; otherwise enabled.")
             command.add_argument("--evaluation-script", dest="evaluation_script", help="Batch only: upload a Python evaluate(results) script and evaluate automatically after inference. No third-party imports.")
@@ -145,14 +146,14 @@ def validate(operation, arguments):
         raise ValueError("history only supports schedule_run; use task logs for batch execution and resume activity.")
     common = {"task_id"}
     schedule_fields = {"name", "major", "version", "interval", "cron", "run_at", "timezone",
-                       "start_at", "end_at", "inputs", "mount", "notify"}
+                       "start_at", "end_at", "inputs", "mount", "notify", "notify_email"}
     allowed = {
         "task.list": {"task_type", "status", "workflow_id", "limit", "offset"},
         "task.info": common | {"task_type"},
         "task.status": common | {"task_type", "execution_id"},
         "task.logs": common | {"task_type", "execution_id", "follow", "after", "before", "limit", "from_time", "to_time", "export"},
         "task.download": common | {"task_type", "execution_id", "format"},
-        "task.batch_exec.create": {"workflow_id", "major", "version", "data", "format", "input_sheet", "mapping", "concurrency", "output_path", "output_sheet", "mount", "evaluation_script"},
+        "task.batch_exec.create": {"workflow_id", "major", "version", "data", "format", "input_sheet", "mapping", "concurrency", "output_path", "output_sheet", "mount", "evaluation_script", "notify", "notify_email"},
         "task.schedule_run.create": schedule_fields | {"workflow_id", "paused"},
         "task.schedule_run.update": schedule_fields | common,
         "task.history": common | {"task_type", "limit", "offset"},
@@ -245,6 +246,11 @@ def validate(operation, arguments):
                 raise ValueError(f"{key} must contain comma-separated values from {', '.join(sorted(choices))}.")
             if key == "notify" and "none" in result[key].split(",") and result[key] != "none":
                 raise ValueError("--notify none cannot be combined with notification events.")
+    if "notify" in result or "notify_email" in result:
+        if "notify" not in result:
+            raise ValueError("--notify-email requires --notify.")
+        if result["notify"] != "none" and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", str(result.get("notify_email", "")).strip()):
+            raise ValueError("A valid --notify-email is required when notifications are enabled.")
     if operation == "task.download":
         formats = {"json"} if supplied_type == "schedule_run" else {"csv", "jsonl", "xlsx"}
         result.setdefault("format", "json" if supplied_type == "schedule_run" else "jsonl")

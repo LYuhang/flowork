@@ -1,3 +1,4 @@
+import { TaskNotificationOptions, emptyNotifications, notificationsValid } from './TaskNotificationOptions';
 import { ScheduleTimeError, zonedWallClockToIso } from '@/lib/schedule-time';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
@@ -94,7 +95,9 @@ export function ScheduledRunCreatePanel({
   onCancel,
   onCreated,
   context,
+  relatedTasks,
 }: {
+  relatedTasks?: import("react").ReactNode;
   onCancel: () => void;
   onCreated: (taskId: string, response: ScheduledRunResponse) => void;
   context?: { workflowId: string; version: string; workflow: Record<string, unknown>; name?: string; dirty: boolean; initialInputs?: Record<string, unknown>; prepare: () => Promise<string> };
@@ -123,8 +126,7 @@ export function ScheduledRunCreatePanel({
   const [endAt, setEndAt] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [mountEnabled, setMountEnabled] = useState(false);
-  const [notifySuccess, setNotifySuccess] = useState(false);
-  const [notifyFailure, setNotifyFailure] = useState(true);
+  const [notifications, setNotifications] = useState(emptyNotifications);
   const [inputValues, setInputValues] = useState<Record<string, string>>(() => Object.fromEntries(
     Object.entries(context?.initialInputs ?? {}).map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value) ?? '']),
   ));
@@ -177,15 +179,7 @@ export function ScheduledRunCreatePanel({
         end_at: scheduleMode === "once" ? null : zonedWallClockToIso(endAt, timezone),
         input_preset,
         mount_enabled: mountEnabled,
-        notification_policy: {
-          enabled: notifySuccess || notifyFailure,
-          on: [
-            ...(notifySuccess ? ['succeeded'] : []),
-            ...(notifyFailure ? ['failed'] : []),
-          ],
-          channels: ['in_app'],
-          include_detail_link: true,
-        },
+        notification_policy: { ...notifications, email: notifications.enabled ? notifications.email.trim() : '' },
       });
     },
     onSuccess: (data) => {
@@ -465,32 +459,8 @@ export function ScheduledRunCreatePanel({
             )}
           </div>
 
-          <div className="rounded-lg border bg-background p-3">
-            <div className="text-sm font-medium">
-              {t('tasks.scheduled.notifications', 'Notifications')}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-4 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={notifyFailure}
-                  onChange={(event) => setNotifyFailure(event.target.checked)}
-                />
-                {t('tasks.scheduled.notifyFailure', 'Failure')}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={notifySuccess}
-                  onChange={(event) => setNotifySuccess(event.target.checked)}
-                />
-                {t('tasks.scheduled.notifySuccess', 'Success')}
-              </label>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t('tasks.scheduled.notificationHint', 'Notifications will include a link back to the execution detail.')}
-            </p>
-          </div>
+          <TaskNotificationOptions value={notifications} onChange={setNotifications} disabled={createMutation.isPending} />
+          {relatedTasks}
 
         </div>
       </div>
@@ -500,7 +470,7 @@ export function ScheduledRunCreatePanel({
         </Button>
         <Button
           onClick={() => { if (!submitting.current) { submitting.current = true; createMutation.mutate(); } }}
-          disabled={!effectiveWorkflowId || (context ? !context.version : !versionSelection.selector || versionSelection.loading || versionSelection.error || snapshotQuery.isLoading || snapshotQuery.isError) || createMutation.isPending}
+          disabled={!notificationsValid(notifications) || !effectiveWorkflowId || (context ? !context.version : !versionSelection.selector || versionSelection.loading || versionSelection.error || snapshotQuery.isLoading || snapshotQuery.isError) || createMutation.isPending}
         >
           {context?.dirty ? t('tasks.scheduled.saveCreate', 'Save and create scheduled task') : enabled ? t('tasks.scheduled.createEnable', 'Create and enable') : t('tasks.scheduled.createTask', 'Create task')}
         </Button>

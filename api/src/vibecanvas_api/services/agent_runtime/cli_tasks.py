@@ -224,7 +224,7 @@ def _schedule_body(arguments, *, create):
         result["mount_enabled"] = arguments["mount"]
     if "notify" in arguments:
         events = [] if arguments["notify"] == "none" else arguments["notify"].split(",")
-        result["notification_policy"] = {"enabled": bool(events), "on": events, "channels": ["in_app"], "include_detail_link": True}
+        result["notification_policy"] = {"enabled": bool(events), "on": events, "email": arguments.get("notify_email", "")}
     if create:
         result.setdefault("name", arguments["workflow_id"] + " schedule")
         result["enabled"] = not arguments.get("paused", False)
@@ -275,7 +275,7 @@ def prepare_batch(arguments, snapshot):
         output = {"type": "vfs_data", "path": arguments["output_path"]}
         if arguments.get("output_sheet"):
             output["sheet_name"] = arguments["output_sheet"]
-    body = workflows.BatchSubmitBody(evaluation={"enabled": True, "script": arguments["evaluation_script"]} if arguments.get("evaluation_script") else {}, data_source={"rows": normalized},
+    body = workflows.BatchSubmitBody(notification_policy={"on": [] if arguments.get("notify", "none") == "none" else arguments["notify"].split(","), "email": arguments.get("notify_email", "")}, evaluation={"enabled": True, "script": arguments["evaluation_script"]} if arguments.get("evaluation_script") else {}, data_source={"rows": normalized},
         column_mapping={key: key for key in fields}, output=output, output_columns=columns,
         concurrency=arguments.get("concurrency", 1), version=snapshot["version"], mount_enabled=arguments.get("mount", False))
     return body, sheet
@@ -439,7 +439,7 @@ async def execute(call, arguments):
                 needs_approval = False
             if operation == "task.schedule_run.update":
                 schedule = await TasksRepo(session).get_schedule_by_task(task_id)
-                needs_approval = schedule.enabled and bool(arguments.keys() - {"task_id", "task_type", "name", "notify"})
+                needs_approval = schedule.enabled and bool(arguments.keys() - {"task_id", "task_type", "name", "notify", "notify_email"})
             if cap.approval_mode not in {"agent", "always_ask", "always_allow"}:
                 raise ToolError("invalid_approval_mode", "Unknown approval mode.")
             await session.execute(text("""INSERT INTO task_cli_leases(call_id,tenant_id,run_id,operation,expires_at)

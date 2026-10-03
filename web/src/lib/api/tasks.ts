@@ -51,6 +51,7 @@ export interface Task {
   progress: number;
   task_type: TaskType;
   workflow_id: string | null;
+  workflow_version?: string | null;
   payload: unknown;
   result: unknown;
   results_uri: string | null;
@@ -285,8 +286,9 @@ export async function listTasks(
   return (await resp.json()) as TaskListResponse;
 }
 
-export async function getTaskSummary(params: { task_type?: TaskType[] } = {}): Promise<TaskSummary> {
+export async function getTaskSummary(params: { task_type?: TaskType[]; workflow_id?: string } = {}): Promise<TaskSummary> {
   const query = new URLSearchParams();
+  if (params.workflow_id) query.set("workflow_id", params.workflow_id);
   for (const type of params.task_type ?? []) query.append('task_type', type);
   const suffix = query.toString() ? `?${query.toString()}` : '';
   const resp = await authedFetch(`/api/v1/tasks/summary${suffix}`);
@@ -493,6 +495,7 @@ export type BatchOutputColumn =
   | { kind: 'field'; name: string; node: string; field: string; default?: string };
 
 export interface SubmitBatchBody {
+  notification_policy?: { enabled: boolean; on: string[]; email: string };
   evaluation?: EvaluationConfig;
   /** Frozen for this task and all resumed attempts; defaults to false. */
   mount_enabled?: boolean;

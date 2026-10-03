@@ -3889,5 +3889,14 @@
   "scheduleTime.incomplete": "Enter a complete date and time.",
   "scheduleTime.invalid": "Invalid date or time.",
   "scheduleTime.nonexistent": "This local time does not exist in the selected timezone. Choose another time.",
-  "scheduleTime.ambiguous": "This local time occurs twice. Choose UTC or a different time to make the instant explicit."
+  "scheduleTime.ambiguous": "This local time occurs twice. Choose UTC or a different time to make the instant explicit.",
+  "tasks.notifications.success": "Notify on success",
+  "tasks.notifications.failure": "Notify on failure",
+  "tasks.notifications.email": "Notification recipient email",
+  "tasks.related.title": "Related tasks · all versions",
+  "tasks.related.empty": "No related tasks yet.",
+  "tasks.related.copyId": "Copy ID",
+  "tasks.related.details": "Details ↗",
+  "tasks.related.filter": "Filter by Workflow",
+  "tasks.related.clear": "All workflows"
 }

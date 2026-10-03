@@ -413,6 +413,15 @@ class TasksRepo:
         rows = list(rows_result.scalars().all())
         for row in rows:
             await self._materialize_task(row)
+        scheduled_ids = [row.id for row in rows if row.task_type == "scheduled_run"]
+        versions = {}
+        if scheduled_ids:
+            schedules = await self.session.execute(select(TaskSchedule).where(TaskSchedule.task_id.in_(scheduled_ids)))
+            for schedule in schedules.scalars():
+                await self._materialize_schedule(schedule)
+                versions[schedule.task_id] = (schedule.workflow_selector or {}).get("version")
+        for row in rows:
+            row.workflow_version = versions.get(row.id) if row.task_type == "scheduled_run" else (row.payload or {}).get("workflow_snapshot", {}).get("version")
         return rows, int(count_result.scalar_one())
 
     async def summary_for_tenant(
@@ -420,6 +429,7 @@ class TasksRepo:
         *,
         task_ids: tuple[str, ...] | list[str] | None = None,
         task_type: list[str] | None = None,
+        workflow_id: str | None = None,
     ) -> dict[str, int]:
         normalized_ids = _normalized_task_ids(task_ids)
         stmt = select(Task.status, func.count()).group_by(Task.status)
@@ -427,6 +437,8 @@ class TasksRepo:
             stmt = stmt.where(Task.id.in_(normalized_ids))
         if task_type:
             stmt = stmt.where(Task.task_type.in_(task_type))
+        if workflow_id:
+            stmt = stmt.where(Task.workflow_id == workflow_id)
         result = await self.session.execute(stmt)
         counts = {str(status): int(count) for status, count in result.all()}
         active = sum(counts.get(s, 0) for s in ("queued", "running", "cancelling", "resuming"))

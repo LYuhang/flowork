@@ -557,11 +557,5 @@ async def _execution_cancelled(execution_id: uuid.UUID) -> bool:
 
 
 def _notification_state(policy: dict, status: str) -> dict:
-    wanted = bool(policy.get("enabled", False)) and status in set(policy.get("on") or [])
-    if not wanted:
-        return {"status": "skipped", "reason": "policy_not_matched"}
-    return {
-        "status": "queued",
-        "channels": list(policy.get("channels") or ["in_app"]),
-        "include_detail_link": bool(policy.get("include_detail_link", True)),
-    }
+    from vibecanvas_api.services.task_notifications import notification_state
+    return notification_state(policy, status)

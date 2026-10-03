@@ -149,13 +149,11 @@ describe('Execute and Run Batch open the Inspector', () => {
     expect(screen.queryByTestId('execute-input-dialog')).toBeNull();
   });
 
-  it('Run Batch focuses the workflow Batch tab (no batch modal)', () => {
-    useWorkflowEditStore.getState().setDraft({ node_1: startNode(), __meta__: {} });
+  it('keeps batch and schedule inside the execution panel', () => {
     renderToolbar();
-    fireEvent.click(byAction('canvas-run-batch'));
-    const s = useUIStore.getState();
-    expect(s.inspectorScope).toBe('workflow');
-    expect(s.inspectorTab).toBe('batch');
+    expect(byAction('canvas-run-batch')).toBeNull();
+    expect(byAction('canvas-run-schedule')).toBeNull();
+    expect(byAction('execute')).not.toBeNull();
   });
 });
 

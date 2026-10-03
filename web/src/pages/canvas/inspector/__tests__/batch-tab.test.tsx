@@ -176,6 +176,7 @@ describe('<BatchTab> submit + source selector', () => {
 
     await waitFor(() => expect(submitBatchMock).toHaveBeenCalledTimes(1));
     expect(submitBatchMock).toHaveBeenCalledWith('wf_1', {
+      notification_policy: { enabled: false, on: [], email: '' },
       data_source: { rows: [{ x: '1' }, { x: '2' }] },
       column_mapping: { x: 'x' },
       // No output location typed → null (results stay in the downloadable copy).
@@ -209,6 +210,7 @@ describe('<BatchTab> submit + source selector', () => {
 
     await waitFor(() => expect(submitBatchMock).toHaveBeenCalledTimes(1));
     expect(submitBatchMock).toHaveBeenCalledWith('wf_1', {
+      notification_policy: { enabled: false, on: [], email: '' },
       data_source: { rows: [{ x: '1' }] },
       column_mapping: { x: 'x' },
       output: { type: 'vfs_data', path: '/data/results.csv' },
@@ -239,6 +241,7 @@ describe('<BatchTab> submit + source selector', () => {
 
     await waitFor(() => expect(submitBatchMock).toHaveBeenCalledTimes(1));
     expect(submitBatchMock).toHaveBeenCalledWith('wf_1', {
+      notification_policy: { enabled: false, on: [], email: '' },
       data_source: { rows: [{ x: '1' }] },
       column_mapping: { x: 'x' },
       output: { type: 'vfs_data', path: '/data/out.xlsx', sheet_name: 'Results' },
@@ -269,6 +272,7 @@ describe('<BatchTab> submit + source selector', () => {
 
     await waitFor(() => expect(submitBatchMock).toHaveBeenCalledTimes(1));
     expect(submitBatchMock).toHaveBeenCalledWith('wf_1', {
+      notification_policy: { enabled: false, on: [], email: '' },
       data_source: { rows: [{ x: '9' }] },
       column_mapping: { x: 'x' },
       output: null,
@@ -293,6 +297,20 @@ describe('<BatchTab> submit + source selector', () => {
     fireEvent.click(submit);
     await waitFor(() => expect(submitBatchMock).toHaveBeenCalledTimes(1));
     expect(submitBatchMock.mock.calls[0][1]).toMatchObject({ mount_enabled: true });
+  });
+
+  it('pins the displayed historical version instead of the major head', async () => {
+    useWorkflowEditStore.setState({ baseVersion: 'v2.sv3' });
+    submitBatchMock.mockResolvedValueOnce({ task_id: 'tk_historical' });
+    renderTab();
+    fireEvent.change(screen.getByTestId('batch-csv-input'), {
+      target: { files: [new File(['x\n1\n'], 'rows.csv', { type: 'text/csv' })] },
+    });
+    await waitFor(() => expect(screen.getByTestId('batch-submit')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('batch-submit'));
+    await waitFor(() => expect(submitBatchMock).toHaveBeenCalledTimes(1));
+    expect(submitBatchMock.mock.calls[0][1]).toMatchObject({ version: 'v2.sv3' });
+    expect(submitBatchMock.mock.calls[0][1]).not.toHaveProperty('major');
   });
 
   it('sends the chosen parallel-rows (concurrency) value', async () => {
@@ -490,7 +508,7 @@ describe('<BatchTab> this-workflow task list + inline progress', () => {
     const rows = screen.getAllByTestId('batch-task-row');
     expect(rows).toHaveLength(1);
     expect(screen.getByTestId('batch-task-status').textContent).toMatch(/running/i);
-    expect(screen.getByTestId('batch-view-task-center')).toHaveAttribute('href', '/tasks');
+    expect(screen.getByTestId('batch-view-task-center')).toHaveAttribute('href', '/tasks?workflow_id=wf_1&type=batch_exec');
   });
 
   it('clicking a task opens the inline progress view (reusing the SSE hook)', async () => {

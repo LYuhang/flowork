@@ -7,12 +7,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 
 
-DEFAULT_NOTIFICATION_POLICY = {
-    "enabled": True,
-    "on": ["failed"],
-    "channels": ["in_app"],
-    "include_detail_link": True,
-}
+from .task_notifications import DEFAULT_NOTIFICATION_POLICY, normalize_notification_policy
 
 
 def utc_now() -> datetime:
@@ -73,16 +68,7 @@ def compute_next_run_at(
 
 
 def merge_notification_policy(value: dict | None) -> dict:
-    policy = dict(DEFAULT_NOTIFICATION_POLICY)
-    if isinstance(value, dict):
-        policy.update(value)
-    on = policy.get("on")
-    policy["on"] = [x for x in on if x in {"succeeded", "failed"}] if isinstance(on, list) else ["failed"]
-    channels = policy.get("channels")
-    policy["channels"] = [x for x in channels if isinstance(x, str)] if isinstance(channels, list) else ["in_app"]
-    policy["enabled"] = bool(policy.get("enabled", True))
-    policy["include_detail_link"] = bool(policy.get("include_detail_link", True))
-    return policy
+    return normalize_notification_policy(value)
 
 
 def schedule_to_out(schedule) -> dict:

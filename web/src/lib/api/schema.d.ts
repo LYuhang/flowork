@@ -8482,6 +8482,7 @@ export interface components {
             sub: number;
             /** Tree Revision */
             tree_revision: number;
+            access: components["schemas"]["ResourceAccessOut"];
         };
         /**
          * WorkflowChatBinding

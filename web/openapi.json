@@ -26026,13 +26026,17 @@
           "tree_revision": {
             "type": "number",
             "title": "Tree Revision"
+          },
+          "access": {
+            "$ref": "#/components/schemas/ResourceAccessOut"
           }
         },
         "type": "object",
         "required": [
           "major",
           "sub",
-          "tree_revision"
+          "tree_revision",
+          "access"
         ],
         "title": "WorkflowHeadOut"
       },

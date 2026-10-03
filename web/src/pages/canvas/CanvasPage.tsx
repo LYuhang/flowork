@@ -87,7 +87,10 @@ export function CanvasPage() {
   const resetExecStream = useExecStreamStore((s) => s.reset);
   // Permissions, immutable snapshots and active execution all gate editing.
   const localRunning = useExecStreamStore((s) => s.wfId === wfId && s.status === 'running');
-  const workflowCapabilities = new Set(query.data?.meta.access?.capabilities ?? []);
+  // Graph versions are immutable, but access can change without a commit.
+  // The existing lightweight head poll carries current permissions so a
+  // revoked editor loses mutation controls without replacing their draft.
+  const workflowCapabilities = new Set(head.data?.access?.capabilities ?? query.data?.meta.access?.capabilities ?? []);
   const canUpdate = workflowCapabilities.has('update');
   const canExecute = workflowCapabilities.has('execute');
   const canDeploy = workflowCapabilities.has('deploy');

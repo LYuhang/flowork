@@ -13,22 +13,26 @@ This playbook explains the order of work; do not guess parameters.
 
 ### 1. Establish the target before editing
 
-Use list to discover the exact intended Workflow ID, then get and version list
-to inspect metadata and available majors. Create only when the user needs a new
-Workflow. Pass the ID explicitly on every resource command and --major vN on
+When trusted canvas context already supplies the Workflow ID, major, version
+and selected object, use that binding directly. Do not list all workflows or
+inspect every major just to rediscover an explicit target. Outside such a bound
+canvas, use list/get/version list only when the requested target or branch is
+unknown. Create only when the user needs a new Workflow. Pass the ID explicitly on every resource command and --major vN on
 graph commands; there is no connect, status or version set. Keep that explicit
 target consistent through download, config, editing, check and run. Use update
 for names/descriptions/tags rather than rewriting the graph.
 
 ### 2. Inspect only what this change needs
 
-Use download to inspect the saved graph, with focused JSON queries rather than
-dumping a large workflow into the conversation. Read download --help before
+Use the supplied canvas node/edge snapshot for focused edits when it already
+contains the needed fields; download only for missing graph context, a fresh
+baseline or a full rewrite, using focused JSON queries rather than dumping the
+entire graph. Read download --help before
 exporting: its destination is --file, whereas run/run-batch use --output for results.
 Workflow JSON is a dictionary
 of node IDs to nodes; __meta__ is reserved metadata, not a graph node.
-Discover types with `flowork-cli workflow get-spec --list-types`, then fetch
-only candidates with `flowork-cli workflow get-spec --type StartNode,CodeNode,EndNode`.
+List node types only when choosing an unfamiliar capability; for a known type
+fetch its spec directly with `flowork-cli workflow get-spec --type StartNode,CodeNode,EndNode`.
 Its node_schema and type-specific specs are authoritative; do not invent fields.
 Use `flowork-cli config get --scope workflow --workflow-id ID --major vN`
 when changing timeouts, dependencies or network settings. It reads the chosen
@@ -65,7 +69,9 @@ and graph validation alone do not prove a human approval run completed.
   wiring their edges. The entire group is atomic: on a business error nothing
   is saved. Fix the failed operation and resubmit the entire group. Incomplete
   drafts are allowed. Prefer file-valued edits for
-  long code or prompts, avoiding fragile shell quoting.
+  long code or prompts, avoiding fragile shell quoting. CodeNode source lives
+  in node_config.process_fn, not node_config.code. New IDs use node_<digits>;
+  retain existing IDs and node-name references unless the request needs changes.
 - Large rewrites: download to a working file, edit with a JSON-aware script,
   run `flowork-cli workflow check --file PATH`, repair, then upload the file.
   Preserve existing local edits; do not overwrite them blindly.
@@ -84,7 +90,10 @@ rather than forcing ordinary nodes to emulate scheduler behavior.
 
 After operation, use `flowork-cli workflow check --workflow-id ID --major vN` on the saved graph; after
 local editing, check the local file. Saving a draft is not validation.
-Repair diagnostics before presenting the workflow as ready.
+Compare diagnostics with the original saved graph to separate pre-existing
+problems from regressions. Fix errors introduced by your edit. Do not silently
+expand a targeted edit into an unrelated repair, and do not claim readiness
+while unresolved validation errors remain.
 Use `flowork-cli workflow run --workflow-id ID --major vN --node NODE` for a focused node test, then run or
 run-batch only when requested or needed to resolve a material execution risk.
 Use the smallest representative input; do not run repeatedly just to demonstrate.

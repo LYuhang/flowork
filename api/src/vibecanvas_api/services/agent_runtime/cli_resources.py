@@ -24,7 +24,7 @@ def metadata(row, resource):
                for key in fields if key in row}}
 
 
-RUNTIME_HINT = "Version metadata describes the latest publication. Use bash ls/find/cat on runtime_path; run skill update --skill_id ID first if the folder is missing or needs refreshing."
+RUNTIME_HINT = "Version metadata describes the latest publication. Use bash ls/find/cat on runtime_path; run skill refresh --skill_id ID first if the folder is missing or needs refreshing."
 
 
 def runtime_location(context, identifier):

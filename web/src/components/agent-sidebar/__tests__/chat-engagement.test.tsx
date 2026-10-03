@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { http, HttpResponse } from 'msw';
@@ -11,17 +11,37 @@ import { Markdown } from '../Markdown';
 import type { ChatShare } from '@/lib/api/chat-engagement';
 import { SharedChatPage } from '@/pages/chat/SharedChatPage';
 import i18n from '@/lib/i18n';
+import { getTimezone, setTimezone } from '@/lib/timezone';
 
 beforeEach(async () => { await i18n.changeLanguage('en'); });
 
-function actions() {
+function actions(timestamp?: number) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={client}><TooltipProvider>
-    <MessageActions chatId="engagement-chat" messageId="answer" content="Useful answer" />
+    <MessageActions chatId="engagement-chat" messageId="answer" content="Useful answer" timestamp={timestamp} />
   </TooltipProvider></QueryClientProvider>);
 }
 
 describe('message engagement', () => {
+  it('shows the stored message time after Share in the selected timezone', () => {
+    server.use(http.get('*/api/v1/chats/engagement-chat/feedback', () => HttpResponse.json({ ratings: {} })));
+    const originalZone = getTimezone();
+    act(() => setTimezone('Asia/Shanghai'));
+    actions(Date.parse('2026-10-03T00:05:00Z') / 1000);
+    const time = document.querySelector('[data-role="message-actions"] time');
+    expect(time).toHaveAttribute('datetime', '2026-10-03T00:05:00.000Z');
+    expect(time).toHaveTextContent('8:05');
+    const share = screen.getByRole('button', {name: /Share this response/});
+    expect(share.compareDocumentPosition(time!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    act(() => setTimezone(originalZone));
+  });
+
+  it.each([undefined, NaN])('omits missing or invalid timestamps (%s)', (timestamp) => {
+    server.use(http.get('*/api/v1/chats/engagement-chat/feedback', () => HttpResponse.json({ ratings: {} })));
+    actions(timestamp);
+    expect(document.querySelector('[data-role="message-actions"] time')).toBeNull();
+  });
+
   it.each(['en', 'zh'])('creates, copies and revokes a conversation share in %s', async (language) => {
     await i18n.changeLanguage(language);
     let items: ChatShare[] = [];

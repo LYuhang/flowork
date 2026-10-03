@@ -389,11 +389,11 @@ Skill and Knowledge detail pages share Files and Overview; file operations save
 drafts and a separate confirmation publishes a version. MCP details use Overview,
 Tools and Connection & settings, with technical identity/JSON collapsed.
 
-`flowork-cli skill update --skill_id ID` refreshes one Skill in the active Chat's
+`flowork-cli skill refresh --skill_id ID` refreshes one Skill in the active Chat's
 read-only `/skills` namespace without remounting or restarting it. It resolves the
 latest authorized immutable revision, stages files on the host, replaces that
 folder and removes obsolete files. `skill publish --skill_id ID --source_dir DIR`
-updates the platform package. `update` accepts no source directory.
+updates the platform package. `refresh` accepts no source directory.
 Read the returned `runtime_path/SKILL.md` again after refresh. New Agent turns
 already hydrate published Skills automatically.
 

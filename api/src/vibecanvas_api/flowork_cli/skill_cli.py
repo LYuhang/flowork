@@ -12,7 +12,7 @@ except ImportError:
 READ_OPERATIONS = frozenset({'skill.check', 'skill.download', 'skill.refresh'})
 WRITE_OPERATIONS = frozenset({'skill.create', 'skill.update', 'skill.delete'})
 OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS
-ACTIONS = {'check', 'download', 'create', 'update', 'publish', 'delete'}
+ACTIONS = {'check', 'download', 'create', 'refresh', 'publish', 'delete'}
 
 
 def add_commands(commands):
@@ -21,12 +21,12 @@ def add_commands(commands):
         'check': 'Validate ALL files in --source_dir against platform Skill rules. Does not publish a version.',
         'create': 'Validate and publish a new custom Skill from ALL files in --source_dir, including hidden files. Root SKILL.md is required; symlinks are rejected.',
         'publish': 'Replace the ENTIRE package and unpublished draft of your OWN custom Skill with --source_dir, validate, and publish the next version automatically. Absent files are removed. Catalog or other users\' Skills cannot be edited. Inspect get after unknown outcomes before retrying.',
-        'update': 'Refresh this Chat sandbox Skill folder from the latest authorized published version. Does not publish or modify the platform Skill.',
+        'refresh': 'Refresh this Chat sandbox Skill folder from the latest authorized published version. Does not publish or modify the platform Skill.',
         'download': 'Download the latest authorized Skill package into a NEW directory. Never overwrite existing local edits. Read SKILL.md; edit files, check, then publish your own custom Skill.',
     }
     for action, description in descriptions.items():
         leaf = commands.add_parser(action, help=description, description=description, allow_abbrev=False)
-        if action in {'download', 'update', 'publish', 'delete'}:
+        if action in {'download', 'refresh', 'publish', 'delete'}:
             leaf.add_argument('--skill_id', required=True)
         if action in {'check', 'create', 'publish'}:
             leaf.add_argument('--source_dir', required=True)
@@ -53,8 +53,7 @@ def validate(operation, arguments):
 
 
 def execute(args, endpoint, cli):
-    operation = ('skill.refresh' if args.action == 'update'
-                 else 'skill.update' if args.action == 'publish' else 'skill.' + args.action)
+    operation = 'skill.update' if args.action == 'publish' else 'skill.' + args.action
     dispatched = False
     destination = None
     try:

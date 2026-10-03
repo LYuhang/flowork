@@ -105,4 +105,4 @@ async def test_skill_list_includes_runtime_paths_without_reading_files(monkeypat
     result = await host.read(context, "skill.list", {})
     assert result["total"] == 1
     assert result["items"][0]["runtime_path"].endswith("/" + identifier)
-    assert "skill update" in result["runtime_hint"]
+    assert "skill refresh" in result["runtime_hint"]

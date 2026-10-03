@@ -702,7 +702,7 @@ is local to the current turn; it does not activate a persistent management mode.
 | `flowork-cli skill check --source_dir DIR` | Validate the complete package without publishing. |
 | `flowork-cli skill create --source_dir DIR` | Validate and publish a new Custom Skill. |
 | `flowork-cli skill publish --skill_id ID --source_dir DIR` | Replace the full package and unpublished draft, validate, and publish the next version automatically. Missing local files are removed from the published package. |
-| `flowork-cli skill update --skill_id ID` | Refresh only the current Chat runtime folder from the latest publication; does not publish. |
+| `flowork-cli skill refresh --skill_id ID` | Refresh only the current Chat runtime folder from the latest publication; does not publish. |
 | `flowork-cli skill delete --skill_id ID` | Remove the caller's own installation while preserving local downloads and any upstream catalog source. |
 
 Only the creator may update a Custom Skill. Catalog packages and other users'
@@ -720,6 +720,6 @@ invocation; removed or renamed selections require choosing the Skill again.
 The Workflow/SubAgent immutable resource paths described above remain separate.
 
 Skill file browsing and local template creation use ordinary shell/file tools.
-The CLI no longer provides `files`, `read` or `init`, and `update` rejects
+The CLI no longer provides `files`, `read`, `init` or `update`, and `refresh` rejects
 `--source_dir`; use `publish` for publication. Runtime paths are locations, not
 a guarantee of current mounted content: refresh before reading when necessary.

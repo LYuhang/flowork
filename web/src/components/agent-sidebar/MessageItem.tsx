@@ -201,7 +201,7 @@ function MessageItemComponent({
         ) : null}
         <div className="flex flex-wrap items-center gap-1">
         {message.role === 'assistant' && hasContent && !streaming && actionsEnabled && identity?.chatId && message.id ? (
-          <MessageActions chatId={identity.chatId} messageId={message.id} content={message.content} />
+          <MessageActions chatId={identity.chatId} messageId={message.id} content={message.content} timestamp={message.ts} />
         ) : null}
         </div>
       </div>

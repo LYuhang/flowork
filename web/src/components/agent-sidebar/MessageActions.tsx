@@ -9,11 +9,14 @@ import {
   sharesKey, shareUrl, type MessageRating,
 } from '@/lib/api/chat-engagement';
 import { cn } from '@/lib/utils';
+import { useFormatDateTime } from '@/lib/timezone';
 
-export function MessageActions({ chatId, messageId, content }: {
-  chatId: string; messageId: string; content: string;
+export function MessageActions({ chatId, messageId, content, timestamp }: {
+  chatId: string; messageId: string; content: string; timestamp?: number;
 }) {
   const { t } = useTranslation();
+  const formatTime = useFormatDateTime();
+  const timeLabel = formatTime(timestamp, { dateStyle: 'short', timeStyle: 'short', placeholder: '' });
   const qc = useQueryClient();
   const feedback = useQuery({
     queryKey: feedbackKey(chatId), queryFn: () => fetchFeedback(chatId), staleTime: 30_000,
@@ -80,7 +83,7 @@ export function MessageActions({ chatId, messageId, content }: {
       success: copied?.kind === 'share', disabled: sharing, onClick: () => void share() },
   ];
   return (
-    <div className="mt-1 flex items-center gap-0.5 text-muted-foreground" data-role="message-actions">
+    <div className="mt-1 flex flex-wrap items-center gap-0.5 text-muted-foreground" data-role="message-actions">
       {actions.map(({ key, label, icon: Icon, selected, success, disabled, onClick }) => (
         <Tooltip key={key}>
           <TooltipTrigger asChild>
@@ -94,6 +97,11 @@ export function MessageActions({ chatId, messageId, content }: {
           <TooltipContent>{label}</TooltipContent>
         </Tooltip>
       ))}
+      {timeLabel && timestamp !== undefined && <time
+        dateTime={new Date(timestamp * 1000).toISOString()}
+        title={formatTime(timestamp, { dateStyle: 'long', timeStyle: 'long' })}
+        className="ml-2 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+      >{timeLabel}</time>}
       <span role="status" className="sr-only">{copied ? t('chat.actions.copied', 'Copied') : ''}</span>
     </div>
   );

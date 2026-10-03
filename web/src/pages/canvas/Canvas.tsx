@@ -32,7 +32,8 @@
  * we do it here at module scope.
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { PanelLeftOpen } from 'lucide-react';
+import { useNodePicker } from './NodePickerContext';
+import { Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   useEdgesState,
@@ -108,7 +109,7 @@ export function Canvas({ readOnly = false }: CanvasProps = {}) {
   const removeNodes = useWorkflowEditStore((s) => s.removeNodes);
   const setCanvasInteracting = useUIStore((s) => s.setCanvasInteracting);
   const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
-  const setExplorerOpen = useUIStore((s) => s.setExplorerOpen);
+  const showNodePicker = useNodePicker();
   const { screenToFlowPosition } = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const registerViewportCenter = useRegisterViewportCenter();
@@ -372,8 +373,8 @@ export function Canvas({ readOnly = false }: CanvasProps = {}) {
               {readOnly
                 ? t('canvas.emptyReadOnly', 'This workflow version has no nodes.')
                 : t(
-                    'canvas.emptyState',
-                    'Open File Explorer to add nodes, or ask the Agent to build the workflow.',
+                    'nodePicker.emptyHint',
+                    'Add your first node, or ask the Agent to build the workflow.',
                   )}
             </p>
             {!readOnly && (
@@ -382,10 +383,10 @@ export function Canvas({ readOnly = false }: CanvasProps = {}) {
                 variant="outline"
                 size="sm"
                 className="pointer-events-auto mt-4"
-                onClick={() => setExplorerOpen(true)}
+                onClick={() => showNodePicker()}
               >
-                <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
-                {t('canvas.openExplorer', 'Open File Explorer')}
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                {t('nodePicker.add', 'Add node')}
               </Button>
             )}
           </div>

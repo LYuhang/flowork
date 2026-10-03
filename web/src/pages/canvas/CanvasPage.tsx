@@ -9,6 +9,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { ReactFlowProvider } from '@xyflow/react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { CanvasNodePicker } from './CanvasNodePicker';
 import { Canvas } from '@/pages/canvas/Canvas';
 import { decideSeed, showConflictToast } from '@/pages/canvas/seedPolicy';
 import { useDirtyNavigationGuard } from '@/lib/navigation/use-dirty-navigation-guard';
@@ -352,9 +353,11 @@ export function CanvasPage() {
           onToggleExplorer={toggleExplorer} explorerOpen={explorerOpen} />
         <div className="flex flex-1 overflow-hidden">
           <div className="flex min-h-0 flex-1 flex-col">
-            <ContextMenuLayer readOnly={effectiveReadOnly}>
-              <Canvas readOnly={effectiveReadOnly} />
-            </ContextMenuLayer>
+            <CanvasNodePicker readOnly={effectiveReadOnly}>
+              <ContextMenuLayer readOnly={effectiveReadOnly}>
+                <Canvas readOnly={effectiveReadOnly} />
+              </ContextMenuLayer>
+            </CanvasNodePicker>
           </div>
           <RightInspector wfId={wfId!} readOnly={effectiveReadOnly} canExecute={canExecute} />
         </div>

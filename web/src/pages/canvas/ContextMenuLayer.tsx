@@ -21,8 +21,9 @@
  * rely on being inside the page-level `ReactFlowProvider` (see
  * `CanvasPage.tsx`).
  */
-import { useState, type ReactNode } from 'react';
-import { Copy, ClipboardPaste, Trash2 } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
+import { useNodePicker } from './NodePickerContext';
+import { Plus, Copy, ClipboardPaste, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useEdges, useNodes, useReactFlow } from '@xyflow/react';
@@ -48,6 +49,8 @@ export function ContextMenuLayer({
   readOnly = false,
 }: ContextMenuLayerProps) {
   const { t } = useTranslation();
+  const showNodePicker = useNodePicker();
+  const openingNodePicker = useRef(false);
   // Screen coords of the right-click that opened the menu — used by Paste so a
   // pasted node lands where the user clicked.
   const [menuCoord, setMenuCoord] = useState<{ x: number; y: number } | null>(
@@ -108,9 +111,18 @@ export function ContextMenuLayer({
           <div className="h-full w-full">{children}</div>
         </ContextMenuTrigger>
         {!readOnly && (
-          <ContextMenuContent className="min-w-56">
-            {/* "Add node" was removed from the right-click menu — it duplicated
-                the left Explorer's node palette (drag / double-click to add). */}
+          <ContextMenuContent className="min-w-56" onCloseAutoFocus={(event) => {
+            if (!openingNodePicker.current) return;
+            event.preventDefault();
+            openingNodePicker.current = false;
+            const anchor = menuCoord ?? undefined;
+            requestAnimationFrame(() => showNodePicker(anchor));
+          }}>
+            <ContextMenuItem data-action="context-add-node" onSelect={() => {
+              // Let the menu release its focus trap before opening the picker.
+              openingNodePicker.current = true;
+            }}><Plus className="mr-2 h-4 w-4" />{t('nodePicker.add', 'Add node')}</ContextMenuItem>
+            <ContextMenuSeparator />
               <ContextMenuItem
                 disabled={!selectedNode}
                 onSelect={onCopySelectedNode}

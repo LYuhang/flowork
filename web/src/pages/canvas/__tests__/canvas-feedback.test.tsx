@@ -180,7 +180,7 @@ describe('Canvas — empty-state overlay', () => {
     withI18n(<Canvas />);
     const overlay = document.querySelector('[data-canvas-empty-state]');
     expect(overlay).not.toBeNull();
-    expect(screen.getByText(en['canvas.emptyState'])).toBeInTheDocument();
+    expect(screen.getByText(en['nodePicker.emptyHint'])).toBeInTheDocument();
   });
 
   it('does NOT render the overlay when nodes exist', () => {

@@ -3846,5 +3846,15 @@
   "api.error.draftConflict": "存在未发布的修改，请先检查并发布现有草稿，再替换整个文件包。",
   "workflow.save.missingVersion": "无法确定编辑的基准版本，请保留修改并重新加载 Workflow 后再保存。",
   "vfs.collapse_version": "折叠 {{version}}",
-  "vfs.expand_version": "展开 {{version}}"
+  "vfs.expand_version": "展开 {{version}}",
+  "nodePicker.add": "添加节点",
+  "nodePicker.search": "搜索节点…",
+  "nodePicker.recent": "最近使用",
+  "nodePicker.emptyHint": "添加第一个节点，或让 Agent 帮你构建工作流。",
+  "nodePicker.group.io": "输入与输出",
+  "nodePicker.group.ai": "AI",
+  "nodePicker.group.control": "流程控制与协作",
+  "nodePicker.group.data": "数据处理",
+  "nodePicker.group.integration": "代码与集成",
+  "nodePicker.group.other": "其他"
 }

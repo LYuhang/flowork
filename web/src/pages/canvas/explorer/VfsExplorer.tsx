@@ -12,7 +12,6 @@ import { VfsFilesSection } from './VfsFilesSection';
 import { VfsFileModal } from './VfsFileModal';
 import { VfsRunFileModal } from './VfsRunFileModal';
 import { VfsRunSection } from './VfsRunSection';
-import { NodesSection } from './NodesSection';
 import { ExplorerBlock } from './ExplorerBlock';
 import { useWorkflowWorkspaceIdentity } from '@/lib/api/queries/workflow-workspace';
 
@@ -34,7 +33,7 @@ export interface VfsExplorerProps {
  * via `useWorkflow(wfId)` — the SAME `['workflow', wfId]` query CanvasPage
  * uses, so it's TanStack-cached, not a double-fetch.
  */
-export function VfsExplorer({ wfId, readOnly, vKey }: VfsExplorerProps) {
+export function VfsExplorer({ wfId, vKey }: VfsExplorerProps) {
   const { t } = useTranslation();
   const { width, setWidth, resetWidth } = usePersistedPaneWidth({
     storageKey: `vibecanvas:workflow-explorer-width:v1:${wfId}`,
@@ -102,9 +101,6 @@ export function VfsExplorer({ wfId, readOnly, vKey }: VfsExplorerProps) {
       <div className="flex-1 overflow-auto">
         <ExplorerBlock id="versions" title={t('vfs.versions', 'Workflow Versions')} persistenceKey={`vibecanvas:explorer-section:v1:${wfId}:versions`}>
           <WorkflowVersionsSection wfId={wfId} activeMajor={activeMajor} activeSub={activeSub} viewedMajor={viewedMajor} />
-        </ExplorerBlock>
-        <ExplorerBlock id="nodes" title={t('explorer.nodes', 'Nodes')} persistenceKey={`vibecanvas:explorer-section:v1:${wfId}:nodes`}>
-          <NodesSection readOnly={readOnly} />
         </ExplorerBlock>
         <ExplorerBlock id="sandbox" title={t('vfs.sandbox', 'Sandbox')} defaultCollapsed={false} persistenceKey={`vibecanvas:explorer-section:v1:${wfId}:sandbox`}>
           <VfsRunSection

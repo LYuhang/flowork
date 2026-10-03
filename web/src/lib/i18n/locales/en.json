@@ -3846,5 +3846,15 @@
   "api.error.draftConflict": "Unpublished edits exist. Review and publish the existing draft before replacing the package.",
   "workflow.save.missingVersion": "Keep your edits and reload the workflow before saving; its base version is unavailable.",
   "vfs.collapse_version": "Collapse {{version}}",
-  "vfs.expand_version": "Expand {{version}}"
+  "vfs.expand_version": "Expand {{version}}",
+  "nodePicker.add": "Add node",
+  "nodePicker.search": "Search nodes…",
+  "nodePicker.recent": "Recently used",
+  "nodePicker.emptyHint": "Add your first node, or ask the Agent to build the workflow.",
+  "nodePicker.group.io": "Input & output",
+  "nodePicker.group.ai": "AI",
+  "nodePicker.group.control": "Flow & collaboration",
+  "nodePicker.group.data": "Data processing",
+  "nodePicker.group.integration": "Code & integrations",
+  "nodePicker.group.other": "Other"
 }

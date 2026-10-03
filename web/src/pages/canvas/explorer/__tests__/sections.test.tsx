@@ -237,7 +237,7 @@ describe('WorkflowVersionsSection', () => {
 describe('VfsExplorer section labels', () => {
   it('renders the ExplorerBlock headers (route-fed props)', () => {
     wrap(<VfsExplorer wfId="wf1" readOnly={false} />);
-    for (const title of ['Workflow Versions', 'Nodes', 'Sandbox']) {
+    for (const title of ['Workflow Versions', 'Sandbox']) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
     expect(screen.queryByText('Workflow Sandbox')).not.toBeInTheDocument();
@@ -259,7 +259,7 @@ describe('VfsExplorer section labels', () => {
 
   it('other blocks are collapsed by default and toggle open on header click', () => {
     wrap(<VfsExplorer wfId="wf1" readOnly={false} />);
-    const header = screen.getByRole('button', { name: /^Nodes/i });
+    const header = screen.getByRole('button', { name: /^Workflow Versions/i });
     expect(header).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(header);
     expect(header).toHaveAttribute('aria-expanded', 'true');

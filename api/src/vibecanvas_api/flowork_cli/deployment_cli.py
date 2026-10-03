@@ -6,7 +6,7 @@ import os
 import re
 from uuid import UUID
 
-READ_OPERATIONS = frozenset("deployment." + name for name in ("list", "info", "status", "history", "logs"))
+READ_OPERATIONS = frozenset("deployment." + name for name in ("list", "info", "status", "history", "logs", "result"))
 WRITE_OPERATIONS = frozenset("deployment." + name for name in (
     "create", "update", "enable", "disable", "run", "rotate_key", "delete"))
 OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS
@@ -45,12 +45,13 @@ def add_parser(groups):
     for action, description in {
         "info": "Read deployment configuration, desired_version, active_version, rollout_status, rollout_error and public endpoint. active_version_known=false means this response has no runtime observation. Never returns credentials or proves execution health. " + _CREDENTIAL_FILE_HELP,
         "status": "Read exactly one invocation status, timestamps and error. Requires --execution_id from run/history; never selects the latest implicitly.",
+        "result": "Read complete final business outputs for exactly one invocation, synchronous or asynchronous. Requires --execution_id. Never executes or waits. Inspect execution_status and result_available: pending/failed/missing results have outputs=null; successful empty outputs remain {}. Query success is not execution success. Poll this command for an accepted invocation, never run again.",
         "logs": "Read one invocation workflow event log, oldest first. Requires --execution_id. Use --after CURSOR for the next page. These are persisted workflow events, not sandbox stdout. Older invocations may have no recorded trace; logs_available reports this explicitly.",
         "enable": "Enable future calls after approval; does not execute the Workflow.",
         "disable": "Disable new calls. Does not guarantee cancellation of in-flight execution or undo side effects.",
         "delete": "Soft-delete and disable the deployment, not its Workflow. Does not undo in-flight side effects. Approval applies.",
         "rotate_key": "API deployments only. Old API key immediately stops working. Save the one-time replacement to --secret_file; never automatically rotate again after an unknown result.",
-        "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url after human approval is reached or the observation wait expires. The admitted execution continues independently. Inspect that execution through status or its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
+        "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url after human approval is reached or the observation wait expires. The admitted execution continues independently. Retrieve full outputs through result --execution_id or inspect status and its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
         "history": "List invocation history newest first. Use next_cursor as --after. Exports default to the last seven days; override with --from/--to. --output_dir exports invocations.jsonl and history.json with paging metadata to a NEW directory. Use status/logs --execution_id for one invocation.",
         "create": "Create an enabled deployment by default; does not execute. Required --version selects a fixed saved snapshot. --secret_file is a NEW sandbox file for the one-time API key/webhook secret (0600); stdout never prints it. After an unknown result inspect list before retrying. --slug defaults to the lowercased name with non-ASCII/alphanumeric groups replaced by hyphens (fallback deployment); collisions are errors.",
         "update": "Update ONLY supplied settings, not Workflow ID, trigger type or slug. Version changes and increased execution exposure may require approval. Use enable/disable for availability. Existing accepted calls retain their frozen version/mount. Updating configuration is asynchronous: old active instances serve new calls until replacement is ready. Use info to check rollout_status and active_version; do not repeat update to poll.",
@@ -75,7 +76,7 @@ def add_parser(groups):
             inputs = leaf.add_mutually_exclusive_group()
             inputs.add_argument("--inputs", help="JSON object matching StartNode input names; default {}.")
             inputs.add_argument("--inputs_file", help="Read the input JSON object from a sandbox file.")
-        if action in {"status", "logs"}:
+        if action in {"status", "logs", "result"}:
             leaf.add_argument("--execution_id", required=True, help="Exact invocation ID from run/history.")
         if action == "logs":
             leaf.add_argument("--after", type=int, default=0, help="Exclusive event sequence cursor, default 0.")
@@ -95,7 +96,7 @@ def validate(operation, arguments):
     target = {"deployment_id"}
     settings = {"name", "major", "version", "rate_limit_qps", "mount"}
     allowed = {
-        "list": {"workflow_id", "limit", "offset"}, "info": target, "status": target | {"execution_id"},
+        "list": {"workflow_id", "limit", "offset"}, "info": target, "status": target | {"execution_id"}, "result": target | {"execution_id"},
         "logs": target | {"execution_id", "after", "limit"},
         "history": target | {"status", "from_time", "to_time", "limit", "after", "export"},
         "create": settings | {"workflow_id", "trigger_type", "slug", "enabled"},
@@ -108,7 +109,7 @@ def validate(operation, arguments):
     value = dict(arguments)
     if action not in {"list", "create"} and "deployment_id" not in value:
         raise ValueError("--deployment_id is required.")
-    if action in {"status", "logs"} and not value.get("execution_id"):
+    if action in {"status", "logs", "result"} and not value.get("execution_id"):
         raise ValueError("--execution_id is required; use info for configuration or history to discover executions.")
     for key in ("deployment_id", "execution_id"):
         if key in value:
@@ -251,4 +252,4 @@ def execute(args, endpoint, cli):
     result.pop("_credential", None)
     code = 2 if result.get("error") == "invalid_arguments" else (1 if result.get("error") or (args.action == "run" and result.get("status") in {"failed", "timed_out", "cancelled"}) else 0)
     return cli.emit_result(result, exit_code=code,
-        state_field="execution_status" if args.action in {"run", "status", "logs"} else "resource_status")
+        state_field="execution_status" if args.action in {"run", "status", "logs", "result"} else "resource_status")

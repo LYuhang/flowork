@@ -259,3 +259,17 @@ def test_info_distinguishes_desired_and_active_version_without_runtime_secrets()
     result = deployment_status(dep)
     assert result['active_version'] is None
     assert result['active_version_known'] is False
+
+
+@pytest.mark.parametrize('state', ['running', 'succeeded', 'failed'])
+def test_result_cli_is_read_only_and_separates_query_outcome(monkeypatch, capsys, state):
+    dep, ex = str(uuid4()), str(uuid4())
+    request = Mock(return_value={'status': state, 'result_available': state == 'succeeded',
+        'outputs': {'nested': ['完整', 42]} if state == 'succeeded' else None})
+    monkeypatch.setattr(cli, 'request', request)
+    assert cli.main(['deployment', 'result', '--deployment_id', dep, '--execution_id', ex], socket_path='test') == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output['execution_status'] == state and output['command_status'] == 'succeeded'
+    assert request.call_args.kwargs['operation'] == 'deployment.result'
+    assert 'deployment.result' in cli.READ_OPERATIONS
+    assert 'deployment.result' not in cli.WRITE_OPERATIONS

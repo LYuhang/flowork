@@ -89,6 +89,32 @@ def execution_status(row, deployment_id):
     return result
 
 
+def execution_result(summary, detail):
+    """Project persisted EndNode outputs without exposing graph or node internals."""
+    result = dict(summary)
+    state = detail["status"] if detail else summary["status"]
+    terminal = state in {"succeeded", "failed", "timed_out", "cancelled"}
+    evidence = (detail or {}).get("result") or {}
+    final = evidence.get("final_outputs")
+    available = state == "succeeded" and isinstance(final, dict) and "__end__" in final
+    reason = None if available else (
+        "execution_pending" if not terminal else
+        "execution_unsuccessful" if state != "succeeded" else "result_not_recorded")
+    result.update(status=state, terminal=terminal, result_available=available,
+                  outputs=final["__end__"] if available else None,
+                  result_unavailable_reason=reason)
+    if terminal and state != "succeeded":
+        result["execution_error"] = (summary.get("execution_error")
+            or (detail or {}).get("error_code") or state)
+    result["message"] = ("Complete business outputs retrieved." if available else
+        "Execution is still pending. Query this execution again; do not submit another call." if not terminal else
+        "Execution did not succeed. Inspect execution_error and logs." if state != "succeeded" else
+        "This execution has no retained complete result; the summary is not a substitute.")
+    result["hint"] = (f"flowork-cli deployment result --deployment_id {result['deployment_id']} "
+                      f"--execution_id {result['execution_id']}")
+    return result
+
+
 def execution_errors(errors):
     """Expose actionable node errors, not internal args/kwargs/runtime objects."""
     return {str(node): str(value.get("error_message") or value.get("message") or "Node execution failed.")
@@ -143,7 +169,7 @@ async def read(ctx, operation, args):
             return deployment_status(dep)
         await routes._authorize_deployment(deployment_id=dep_id, action=Action.INSPECT_RUNS,
             **{k: v for k, v in params.items() if k != "session"})
-        if operation in {"deployment.status", "deployment.logs"}:
+        if operation in {"deployment.status", "deployment.logs", "deployment.result"}:
             row = (await session.execute(text("""SELECT id,status,source,trigger_type,submitted_at,started_at,
                 finished_at,latency_ms,error,result_summary FROM deployment_invocations
                 WHERE deployment_id=:dep AND id=:id"""), {"dep": dep_id, "id": uuid.UUID(args["execution_id"])})).mappings().one_or_none()
@@ -156,6 +182,9 @@ async def read(ctx, operation, args):
             run = await repo.get(args["execution_id"])
             if run is not None and (run["source_type"] != "deployment" or str(run["source_id"]) != str(dep_id)):
                 raise HTTPException(404, "Execution trace not found in this deployment.")
+            if operation == "deployment.result":
+                detail = await repo.result_detail(args["execution_id"]) if run else None
+                return jsonable_encoder(execution_result(result, detail))
             after = args.get("after", 0)
             frames = await repo.events(args["execution_id"], after=after, limit=args.get("limit", 100)) if run else []
             cursor = frames[-1]["seq"] if frames else after
@@ -311,5 +340,5 @@ def invocation_result(deployment_id, response):
         message = "Test execution failed."
     return {
         "deployment_id": str(deployment_id), **result, "message": message,
-        "hint": f"flowork-cli deployment status --deployment_id {deployment_id} --execution_id {result['execution_id']}",
+        "hint": f"flowork-cli deployment result --deployment_id {deployment_id} --execution_id {result['execution_id']}",
     }

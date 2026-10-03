@@ -190,6 +190,12 @@ async def test_repo_list_filters_and_excludes_deleted(pg_engine, app_engine):
             "soft-deleted row leaked into list_for_tenant"
         )
 
+        matching = await repo.list_for_tenant(wf_id=wf_id)
+        assert {row["id"] for row in matching} == {api_id, wh_id}
+        assert all(row["active_version"] is None for row in matching)
+        assert await repo.list_for_tenant(wf_id="nonexistent-workflow") == []
+        assert (await repo.summary_for_tenant(wf_id=wf_id))["active"] == 2
+        assert (await repo.summary_for_tenant(wf_id="nonexistent-workflow"))["active"] == 0
         api_only = await repo.list_for_tenant(trigger_type="api")
         assert {r["id"] for r in api_only} == {api_id}
 

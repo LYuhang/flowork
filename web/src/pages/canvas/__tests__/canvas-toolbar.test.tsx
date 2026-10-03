@@ -89,6 +89,7 @@ function renderToolbar(readOnly = false, pinnedMajor: number | null = null, hist
           wfId="wf-1"
           readOnly={readOnly}
           canExecute
+          canDeploy
           canExport
           canMount
           canInspectRuns
@@ -147,6 +148,13 @@ describe('Execute and Run Batch open the Inspector', () => {
     expect(s.inspectorTab).toBe('run');
     // No dialog, and the toolbar no longer mounts the retired execute modal.
     expect(screen.queryByTestId('execute-input-dialog')).toBeNull();
+  });
+
+  it('Deploy opens the workflow deployment inspector', () => {
+    renderToolbar();
+    fireEvent.click(byAction('canvas-deploy'));
+    expect(useUIStore.getState().inspectorScope).toBe('workflow');
+    expect(useUIStore.getState().inspectorTab).toBe('deploy');
   });
 
   it('keeps batch and schedule inside the execution panel', () => {
@@ -320,6 +328,7 @@ describe('serialize runs', () => {
             wfId="wf-1"
             readOnly={false}
             canExecute
+          canDeploy
             canExport
             canMount
             canInspectRuns
@@ -341,6 +350,7 @@ describe('serialize runs', () => {
             wfId="wf-1"
             readOnly={false}
             canExecute
+          canDeploy
             canExport
             canMount
             canInspectRuns

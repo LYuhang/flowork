@@ -48,6 +48,8 @@ import {
 } from '@/lib/api/deployments';
 import { useFormatDateTime } from '@/lib/timezone';
 import { cn } from '@/lib/utils';
+import { useWorkspaceList } from '@/lib/api/queries/workflows';
+import { SearchSelect } from '@/components/ui/search-select';
 import { CreateDeploymentModal } from '@/pages/deployments/CreateDeploymentModal';
 import { ManagementPageShell, ManagementToolbar } from '@/components/layout/management-page-shell';
 import { OperationalSummary } from '@/components/layout/operational-summary';
@@ -112,6 +114,7 @@ export function DeploymentsListPage() {
   } | null>(null);
   const [shareTarget, setShareTarget] = useState<Deployment | null>(null);
   const initialWorkflowId = searchParams.get('workflow_id') ?? '';
+  const workflowsQuery = useWorkspaceList(200, 0);
   const initialWorkflowName = searchParams.get('workflow_name') ?? '';
   const initialDeploymentName = initialWorkflowName ? `${initialWorkflowName} API` : '';
 
@@ -150,16 +153,16 @@ export function DeploymentsListPage() {
     if (!open && searchParams.get('create') === '1') {
       const next = new URLSearchParams(searchParams);
       next.delete('create');
-      next.delete('workflow_id');
       next.delete('workflow_name');
       setSearchParams(next, { replace: true });
     }
   };
 
   const query = useQuery({
-    queryKey: ['deployments', { search, typeFilter, statusFilter, page }],
+    queryKey: ['deployments', { search, typeFilter, statusFilter, page, workflowId: initialWorkflowId }],
     queryFn: () => listDeployments({
       q: search || undefined,
+      workflow_id: initialWorkflowId || undefined,
       trigger_type: typeFilter === 'all' ? undefined : typeFilter,
       enabled: statusFilter === 'all' ? undefined : statusFilter === 'active',
       limit: PAGE_SIZE,
@@ -289,6 +292,11 @@ export function DeploymentsListPage() {
                 className="pl-9"
               />
             </div>
+            <SearchSelect value={initialWorkflowId} onValueChange={value => updateListParams({ workflow_id: value || null, page: null })}
+              options={(workflowsQuery.data?.items ?? []).map(w => ({ value: w.wf_id, label: w.workflow_name || w.wf_id, meta: w.wf_id }))
+                .concat(initialWorkflowId && !workflowsQuery.data?.items.some(w => w.wf_id === initialWorkflowId) ? [{ value: initialWorkflowId, label: initialWorkflowId, meta: initialWorkflowId }] : [])}
+              placeholder={t('tasks.related.filter', 'Filter by Workflow')} searchPlaceholder={t('tasks.related.filter', 'Filter by Workflow')} />
+            {initialWorkflowId && <Button variant="ghost" size="sm" onClick={() => updateListParams({ workflow_id: null, page: null })}>{t('tasks.related.clear', 'All workflows')}</Button>}
             <Select value={typeFilter} onValueChange={(value) => updateListParams({ type: value === 'all' ? null : value, page: null })}>
               <SelectTrigger className="w-[150px]" aria-label={t('deployments.filter.type', 'Filter by deployment type')}>
                 <SelectValue />

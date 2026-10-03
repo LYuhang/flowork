@@ -46,6 +46,7 @@ import { NodeExecutePanel } from '@/pages/canvas/inspector/NodeExecutePanel';
 import { InfoTab } from '@/pages/canvas/inspector/InfoTab';
 import { WorkflowRunTab } from '@/pages/canvas/inspector/WorkflowRunTab';
 import { BatchTab } from '@/pages/canvas/inspector/BatchTab';
+import { DeploymentTab } from './DeploymentTab';
 import { ScheduleTab } from './ScheduleTab';
 import { WorkflowCheckDialog } from '@/components/modals/WorkflowCheckDialog';
 import { useUIStore } from '@/stores/ui';
@@ -63,14 +64,15 @@ export interface RightInspectorProps {
   readOnly?: boolean;
   /** Exact backend-computed workflow execute capability. */
   canExecute?: boolean;
+  canDeploy?: boolean;
   variant?: 'default' | 'embedded';
 }
 
 type Scope = 'node' | 'workflow';
 const NODE_TABS = ['node', 'run-node', 'info'] as const;
-const WORKFLOW_TABS = ['run', 'batch', 'schedule'] as const;
+const WORKFLOW_TABS = ['run', 'batch', 'schedule', 'deploy'] as const;
 
-export function RightInspector({ wfId, readOnly = false, canExecute = false, variant = 'default' }: RightInspectorProps) {
+export function RightInspector({ wfId, readOnly = false, canExecute = false, canDeploy = false, variant = 'default' }: RightInspectorProps) {
   const { t } = useTranslation();
   const { width, setWidth, resetWidth } = usePersistedPaneWidth({
     storageKey: `vibecanvas:workflow-inspector-width:v1:${wfId}`,
@@ -132,7 +134,7 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, var
 
   const activeTab = scope === 'node'
     ? (!canExecute && nodeTab === 'run-node' ? 'node' : nodeTab)
-    : workflowTab;
+    : !canExecute && canDeploy ? 'deploy' : workflowTab === 'deploy' && !canDeploy ? 'run' : workflowTab;
   const onTabChange = scope === 'node' ? setNodeTab : setWorkflowTab;
 
   // ── Run-start auto-focus (replaces the old single auto-switch effect) ───
@@ -245,8 +247,9 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, var
                 {t('inspector.tab.info', 'Info')}
               </TabsTrigger>
             </TabsList>
-          ) : canExecute ? (
+          ) : (canExecute || canDeploy) ? (
             <TabsList variant="underline" className="h-10 w-full shrink-0 justify-start border-b border-edge-subtle px-3">
+              {canExecute && <>
               <TabsTrigger value="run" data-testid="inspector-tab-run">
                 {t('inspector.tab.run', 'Run')}
               </TabsTrigger>
@@ -256,6 +259,8 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, var
               <TabsTrigger value="schedule" data-testid="inspector-tab-schedule">
                 {t('inspector.tab.schedule', 'Schedule')}
               </TabsTrigger>
+              </>}
+              {canDeploy && <TabsTrigger value="deploy" data-testid="inspector-tab-deploy">{t('deployments.workflow.deploy', 'Deploy')}</TabsTrigger>}
             </TabsList>
           ) : (
             <div className="px-4 py-6 text-sm text-muted-foreground">
@@ -290,8 +295,9 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, var
                 <InfoTab wfId={wfId} />
               </TabsContent>
             </>
-          ) : canExecute ? (
+          ) : (canExecute || canDeploy) ? (
             <>
+              {canExecute && <>
               {/* forceMount both: switching Run↔Batch toggles visibility
                   instead of unmounting/rebuilding (the heavy result re-parse +
                   re-layout that caused the lag). Radix hides the inactive one. */}
@@ -312,6 +318,10 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, var
               <TabsContent value="schedule" className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden">
                 <ScheduleTab key={wfId} wfId={wfId} />
               </TabsContent>
+              </>}
+              {canDeploy && <TabsContent forceMount value="deploy" className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 data-[state=inactive]:hidden">
+                <DeploymentTab key={wfId} wfId={wfId} active={activeTab === 'deploy'} />
+              </TabsContent>}
             </>
           ) : null}
       </Tabs>

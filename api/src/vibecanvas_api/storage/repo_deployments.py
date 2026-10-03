@@ -49,6 +49,9 @@ class DeploymentsRepo:
             text(
                 """
                 SELECT d.*,
+                       (SELECT 'v' || (r.spec->>'pinned_major') || '.sv' || (r.spec->>'pinned_sub')
+                        FROM deployment_runtime_revisions r WHERE r.id = d.active_revision_id
+                        AND r.deployment_id = d.id AND r.state = 'active') AS active_version,
                        COALESCE(inv.invoke_count, 0)::int AS invoke_count,
                        inv.last_invoked_at AS last_invoked_at
                 FROM deployments d
@@ -167,6 +170,9 @@ class DeploymentsRepo:
             text(
                 """
                 SELECT d.*,
+                       (SELECT 'v' || (r.spec->>'pinned_major') || '.sv' || (r.spec->>'pinned_sub')
+                        FROM deployment_runtime_revisions r WHERE r.id = d.active_revision_id
+                        AND r.deployment_id = d.id AND r.state = 'active') AS active_version,
                        COALESCE(inv.invoke_count, 0)::int AS invoke_count,
                        inv.last_invoked_at AS last_invoked_at
                 FROM deployments d
@@ -243,6 +249,7 @@ class DeploymentsRepo:
         self,
         *,
         deployment_ids: tuple[str, ...] | list[str] | None = None,
+        wf_id: str | None = None,
     ) -> dict:
         """Return list-page totals without loading every deployment row."""
         params: dict = {}
@@ -263,6 +270,9 @@ class DeploymentsRepo:
                 }
             id_clause = " AND d.id = ANY(CAST(:deployment_ids AS uuid[]))"
             params["deployment_ids"] = [str(value) for value in normalized_ids]
+        if wf_id:
+            id_clause += " AND d.wf_id = :wf_id"
+            params["wf_id"] = wf_id
         row = (
             await self.session.execute(
                 text(

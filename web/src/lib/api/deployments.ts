@@ -66,6 +66,7 @@ export interface Deployment {
   access: ResourceAccess;
   provenance: ResourceProvenance;
   active_revision_id?: string | null;
+  active_version?: string | null;
   rollout_status?: string;
   rollout_error?: string | null;
   runtime?: { instances: DeploymentInstance[] };

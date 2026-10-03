@@ -33,6 +33,7 @@ import {
   MoreHorizontal,
   PanelRight,
   Play,
+  Rocket,
   Redo,
   Save,
   Settings,
@@ -95,6 +96,7 @@ export interface CanvasToolbarProps {
   readOnly?: boolean;
   /** Exact backend-computed workflow execute capability. */
   canExecute?: boolean;
+  canDeploy?: boolean;
   /** Exact backend-computed workflow export capability. */
   canExport?: boolean;
   /** Exact backend-computed workflow mount capability. */
@@ -120,6 +122,7 @@ export function CanvasToolbar({
   wfId,
   readOnly = false,
   canExecute = false,
+  canDeploy = false,
   canExport = false,
   canMount = false,
   canInspectRuns = false,
@@ -464,6 +467,10 @@ export function CanvasToolbar({
       >
         <Play className="mr-2 h-4 w-4" />
         {t('execute', 'Execute')}
+      </Button>
+      <Button variant="outline" className="h-9" data-action="canvas-deploy" disabled={!canDeploy}
+        onClick={() => { deselectAll(); setInspectorOpen(true); requestInspectorTab('workflow', 'deploy'); }}>
+        <Rocket className="mr-2 h-4 w-4" />{t('deployments.workflow.deploy', 'Deploy')}
       </Button>
       <Button
         ref={settingsButtonRef}

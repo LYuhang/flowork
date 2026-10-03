@@ -38,12 +38,7 @@ export function CanvasPage() {
   const followingMajor = vKey?.match(/^v([1-9]\d*)$/);
   const v = match ? Number(match[1]) : followingMajor ? Number(followingMajor[1]) : null;
   const sv = match ? Number(match[2]) : null;
-  // `pinned` here = the PINNED-version source only. The query/seed logic keys
-  // off this (a run must not disable the latest-snapshot query nor skip the
-  // StartNode seed). It is NO LONGER an edit-gate — UX-5 makes a pinned
-  // historical version EDITABLE (Save lands under that major via
-  // `target_major`). The remaining edit gate is the in-flight run freeze
-  // (`effectiveReadOnly` below).
+  // Exact historical snapshots remain read-only; each major tip resolves to /vN.
   const isPinned = match !== null;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -89,22 +84,19 @@ export function CanvasPage() {
   const setLastActiveWorkflowId = useUIStore((s) => s.setLastActiveWorkflowId);
   const setActiveChatId = useUIStore((s) => s.setActiveChatId);
   const resetExecStream = useExecStreamStore((s) => s.reset);
-  // Freeze edits while a run is in flight. A pinned historical
-  // version EDITABLE, so pinning NO LONGER contributes to the edit freeze — the
-  // only remaining freeze is an active run. This single source is threaded as
-  // the canvas/inspector/toolbar `readOnly` AND mirrored into `canvasReadOnly`
-  // (window-level keyboard mutation gating).
+  // Permissions, immutable snapshots and active execution all gate editing.
   const localRunning = useExecStreamStore((s) => s.wfId === wfId && s.status === 'running');
   const workflowCapabilities = new Set(query.data?.meta.access?.capabilities ?? []);
   const canUpdate = workflowCapabilities.has('update');
   const canExecute = workflowCapabilities.has('execute');
+  const canDeploy = workflowCapabilities.has('deploy');
   const canExport = workflowCapabilities.has('export');
   const canMount = workflowCapabilities.has('mount');
   const canInspectRuns = workflowCapabilities.has('inspect_runs');
   const canCancel = workflowCapabilities.has('cancel');
   const currentExecution = useWorkflowExecutionStatus(wfId, { enabled: canInspectRuns, running: localRunning });
   const isRunning = localRunning || currentExecution.data?.status === 'running';
-  const effectiveReadOnly = isRunning || !canUpdate;
+  const effectiveReadOnly = isPinned || isRunning || !canUpdate;
   // The Explorer itself now lives in AppLayout (B1 shell); CanvasPage only
   // keeps the toolbar's "Files" toggle wiring, which flips the same shared
   // `explorerOpen` store slice the AppLayout-level Explorer reads.
@@ -347,7 +339,7 @@ export function CanvasPage() {
         <WorkflowWorkbenchHeader workflowId={wfId!} readOnlyName={isPinned} />
         {isPinned && vKey && <VersionBanner wfId={wfId!} vKey={vKey} />}
         <CanvasToolbar wfId={wfId!} readOnly={effectiveReadOnly}
-          canExecute={canExecute} canExport={canExport} canMount={canMount}
+          canExecute={canExecute} canDeploy={canDeploy} canExport={canExport} canMount={canMount}
           canInspectRuns={canInspectRuns} canCancel={canCancel}
           pinnedMajor={isPinned ? pinnedMajor : null}
           onToggleExplorer={toggleExplorer} explorerOpen={explorerOpen} />
@@ -359,7 +351,7 @@ export function CanvasPage() {
               </ContextMenuLayer>
             </CanvasNodePicker>
           </div>
-          <RightInspector wfId={wfId!} readOnly={effectiveReadOnly} canExecute={canExecute} />
+          <RightInspector wfId={wfId!} readOnly={effectiveReadOnly} canExecute={canExecute} canDeploy={canDeploy} />
         </div>
       </div>
       <UnsavedChangesDialog

@@ -598,6 +598,7 @@ async def list_deployments(
     # unit tests. FastAPI's Query sentinel is only resolved on HTTP dispatch;
     # normalize it for direct in-process calls.
     q = q if isinstance(q, str) else None
+    workflow_id = workflow_id if isinstance(workflow_id, str) else None
     principal = principal_for_auth(ctx)
     context = context_for_auth(ctx, request)
     authorized_ids = await service.list_authorized_ids(
@@ -623,7 +624,7 @@ async def list_deployments(
         wf_id=workflow_id,
         query=q,
     )
-    summary = await repo.summary_for_tenant(deployment_ids=authorized_ids)
+    summary = await repo.summary_for_tenant(deployment_ids=authorized_ids, wf_id=workflow_id)
     if summary.get("last_invoked_at") is not None:
         summary["last_invoked_at"] = summary["last_invoked_at"].isoformat()
     resources = [

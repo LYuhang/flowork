@@ -3898,5 +3898,12 @@
   "tasks.related.copyId": "Copy ID",
   "tasks.related.details": "Details ↗",
   "tasks.related.filter": "Filter by Workflow",
-  "tasks.related.clear": "All workflows"
+  "tasks.related.clear": "All workflows",
+  "deployments.workflow.deploy": "Deploy",
+  "deployments.workflow.saveDeploy": "Save and deploy",
+  "deployments.workflow.related": "Related deployments · all versions",
+  "deployments.workflow.viewAll": "View all",
+  "deployments.workflow.empty": "No related deployments yet.",
+  "deployments.workflow.running": "Running",
+  "deployments.workflow.activeVersion": "Serving version"
 }

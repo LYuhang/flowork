@@ -19,7 +19,9 @@
  *   * The "Copy to clipboard" affordance needs a stable anchor.
  *   * A toast would auto-dismiss and risk the user losing the only copy.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router';
+import { CopyButton } from '@/components/agent-sidebar/tool-render/CopyButton';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -66,6 +68,8 @@ interface CreateDeploymentModalProps {
   onCreated?: () => void;
   initialWorkflowId?: string;
   initialName?: string;
+  inline?: boolean;
+  context?: { version: string; dirty: boolean; prepare: () => Promise<string> };
 }
 
 const TRIGGER_TYPES = [
@@ -102,8 +106,11 @@ export function CreateDeploymentModal({
   onCreated,
   initialWorkflowId = '',
   initialName = '',
+  inline = false,
+  context,
 }: CreateDeploymentModalProps) {
   const { t } = useTranslation();
+  const submitting = useRef(false);
   const workflowsQuery = useWorkspaceList(200, 0, open);
   const workflows = useMemo(() => workflowsQuery.data?.items ?? [], [workflowsQuery.data?.items]);
   const [body, setBody] = useState<CreateDeploymentBody>(() =>
@@ -119,11 +126,11 @@ export function CreateDeploymentModal({
   // `open` clears stale form input + the success panel when the user
   // closes mid-flow and re-opens.
   useEffect(() => {
-    if (open) queueMicrotask(() => {
+    if (open && !inline) queueMicrotask(() => {
       setBody(defaultBody(initialWorkflowId, initialName));
       setResult(null);
     });
-  }, [initialName, initialWorkflowId, open]);
+  }, [initialName, initialWorkflowId, open, inline]);
 
   const workflowOptions = useMemo<SearchSelectOption[]>(() => {
     const options = workflows.map((wf) => ({
@@ -180,13 +187,23 @@ export function CreateDeploymentModal({
     : undefined;
 
   const createMutation = useMutation({
-    mutationFn: (b: CreateDeploymentBody) => createDeployment(b),
+    mutationFn: async (b: CreateDeploymentBody) => {
+      if (context) {
+        const version = await context.prepare();
+        const match = /^v([1-9]\d*)\.sv(\d+)$/.exec(version);
+        if (!match) throw new Error('Invalid workflow version');
+        b = { ...b, wf_id: initialWorkflowId, version_pin: 'specific', pinned_major: Number(match[1]), pinned_sub: Number(match[2]) };
+      }
+      return createDeployment(b);
+    },
     onSuccess: (resp) => {
       setResult(resp);
+      if (inline) onCreated?.();
       // We do NOT call onCreated() here — defer until the user closes
       // the success panel so they don't lose the secret to an aggressive
       // list refetch unmounting this dialog.
     },
+    onSettled: () => { submitting.current = false; },
     onError: (e) => {
       toast.error(
         e instanceof Error ? e.message : String(e),
@@ -196,9 +213,10 @@ export function CreateDeploymentModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (
+    if (submitting.current) return;
+    if (!context && (
       selectedMajor === undefined || (body.version_pin === 'specific' && selectedSub === undefined)
-    ) {
+    )) {
       toast.error(t('deployments.create.selectVersion', 'Select a workflow version.'));
       return;
     }
@@ -215,10 +233,12 @@ export function CreateDeploymentModal({
     if (payload.version_pin !== 'specific') {
       delete payload.pinned_sub;
     }
+    submitting.current = true;
     createMutation.mutate(payload);
   };
 
   const handleDismiss = () => {
+    if (inline && result) { setResult(null); return; }
     if (result) {
       onCreated?.();
     }
@@ -250,6 +270,10 @@ export function CreateDeploymentModal({
             {t('deployments.create.id', 'Deployment ID')}
           </span>
           <span className="break-all font-mono text-xs">{resp.id}</span>
+          <div className="flex items-center gap-3">
+            <CopyButton value={resp.id} label={t('tasks.related.copyId', 'Copy ID')} />
+            <Link className="text-sm text-primary hover:underline" to={`/deployments/${resp.id}`}>{t('tasks.related.details', 'Details ↗')}</Link>
+          </div>
         </div>
         {secretLabel && (
           <OneTimeSecretField value={secretValue} label={secretLabel} />
@@ -268,10 +292,11 @@ export function CreateDeploymentModal({
     );
   };
 
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && handleDismiss()}>
-      <DialogContent ref={captureDialogElement} className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+  const content = <>
+        {inline ? <div className="space-y-1">
+          <h3 className="text-sm font-semibold">{result ? t('deployments.create.createdHeader', 'Deployment created') : t('deployments.create.title', 'New deployment')}</h3>
+          {!result && <p className="text-xs text-muted-foreground">{initialWorkflowId} · {context?.version}</p>}
+        </div> : <DialogHeader>
           <DialogTitle>
             {result
               ? t('deployments.create.createdHeader', 'Deployment created')
@@ -285,14 +310,14 @@ export function CreateDeploymentModal({
               )}
             </DialogDescription>
           )}
-        </DialogHeader>
+        </DialogHeader>}
 
         {result ? (
           <>
             {renderSuccess(result)}
             <DialogFooter>
               <Button type="button" onClick={handleDismiss}>
-                {t('deployments.create.close', 'Close')}
+                {inline ? t('tasks.scheduled.createAnother', 'Create another') : t('deployments.create.close', 'Close')}
               </Button>
             </DialogFooter>
           </>
@@ -314,7 +339,7 @@ export function CreateDeploymentModal({
               />
             </div>
 
-            <div className="flex flex-col gap-1">
+            {!context && <div className="flex flex-col gap-1">
               <Label htmlFor="dep-wf">
                 {t('deployments.create.fields.workflow', 'Workflow')}
               </Label>
@@ -344,7 +369,7 @@ export function CreateDeploymentModal({
                   {t('workspace_loading', 'Loading workflows...')}
                 </span>
               )}
-            </div>
+            </div>}
 
             <fieldset className="flex flex-col gap-2">
               <legend className="text-sm font-medium">
@@ -383,7 +408,7 @@ export function CreateDeploymentModal({
               </div>
             </fieldset>
 
-            <fieldset className="flex flex-col gap-2">
+            {!context && <fieldset className="flex flex-col gap-2">
               <legend className="text-sm font-medium">
                 {t(
                   'deployments.create.fields.versionPin',
@@ -444,7 +469,7 @@ export function CreateDeploymentModal({
                   )}
                 </div>
               )}
-            </fieldset>
+            </fieldset>}
 
             <div className="flex flex-col gap-1">
               <Label htmlFor="dep-qps">
@@ -489,12 +514,15 @@ export function CreateDeploymentModal({
               <Button type="submit" disabled={createMutation.isPending}>
                 {createMutation.isPending
                   ? t('deployments.create.creating', 'Creating…')
-                  : t('deployments.create.submit', 'Create')}
+                  : context?.dirty ? t('deployments.workflow.saveDeploy', 'Save and deploy') : t('deployments.create.submit', 'Create')}
               </Button>
             </DialogFooter>
           </form>
         )}
-      </DialogContent>
+      </>;
+  return inline ? <section ref={captureDialogElement} className="space-y-4" data-testid="workflow-deployment-create">{content}</section> : (
+    <Dialog open={open} onOpenChange={(o) => !o && !createMutation.isPending && handleDismiss()}>
+      <DialogContent ref={captureDialogElement} className="max-h-[90vh] overflow-y-auto sm:max-w-lg">{content}</DialogContent>
     </Dialog>
   );
 }

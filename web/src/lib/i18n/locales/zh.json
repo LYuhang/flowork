@@ -3898,5 +3898,12 @@
   "tasks.related.copyId": "复制 ID",
   "tasks.related.details": "详情 ↗",
   "tasks.related.filter": "按 Workflow 筛选",
-  "tasks.related.clear": "全部 Workflow"
+  "tasks.related.clear": "全部 Workflow",
+  "deployments.workflow.deploy": "部署",
+  "deployments.workflow.saveDeploy": "保存并部署",
+  "deployments.workflow.related": "关联部署 · 所有版本",
+  "deployments.workflow.viewAll": "查看全部",
+  "deployments.workflow.empty": "暂无关联部署",
+  "deployments.workflow.running": "运行中",
+  "deployments.workflow.activeVersion": "实际运行版本"
 }

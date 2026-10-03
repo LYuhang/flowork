@@ -57,7 +57,7 @@ void testI18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 });
 
-function renderModal(initialWorkflowId = 'wf_42') {
+function renderModal(initialWorkflowId = 'wf_42', options: Partial<React.ComponentProps<typeof CreateDeploymentModal>> = {}) {
   const onOpenChange = vi.fn();
   const onCreated = vi.fn();
   const client = new QueryClient({
@@ -75,6 +75,7 @@ function renderModal(initialWorkflowId = 'wf_42') {
             onOpenChange={onOpenChange}
             onCreated={onCreated}
             initialWorkflowId={initialWorkflowId}
+            {...options}
           />
         </MemoryRouter>
       </I18nextProvider>
@@ -162,4 +163,27 @@ describe('<CreateDeploymentModal>', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
+});
+
+describe('inline workflow deployment', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+  it('pins the version returned by saving, keeps the secret visible, and refreshes the related list', async () => {
+    const prepare = vi.fn().mockResolvedValue('v2.sv4');
+    const { onCreated } = renderModal('wf_42', { inline: true, initialName: 'Saved version', context: { version: 'v2.sv3', dirty: true, prepare } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Save and deploy' }).closest('form')!);
+    await waitFor(() => expect(createDeployment).toHaveBeenCalledWith(expect.objectContaining({ wf_id: 'wf_42', version_pin: 'specific', pinned_major: 2, pinned_sub: 4 })));
+    expect(prepare).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('one-shot-secret')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Details ↗' })).toHaveAttribute('href', '/deployments/dep-1');
+  });
+  it('does not create a deployment if saving fails', async () => {
+    const prepare = vi.fn().mockRejectedValue(new Error('version conflict'));
+    renderModal('wf_42', { inline: true, initialName: 'Conflict', context: { version: 'v1.sv1', dirty: true, prepare } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Save and deploy' }).closest('form')!);
+    await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save and deploy' })).not.toBeDisabled());
+    expect(createDeployment).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Name')).toHaveValue('Conflict');
+  });
 });

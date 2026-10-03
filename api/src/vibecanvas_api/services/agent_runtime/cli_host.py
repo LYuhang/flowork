@@ -74,7 +74,7 @@ async def invoke_workflow_command(*, operation: str, identity_token: str, argume
             from .cli_calls import command
             return await command(capability, operation, arguments, identity_token)
         if operation == "workflow.delete":
-            return error("approval_required", "Deletion requires the live CLI approval channel.", "Use flowork-cli workflow delete --workflow_id ID.")
+            return error("approval_required", "Deletion requires the live CLI approval channel.", "Use flowork-cli workflow delete --workflow-id ID.")
         if operation.startswith("browser."):
             return {"status": "failed", **error("browser_runtime_unavailable", "Browser CLI execution requires the sandbox browser runtime.", "Use flowork-cli browser from an active browser side-panel turn. Do not infer action success from this response.")}
         if operation.startswith(("task.", "deployment.", "knowledge.")) or operation in {"skill.create", "skill.update", "skill.check", "skill.download", "skill.refresh", "skill.delete"}:

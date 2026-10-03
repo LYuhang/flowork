@@ -44,7 +44,7 @@ agent-evaluation/
 
 Agent 的内置命令负责在平台存储与 Chat 沙盒之间同步完整资料包。Agent 使用普通文件系统工具读取、搜索、编辑和调整本地文件结构，避免 Knowledge 集成重复实现一套文件操作能力。
 
-发布会替换整个文件树并递增当前版本，本地资料包中不存在的文件会从远端移除。可传入 `--expected_version` 拒绝过期发布；未传入时并发发布按提交顺序保存，后一次提交覆盖前一次。发布前应重新获取最新资料包并合并修改，避免覆盖他人的更新。搜索索引异步构建，索引仍在处理或失败不代表需要重新上传已保存文件。
+发布会替换整个文件树并递增当前版本，本地资料包中不存在的文件会从远端移除。可传入 `--expected-version` 拒绝过期发布；未传入时并发发布按提交顺序保存，后一次提交覆盖前一次。发布前应重新获取最新资料包并合并修改，避免覆盖他人的更新。搜索索引异步构建，索引仍在处理或失败不代表需要重新上传已保存文件。
 
 默认情况下，每次获取的资料包版本都会写入独立的带版本目录。这样，即使复用同一个工作空间，新版本中已经删除的文件也不会被误认为当前内容。
 
@@ -54,13 +54,12 @@ Agent 的内置命令负责在平台存储与 Chat 沙盒之间同步完整资�
 
 ## CLI 与版本元信息
 
-命令统一为 `list/get/download/check/create/publish/delete`。不提供 `search`、
-`refresh`、`files`、`read`、`status`、`upload`、`update`；文件检索使用 download + bash。
-`list --search` 仅筛选知识包名称和描述。create/check/publish 必须指定 `--source_dir`。
+命令为 `list/get/download/check/create/publish/delete`；文件检索使用 download + bash。
+`list` 返回一页；使用 `--offset` 跟随 `next_offset` 直到 null，再用 `jq`/`grep` 筛选元信息。create/check/publish 必须指定 `--source-dir`。
 README.md 顶部 YAML 元信息包含 name（1–200 字符）及 description（最多 2000 字符，可为空字符串）。
-check 校验完整目录但不保存；publish 同时发布元信息与所有文件，并替换未发布草稿。
-建议传入下载时的 `--expected_version`，版本过期则拒绝且不修改任何内容；不传时最后提交者生效。
+check 校验完整目录但不保存；publish 同时发布元信息与所有文件。
+发布必须传入下载时的 `--expected-version`；版本过期或存在未发布草稿时拒绝写入，不修改任何内容。
 
 网页名称、描述编辑也保存到 README 草稿，发布新版本后正式生效；保存必须携带草稿哈希。
-旧 README 下载时仅在本地补齐元信息，下次发布才持久化，不改写已有历史版本，也无需数据库迁移。
+下载的 README 包含包元信息；下载不改变远端已保存的版本。
 历史详情从对应版本的 README 获取名称与描述。后台索引状态不影响文件发布成功与否，不应重复发布等待索引。

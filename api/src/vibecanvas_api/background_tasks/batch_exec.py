@@ -442,8 +442,11 @@ def _batch_exec_owned(
                     async with session.begin_nested():
                         await queue_evaluation(session, task, automatic=True)
                 except Exception:
+                    task = await repo.get(t_uuid, for_update=True)
+                    await repo.update_status(t_uuid, payload={**task.payload,
+                        "evaluation_queue_error": "Automatic evaluation could not be queued."})
                     await repo.insert_event(t_uuid, "log", {
-                        "level": "error", "message": "Automatic evaluation could not be queued. Open Evaluation to retry.",
+                        "level": "error", "message": "Automatic evaluation could not be queued; inference results are preserved.",
                         "action": "evaluation.queue_failed",
                     }, tn_uuid)
         run_in_short_session(finish_and_evaluate)

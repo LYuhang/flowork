@@ -458,7 +458,7 @@ For each active Turn, the Host Gateway supplies a short-lived upstream binding
 that passes through the authenticated [browser relay route](../api/src/vibecanvas_api/routes/browser.py)
 and reaches the selected extension through the
 [transport registry](../api/src/vibecanvas_api/browser/registry.py). Explicit
-`--tab_id` targets replace a mutable current-tab binding. Command schemas live in
+`--tab-id` targets replace a mutable current-tab binding. Command schemas live in
 [`browser_cli.py`](../api/src/vibecanvas_api/flowork_cli/browser_cli.py), and
 [`browser_cli_runtime.py`](../api/src/vibecanvas_api/services/agent_runtime/browser_cli_runtime.py)
 reauthorizes each command and ends the worker when the Turn ends or authority
@@ -698,12 +698,12 @@ is local to the current turn; it does not activate a persistent management mode.
 | CLI command | Effect |
 | --- | --- |
 | `flowork-cli skill list/get` | Discover installed Skills, latest published metadata and the current Chat runtime path; inspect files with bash ls/find/cat. |
-| `flowork-cli skill download --skill_id ID --output_dir NEW_DIR` | Download the latest full package without overwriting local files. |
-| `flowork-cli skill check --source_dir DIR` | Validate the complete package without publishing. |
-| `flowork-cli skill create --source_dir DIR` | Validate and publish a new Custom Skill. |
-| `flowork-cli skill publish --skill_id ID --source_dir DIR` | Replace the full package and unpublished draft, validate, and publish the next version automatically. Missing local files are removed from the published package. |
-| `flowork-cli skill refresh --skill_id ID` | Refresh only the current Chat runtime folder from the latest publication; does not publish. |
-| `flowork-cli skill delete --skill_id ID` | Remove the caller's own installation while preserving local downloads and any upstream catalog source. |
+| `flowork-cli skill download --skill-id ID --output-dir NEW_DIR` | Download the latest full package without overwriting local files. |
+| `flowork-cli skill check --source-dir DIR` | Validate the complete package without publishing. |
+| `flowork-cli skill create --source-dir DIR` | Validate and publish a new Custom Skill. |
+| `flowork-cli skill publish --skill-id ID --source-dir DIR` | Replace the full package and unpublished draft, validate, and publish the next version automatically. Missing local files are removed from the published package. |
+| `flowork-cli skill refresh --skill-id ID` | Refresh only the current Chat runtime folder from the latest publication; does not publish. |
+| `flowork-cli skill delete --skill-id ID` | Remove the caller's own installation while preserving local downloads and any upstream catalog source. |
 
 Only the creator may update a Custom Skill. Catalog packages and other users'
 Skills cannot be edited through this workflow. Write operations follow the
@@ -721,5 +721,5 @@ The Workflow/SubAgent immutable resource paths described above remain separate.
 
 Skill file browsing and local template creation use ordinary shell/file tools.
 The CLI no longer provides `files`, `read`, `init` or `update`, and `refresh` rejects
-`--source_dir`; use `publish` for publication. Runtime paths are locations, not
+`--source-dir`; use `publish` for publication. Runtime paths are locations, not
 a guarantee of current mounted content: refresh before reading when necessary.

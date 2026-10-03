@@ -47,7 +47,7 @@ def test_every_command_has_help_and_validated_named_arguments(name, capsys):
     argv = ["browser", name]
     for key, value in arguments.items():
         for item in value if isinstance(value, list) else [value]:
-            argv.extend(["--" + key, str(item)])
+            argv.extend(["--" + key.replace("_", "-"), str(item)])
     parsed = cli.parser().parse_args(argv)
     values = {key: getattr(parsed, key) for key in browser_cli.COMMANDS[name][1] if getattr(parsed, key) is not None}
     assert cli.validate_arguments("browser." + name, values) == browser_cli.validate("browser." + name, arguments)
@@ -126,7 +126,7 @@ def test_cli_error_is_json_stdout_not_traceback(capsys, monkeypatch):
     captured = capsys.readouterr()
     assert captured.err == ""
     assert json.loads(captured.out)["error"] == "runtime_unavailable"
-    assert cli.main(["browser", "click", "--tab_id", "t"]) == 2
+    assert cli.main(["browser", "click", "--tab-id", "t"]) == 2
     captured = capsys.readouterr()
     assert captured.err == ""
     assert json.loads(captured.out)["error"] == "invalid_arguments"
@@ -139,7 +139,7 @@ def test_relative_files_resolve_in_the_cli_sandbox(tmp_path, monkeypatch, capsys
         seen.append((endpoint, operation, arguments))
         return {"status": "succeeded", "message": "Files uploaded."}
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["browser", "upload", "--tab_id", "t", "--file", "a.bin", "--file", "b.bin"], socket_path="socket") == 0
+    assert cli.main(["browser", "upload", "--tab-id", "t", "--file", "a.bin", "--file", "b.bin"], socket_path="socket") == 0
     assert seen[0][2]["file"] == [str(tmp_path / "a.bin"), str(tmp_path / "b.bin")]
     assert json.loads(capsys.readouterr().out)["status"] == "succeeded"
 
@@ -152,7 +152,7 @@ def test_transport_failure_does_not_claim_mutation_failed(name, expected, monkey
     args = minimal(name)
     argv = ["browser", name]
     for key, value in args.items():
-        argv.extend(["--" + key, str(value)])
+        argv.extend(["--" + key.replace("_", "-"), str(value)])
     assert cli.main(argv, socket_path="socket") == 1
     assert json.loads(capsys.readouterr().out)["status"] == expected
 

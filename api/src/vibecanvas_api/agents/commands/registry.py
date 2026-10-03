@@ -106,7 +106,7 @@ COMMAND_MODES: dict[str, CommandMode] = {
         activation_message=(
             "This is the latest /browser activation. The side-panel send action "
             "has already requested control of the visible page. Use flowork-cli "
-            "browser tab-list, then snapshot --tab_id ID before choosing an action."
+            "browser tab-list, then snapshot --tab-id ID before choosing an action."
         ),
         external_control=None,
         sidepanel_only=True,

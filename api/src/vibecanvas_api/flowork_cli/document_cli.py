@@ -15,12 +15,12 @@ def add_parser(groups):
     review.add_argument("--file", required=True, help="Existing sandbox file; absolute or relative to your shell directory.")
     render = actions.add_parser("render", help="Render all or selected document pages as PNGs.",
         description="Supports DOCX/PPTX/XLSX/PDF and render-only ODT/ODP/ODS. Default: ALL pages, no page-count truncation. XLSX page numbers refer to print-layout pages, not sheet indices. Never edits or recalculates the source in place. Default progress goes to stderr; --stream sends JSONL page progress to stdout, followed by a final result with source_hash, total_pages, rendered_pages, complete, output_dir and images [{page,file}]. Partial failures retain completed images and exit 1. No fixed execution deadline. Open every PNG with the native image tool; rendering alone is not visual review. Only coverage of every page of the SAME source_hash can satisfy full-document delivery. Editing the source invalidates prior evidence. Use render_preview MCP separately to publish the final native file.",
-        epilog='Examples: flowork-cli document render --file /data/report.pdf; flowork-cli document render --file report.pdf --pages "1-3,5" --dpi 144 --output_dir /data/review-pages')
+        epilog='Examples: flowork-cli document render --file /data/report.pdf; flowork-cli document render --file report.pdf --pages "1-3,5" --dpi 144 --output-dir /data/review-pages')
     render.add_argument("--stream", action="store_true", help="Emit stdout JSONL progress plus a terminal result/error; default stdout is one JSON and progress goes to stderr.")
     render.add_argument("--file", required=True)
     render.add_argument("--pages", help="1-based inclusive ranges/comma-separated pages, e.g. 1-3,5. Omit for all pages.")
     render.add_argument("--dpi", type=int, default=144, help="96–220; default 144.")
-    render.add_argument("--output_dir", help="Prefer omitting this option: the CLI creates a unique /memory/document-feedback directory. If specified, the CLI creates this NEW directory; do not mkdir it first. Only its parent must exist. Existing directories are rejected without overwriting.")
+    render.add_argument("--output-dir", help="Prefer omitting this option: the CLI creates a unique /memory/document-feedback directory. If specified, the CLI creates this NEW directory; do not mkdir it first. Only its parent must exist. Existing directories are rejected without overwriting.")
 
 
 def validate(operation, arguments):

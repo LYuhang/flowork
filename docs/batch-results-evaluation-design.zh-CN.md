@@ -84,7 +84,7 @@ def evaluate(results: list[dict]) -> dict:
 
 ## Task CLI
 
-创建批量任务时支持通过 `--evaluation-script eval.py` 指定脚本，上传脚本内容而非宿主文件路径。提供 `task evaluation-config` 保存脚本与自动评估开关、`task evaluate` 发起手动评估、`task evaluation` 查询状态及历史指标。三者均显式指定 `--task_type batch_exec --task_id ID`；配置命令使用 `--evaluation-script eval.py`，可选 `--auto-evaluate true|false`。排队成功的 CLI 命令返回退出码 0，但不代表评估已完成。
+CLI 仅在创建批量任务时通过 `--evaluation-script eval.py` 指定脚本，上传脚本内容而非宿主文件路径；传入即在推理后自动评估，不传则不评估。通过 `task logs --task-type batch_exec --task-id ID` 查看结构化评估指标或错误，`--follow` 等待评估完成。前端 Evaluation 页提供独立的评估管理。评估失败不改变推理结果。
 
 同步更新参数校验、帮助文本、CLI 使用说明及 Agent 可见的相关说明。网页和 CLI 使用相同的服务接口及权限检查。
 

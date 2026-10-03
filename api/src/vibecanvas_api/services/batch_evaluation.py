@@ -105,13 +105,27 @@ async def queue_evaluation(session, task, *, automatic=False):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "metrics": None, "error": None,
     }
+    payload.pop("evaluation_queue_error", None)
     payload["evaluations"] = [record, *payload.get("evaluations", [])]
     await TasksRepo(session).update_status(task.id, payload=payload)
     await enqueue_background_job_in_transaction(
         session, "batch_evaluation", job_id=record["id"], queue="interactive",
         kwargs={"task_id": str(task.id), "evaluation_id": record["id"]},
     )
+    await TasksRepo(session).insert_event(task.id, "log", evaluation_log(record), task.tenant_id)
     return record
+
+
+def evaluation_log(record):
+    status = record["status"]
+    return {
+        "schema_version": 1, "category": "task",
+        "level": "error" if status == "failed" else "info",
+        "action": "evaluation." + status,
+        "message": "Batch evaluation " + status + ".",
+        "data": {"evaluation_id": record["id"], **{key: record.get(key) for key in
+                 ("status", "metrics", "error", "row_count", "result_version", "automatic")}},
+    }
 
 
 # This runs only inside a fresh OS sandbox, with network disabled and no user
@@ -209,6 +223,7 @@ async def run_evaluation(task_id: str, evaluation_id: str):
             target.update(status="failed" if error else "succeeded", metrics=metrics if not error else None,
                           error=error, finished_at=datetime.now(timezone.utc).isoformat())
             await repo.update_status(task.id, payload=payload)
+            await repo.insert_event(task.id, "log", evaluation_log(target), task.tenant_id)
 
 
 def evaluation_job(*, task_id: str, evaluation_id: str):

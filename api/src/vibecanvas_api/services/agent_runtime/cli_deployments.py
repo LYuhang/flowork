@@ -74,7 +74,7 @@ def deployment_status(dep):
         result["message"] += " version/desired_version describe saved configuration, not completed rollout."
         if result["rollout_status"] != "ready":
             result["message"] += " Rollout is not ready; an existing active version may still serve new calls."
-    result["hint"] = f"flowork-cli deployment info --deployment_id {dep['id']}"
+    result["hint"] = f"flowork-cli deployment info --deployment-id {dep['id']}"
     if result["endpoint"] is None:
         result["message"] += " The public URL is not configured; ask the operator to set VIBECANVAS_PUBLIC_URL."
     return result
@@ -85,7 +85,7 @@ def execution_status(row, deployment_id):
         "status", "source", "trigger_type", "submitted_at", "started_at", "finished_at", "latency_ms", "result_summary"}}
     result.update(execution_id=str(row["id"]), deployment_id=str(deployment_id), execution_error=row.get("error"), execution_url=f"/workflow-executions/{row['id']}")
     result["message"] = "Invocation status: " + str(row["status"]) + ". Query success is not execution success."
-    result["hint"] = f"flowork-cli deployment status --deployment_id {deployment_id} --execution_id {row['id']}"
+    result["hint"] = f"flowork-cli deployment status --deployment-id {deployment_id} --execution-id {row['id']}"
     return result
 
 
@@ -110,8 +110,8 @@ def execution_result(summary, detail):
         "Execution is still pending. Query this execution again; do not submit another call." if not terminal else
         "Execution did not succeed. Inspect execution_error and logs." if state != "succeeded" else
         "This execution has no retained complete result; the summary is not a substitute.")
-    result["hint"] = (f"flowork-cli deployment result --deployment_id {result['deployment_id']} "
-                      f"--execution_id {result['execution_id']}")
+    result["hint"] = (f"flowork-cli deployment result --deployment-id {result['deployment_id']} "
+                      f"--execution-id {result['execution_id']}")
     return result
 
 
@@ -191,7 +191,7 @@ async def read(ctx, operation, args):
             return jsonable_encoder({**result, "logs": frames, "cursor": cursor,
                 "has_more": bool(run and cursor < run["last_seq"]), "logs_available": run is not None,
                 "terminal": row["status"] in {"succeeded", "failed", "timed_out", "cancelled"},
-                "hint": f"flowork-cli deployment logs --deployment_id {dep_id} --execution_id {args['execution_id']} --after {cursor}"})
+                "hint": f"flowork-cli deployment logs --deployment-id {dep_id} --execution-id {args['execution_id']} --after {cursor}"})
         else:
             start = datetime.fromisoformat(args["from_time"].replace("Z", "+00:00")) if args.get("from_time") else None
             end = datetime.fromisoformat(args["to_time"].replace("Z", "+00:00")) if args.get("to_time") else None
@@ -340,5 +340,5 @@ def invocation_result(deployment_id, response):
         message = "Test execution failed."
     return {
         "deployment_id": str(deployment_id), **result, "message": message,
-        "hint": f"flowork-cli deployment result --deployment_id {deployment_id} --execution_id {result['execution_id']}",
+        "hint": f"flowork-cli deployment result --deployment-id {deployment_id} --execution-id {result['execution_id']}",
     }

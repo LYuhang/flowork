@@ -12,11 +12,11 @@ Workflow ID, trigger type and slug are immutable; do not silently replace a
 deployment when update cannot express the user's request.
 
 For diagnosis use info for configuration and rollout state, history for invocation
-summaries, then status/logs/result with --deployment_id and an explicit
---execution_id for one exact call. result returns complete persisted EndNode
+summaries, then status/logs/result with --deployment-id and an explicit
+--execution-id for one exact call. result returns complete persisted EndNode
 outputs, never executes. Inspect execution_status and result_available: pending,
 failed or missing results have outputs=null; a successful empty output is {}.
-Query success does not mean execution success. History --output_dir exports
+Query success does not mean execution success. History --output-dir exports
 history.json and invocations.jsonl. Follow next_cursor with --after. Use logs
 for recorded node events. Diagnosis stays read-only unless a corrective change
 was requested.
@@ -27,7 +27,7 @@ Editing or publishing the Workflow never upgrades an existing deployment. Mount 
 authorized user storage, never Chat /data or /memory. Submitted calls freeze their
 version and mount configuration. Deployment does not own calendar scheduling.
 
-Create/rotate_key require a NEW --secret_file whose parent exists. Credentials
+Create/rotate_key require a NEW --secret-file whose parent exists. Credentials
 are sensitive one-time file copies: never print them, preview/share them, paste
 them into command lines or add them to ordinary logs. Report the private path.
 Do not rotate/create again automatically if delivery fails or the outcome is
@@ -39,7 +39,7 @@ Observe terminal status/errors before claiming success. External credentials,
 webhook signatures and network access are not validated by this test. Long calls
 return an accepted execution ID only upon actually entering human approval.
 Other calls remain synchronous: expiry of timeout_seconds stops execution and
-returns HTTP 504. Settings and create/update support --timeout_seconds (1–3600,
+returns HTTP 504. Settings and create/update support --timeout-seconds (1–3600,
 default 30); the budget excludes approval waiting and applies to new calls. Use result with that ID to retrieve outputs later, or status/logs to
 inspect progress. Never call run again merely to poll an existing invocation.
 

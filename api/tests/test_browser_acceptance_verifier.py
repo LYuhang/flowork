@@ -29,7 +29,7 @@ class BrowserAcceptanceTests(unittest.TestCase):
                 verifier.parse_cli_result(invalid)
 
     def test_actual_commands_not_mentions(self):
-        for command in ("flowork-cli browser snapshot --tab_id tab_1", "/bin/bash -lc 'flowork-cli browser snapshot --tab_id tab_1'", "$FLOWORK_CLI_BIN browser snapshot"):
+        for command in ("flowork-cli browser snapshot --tab-id tab_1", "/bin/bash -lc 'flowork-cli browser snapshot --tab-id tab_1'", "$FLOWORK_CLI_BIN browser snapshot"):
             self.assertEqual(verifier.browser_command(command), "snapshot")
         for command in ("echo flowork-cli browser snapshot", "flowork-cli browser snapshot --help", "flowork-cli workflow list", "'bad"):
             self.assertIsNone(verifier.browser_command(command))

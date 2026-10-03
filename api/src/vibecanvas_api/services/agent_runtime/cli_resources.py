@@ -24,7 +24,7 @@ def metadata(row, resource):
                for key in fields if key in row}}
 
 
-RUNTIME_HINT = "Version metadata describes the latest publication. Use bash ls/find/cat on runtime_path; run skill refresh --skill_id ID first if the folder is missing or needs refreshing."
+RUNTIME_HINT = "Version metadata describes the latest publication. Use bash ls/find/cat on runtime_path; run skill refresh --skill-id ID first if the folder is missing or needs refreshing."
 
 
 def runtime_location(context, identifier):
@@ -46,10 +46,8 @@ async def read(context, operation, arguments):
             if action == "list":
                 response = await (skills.list_skills if resource == "skill" else mcp_servers.list_mcp_servers)(**params)
                 rows = [row.model_dump() if hasattr(row, "model_dump") else row for row in response["items"]]
-                search = args["search"].casefold()
                 rows = [metadata(row, resource) for row in rows
-                        if "use" in row.get("access", {}).get("capabilities", [])
-                        and search in (row.get("name", "") + " " + (row.get("description") or "")).casefold()]
+                        if "use" in row.get("access", {}).get("capabilities", [])]
                 if resource == "skill":
                     rows = [{**row, **runtime_location(context, row["id"])} for row in rows]
                 rows.sort(key=lambda row: (row.get("name", "").casefold(), row["id"]))

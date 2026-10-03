@@ -30,7 +30,7 @@ of node IDs to nodes; __meta__ is reserved metadata, not a graph node.
 Discover types with `flowork-cli workflow get-spec --list-types`, then fetch
 only candidates with `flowork-cli workflow get-spec --type StartNode,CodeNode,EndNode`.
 Its node_schema and type-specific specs are authoritative; do not invent fields.
-Use `flowork-cli config get --scope workflow --workflow_id ID --major vN`
+Use `flowork-cli config get --scope workflow --workflow-id ID --major vN`
 when changing timeouts, dependencies or network settings. It reads the chosen
 major's latest saved subversion; never a Chat binding or unsaved file.
 
@@ -72,20 +72,20 @@ and graph validation alone do not prove a human approval run completed.
 
 Do not upload a stale file after operation has already changed the saved graph.
 When the user needs a tidy canvas, use layout on the explicit saved branch
-(named --workflow_id and --major). It only changes positions, saves when needed,
+(named --workflow-id and --major). It only changes positions, saves when needed,
 and returns the saved version. Do not download/re-upload merely to arrange nodes.
 Before a full replacement, compare the latest saved graph with your editing
-baseline and reconcile intervening changes; upload requires --expected_version from download and atomically rejects a changed branch tip. On version_conflict preserve local edits, download and merge before retrying; do not just substitute the latest version number.
+baseline and reconcile intervening changes; upload requires --expected-version from download and atomically rejects a changed branch tip. On version_conflict preserve local edits, download and merge before retrying; do not just substitute the latest version number.
 When changing --major, inspect/download that branch before reusing local files.
 Build small coherent slices. Use proper loop/parallel pairs and branch joins
 rather than forcing ordinary nodes to emulate scheduler behavior.
 
 ### 4. Validate, then execute only when needed
 
-After operation, use `flowork-cli workflow check --workflow_id ID --major vN` on the saved graph; after
+After operation, use `flowork-cli workflow check --workflow-id ID --major vN` on the saved graph; after
 local editing, check the local file. Saving a draft is not validation.
 Repair diagnostics before presenting the workflow as ready.
-Use `flowork-cli workflow run --workflow_id ID --major vN --node NODE` for a focused node test, then run or
+Use `flowork-cli workflow run --workflow-id ID --major vN --node NODE` for a focused node test, then run or
 run-batch only when requested or needed to resolve a material execution risk.
 Use the smallest representative input; do not run repeatedly just to demonstrate.
 When execution is requested, cover normal, serious/branch and invalid-input cases

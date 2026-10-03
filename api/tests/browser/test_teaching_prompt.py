@@ -8,8 +8,8 @@ def test_browser_prompt_teaches_cli_observe_act_verify() -> None:
     prompt = command_context_for("browser")
     for instruction in (
         "## Browser mode", "flowork-cli browser", "Observe → act → verify",
-        "tab-list", "snapshot --tab_id ID", "leaf --help", "fresh refs",
-        "goto --tab_id ID --url URL", "not `navigate`", "browser --help",
+        "tab-list", "snapshot --tab-id ID", "leaf --help", "fresh refs",
+        "goto --tab-id ID --url URL", "not `navigate`", "browser --help",
         "CSS IDs are page-specific", "destination snapshot's fresh ref",
         "run-code", "eval", "dialog-accept", "cloud sandbox",
         "observer before clicking", "download.saveAs",
@@ -30,7 +30,7 @@ def test_browser_command_exposes_no_mcp_tools_or_legacy_instructions() -> None:
     ):
         assert retired not in prompt
     assert "There is no Browser MCP" in prompt
-    assert "Every page operation names --tab_id" in prompt
+    assert "Every page operation names --tab-id" in prompt
 
 
 def test_browser_prompt_preserves_partial_effects_and_safety() -> None:

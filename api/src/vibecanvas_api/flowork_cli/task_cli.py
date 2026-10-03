@@ -15,10 +15,10 @@ from uuid import UUID
 
 
 READ_OPERATIONS = frozenset("task." + name for name in (
-    "list", "info", "status", "history", "logs", "download", "evaluation",
+    "list", "info", "status", "history", "logs", "download",
 ))
 WRITE_OPERATIONS = frozenset("task." + name for name in (
-    "evaluate", "evaluation-config", "create", "update", "enable", "disable", "run", "cancel", "resume", "delete",
+    "create", "update", "enable", "disable", "run", "cancel", "resume", "delete",
 ))
 OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS
 FIXED_COLUMNS = ("index", "status", "error", "execution_time")
@@ -34,44 +34,36 @@ def _command(parent, name, **kwargs):
 
 def add_parser(groups):
     task = _command(groups, "task", help="Manage durable asynchronous tasks.",
-        description="Use fixed subcommands and named arguments only. --task_type is batch_exec or schedule_run. Submission is asynchronous: read status, message and hint; exit 0 confirms the command, not execution success. Tasks survive Chat exit. Run each subcommand's --help for details.")
+        description="Use fixed subcommands and named arguments only. --task-type is batch_exec or schedule_run. Submission is asynchronous: read status, message and hint; exit 0 confirms the command, not execution success. Tasks survive Chat exit. Run each subcommand's --help for details.")
     actions = task.add_subparsers(dest="action", required=True)
 
     def typed(command, required=True):
-        command.add_argument("--task_type", required=required, choices=("batch_exec", "schedule_run"))
+        command.add_argument("--task-type", required=required, choices=("batch_exec", "schedule_run"))
 
     def target(command, execution=False):
         typed(command)
-        command.add_argument("--task_id", required=True, help="Task ID returned by create/list, never an execution ID.")
+        command.add_argument("--task-id", required=True, help="Task ID returned by create/list, never an execution ID.")
         if execution:
-            command.add_argument("--execution_id", help="Required for schedule_run; forbidden for batch_exec. Discover it with task history.")
+            command.add_argument("--execution-id", help="Required for schedule_run; forbidden for batch_exec. Discover it with task history.")
 
     def page(command):
         command.add_argument("--limit", type=int, default=20)
         command.add_argument("--offset", type=int, default=0)
 
-    target(_command(actions, "evaluation", help="Batch only: read evaluation configuration, status and metrics history."))
-    target(_command(actions, "evaluate", help="Batch only: evaluate saved results asynchronously; never reruns inference. Inspect task evaluation for completion."))
-    evaluation_config = _command(actions, "evaluation-config", help="Batch only: save evaluation script content and optional automatic evaluation setting.")
-    target(evaluation_config)
-    evaluation_config.add_argument("--evaluation-script", dest="evaluation_script", required=True)
-    evaluation_config.add_argument("--auto-evaluate", dest="auto_evaluate", choices=("true", "false"), default=None)
-
-    listing = _command(actions, "list", help="List authorized tasks; --task_type optionally filters one type.")
+    listing = _command(actions, "list", help="List one page of authorized tasks; follow next_offset with --offset until null. --task-type optionally filters one type. Pipe JSON through jq/grep for text filtering.")
     typed(listing, False)
     page(listing)
     listing.add_argument("--status", help="Comma-separated task statuses.")
-    listing.add_argument("--workflow_id")
-    listing.add_argument("--query")
+    listing.add_argument("--workflow-id")
 
     target(_command(actions, "info", help="Read task configuration and pinned Workflow version. Schedule availability is resource state, not an execution result."))
-    status = _command(actions, "status", help="Read one execution's status, progress and result. schedule_run requires --execution_id; no implicit latest execution.")
+    status = _command(actions, "status", help="Read one execution's status, progress and result. schedule_run requires --execution-id; no implicit latest execution.")
     target(status, True)
     history = _command(actions, "history", help="schedule_run only: list executions newest first. Batch tasks have no history command; use logs to inspect resume activity.")
     target(history)
     page(history)
-    logs = _command(actions, "logs", help="Read execution logs or follow incremental progress.",
-        description="schedule_run requires --execution_id; batch_exec rejects it. Without --follow returns one page with logs, cursor and has_more; use --after CURSOR to continue. --follow streams stdout JSONL with event=progress until the selected execution is terminal, then one event=result|error. command_status describes observation success; execution_status reports the selected execution. Without --follow stdout is one final JSON and progress goes to stderr. Stopping observation never cancels execution. --output_dir exports this page plus diagnostic context to a NEW directory; use returned cursors for more pages. Log cursor IDs are not task/execution IDs.")
+    logs = _command(actions, "logs", help="Read execution logs including evaluation metrics/errors, or follow incremental progress.",
+        description="schedule_run requires --execution-id; batch_exec rejects it. Without --follow returns one page with logs, cursor and has_more; use --after CURSOR to continue. --follow streams stdout JSONL with event=progress until the selected execution and any queued/running batch evaluation are terminal, then one event=result|error. command_status describes observation success; execution_status reports the selected execution. Without --follow stdout is one final JSON and progress goes to stderr. Stopping observation never cancels execution. --output-dir exports this page plus diagnostic context to a NEW directory; use returned cursors for more pages. Log cursor IDs are not task/execution IDs.")
     target(logs, True)
     logs.add_argument("--follow", action="store_true")
     logs.add_argument("--after", type=int, default=0)
@@ -79,8 +71,8 @@ def add_parser(groups):
     logs.add_argument("--limit", type=int, default=50)
     logs.add_argument("--from", dest="from_time", help="ISO-8601 with timezone.")
     logs.add_argument("--to", dest="to_time", help="ISO-8601 with timezone.")
-    logs.add_argument("--output_dir")
-    download = _command(actions, "download", help="Download published business results, not logs. schedule_run requires --execution_id.")
+    logs.add_argument("--output-dir")
+    download = _command(actions, "download", help="Download published business results, not logs. schedule_run requires --execution-id.")
     target(download, True)
     download.add_argument("--format", choices=("csv", "jsonl", "xlsx", "json"), help="Batch: csv/jsonl/xlsx, default jsonl. Schedule execution: json only.")
     download.add_argument("--file", required=True)
@@ -89,11 +81,11 @@ def add_parser(groups):
     for action in ("create", "update"):
         command = _command(actions, action,
             help="Create a batch task or recurring plan." if action == "create" else "Update supplied schedule fields; never changes existing execution snapshots.",
-            description=("batch_exec requires --workflow_id, --version and --input_file, then submits asynchronously. Input columns match StartNode names. Repeat --mapping '{\"field\":\"answer\",\"source\":\"node_3.answer\",\"default\":null}' for OUTPUT columns, not input mapping. default only replaces absent outputs, never false/0/empty string. Fixed index/status/error/execution_time columns remain. schedule_run requires --workflow_id, --version and --interval/--cron. Creates an ENABLED schedule by default; --paused only saves configuration. Read the returned hint; do not repeat submission."
-                if action == "create" else "schedule_run only. Updates supplied fields; does not enable a paused schedule. --inputs/--inputs_file replaces the complete preset. Use --clear_start_at/--clear_end_at to remove bounds. Use enable/disable for future dispatch."))
+            description=("batch_exec requires --workflow-id, --version and --input-file, then submits asynchronously. Input columns match StartNode names. Repeat --mapping '{\"field\":\"answer\",\"source\":\"node_3.answer\",\"default\":null}' for OUTPUT columns, not input mapping. default only replaces absent outputs, never false/0/empty string. Fixed index/status/error/execution_time columns remain. schedule_run requires --workflow-id, --version and --interval/--cron. Creates an ENABLED schedule by default; --paused only saves configuration. Read the returned hint; do not repeat submission."
+                if action == "create" else "schedule_run only. Updates supplied fields; does not enable a paused schedule. --input/--input-file replaces the complete preset. Use --clear-start-at/--clear-end-at to remove bounds. Use enable/disable for future dispatch."))
         if action == "create":
             typed(command)
-            command.add_argument("--workflow_id", required=True)
+            command.add_argument("--workflow-id", required=True)
         else:
             target(command)
         selector = command.add_mutually_exclusive_group(required=action == "create")
@@ -105,30 +97,29 @@ def add_parser(groups):
         command.add_argument("--timezone", help="schedule_run only: IANA timezone; defaults to UTC at creation.")
         for boundary in ("start", "end"):
             bounds = command.add_mutually_exclusive_group()
-            bounds.add_argument(f"--{boundary}_at", help="schedule_run only: ISO-8601 with timezone.")
+            bounds.add_argument(f"--{boundary}-at", help="schedule_run only: ISO-8601 with timezone.")
             if action == "update":
-                bounds.add_argument(f"--clear_{boundary}_at", action="store_true")
+                bounds.add_argument(f"--clear-{boundary}-at", action="store_true")
         inputs = command.add_mutually_exclusive_group()
-        inputs.add_argument("--inputs", help="Schedule input JSON object.")
-        inputs.add_argument("--inputs_file", help="Read schedule input JSON from a local file now.")
+        inputs.add_argument("--input", dest="inputs", help="Schedule input JSON object.")
+        inputs.add_argument("--input-file", help="Batch: input table file. Schedule: JSON input object file.")
         command.add_argument("--mount", choices=("true", "false"),
             help="Expose user storage /mount. Creation defaults to false; omission during update preserves current setting. Frozen on submission; batch resume reuses it. Never shares Chat /data or /memory.")
         command.add_argument("--notify", help="Schedule: succeeded,failed or none; defaults to failed.")
         if action == "create":
             command.add_argument("--paused", action="store_true", default=None, help="schedule_run only: create a paused plan; otherwise enabled.")
             command.add_argument("--evaluation-script", dest="evaluation_script", help="Batch only: upload a Python evaluate(results) script and evaluate automatically after inference. No third-party imports.")
-            command.add_argument("--input_file", help="Batch: CSV/TSV/JSON/JSONL/XLSX/XLSM.")
-            command.add_argument("--input_sheet")
+            command.add_argument("--input-sheet")
             command.add_argument("--mapping", action="append", help="Batch output: flat JSON {field,source,default?}; repeat for ordered columns.")
             command.add_argument("--concurrency", type=int, help="Batch parallel rows, 1–16; default 1.")
-            command.add_argument("--output_path", help="Batch result destination in Workflow storage, NOT Chat /data.")
-            command.add_argument("--output_sheet")
+            command.add_argument("--output-path", help="Batch result destination in Workflow storage, NOT Chat /data.")
+            command.add_argument("--output-sheet")
 
     for action, description in {
         "enable": "schedule_run only. Enable future dispatch; no catch-up of missed occurrences.",
         "disable": "schedule_run only. Disable future dispatch; does not cancel an active execution.",
         "run": "schedule_run only. Queue one manual execution; does not enable the schedule. Returns before execution finishes.",
-        "cancel": "Request cancellation, not confirmation of completion. schedule_run requires --execution_id. Batch cancellation normally becomes interrupted; check result.can_resume before resuming.",
+        "cancel": "Request cancellation, not confirmation of completion. schedule_run requires --execution-id. Batch cancellation normally becomes interrupted; check result.can_resume before resuming.",
         "resume": "batch_exec only. Resume the SAME Task ID from a durable checkpoint, preserving its snapshot and skipping successful rows. Requires result.can_resume=true and a terminal state; never repeat while resuming/running. Unknown outcomes require inspection, not automatic reruns.",
         "delete": "Delete a task and its execution history after approval; active execution blocks deletion. Does not delete the Workflow.",
     }.items():
@@ -141,13 +132,11 @@ def validate(operation, arguments):
         raise ValueError("Unsupported Task operation or arguments.")
     supplied_type = arguments.get("task_type")
     if (not isinstance(supplied_type, str) or supplied_type not in {"batch_exec", "schedule_run"}) and (operation != "task.list" or supplied_type is not None):
-        raise ValueError("--task_type is required: batch_exec or schedule_run.")
+        raise ValueError("--task-type is required: batch_exec or schedule_run.")
     if operation in {"task.update", "task.enable", "task.disable", "task.run"} and supplied_type != "schedule_run":
-        raise ValueError("This operation only supports --task_type schedule_run.")
+        raise ValueError("This operation only supports --task-type schedule_run.")
     if operation == "task.resume" and supplied_type != "batch_exec":
         raise ValueError("resume only supports batch_exec; use enable for future schedule dispatch.")
-    if operation in {"task.evaluation", "task.evaluate", "task.evaluation-config"} and supplied_type != "batch_exec":
-        raise ValueError("Evaluation only supports batch_exec.")
     if operation in WRITE_OPERATIONS:
         action = {"task.enable": "resume", "task.disable": "pause"}.get(operation, operation.split(".")[1])
         operation = f"task.{supplied_type}.{action}"
@@ -157,10 +146,7 @@ def validate(operation, arguments):
     schedule_fields = {"name", "major", "version", "interval", "cron", "timezone",
                        "start_at", "end_at", "inputs", "mount", "notify"}
     allowed = {
-        "task.evaluation": common | {"task_type"},
-        "task.batch_exec.evaluate": common,
-        "task.batch_exec.evaluation-config": common | {"evaluation_script", "auto_evaluate"},
-        "task.list": {"task_type", "status", "workflow_id", "query", "limit", "offset"},
+        "task.list": {"task_type", "status", "workflow_id", "limit", "offset"},
         "task.info": common | {"task_type"},
         "task.status": common | {"task_type", "execution_id"},
         "task.logs": common | {"task_type", "execution_id", "follow", "after", "before", "limit", "from_time", "to_time", "export"},
@@ -179,27 +165,25 @@ def validate(operation, arguments):
         raise ValueError("Unsupported Task operation or arguments.")
     unsupported = arguments.keys() - allowed[operation]
     if unsupported:
-        flags = ", ".join("--" + key for key in sorted(unsupported))
+        flags = ", ".join("--" + key.replace("_", "-") for key in sorted(unsupported))
         raise ValueError(f"Unsupported parameters for {supplied_type or 'task list'}: {flags}. Check this command's --help for type-specific options.")
     result = dict(arguments)
     if "evaluation_script" in result:
         script = result["evaluation_script"]
         if not isinstance(script, str) or not script.strip() or len(script) > 65536:
             raise ValueError("Evaluation script must contain 1–65536 characters.")
-    if "auto_evaluate" in result and type(result["auto_evaluate"]) is not bool:
-        raise ValueError("auto_evaluate must be a boolean.")
     if operation in READ_OPERATIONS:
         if operation != "task.list" and "task_type" not in result:
-            raise ValueError("--task_type is required: batch_exec or schedule_run.")
+            raise ValueError("--task-type is required: batch_exec or schedule_run.")
         if "task_type" in result and result["task_type"] not in {"batch_exec", "schedule_run"}:
-            raise ValueError("--task_type must be batch_exec or schedule_run.")
+            raise ValueError("--task-type must be batch_exec or schedule_run.")
         if operation in {"task.status", "task.logs", "task.download"}:
             if result["task_type"] == "schedule_run" and not result.get("execution_id"):
-                raise ValueError("--execution_id is required for schedule_run; find it with task history --task_id ID --task_type schedule_run.")
+                raise ValueError("--execution-id is required for schedule_run; find it with task history --task-id ID --task-type schedule_run.")
             if result["task_type"] == "batch_exec" and "execution_id" in result:
-                raise ValueError("--execution_id is not valid for batch_exec.")
+                raise ValueError("--execution-id is not valid for batch_exec.")
     if result.get("follow") and any(result.get(key) is not None and result.get(key) is not False for key in ("export", "before", "to_time")):
-        raise ValueError("--follow cannot be combined with --output_dir, --before or --to.")
+        raise ValueError("--follow cannot be combined with --output-dir, --before or --to.")
     for key in ("task_id", "execution_id"):
         if key == "task_id" and key in allowed[operation] and key not in result:
             raise ValueError("An explicit Task ID is required.")
@@ -211,8 +195,8 @@ def validate(operation, arguments):
             except ValueError as exc:
                 raise ValueError(f"{key} must be a UUID returned by task list/status.") from exc
     if operation == "task.schedule_run.cancel" and "execution_id" not in result:
-        raise ValueError("--execution_id is required; cancelling an execution does not pause the plan.")
-    for key in ("workflow_id", "name", "timezone", "query", "output_path", "output_sheet"):
+        raise ValueError("--execution-id is required; cancelling an execution does not pause the plan.")
+    for key in ("workflow_id", "name", "timezone", "output_path", "output_sheet"):
         if key in result and (not isinstance(result[key], str) or not result[key].strip()):
             raise ValueError(f"{key} must be a nonempty string.")
     for key in ("follow", "mount", "paused", "export"):
@@ -226,12 +210,12 @@ def validate(operation, arguments):
             raise ValueError(f"{key} must be between {low} and {high}.")
     for key, pattern in (("major", r"v[1-9][0-9]*"), ("version", r"v[1-9][0-9]*\.sv[0-9]+")):
         if key in result and (not isinstance(result[key], str) or not re.fullmatch(pattern, result[key])):
-            raise ValueError(f"Invalid --{key}; use v2 for major or v2.sv3 for version.")
+            raise ValueError(f"Invalid --{key.replace('_', '-')}; use v2 for major or v2.sv3 for version.")
     if "major" in result:
-        raise ValueError("Tasks require a fixed --version, e.g. v2.sv3; --major is no longer supported.")
+        raise ValueError("Tasks require a fixed --version, e.g. v2.sv3.")
     if operation.endswith(".create"):
         if not result.get("workflow_id") or not result.get("version"):
-            raise ValueError("Creation requires --workflow_id and --version.")
+            raise ValueError("Creation requires --workflow-id and --version.")
     if "inputs" in result and not isinstance(result["inputs"], dict):
         raise ValueError("Inputs must be a JSON object.")
     if "interval" in result and "cron" in result:
@@ -269,9 +253,9 @@ def validate(operation, arguments):
         if not isinstance(result.get("input_sheet", ""), str):
             raise ValueError("input_sheet must be a string.")
         if result.get("input_sheet") and result["format"] not in {"xlsx", "xlsm"}:
-            raise ValueError("--input_sheet only applies to Excel inputs.")
+            raise ValueError("--input-sheet only applies to Excel inputs.")
         if result.get("output_sheet") and not str(result.get("output_path", "")).lower().endswith(".xlsx"):
-            raise ValueError("--output_sheet requires an .xlsx --output_path.")
+            raise ValueError("--output-sheet requires an .xlsx --output-path.")
         mappings = result.setdefault("mapping", [])
         if not isinstance(mappings, list):
             raise ValueError("mapping must be a list of flat JSON objects.")
@@ -292,7 +276,7 @@ def validate(operation, arguments):
 def execute(args, endpoint, api):
     """Materialize local files, then make exactly one submission/observation."""
     operation = "task." + args.action
-    local_keys = {"resource", "action", "task_action", "input_file", "inputs_file",
+    local_keys = {"resource", "action", "task_action", "input_file",
                   "file", "overwrite", "output_dir", "clear_start_at", "clear_end_at"}
     arguments = {key: value for key, value in vars(args).items() if key not in local_keys and value is not None}
     output = None
@@ -303,17 +287,13 @@ def execute(args, endpoint, api):
             if args.task_type != "batch_exec":
                 raise ValueError("--evaluation-script only supports batch_exec.")
             arguments["evaluation_script"] = api._read_run_file(args.evaluation_script).decode("utf-8-sig")
-        if "auto_evaluate" in arguments:
-            arguments["auto_evaluate"] = arguments["auto_evaluate"] == "true"
         if "mount" in arguments:
             arguments["mount"] = arguments["mount"] == "true"
         if operation == "task.logs" and args.output_dir:
             arguments["export"] = True
         if operation == "task.create" and args.task_type == "batch_exec":
             if not args.input_file:
-                raise ValueError("--input_file is required for batch_exec creation.")
-            if args.inputs_file:
-                raise ValueError("--inputs_file is only valid for schedule_run.")
+                raise ValueError("--input-file is required for batch_exec creation.")
             arguments.update(data=base64.b64encode(api._read_run_file(args.input_file)).decode("ascii"),
                              format=os.path.splitext(args.input_file)[1][1:].lower())
             mappings = []
@@ -324,10 +304,8 @@ def execute(args, endpoint, api):
                     raise ValueError(f"Mapping {index}: invalid JSON: {exc}") from exc
             arguments["mapping"] = mappings
         if args.task_type == "schedule_run" and args.action in {"create", "update"}:
-            if getattr(args, "input_file", None):
-                raise ValueError("--input_file is only valid for batch_exec; schedule_run uses --inputs_file.")
-            if args.inputs_file is not None:
-                arguments["inputs"] = api._run_json(api._read_run_file(args.inputs_file).decode("utf-8-sig"))
+            if args.input_file is not None:
+                arguments["inputs"] = api._run_json(api._read_run_file(args.input_file).decode("utf-8-sig"))
             elif args.inputs is not None:
                 arguments["inputs"] = api._run_json(args.inputs)
             for boundary in ("start", "end"):
@@ -374,8 +352,7 @@ def execute(args, endpoint, api):
                     handle.write(content)
                 paths.append(os.path.join(directory, name))
             result.update(directory=directory, files=paths)
-        state_field = ("evaluation_status" if args.action in {"evaluation", "evaluate", "evaluation-config"}
-                       else "resource_status" if args.action == "delete" or result.get("status") in {"enabled", "paused"}
+        state_field = ("resource_status" if args.action == "delete" or result.get("status") in {"enabled", "paused"}
                        else "execution_status")
         return api.emit_result(result, exit_code=1 if "error" in result else 0, state_field=state_field)
     except (ValueError, OSError, RuntimeError, KeyboardInterrupt) as exc:

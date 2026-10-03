@@ -18,7 +18,7 @@ def test_command_instructions_are_resolved_once_by_backend_policy() -> None:
     assert instructions[1].activated_this_turn is True
     assert "Browser mode" in instructions[0].content
     assert "WORKFLOW mode" in instructions[1].content
-    assert all(item.version == 30 for item in instructions)
+    assert all(item.version == 32 for item in instructions)
 
 
 def test_workflow_command_is_a_playbook_not_a_parameter_reference():

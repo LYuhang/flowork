@@ -71,35 +71,16 @@ def test_cli_reads_script_content_not_path(tmp_path, monkeypatch):
     rows.write_text('{"value": 1}\n')
     seen = []
     monkeypatch.setattr(cli, 'request', lambda endpoint, arguments, **kw: seen.append(arguments) or {'status': 'queued'})
-    assert cli.main(['task', 'create', '--task_type', 'batch_exec', '--workflow_id', 'wf', '--major', 'v1', '--input_file', str(rows), '--evaluation-script', str(script)], socket_path='test') == 0
+    assert cli.main(['task', 'create', '--task-type', 'batch_exec', '--workflow-id', 'wf', '--version', 'v1.sv0', '--input-file', str(rows), '--evaluation-script', str(script)], socket_path='test') == 0
     assert seen[-1]['evaluation_script'] == script.read_text()
-    assert cli.main(['task', 'evaluation-config', '--task_type', 'batch_exec', '--task_id', str(uuid4()), '--evaluation-script', str(script), '--auto-evaluate', 'false'], socket_path='test') == 0
-    assert seen[-1]['auto_evaluate'] is False
-    for action in ('evaluation', 'evaluate'):
-        assert task_cli.validate('task.'+action, {'task_type': 'batch_exec', 'task_id': str(uuid4())})
 
 
-@pytest.mark.asyncio
-async def test_manual_cli_submission_exits_successfully_for_queued_record(monkeypatch):
-    from contextlib import asynccontextmanager
-    from vibecanvas_api.services.agent_runtime import cli_tasks
-    task_id, evaluation_id = str(uuid4()), str(uuid4())
-    context = SimpleNamespace(tenant_id=str(uuid4()), username='qa')
-    session = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(first=lambda: (1,))))
-    @asynccontextmanager
-    async def scope(**kwargs):
-        yield session
-    monkeypatch.setattr(cli_tasks, 'session_scope', scope)
-    monkeypatch.setattr(cli_tasks.agent_context, 'resolve_context', AsyncMock(return_value=context))
-    monkeypatch.setattr(cli_tasks, 'resource_route_params', lambda *args: {})
-    monkeypatch.setattr(cli_tasks, '_require_active_chat_write', AsyncMock())
-    monkeypatch.setattr(cli_tasks.routes, '_authorize_task', AsyncMock())
-    monkeypatch.setattr(cli_tasks, 'TasksRepo', lambda _: SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(task_type='batch_exec'))))
-    monkeypatch.setattr(cli_tasks.routes, 'start_evaluation', AsyncMock(return_value={'id': evaluation_id, 'status': 'queued', 'error': None}))
-    call = SimpleNamespace(operation='task.evaluate', call_id=str(uuid4()), emit=AsyncMock(),
-        capability=SimpleNamespace(tenant_id=context.tenant_id, turn_id='turn', approval_mode='always_allow'))
-    result = await cli_tasks.execute(call, {'task_id': task_id, 'task_type': 'batch_exec'})
-    assert result['evaluation_id'] == evaluation_id
-    assert result['status'] == 'queued'
-    monkeypatch.setattr(cli, 'request', lambda *args, **kwargs: result)
-    assert cli.main(['task', 'evaluate', '--task_type', 'batch_exec', '--task_id', task_id], socket_path='test') == 0
+
+@pytest.mark.parametrize("action", ["evaluation", "evaluate", "evaluation-config"])
+def test_removed_cli_evaluation_commands_are_rejected(action, monkeypatch):
+    request = AsyncMock()
+    monkeypatch.setattr(cli, "request", request)
+    assert cli.main(["task", action, "--task-type", "batch_exec", "--task-id", str(uuid4())], socket_path="test") == 2
+    request.assert_not_called()
+    with pytest.raises(ValueError):
+        task_cli.validate("task." + action, {"task_type": "batch_exec", "task_id": str(uuid4())})

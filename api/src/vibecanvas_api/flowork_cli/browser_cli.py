@@ -35,10 +35,10 @@ COMMANDS = {
     "tab-info": ("Read the explicit tab's current URL, title, window and connection state.", {"tab_id": TAB}),
     "tab-new": ("Create a tab in the authorized opener's window; return its new platform tab_id. Does not authorize other existing tabs.", {"opener_tab_id": TAB, "url": option(default="about:blank")}),
     "tab-close": ("Close only the specified authorized tab, never the whole browser.", {"tab_id": TAB}),
-    "snapshot": ("Observe the page or an element. Returns readable structure with fresh refs; --boxes adds viewport CSS-pixel coordinates. Partial depth is not the whole document. With --output_file, the saved artifact is UTF-8 snapshot text, not JSON; use a .txt path and read it as text. The command receipt on stdout is JSON.", {"tab_id": TAB, **TARGET, "depth": option(int), "boxes": option(bool, default=False), "output_file": OUTPUT}),
+    "snapshot": ("Observe the page or an element. Returns readable structure with fresh refs; --boxes adds viewport CSS-pixel coordinates. Partial depth is not the whole document. With --output-file, the saved artifact is UTF-8 snapshot text, not JSON; use a .txt path and read it as text. The command receipt on stdout is JSON.", {"tab_id": TAB, **TARGET, "depth": option(int), "boxes": option(bool, default=False), "output_file": OUTPUT}),
     "find": ("Search the current snapshot and return matching nodes/refs with context. --regex treats --text as a regular expression.", {"tab_id": TAB, "text": option(required=True), "regex": option(bool, default=False)}),
     "frame-list": ("List live frames and their frame_id, parent, URL and name. Frame IDs become stale after replacement/reconnection.", {"tab_id": TAB}),
-    "screenshot": ("Save PNG in the sandbox and return its path, never base64. Default viewport; --full_page and an element target are exclusive. --hires uses device pixel ratio.", {"tab_id": TAB, **TARGET, "full_page": option(bool, default=False), "hires": option(bool, default=False), "output_file": OUTPUT}),
+    "screenshot": ("Save PNG in the sandbox and return its path, never base64. Default viewport; --full-page and an element target are exclusive. --hires uses device pixel ratio.", {"tab_id": TAB, **TARGET, "full_page": option(bool, default=False), "hires": option(bool, default=False), "output_file": OUTPUT}),
     "goto": ("Navigate the explicit tab. Existing element refs may become invalid; inspect the returned observation before interacting.", {"tab_id": TAB, "url": option(required=True), "timeout": TIMEOUT}),
     "go-back": ("Navigate backward in this tab's history.", {"tab_id": TAB, "timeout": TIMEOUT}),
     "go-forward": ("Navigate forward in this tab's history.", {"tab_id": TAB, "timeout": TIMEOUT}),
@@ -63,13 +63,13 @@ COMMANDS = {
     "mousewheel": ("Dispatch a mouse wheel delta in CSS pixels at this tab's pointer position. Positive delta_y scrolls down.", {"tab_id": TAB, "delta_x": option(float, required=True), "delta_y": option(float, required=True)}),
     "keydown": ("Hold a key until keyup in this tab. No implicit current-tab state; use finally cleanup in long scripts.", {"tab_id": TAB, "key": option(required=True)}),
     "keyup": ("Release a key held in this tab.", {"tab_id": TAB, "key": option(required=True)}),
-    "eval": ("Evaluate an expression or invoked function IN THE WEBPAGE; await Promises. --file reads JavaScript source from a sandbox file, not a browser-local file. Optional --ref passes that element to a function (el => ...). Optional --frame_id selects a frame; default main frame. Return JSON-compatible plain data, not DOM/JS handles. Nested undefined, BigInt and non-finite numbers are errors: use explicit null for missing fields, e.g. document.querySelector('#name')?.value ?? null. This is not sandbox Node.js.", {"tab_id": TAB, "expression": option(), "file": option(), "ref": REF, "frame_id": option(), "output_file": OUTPUT}),
+    "eval": ("Evaluate an expression or invoked function IN THE WEBPAGE; await Promises. --file reads JavaScript source from a sandbox file, not a browser-local file. Optional --ref passes that element to a function (el => ...). Optional --frame-id selects a frame; default main frame. Return JSON-compatible plain data, not DOM/JS handles. Nested undefined, BigInt and non-finite numbers are errors: use explicit null for missing fields, e.g. document.querySelector('#name')?.value ?? null. This is not sandbox Node.js.", {"tab_id": TAB, "expression": option(), "file": option(), "ref": REF, "frame_id": option(), "output_file": OUTPUT}),
     "run-code": ("Run async (page) => { ... } IN THE AGENT SANDBOX with the explicit authorized Playwright page. --code or --file, not both. Browser APIs cannot expand tab authority. Sandbox fs is available; document/window belong inside page.evaluate. Return JSON-compatible data; use null for missing fields, not nested undefined. setInputFiles('/data/input.bin') and fileChooser.setFiles(...) transfer sandbox bytes to Chrome; they never read that path on the user's PC. This also applies to pages from context.pages(), popup events and opener(). Register download/popup/filechooser listeners BEFORE the triggering action. For a popup download, wait on the popup itself, not the original page. Download example: const waiting = page.waitForEvent('download'); await page.getByRole('link', {name:'Download'}).click(); const download = await waiting; await download.saveAs('/data/result.csv'); return {file:'/data/result.csv'}; Download saveAs writes actual sandbox bytes, not a client Downloads path. Await it before returning. No fixed total execution deadline; cancellation cannot undo already performed effects.", {"tab_id": TAB, "code": option(), "file": option(), "output_file": OUTPUT}),
     "cookie-list": ("List cookie metadata applicable to this tab's current URL. Values are never printed. This does not grant permission to export credentials.", {"tab_id": TAB}),
     "cookie-export": ("Export URL-applicable cookies ONLY after separate site-scoped user consent in the extension side panel. --file is a filename such as cookies.json, NOT a workspace path. Use the returned private temporary path for authenticated requests during this Agent turn. Managed files are removed on revocation or turn end, never persisted, previewed or shared. Do not print secrets or copy them to /data. Missing consent fails with guidance, not an indefinite approval wait. JSON file shape is {url, cookies: [...]}, not a top-level array; cookies retain their attributes including sensitive values. Netscape uses seven tab-separated fields and #HttpOnly_ prefixes; it rejects partitioned cookies it cannot represent. Inspect only metadata/counts when checking the file. Browser-side authentication does not guarantee sandbox requests will authenticate.", {"tab_id": TAB, "file": option(required=True, help="Private output filename only, e.g. cookies.txt; the result returns its actual turn-private sandbox path."), "format": option(default="json", choices=("json", "netscape"))}),
     "upload": ("Transfer actual sandbox file bytes to a file input or pending page file chooser. Repeat --file for multiple files. Files are frozen before approval; no bytes or input/change events reach the page until approval mode permits transfer. Keep polling the same command while approval is pending. Does not read arbitrary paths on the user's computer. Optional ref/locator identifies the input directly.", {"tab_id": TAB, **TARGET, "file": option(required=True, repeat=True), "timeout": TIMEOUT}),
     "drop": ("Drop sandbox files OR MIME data on a target. Repeat --file or --data; never combine them. Files follow the same approval policy as upload, before bytes or drop events reach the page. Text-only MIME data needs no file-transfer approval. Data format: --data 'text/plain=hello'. This is not dragging an existing page element.", {"tab_id": TAB, **TARGET, "file": option(repeat=True), "data": option(repeat=True), "timeout": TIMEOUT}),
-    "download": ("Observe BEFORE clicking one target. Chrome saves the file on the user's computer; transfer to the sandbox follows approval mode. First use may require enabling Allow access to file URLs in extension details. Blob/data downloads without proven tab identity first wait for extension-local user confirmation, even in always_allow mode; no candidate metadata leaves the extension before confirmation. Keep polling the original command; never automate this confirmation. Local file confirmation does not grant transfer approval. A single candidate is transferred after approval; multiple candidates return status=selection_required, choice_set_id and metadata WITHOUT file bytes. Call render_choices with that choice_set_id, then download-receive with its confirmed candidate_id; on cancellation use download-cancel. Never repeat the click to resume a transfer. Requires --file and one ref/locator. Use /data for durable storage; success has a byte-count/hash/persistence receipt. Existing files are not overwritten. --timeout limits waiting for download start, not user approval or transfer duration. A Chrome Downloads path is not a saved sandbox file. If persistence fails, inspect the saved file rather than clicking again. Example: flowork-cli browser download --tab_id TAB --locator '#download' --file /data/result.csv", {"tab_id": TAB, **TARGET, "file": option(required=True), "timeout": TIMEOUT}),
+    "download": ("Observe BEFORE clicking one target. Chrome saves the file on the user's computer; transfer to the sandbox follows approval mode. First use may require enabling Allow access to file URLs in extension details. Blob/data downloads without proven tab identity first wait for extension-local user confirmation, even in always_allow mode; no candidate metadata leaves the extension before confirmation. Keep polling the original command; never automate this confirmation. Local file confirmation does not grant transfer approval. A single candidate is transferred after approval; multiple candidates return status=selection_required, choice_set_id and metadata WITHOUT file bytes. Call render_choices with that choice_set_id, then download-receive with its confirmed candidate_id; on cancellation use download-cancel. Never repeat the click to resume a transfer. Requires --file and one ref/locator. Use /data for durable storage; success has a byte-count/hash/persistence receipt. Existing files are not overwritten. --timeout limits waiting for download start, not user approval or transfer duration. A Chrome Downloads path is not a saved sandbox file. If persistence fails, inspect the saved file rather than clicking again. Example: flowork-cli browser download --tab-id TAB --locator '#download' --file /data/result.csv", {"tab_id": TAB, **TARGET, "file": option(required=True), "timeout": TIMEOUT}),
     "download-status": ("Inspect an existing download choice_set_id in this tab and Agent turn. Returns registered metadata only, never file bytes. If the candidate set changed, use the newly returned choice_set_id and ask the user again.", {"tab_id": TAB, "choice_set_id": option(required=True)}),
     "download-receive": ("Transfer a registered local download WITHOUT clicking or downloading again. Requires choice_set_id and candidate_id from the same active turn; for multiple candidates the backend verifies the saved render_choices selection. File-transfer approval is separate, including after selection. --file is a new sandbox destination; /data is durable. The user's local file is kept. Return byte count/hash and storage receipt, not guessed success.", {"tab_id": TAB, "choice_set_id": option(required=True), "candidate_id": option(required=True), "file": option(required=True)}),
     "download-cancel": ("Release a pending download choice_set_id in this tab. Does not delete or cancel the user's local Chrome file and does not trigger another download.", {"tab_id": TAB, "choice_set_id": option(required=True)}),
@@ -77,7 +77,7 @@ COMMANDS = {
     "dialog-dismiss": ("Dismiss the pending JavaScript dialog in this tab.", {"tab_id": TAB}),
     "console": ("Read captured console messages; no guarantee of pre-connection history. --after uses the opaque cursor from a previous result. Sensitive values must not be exposed.", {"tab_id": TAB, "level": option(default="info", choices=("debug", "info", "warning", "error")), "after": option(), "limit": option(int, default=50)}),
     "requests": ("List captured network requests, not a command to send HTTP requests. Use returned request_id for details. No guarantee of pre-connection history.", {"tab_id": TAB, "url_contains": option(), "after": option(), "limit": option(int, default=50)}),
-    "request": ("Read one captured request/response without replaying it. --request_id comes from requests. Unavailable response bodies are explicit errors, not empty successes. --output_file saves available response bytes in the sandbox.", {"tab_id": TAB, "request_id": option(required=True), "output_file": OUTPUT}),
+    "request": ("Read one captured request/response without replaying it. --request-id comes from requests. Unavailable response bodies are explicit errors, not empty successes. --output-file saves available response bytes in the sandbox.", {"tab_id": TAB, "request_id": option(required=True), "output_file": OUTPUT}),
 }
 
 READ_COMMANDS = frozenset({"tab-list", "tab-info", "snapshot", "find", "frame-list", "screenshot", "generate-locator", "cookie-list", "console", "requests", "request", "wait-for", "download-status"})
@@ -89,7 +89,7 @@ REQUIRED_TARGET = frozenset({"click", "dblclick", "hover", "fill", "type", "sele
 
 def add_parser(groups):
     group = groups.add_parser("browser", help="Operate explicitly authorized real browser tabs through the extension.",
-        description="Agent-only, stateless target selection. No connect/disconnect/current tab. Start with tab-list, then snapshot, act, verify. Every page command names --tab_id. Files refer to this Chat's sandbox, not the user's computer. English JSON/JSONL stdout; exit 0 success, 1 failed/unknown, 2 invalid arguments. Never blindly replay an unknown write.", allow_abbrev=False)
+        description="Agent-only, stateless target selection. No connect/disconnect/current tab. Start with tab-list, then snapshot, act, verify. Every page command names --tab-id. Files refer to this Chat's sandbox, not the user's computer. English JSON/JSONL stdout; exit 0 success, 1 failed/unknown, 2 invalid arguments. Never blindly replay an unknown write.", allow_abbrev=False)
     actions = group.add_subparsers(dest="action", required=True)
     for name, (description, options) in COMMANDS.items():
         detail = description + (" " + WORKER_LIFETIME if name in {"eval", "run-code", "download"} else "")
@@ -105,7 +105,7 @@ def add_parser(groups):
                 if spec["choices"]:
                     kwargs["choices"] = spec["choices"]
             kwargs["default"] = spec["default"]
-            command.add_argument("--" + key, **kwargs)
+            command.add_argument("--" + key.replace("_", "-"), **kwargs)
 
 
 def validate(operation, arguments):
@@ -120,20 +120,20 @@ def validate(operation, arguments):
         value = arguments.get(key, spec["default"])
         if value is None:
             if spec["required"]:
-                raise ValueError(f"--{key} is required.")
+                raise ValueError(f"--{key.replace('_', '-')} is required.")
             continue
         values = value if spec["repeat"] else [value]
         if spec["repeat"] and (not isinstance(value, list) or not value):
-            raise ValueError(f"--{key} must be a non-empty list of values.")
+            raise ValueError(f"--{key.replace('_', '-')} must be a non-empty list of values.")
         for item in values:
             kind = spec["kind"]
             valid = type(item) is kind or (kind is float and type(item) is int)
             if not valid or (type(item) is float and not math.isfinite(item)):
-                raise ValueError(f"--{key} has an invalid value.")
+                raise ValueError(f"--{key.replace('_', '-')} has an invalid value.")
             if isinstance(item, str) and ("\x00" in item or (not item.strip() and key not in {"text", "value"})):
-                raise ValueError(f"--{key} must be non-empty and contain no NUL characters.")
+                raise ValueError(f"--{key.replace('_', '-')} must be non-empty and contain no NUL characters.")
             if spec["choices"] and item not in spec["choices"]:
-                raise ValueError(f"--{key} must be one of: {', '.join(spec['choices'])}.")
+                raise ValueError(f"--{key.replace('_', '-')} must be one of: {', '.join(spec['choices'])}.")
         result[key] = value
     targets = sum(key in result for key in TARGET)
     if targets > 1:
@@ -145,11 +145,11 @@ def validate(operation, arguments):
     if name == "highlight" and not result.get("hide") and targets != 1:
         raise ValueError("Highlight requires --ref or --locator; use --hide alone to clear all highlights.")
     if name == "screenshot" and result.get("full_page") and targets:
-        raise ValueError("--full_page cannot be combined with an element target.")
+        raise ValueError("--full-page cannot be combined with an element target.")
     if name in {"eval", "run-code"}:
         source = "expression" if name == "eval" else "code"
         if sum(key in result for key in (source, "file")) != 1:
-            raise ValueError(f"Exactly one of --{source} or --file is required.")
+            raise ValueError(f"Exactly one of --{source.replace('_', '-')} or --file is required.")
     if name == "drop":
         if sum(key in result for key in ("file", "data")) != 1:
             raise ValueError("Supply --file or --data, not both.")
@@ -159,7 +159,7 @@ def validate(operation, arguments):
                 raise ValueError("--data must be MIME=value, e.g. text/plain=hello.")
     for key in ("timeout", "pixels", "depth", "limit"):
         if key in result and (result[key] < 0 or (key != "timeout" and result[key] == 0)):
-            raise ValueError(f"--{key} must be {'non-negative' if key == 'timeout' else 'positive'}.")
+            raise ValueError(f"--{key.replace('_', '-')} must be {'non-negative' if key == 'timeout' else 'positive'}.")
     if name in {"goto", "tab-new"}:
         url = result["url"]
         if not url.startswith(("http://", "https://")) and not (name == "tab-new" and url == "about:blank"):

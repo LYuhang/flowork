@@ -5,9 +5,9 @@ TASK = """\
 
 Use flowork-cli task for durable asynchronous work that survives this Chat.
 Start with task --help, then the relevant command's --help. Commands are flat:
-create/status/history/logs/etc. Use --task_type batch_exec|schedule_run and
---task_id explicitly, never positional IDs or category subcommands.
-There is no current Task or Workflow. Never call retired Task MCP tools.
+create/status/history/logs/etc. Use --task-type batch_exec|schedule_run and
+--task-id explicitly, never positional IDs or category subcommands.
+Every command explicitly identifies its Task or Workflow.
 
 Use flowork-cli workflow list to discover authorized workflows, then inspect saved versions. Inspect
 StartNode inputs and desired node outputs; upload/check graph edits before
@@ -19,8 +19,16 @@ Prepare batch input files with column names matching StartNode input names.
 Repeat --mapping with flat JSON {field,source,default?}: field is the RESULT
 column, source is node_id.output_field. This is NOT input-column mapping.
 default only replaces absent outputs, not false/0/empty string. Submitted input
-data is durable and no longer depends on the Chat file. --output_path refers
+data is durable and no longer depends on the Chat file. --output-path refers
 to Workflow storage; use download --file to bring published results into Chat.
+
+At batch creation, optionally supply --evaluation-script pointing to Python code
+with evaluate(results: list[dict]) -> dict. The full result rows, including errors,
+are evaluated automatically after inference. No third-party libraries. Read
+metrics or evaluation errors in task logs; --follow also waits for evaluation.
+Evaluation failure does not discard inference results. Use --input-file for batch tables or schedule JSON input,
+and --input for inline schedule JSON. List returns one page; follow next_offset
+with --offset until null, then use jq/grep for metadata filtering.
 
 Both task types default to no user storage. Use --mount true only when requested;
 --mount false explicitly disables it. This exposes only /mount, never Chat
@@ -35,22 +43,22 @@ terminal status/errors and download results. Stopping observation does not
 cancel the Task. Never repeat create/run/resume after an unknown result: first
 reconcile list/history and external side effects.
 
-For batch_exec, status/logs/download/cancel use --task_id and --task_type only;
---execution_id is invalid. After cancellation, wait for terminal state (usually
+For batch_exec, status/logs/download/cancel use --task-id and --task-type only;
+--execution-id is invalid. After cancellation, wait for terminal state (usually
 interrupted), then inspect result.can_resume before resume. Do not recreate the
 batch or wait specifically for cancelled. outcome_unknown or can_resume=false
 requires investigation, not an automatic retry.
 
 For schedule_run, history lists execution IDs plus plan configuration and
-enabled/paused state. status/logs/download/cancel REQUIRE --execution_id in
-addition to --task_id and --task_type; they never select the latest implicitly.
+enabled/paused state. status/logs/download/cancel REQUIRE --execution-id in
+addition to --task-id and --task-type; they never select the latest implicitly.
 Use exact commands returned in history entries. run queues one manual execution
 without enabling the plan; enable/disable control future dispatch, not active
 execution. cancel targets one execution. No overlapping runs, catch-up or
 automatic reruns. Dynamic inputs belong inside the workflow, not its preset.
 
 history is the execution/attempt index, logs contains execution events, and
-download retrieves business results. For diagnosis use logs --output_dir with
+download retrieves business results. For diagnosis use logs --output-dir with
 an unused local directory; inspect status.json, logs.jsonl and history.jsonl.
 Follow returned cursor/next_history_offset for additional pages. logs --follow
 cannot be combined with historical end bounds or export. Downloads may not

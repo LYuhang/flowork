@@ -17,7 +17,7 @@ def test_explicit_targets_and_batch_has_no_history():
     dep = {"deployment_id": str(uuid4())}
     assert deployment_cli.validate("deployment.info", dep) == dep
     for action in ("status", "logs", "result"):
-        with pytest.raises(ValueError, match="execution_id"):
+        with pytest.raises(ValueError, match="execution-id"):
             deployment_cli.validate("deployment." + action, dep)
         assert deployment_cli.validate("deployment." + action, {**dep, "execution_id": str(uuid4())})
     with pytest.raises(ValueError, match="Unsupported parameters"):

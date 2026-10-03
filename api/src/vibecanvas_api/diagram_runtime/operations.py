@@ -93,5 +93,5 @@ def render_diagram(file, *, pages=None, output_dir=None, progress=lambda _: None
     except Exception as exc:
         invalid = isinstance(exc, ValueError)
         result.update(error="invalid_arguments" if invalid else "render_failed", message=str(exc),
-                      hint="Correct the arguments; use a new --output_dir or omit it. See flowork-cli diagram render --help." if invalid else "Any completed images are retained. Resolve the renderer failure and render missing pages of this source revision; do not claim full visual acceptance.")
+                      hint="Correct the arguments; use a new --output-dir or omit it. See flowork-cli diagram render --help." if invalid else "Any completed images are retained. Resolve the renderer failure and render missing pages of this source revision; do not claim full visual acceptance.")
     return result

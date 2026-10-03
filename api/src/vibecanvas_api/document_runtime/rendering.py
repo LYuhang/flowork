@@ -60,7 +60,7 @@ def _output_directory(value):
     try:
         destination.mkdir(mode=0o700)
     except FileExistsError as exc:
-        raise ValueError("Output directory already exists. Choose a new --output_dir or omit it for a unique directory.") from exc
+        raise ValueError("Output directory already exists. Choose a new --output-dir or omit it for a unique directory.") from exc
     return destination
 
 
@@ -119,5 +119,5 @@ def render_document(path, *, dpi=144, pages=None, output_dir=None, progress=lamb
         except Exception as exc:
             invalid = isinstance(exc, ValueError) and not isinstance(exc, DocumentReviewError)
             result.update(error="invalid_arguments" if invalid else "render_failed", message=str(exc),
-                          hint="Correct the arguments and retry; use a new --output_dir or omit it. See flowork-cli document render --help." if invalid else "Any completed images are retained. Correct the cause and render missing pages of the same source revision; do not claim full-document acceptance.")
+                          hint="Correct the arguments and retry; use a new --output-dir or omit it. See flowork-cli document render --help." if invalid else "Any completed images are retained. Correct the cause and render missing pages of the same source revision; do not claim full-document acceptance.")
     return result

@@ -39,11 +39,11 @@ def add_parser(groups):
     review.add_argument("--file", required=True, help="Existing .drawio file, absolute or relative to your shell working directory.")
     render = actions.add_parser("render", help="Render all or selected draw.io pages through official Desktop.",
         description="Uses the pinned official draw.io Desktop renderer, not a replacement renderer. Default: ALL pages. Works from a source snapshot without modifying layout or rewriting your file. Progress goes to stderr by default; --stream emits stdout JSONL progress, then {status,file,source_hash,total_pages,rendered_pages,complete,output_dir,images:[{page,name,file}],message}. No image/base64 stdout. On failure completed images remain and exit is nonzero. No fixed total execution deadline. Open every PNG with view_image before delivery. Partial --pages coverage is not full-document acceptance; coverage accumulates only for the same file/source_hash. Editing source invalidates evidence. Publish the final .drawio via render_preview, not the feedback PNG.",
-        epilog='Examples: flowork-cli diagram render --file /data/system.drawio; flowork-cli diagram render --file system.drawio --pages "1-3,5" --output_dir /data/diagram-review')
+        epilog='Examples: flowork-cli diagram render --file /data/system.drawio; flowork-cli diagram render --file system.drawio --pages "1-3,5" --output-dir /data/diagram-review')
     render.add_argument("--stream", action="store_true", help="Emit stdout JSONL progress plus a terminal result/error; default stdout is one JSON and progress goes to stderr.")
     render.add_argument("--file", required=True)
     render.add_argument("--pages", help="1-based page positions, e.g. 1-3,5; not page IDs/names. Omit for all.")
-    render.add_argument("--output_dir", help="CLI creates this NEW directory; do NOT mkdir it first. Only its parent must exist. Reusing an existing directory fails without overwriting files. Prefer omitting this option for a unique /memory/diagram-feedback directory.")
+    render.add_argument("--output-dir", help="CLI creates this NEW directory; do NOT mkdir it first. Only its parent must exist. Reusing an existing directory fails without overwriting files. Prefer omitting this option for a unique /memory/diagram-feedback directory.")
 
 
 def validate(operation, arguments):

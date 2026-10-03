@@ -42,11 +42,11 @@ def _feedback(value, task_id, *, execution=None, plan=False):
         value["schedule"] = _schedule(value["schedule"])
     if value.get("execution"):
         value["execution"] = _execution(value["execution"], task_id)
-    target = f"--task_id {task_id} --task_type {task_type}"
+    target = f"--task-id {task_id} --task-type {task_type}"
     get = f"flowork-cli task status {target}"
     if execution:
         value["execution_id"] = str(execution)
-        target += f" --execution_id {execution}"
+        target += f" --execution-id {execution}"
         get = f"flowork-cli task status {target}"
     logs = f"flowork-cli task logs {target}"
     follow = logs + " --follow"
@@ -89,10 +89,16 @@ def _feedback(value, task_id, *, execution=None, plan=False):
             value["message"] += " This execution cannot be resumed."
     elif status == "deleted":
         value["message"] = "Task deleted. Its Workflow was not deleted."
-        value["hint"] = f"flowork-cli task list --task_type {task_type}"
+        value["hint"] = f"flowork-cli task list --task-type {task_type}"
+    if value.get("evaluation_status") in {"queued", "running"}:
+        value["message"] = f"Inference status: {status}. Evaluation is still {value['evaluation_status']}; metrics are not ready."
+        value["hint"] = follow
+    elif value.get("evaluation_status") == "failed":
+        value["message"] = f"Inference status: {status}. Evaluation failed; saved inference results are preserved. Read evaluation errors in logs."
+        value["hint"] = logs
     if value.get("authorization_pending"):
         value["message"] += " Permissions are becoming available; do not create again."
-        value["hint"] = f"flowork-cli task list --task_type {task_type}"
+        value["hint"] = f"flowork-cli task list --task-type {task_type}"
     return value
 
 
@@ -166,7 +172,7 @@ def _batch_history(task, events):
     if current and current["finished_at"] is None:
         current["status"] = task["status"]
     for attempt in attempts:
-        command = f"flowork-cli task logs --task_id {task_id} --task_type batch_exec --after {attempt['after']}"
+        command = f"flowork-cli task logs --task-id {task_id} --task-type batch_exec --after {attempt['after']}"
         if attempt["before"] is not None:
             command += f" --before {attempt['before']}"
         attempt["hint"] = command
@@ -280,14 +286,15 @@ async def _read(ctx, operation, arguments, emit):
         if operation == "task.list":
             result = await routes.list_tasks(**common, status=arguments.get("status", "").split(",") if arguments.get("status") else [],
                 task_type=["scheduled_run" if arguments["task_type"] == "schedule_run" else "batch_exec"] if arguments.get("task_type") else [],
-                workflow_id=arguments.get("workflow_id"), q=arguments.get("query"), limit=arguments.get("limit", 20), offset=arguments.get("offset", 0))
+                workflow_id=arguments.get("workflow_id"), q=None, limit=arguments.get("limit", 20), offset=arguments.get("offset", 0))
             offset = arguments.get("offset", 0) + len(result["items"])
-            return {"tasks": [{key: value.get(key) for key in ("task_id", "task_type", "workflow_id", "status", "progress", "submitted_at")} for value in map(_task, result["items"])],
+            return {"tasks": [{"name": (value.get("config") or {}).get("name"),
+                    **{key: value.get(key) for key in ("task_id", "task_type", "workflow_id", "status", "progress", "submitted_at")}} for value in map(_task, result["items"])],
                     "next_offset": offset if offset < result["total"] else None}
         task = await routes.get_task(task_id, **common)
         expected = "scheduled_run" if arguments["task_type"] == "schedule_run" else "batch_exec"
         if task["task_type"] != expected:
-            raise ToolError("wrong_task_type", "--task_type does not match the stored Task type. No operation was performed.")
+            raise ToolError("wrong_task_type", "--task-type does not match the stored Task type. No operation was performed.")
         if operation == "task.info":
             value = _info(task)
             if expected == "scheduled_run":
@@ -297,11 +304,9 @@ async def _read(ctx, operation, arguments, emit):
                 value["schedule"] = {key: item for key, item in _schedule(plan["schedule"]).items() if key not in {"last_status", "last_run_at"}}
                 return _feedback(value, task_id, plan=True)
             return value
-        if operation == "task.evaluation":
-            return await routes.get_evaluation(task_id, **common)
         if operation in {"task.status", "task.logs", "task.download"}:
             if (expected == "scheduled_run") != bool(arguments.get("execution_id")):
-                raise ToolError("invalid_arguments", "schedule_run requires --execution_id; batch_exec rejects it. Use task history to discover executions.")
+                raise ToolError("invalid_arguments", "schedule_run requires --execution-id; batch_exec rejects it. Use task history to discover executions.")
         if operation == "task.status":
             if arguments.get("execution_id"):
                 execution = await routes.get_scheduled_run_execution(task_id, uuid.UUID(arguments["execution_id"]), **common)
@@ -355,10 +360,20 @@ async def _read(ctx, operation, arguments, emit):
                 target = execution["id"]
                 items = [event for event in items if (event["payload"].get("data") or {}).get("execution_id") == target or (event["payload"].get("scope") or {}).get("id") == target]
             terminal = execution["status"] in {"succeeded", "failed", "cancelled", "skipped"} if execution else task["status"] in TERMINAL
+            evaluation_status = None
+            if not execution:
+                payload = task.get("payload") or {}
+                records = payload.get("evaluations") or []
+                evaluation_status = ("failed" if payload.get("evaluation_queue_error") else
+                    records[0]["status"] if records else "not_run" if
+                    (payload.get("evaluation") or {}).get("enabled") else "not_configured")
+                if evaluation_status in {"queued", "running"}:
+                    terminal = False
             observed = execution if execution else task
             result = {"task_id": str(task_id), "logs": items, "cursor": cursor, "has_more": page["next_cursor"] is not None, "terminal": terminal,
                         **({"execution_id": execution["id"]} if execution else {}),
                         "status": observed["status"],
+                        **({"evaluation_status": evaluation_status} if evaluation_status else {}),
                         "execution_error" if execution else "task_error": observed.get("error"),
                         "result": observed.get("result")}
             result = _feedback(result, task_id, execution=execution["id"] if execution else None)
@@ -392,7 +407,7 @@ async def execute(call, arguments):
                     query["after"] = page["cursor"]
                     if page["terminal"] and not page["has_more"]:
                         return _feedback({"id": arguments["task_id"], "cursor": page["cursor"], "terminal": True,
-                            **{key: page[key] for key in ("status", "result", "task_error", "execution_error") if key in page}},
+                            **{key: page[key] for key in ("status", "result", "task_error", "execution_error", "evaluation_status") if key in page}},
                             arguments["task_id"], execution=query.get("execution_id"))
                     if not page["has_more"]:
                         await asyncio.sleep(1)
@@ -454,19 +469,6 @@ async def execute(call, arguments):
                 if result.get("authorization_pending"):
                     return _feedback({"id": result["task_id"], "task_type": "batch_exec", "status": "queued", "version": result["version"], "authorization_pending": True}, result["task_id"])
                 return _feedback({"id": result["task_id"], "task_type": "batch_exec", "status": "queued", "workflow_id": arguments["workflow_id"], "version": result["version"], "rows": len(prepared.data_source["rows"]), "input_sheet": sheet or None}, result["task_id"])
-            if operation == "task.batch_exec.evaluate":
-                record = await routes.start_evaluation(task_id, **common)
-                # CLI reserves top-level `error` for command failures. A queued
-                # business record has error=None and must not produce exit 1.
-                return {"task_id": str(task_id), "evaluation_id": record["id"],
-                        "status": "queued", "message": "Evaluation queued; inference will not run again.",
-                        "hint": f"flowork-cli task evaluation --task_type batch_exec --task_id {task_id}"}
-            if operation == "task.batch_exec.evaluation-config":
-                previous = await routes.get_evaluation(task_id, **common)
-                return await routes.save_evaluation(task_id, routes.EvaluationConfig(
-                    enabled=arguments.get("auto_evaluate", previous["config"]["enabled"]),
-                    script=arguments["evaluation_script"],
-                ), **common)
             if operation == "task.batch_exec.cancel":
                 result = await routes.cancel_task(task_id, routes.CancelBody(mode="soft"), **common)
             elif operation == "task.batch_exec.resume":

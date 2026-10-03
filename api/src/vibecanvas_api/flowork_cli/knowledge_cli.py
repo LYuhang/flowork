@@ -16,28 +16,27 @@ def add_parser(groups):
     root = command(groups, "knowledge", "Manage versioned Knowledge packages. Download then use bash to inspect/search files. No mounted folder or refresh command. Read leaf --help before writing.")
     actions = root.add_subparsers(dest="action", required=True)
     descriptions = {
-        "list": "List discoverable packages with pagination. --search filters names/descriptions, not file contents. Discovery does not grant read/write permission.",
+        "list": "List discoverable packages with pagination. Follow next_offset with --offset until null; pipe JSON through jq/grep to filter text. Discovery does not grant read/write permission.",
         "get": "Read published metadata, package_version, file paths/sizes and indexing states. Does not download file contents.",
-        "download": "Download the latest published package. --output_dir must NOT exist; omission creates a unique directory under /data/knowledge. Never overwrites local edits. Legacy README gets metadata frontmatter in the local copy only. Returns local_directory/readme/package_version/file_count; inspect files using bash.",
-        "check": "Validate ALL files in --source_dir without saving or publishing. Root README.md requires YAML frontmatter with name (1..200 characters) and description (up to 2000 characters, may be empty). Only regular files; no symlinks. No third-party CLI dependency needed.",
-        "create": "Create a new package from ALL files in --source_dir, including hidden files. Name/description come from root README.md YAML frontmatter. Run check first. Exclude private credentials. Returns knowledge_id and package_version. After an unknown outcome inspect list before retrying.",
-        "publish": "Publish ALL files in --source_dir as a new version, including README.md name/description. Replaces the whole package; absent files are removed. --expected_version from download is required. Newer publications or unpublished drafts reject the write; download and merge before retrying. Approval freezes submitted bytes. Indexing is asynchronous; never republish to wait for indexing.",
+        "download": "Download the latest published package. --output-dir must NOT exist; omission creates a unique directory under /data/knowledge. Never overwrites local edits. The downloaded README includes package metadata; downloading leaves remote content unchanged. Returns local_directory/readme/package_version/file_count; inspect files using bash.",
+        "check": "Validate ALL files in --source-dir without saving or publishing. Root README.md requires YAML frontmatter with name (1..200 characters) and description (up to 2000 characters, may be empty). Only regular files; no symlinks. No third-party CLI dependency needed.",
+        "create": "Create a new package from ALL files in --source-dir, including hidden files. Name/description come from root README.md YAML frontmatter. Run check first. Exclude private credentials. Returns knowledge_id and package_version. After an unknown outcome inspect list before retrying.",
+        "publish": "Publish ALL files in --source-dir as a new version, including README.md name/description. Replaces the whole package; absent files are removed. --expected-version from download is required. Newer publications or unpublished drafts reject the write; download and merge before retrying. Approval freezes submitted bytes. Indexing is asynchronous; never republish to wait for indexing.",
         "delete": "Delete the remote package, preserving local downloads. Requires configured write approval; no bypass flag. Active indexing may block deletion; inspect get and wait before retrying.",
     }
     for action, description in descriptions.items():
         leaf = command(actions, action, description)
         if action in {"get", "download", "publish", "delete"}:
-            leaf.add_argument("--knowledge_id", required=True, help="Exact Knowledge UUID from list/create.")
+            leaf.add_argument("--knowledge-id", required=True, help="Exact Knowledge UUID from list/create.")
         if action == "list":
             leaf.add_argument("--limit", type=int, default=20)
             leaf.add_argument("--offset", type=int, default=0)
-            leaf.add_argument("--search", help="Filter package names and descriptions.")
         if action in {"create", "check", "publish"}:
-            leaf.add_argument("--source_dir", required=True, help="Directory of regular files; root README.md required. Limits: 256 files, 200 MiB total, 16 path levels.")
+            leaf.add_argument("--source-dir", required=True, help="Directory of regular files; root README.md required. Limits: 256 files, 200 MiB total, 16 path levels.")
         if action == "publish":
-            leaf.add_argument("--expected_version", type=int, required=True)
+            leaf.add_argument("--expected-version", type=int, required=True)
         if action == "download":
-            leaf.add_argument("--output_dir")
+            leaf.add_argument("--output-dir")
 
 
 def safe_path(path):
@@ -74,7 +73,7 @@ def validate(operation, arguments):
         raise ValueError("Unsupported Knowledge operation or arguments.")
     action = operation.split(".")[1]
     allowed = {
-        "list": {"limit", "offset", "search"}, "get": {"knowledge_id"},
+        "list": {"limit", "offset"}, "get": {"knowledge_id"},
         "download": {"knowledge_id"}, "delete": {"knowledge_id"},
         "create": {"files"}, "check": {"files"},
         "publish": {"knowledge_id", "files", "expected_version"},
@@ -85,7 +84,7 @@ def validate(operation, arguments):
     if action in {"get", "download", "publish", "delete"}:
         identifier = value.get("knowledge_id")
         if not isinstance(identifier, str):
-            raise ValueError("--knowledge_id is required and must be a UUID.")
+            raise ValueError("--knowledge-id is required and must be a UUID.")
         value["knowledge_id"] = str(UUID(identifier))
     if action == "list":
         value.setdefault("limit", 20)
@@ -94,12 +93,10 @@ def validate(operation, arguments):
             raise ValueError("--limit must be between 1 and 200.")
         if type(value["offset"]) is not int or value["offset"] < 0:
             raise ValueError("--offset must be non-negative.")
-        if "search" in value and (not isinstance(value["search"], str) or len(value["search"]) > 2000):
-            raise ValueError("--search must be text up to 2000 characters.")
     if action == "publish" and "expected_version" not in value:
-        raise ValueError("--expected_version from download is required.")
+        raise ValueError("--expected-version from download is required.")
     if "expected_version" in value and (type(value["expected_version"]) is not int or value["expected_version"] < 1):
-        raise ValueError("--expected_version must be a positive integer.")
+        raise ValueError("--expected-version must be a positive integer.")
     if action in {"create", "check", "publish"}:
         validate_files(value.get("files"))
     return value

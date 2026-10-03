@@ -19,13 +19,12 @@ def add_parser(groups):
             skill_cli.add_commands(commands)
         for action in actions:
             leaf = commands.add_parser(action, allow_abbrev=False,
-                description="Read resource metadata or definitions. Does not invoke MCP business tools. IDs refer to installed resources, not catalog entries.")
+                description="Read resource metadata or definitions. Does not invoke MCP business tools. IDs refer to installed resources, not catalog entries. List returns one page; follow next_offset with --offset until null. Pipe JSON through jq/grep to filter text.")
             if action == "list":
-                leaf.add_argument("--search", default="")
                 leaf.add_argument("--limit", type=int, default=20)
                 leaf.add_argument("--offset", type=int, default=0)
             else:
-                leaf.add_argument("--skill_id" if resource == "skill" else "--server_id", required=True)
+                leaf.add_argument("--skill-id" if resource == "skill" else "--server-id", required=True)
 
 
 def validate(operation, arguments):
@@ -33,13 +32,13 @@ def validate(operation, arguments):
         raise ValueError("Unsupported resource discovery operation.")
     resource, action = operation.split(".")
     identifier = "skill_id" if resource == "skill" else "server_id"
-    allowed = {"search", "limit", "offset"} if action == "list" else {identifier}
+    allowed = {"limit", "offset"} if action == "list" else {identifier}
     if arguments.keys() - allowed:
         raise ValueError("Unexpected resource discovery parameters.")
     value = dict(arguments)
     if action != "list":
         if not isinstance(value.get(identifier), str):
-            raise ValueError(f"--{identifier} requires an installation UUID.")
+            raise ValueError(f"--{identifier.replace('_', '-')} requires an installation UUID.")
         value[identifier] = str(UUID(value[identifier]))
     if action == "list":
         value.setdefault("offset", 0)
@@ -49,10 +48,6 @@ def validate(operation, arguments):
             raise ValueError("--offset must be a non-negative integer.")
         if type(value["limit"]) is not int or not 1 <= value["limit"] <= maximum:
             raise ValueError(f"--limit must be between 1 and {maximum}.")
-    if action == "list":
-        value.setdefault("search", "")
-        if not isinstance(value["search"], str) or len(value["search"]) > 500:
-            raise ValueError("--search must be text of at most 500 characters.")
     return value
 
 

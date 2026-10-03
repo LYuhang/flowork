@@ -17,8 +17,8 @@ def test_repeated_mapping_order_and_json_defaults(tmp_path, monkeypatch, capsys)
         return {"id": "task", "status": "queued"}
 
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["task", "create", "--task_type", "batch_exec", "--workflow_id", "wf",
-        "--version", "v2.sv0", "--input_file", str(source),
+    assert cli.main(["task", "create", "--task-type", "batch_exec", "--workflow-id", "wf",
+        "--version", "v2.sv0", "--input-file", str(source),
         "--mapping", '{"field":"answer","source":"node_3.answer","default":false}',
         "--mapping", '{"field":"score","source":"node_3.score","default":0}'], socket_path="test") == 0
     operation, args = seen[0]
@@ -55,13 +55,13 @@ def test_leaf_help_explains_manual_run_and_cancel_semantics(capsys):
     assert "does not enable the schedule" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         cli.main(["task", "cancel", "--help"])
-    assert "schedule_run requires --execution_id" in " ".join(capsys.readouterr().out.split())
+    assert "schedule_run requires --execution-id" in " ".join(capsys.readouterr().out.split())
 
 
 @pytest.mark.parametrize("args,phrase", [
     (["task", "cancel"], "interrupted"),
     (["task", "resume"], "SAME Task ID"),
-    (["task", "logs"], "schedule_run requires --execution_id"),
+    (["task", "logs"], "schedule_run requires --execution-id"),
     (["task", "create"], "ENABLED schedule by default"),
     (["task", "update"], "does not enable a paused schedule"),
     (["task", "create"], "Creation defaults to false"),
@@ -94,7 +94,7 @@ def test_schedule_update_clear_is_explicit(monkeypatch):
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, arguments, **kwargs: seen.append(arguments) or {"id": arguments["task_id"]})
     task_id = str(uuid4())
-    assert cli.main(["task", "update", "--task_id", task_id, "--task_type", "schedule_run", "--clear_end_at", "--mount", "false"], socket_path="test") == 0
+    assert cli.main(["task", "update", "--task-id", task_id, "--task-type", "schedule_run", "--clear-end-at", "--mount", "false"], socket_path="test") == 0
     assert seen == [{"task_id": task_id, "task_type": "schedule_run", "end_at": None, "mount": False}]
 
 
@@ -106,7 +106,7 @@ def test_download_streams_to_atomic_file(tmp_path, monkeypatch):
         return {"id": arguments["task_id"], "bytes": 12}
 
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["task", "download", "--task_id", str(uuid4()), "--task_type", "batch_exec", "--file", str(output)], socket_path="test") == 0
+    assert cli.main(["task", "download", "--task-id", str(uuid4()), "--task-type", "batch_exec", "--file", str(output)], socket_path="test") == 0
     assert output.read_bytes() == b'{"ok":true}\n'
     assert not list(tmp_path.glob(".flowork-download-*"))
 
@@ -130,7 +130,7 @@ def test_observing_a_failed_task_is_not_a_cli_failure(monkeypatch, capsys, task_
     from vibecanvas_api.services.agent_runtime.cli_tasks import _task
     result = _task({"id": str(uuid4()), "task_type": "batch_exec", "status": "failed", "error": task_error})
     monkeypatch.setattr(cli, "request", lambda *args, **kwargs: result)
-    assert cli.main(["task", "status", "--task_id", result["task_id"], "--task_type", "batch_exec"], socket_path="test") == 0
+    assert cli.main(["task", "status", "--task-id", result["task_id"], "--task-type", "batch_exec"], socket_path="test") == 0
     assert json.loads(capsys.readouterr().out)["task_error"] == task_error
 
 
@@ -219,8 +219,8 @@ def test_async_feedback_explains_actual_state_and_exact_next_command(status, phr
     result = _feedback({"status": status}, task_id, execution=execution)
     assert result["status"] == status
     assert phrase in result["message"]
-    assert f"--task_id {task_id} --task_type schedule_run" in result["hint"]
-    assert f"--execution_id {execution}" in result["hint"]
+    assert f"--task-id {task_id} --task-type schedule_run" in result["hint"]
+    assert f"--execution-id {execution}" in result["hint"]
     assert result["execution_id"] == execution
     if status == "cancelling":
         assert "task logs" in result["hint"] and "--follow" in result["hint"]
@@ -231,17 +231,17 @@ def test_schedule_feedback_is_not_an_execution_result(enabled):
     from vibecanvas_api.services.agent_runtime.cli_tasks import _feedback
     result = _feedback({"status": "failed", "schedule": {"enabled": enabled}}, "task", plan=True)
     assert ("not an execution result" if enabled else "existing executions are not cancelled") in result["message"]
-    assert "history --task_id task --task_type schedule_run" in result["hint"]
+    assert "history --task-id task --task-type schedule_run" in result["hint"]
 
 
 def test_unknown_execution_does_not_invite_automatic_resume():
     from vibecanvas_api.services.agent_runtime.cli_tasks import _feedback
     result = _feedback({"status": "failed", "result": {"outcome_unknown": True, "can_resume": False}}, "task")
     assert "Do not automatically resume or resubmit" in result["message"]
-    assert "flowork-cli task logs --task_id task --task_type batch_exec" in result["hint"]
+    assert "flowork-cli task logs --task-id task --task-type batch_exec" in result["hint"]
     pending = _feedback({"status": "queued", "authorization_pending": True}, "task")
     assert "permissions are becoming available" in pending["message"].lower()
-    assert "task list --task_type batch_exec" in pending["hint"]
+    assert "task list --task-type batch_exec" in pending["hint"]
     resumable = _feedback({"status": "interrupted", "result": {"can_resume": True}}, "task")
     assert "only if the user wants to continue" in resumable["message"]
 
@@ -267,7 +267,7 @@ async def test_follow_finishes_with_business_status_not_just_stream_completion(m
     assert result["cursor"] == 2
     assert "Execution event stream completed" not in result["message"]
     monkeypatch.setattr(cli, "request", lambda *args, **kwargs: result)
-    assert cli.main(["task", "logs", "--task_id", task_id, "--task_type", "batch_exec", "--follow"], socket_path="test") == 0
+    assert cli.main(["task", "logs", "--task-id", task_id, "--task-type", "batch_exec", "--follow"], socket_path="test") == 0
     assert json.loads(capsys.readouterr().out)["status"] == status
 
 
@@ -276,7 +276,7 @@ def test_status_is_the_single_query_name(monkeypatch, capsys):
     task_id = str(uuid4())
     monkeypatch.setattr(cli, "request", lambda endpoint, arguments, **kwargs:
         seen.append(kwargs["operation"]) or {"task_id": arguments["task_id"], "status": "queued"})
-    assert cli.main(["task", "status", "--task_id", task_id, "--task_type", "batch_exec"], socket_path="test") == 0
+    assert cli.main(["task", "status", "--task-id", task_id, "--task-type", "batch_exec"], socket_path="test") == 0
     assert seen == ["task.status"]
     assert json.loads(capsys.readouterr().out)["task_id"] == task_id
     assert "task.get" not in task_cli.OPERATIONS
@@ -311,7 +311,7 @@ async def test_schedule_history_includes_execution_commands_without_exposing_int
     latest = result["history"][0]
     assert latest["execution_id"] == execution_id and latest["task_id"] == task_id
     assert latest["status"] == "failed" and latest["execution_error"] == "Node failed."
-    assert f"task logs --task_id {task_id} --task_type schedule_run --execution_id {execution_id}" in latest["hint"]
+    assert f"task logs --task-id {task_id} --task-type schedule_run --execution-id {execution_id}" in latest["hint"]
     assert "private-plan" not in json.dumps(result)
     assert listing.await_args.kwargs["limit"] == 20
 

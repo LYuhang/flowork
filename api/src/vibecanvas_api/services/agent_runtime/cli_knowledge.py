@@ -57,9 +57,6 @@ async def read(ctx, operation, args):
         params = resource_route_params(ctx, session)
         if operation == "knowledge.list":
             rows = await routes.list_kbs(**params)
-            query = args.get("search", "").strip().casefold()
-            if query:
-                rows = [row for row in rows if query in (row.name + " " + (row.description or "")).casefold()]
             rows = sorted(rows, key=lambda row: (row.latest_updated_at, str(row.id)), reverse=True)
             start, limit = args["offset"], args["limit"]
             return {"status": "succeeded", "knowledge": [metadata(row) for row in rows[start:start + limit]],
@@ -104,7 +101,7 @@ def publication(kb_id, version_number, files, *, pending=True):
     return {"status": "succeeded", "knowledge_id": str(kb_id), "package_version": version_number,
         "file_count": len(files), "index_status": "pending" if pending else "not_indexed",
         "message": "Knowledge package published. Search indexing is asynchronous." if pending else "Knowledge package created with README.md.",
-        "next_step": f"flowork-cli knowledge get --knowledge_id {kb_id}. Do not publish again to wait for indexing."}
+        "next_step": f"flowork-cli knowledge get --knowledge-id {kb_id}. Do not publish again to wait for indexing."}
 
 
 async def execute(call, arguments):
@@ -196,7 +193,7 @@ async def execute(call, arguments):
             hints = {
                 "kb_name_conflict": "Choose a distinct name, or inspect existing packages with flowork-cli knowledge list. Do not overwrite an existing package merely to resolve a naming conflict.",
                 "kb_not_found": "Use flowork-cli knowledge list to find an accessible knowledge_id, then check status with that exact ID.",
-                "kb_delete_in_progress": "Use flowork-cli knowledge get --knowledge_id ID to check indexing. Wait for indexing to finish before retrying deletion.",
+                "kb_delete_in_progress": "Use flowork-cli knowledge get --knowledge-id ID to check indexing. Wait for indexing to finish before retrying deletion.",
             }
             hint = hints.get(exc.detail) if isinstance(exc.detail, str) else None
             if not hint:

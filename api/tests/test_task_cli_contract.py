@@ -17,8 +17,8 @@ def test_mount_is_explicit_value_and_omission_preserved(tmp_path, monkeypatch, m
     table.write_text("value\n1\n")
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, arguments, **kw: seen.append(arguments) or {"status": "queued"})
-    argv = ["task", "create", "--task_type", task_type, "--workflow_id", "wf", "--version", "v1.sv0"]
-    argv += ["--input_file", str(table)] if task_type == "batch_exec" else ["--interval", "3600"]
+    argv = ["task", "create", "--task-type", task_type, "--workflow-id", "wf", "--version", "v1.sv0"]
+    argv += ["--input-file", str(table)] if task_type == "batch_exec" else ["--interval", "3600"]
     if mount is not None:
         argv += ["--mount", mount]
     assert cli.main(argv, socket_path="test") == 0
@@ -39,7 +39,7 @@ def test_mount_is_explicit_value_and_omission_preserved(tmp_path, monkeypatch, m
 def test_update_mount_omission_is_not_false(monkeypatch, mount):
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, arguments, **kw: seen.append(arguments) or {"status": "paused"})
-    argv = ["task", "update", "--task_type", "schedule_run", "--task_id", str(uuid4()), "--name", "Renamed"]
+    argv = ["task", "update", "--task-type", "schedule_run", "--task-id", str(uuid4()), "--name", "Renamed"]
     if mount is not None:
         argv += ["--mount", mount]
     assert cli.main(argv, socket_path="test") == 0
@@ -51,13 +51,13 @@ def test_update_mount_omission_is_not_false(monkeypatch, mount):
 
 @pytest.mark.parametrize("invalid", [["--no_mount"], ["--no-mount"], ["--mount"], ["--mount", "yes"], ["--mount", "1"]])
 def test_unsupported_mount_spellings_rejected(invalid):
-    assert cli.main(["task", "create", "--task_type", "schedule_run", "--workflow_id", "wf", "--version", "v1.sv0", "--interval", "3600", *invalid]) == 2
+    assert cli.main(["task", "create", "--task-type", "schedule_run", "--workflow-id", "wf", "--version", "v1.sv0", "--interval", "3600", *invalid]) == 2
 
 
 @pytest.mark.parametrize("action", ["status", "logs", "download", "cancel"])
 def test_execution_id_rules_are_symmetric(action):
     args = {"task_id": str(uuid4()), "task_type": "schedule_run"}
-    with pytest.raises(ValueError, match="execution_id"):
+    with pytest.raises(ValueError, match="execution-id"):
         task_cli.validate("task." + action, args)
     args["execution_id"] = str(uuid4())
     assert task_cli.validate("task." + action, args)["execution_id"] == args["execution_id"]
@@ -75,9 +75,9 @@ def test_retired_commands_are_not_aliases(action):
 
 def test_public_operations_and_named_targets():
     assert task_cli.OPERATIONS == {"task." + name for name in
-        ("evaluation", "evaluate", "evaluation-config", "list", "info", "status", "history", "logs", "download", "create", "update", "enable", "disable", "run", "cancel", "resume", "delete")}
-    for args in (["status", str(uuid4())], ["status", "--task_id", str(uuid4())],
-                 ["status", "--task_type", "batch_exec", "--task_i", str(uuid4())]):
+        ("list", "info", "status", "history", "logs", "download", "create", "update", "enable", "disable", "run", "cancel", "resume", "delete")}
+    for args in (["status", str(uuid4())], ["status", "--task-id", str(uuid4())],
+                 ["status", "--task-type", "batch_exec", "--task_i", str(uuid4())]):
         assert cli.main(["task", *args]) == 2
 
 
@@ -87,8 +87,8 @@ def test_batch_name_error_is_actionable_and_never_submits(tmp_path, monkeypatch,
     table.write_text("value\n1\n")
     request = AsyncMock()
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["task", "create", "--task_type", "batch_exec", "--workflow_id", "wf",
-        "--version", "v1.sv0", "--input_file", str(table), "--name", "Not supported"],
+    assert cli.main(["task", "create", "--task-type", "batch_exec", "--workflow-id", "wf",
+        "--version", "v1.sv0", "--input-file", str(table), "--name", "Not supported"],
         socket_path="test") == 2
     error = json.loads(capsys.readouterr().out)
     assert "--name" in error["message"] and "batch_exec" in error["message"]
@@ -109,7 +109,7 @@ def test_history_tracks_batch_resume_and_exclusive_log_boundaries():
     assert [(x["attempt"], x["status"], x["after"], x["before"]) for x in history] == [
         (2, "finished", 9, 16), (1, "interrupted", 1, 8)]
     assert history[0]["trigger"] == "resume"
-    assert "--task_id task --task_type batch_exec --after 9 --before 16" in history[0]["hint"]
+    assert "--task-id task --task-type batch_exec --after 9 --before 16" in history[0]["hint"]
 
 
 @pytest.mark.asyncio

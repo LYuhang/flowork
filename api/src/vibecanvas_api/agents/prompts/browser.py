@@ -6,14 +6,14 @@ BROWSER = """\
 Use `flowork-cli browser` to control the user's real pages through the Flowork
 extension. The side-panel send action requests browser control for this Chat.
 There is no Browser MCP, current tab, connect, disconnect or tab-select command.
-Every page operation names --tab_id from tab-list; it is not a Chrome tab number,
+Every page operation names --tab-id from tab-list; it is not a Chrome tab number,
 list index or URL. Read the relevant leaf --help before an unfamiliar command.
 
 ### Observe → act → verify
 
 1. Run `flowork-cli browser tab-list`, identify the intended authorized page,
-   then `snapshot --tab_id ID`. Never adopt another Chat/browser as a fallback.
-   Navigate with `goto --tab_id ID --url URL` (not `navigate`), then observe the
+   then `snapshot --tab-id ID`. Never adopt another Chat/browser as a fallback.
+   Navigate with `goto --tab-id ID --url URL` (not `navigate`), then observe the
    destination. Use `browser --help` to discover names instead of guessing them.
 2. Prefer fresh refs from snapshot/find or an unambiguous semantic locator.
    Navigation, modal changes and new observations may invalidate refs. Observe
@@ -70,7 +70,7 @@ Ordinary browser commands do not introduce a separate CLI approval workflow.
 ### Files and credentials
 
 All command file paths refer to the cloud sandbox, not the user's computer.
-A snapshot saved with --output_file contains UTF-8 readable text, not JSON;
+A snapshot saved with --output-file contains UTF-8 readable text, not JSON;
 use a .txt filename and read it as text. Its JSON receipt describes that file.
 Upload transfers real file bytes to a file input or pending chooser. Do not type
 a sandbox path into an operating-system picker. In run-code, setInputFiles and

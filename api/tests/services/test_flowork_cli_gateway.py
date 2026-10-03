@@ -132,7 +132,7 @@ async def test_gateway_rejects_non_allowlisted_requests(body):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation,arguments", [("workflow.create", {"name": "New"}), ("workflow.upload", {"workflow_id": "wf", "major": "v1", "workflow": {}}), ("workflow.version.create", {"workflow_id": "wf", "major": "v1"}), ("workflow.delete", {"workflow_id": "wf"})])
+@pytest.mark.parametrize("operation,arguments", [("workflow.create", {"name": "New"}), ("workflow.upload", {"workflow_id": "wf", "major": "v1", "expected_version": "v1.sv0", "workflow": {}}), ("workflow.version.create", {"workflow_id": "wf", "major": "v1"}), ("workflow.delete", {"workflow_id": "wf"})])
 async def test_mutation_interrupted_after_dispatch_reports_unknown(operation, arguments):
     entered = asyncio.Event()
 
@@ -171,7 +171,7 @@ def test_platform_guidance_is_navigation_not_a_cli_manual():
     assert "flowork-cli workflow <command>" in text and "--help" in text
     assert "render_preview" in text and "run --node" in text
     assert "operation" in text and "version list / create" in text
-    assert "--node_update_file" not in text and "--clear-tags" not in text
+    assert "--node-update-file" not in text and "--clear-tags" not in text
     assert "config_schema" not in text and "current_workflow_subversion" not in text
 
 

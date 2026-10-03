@@ -10,30 +10,30 @@ from vibecanvas_api.flowork_cli import cli
 @pytest.mark.parametrize("command,extra", [
     (["get"], []), (["update"], ["--name", "Renamed"]), (["delete"], []),
     (["download"], ["--major", "v2"]),
-    (["upload"], ["--major", "v2", "--expected_version", "v2.sv0", "--file", "graph.json"]),
-    (["operation"], ["--major", "v2", "--node_remove", "node_2"]),
+    (["upload"], ["--major", "v2", "--expected-version", "v2.sv0", "--file", "graph.json"]),
+    (["operation"], ["--major", "v2", "--node-remove", "node_2"]),
     (["check"], ["--major", "v2"]), (["version", "list"], []),
     (["version", "create"], ["--major", "v2"]),
     (["run"], ["--major", "v2"]),
     (["run-batch"], ["--major", "v2", "--input-file", "rows.jsonl"]),
 ])
-@pytest.mark.parametrize("selector", [["--workflow_id", "wf"], ["--workflow-id", "wf"], ["wf"]])
+@pytest.mark.parametrize("selector", [["--workflow-id", "wf"], ["--workflow-id", "wf"], ["wf"]])
 def test_workflow_named_targets_and_legacy_positionals_select_same_id(command, extra, selector):
     parsed = cli.parser().parse_args(["workflow", *command, *selector, *extra])
     assert parsed.workflow_id == "wf"
 
 
 @pytest.mark.parametrize("ids", [
-    ["wf", "--workflow_id", "other"], ["--workflow-id", "wf", "wf"],
-    ["--workflow_id", "wf", "--workflow-id", "other"],
-    ["--workflow_id", "wf", "--workflow_id", "wf"],
+    ["wf", "--workflow-id", "other"], ["--workflow-id", "wf", "wf"],
+    ["--workflow-id", "wf", "--workflow-id", "other"],
+    ["--workflow-id", "wf", "--workflow-id", "wf"],
 ])
 def test_workflow_rejects_ambiguous_named_and_positional_targets(ids):
     with pytest.raises(cli.CliUsageError):
         cli.parser().parse_args(["workflow", "get", *ids])
 
 
-@pytest.mark.parametrize("selector", [["--workflow_id", "wf"], ["wf"], []])
+@pytest.mark.parametrize("selector", [["--workflow-id", "wf"], ["wf"], []])
 @pytest.mark.parametrize("destination", [["--output", "graph.json"], ["--output=graph.json"]])
 def test_download_wrong_destination_reports_option_not_workflow_conflict(selector, destination, monkeypatch, capsys):
     monkeypatch.setattr(cli, "request", lambda *_a, **_kw: pytest.fail("invalid request dispatched"))
@@ -45,13 +45,13 @@ def test_download_wrong_destination_reports_option_not_workflow_conflict(selecto
 
 
 def test_target_option_validation_preserves_negative_values_and_literal_options():
-    parsed = cli.parser().parse_args(["workflow", "operation", "--workflow_id", "wf", "--major", "v1", "--node_update", "/node/config/temperature", "-1"])
+    parsed = cli.parser().parse_args(["workflow", "operation", "--workflow-id", "wf", "--major", "v1", "--node-update", "/node/config/temperature", "-1"])
     assert parsed.edits[-1][1][-1] == "-1"
     assert cli.parser().parse_args(["workflow", "update", "wf", "--description=--literal"]).description == "--literal"
     assert cli.parser().parse_args(["workflow", "get", "--", "--literal"]).workflow_id == "--literal"
 
 
-@pytest.mark.parametrize("flag", ["--workflow_id", "--workflow-id"])
+@pytest.mark.parametrize("flag", ["--workflow-id", "--workflow-id"])
 def test_config_and_layout_accept_the_same_named_workflow_flag(flag):
     assert cli.parser().parse_args(["config", "get", "--scope", "workflow", flag, "wf", "--major", "v1"]).workflow_id == "wf"
     assert cli.parser().parse_args(["workflow", "layout", flag, "wf", "--major", "v1"]).workflow_id == "wf"
@@ -63,13 +63,13 @@ def test_layout_dispatch_and_stdout(monkeypatch, capsys):
         assert arguments == {"workflow_id": "wf", "major": "v2"}
         return reply
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["workflow", "layout", "--workflow_id", "wf", "--major", "v2"], socket_path="socket") == 0
+    assert cli.main(["workflow", "layout", "--workflow-id", "wf", "--major", "v2"], socket_path="socket") == 0
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {**reply, "command_status": "succeeded", "event": "result"} and captured.err == ""
 
 
-@pytest.mark.parametrize("args", [[], ["wf", "--major", "v2"], ["--workflow_id", "wf"],
-                                  ["--workflow_id", "wf", "--major", "v0"]])
+@pytest.mark.parametrize("args", [[], ["wf", "--major", "v2"], ["--workflow-id", "wf"],
+                                  ["--workflow-id", "wf", "--major", "v0"]])
 def test_layout_requires_named_target_and_valid_major(args, monkeypatch, capsys):
     monkeypatch.setattr(cli, "request", lambda *_a, **_kw: pytest.fail("invalid request dispatched"))
     assert cli.main(["workflow", "layout", *args], socket_path="socket") == 2
@@ -93,7 +93,7 @@ def test_batch_help_requires_a_live_terminal_not_detached_shell_exit(capsys):
     (["workflow", "upload", "--help"], ["top-level object", "separate edges array"]),
     (["workflow", "check", "--help"], ["top-level object", "reserved metadata"]),
     (["workflow", "get", "--help"], ["metadata", "global HEAD"]),
-    (["workflow", "layout", "--help"], ["--workflow_id", "--major", "only if positions change", "moved_nodes", "render_preview"]),
+    (["workflow", "layout", "--help"], ["--workflow-id", "--major", "only if positions change", "moved_nodes", "render_preview"]),
     (["workflow", "operation", "--help"], ["All operations must succeed", "json:PATH", "~1", "saved"]),
     (["workflow", "run", "--help"], ["--node", "hard-kills", "durable", "result_unknown"]),
 ])
@@ -108,7 +108,7 @@ def test_on_demand_help_owns_usage_and_recovery_details(command, expected, capsy
 
 def test_run_node_flag_is_optional_and_batch_rejects_it():
     assert cli.parser().parse_args(["workflow", "run", "wf", "--major", "v1"]).node is None
-    parsed = cli.parser().parse_args(["workflow", "run", "wf", "--major", "v1", "--node", "node_2", "--file", "wf.json", "--inputs", "{}"])
+    parsed = cli.parser().parse_args(["workflow", "run", "wf", "--major", "v1", "--node", "node_2", "--file", "wf.json", "--input", "{}"])
     assert parsed.node == "node_2" and parsed.file == "wf.json"
     args = {"workflow_id": "wf", "major": "v1", "run_id": "a" * 32, "node": "node_2", "inputs": {}}
     assert cli.validate_arguments("workflow.run", args) == args
@@ -180,7 +180,7 @@ def test_download_overwrite_without_file_is_usage_error(monkeypatch, capsys):
 
 @pytest.mark.parametrize("args,operation,arguments", [
     (["list", "wf"], "workflow.version.list", {"workflow_id": "wf"}),
-    (["list", "--workflow_id", "wf"], "workflow.version.list", {"workflow_id": "wf"}),
+    (["list", "--workflow-id", "wf"], "workflow.version.list", {"workflow_id": "wf"}),
     (["list", "--workflow-id", "wf"], "workflow.version.list", {"workflow_id": "wf"}),
     (["create", "wf", "--major", "v1"], "workflow.version.create", {"workflow_id": "wf", "major": "v1", "note": ""}),
     (["create", "wf", "--major", "v1", "--note", "Milestone"], "workflow.version.create", {"workflow_id": "wf", "major": "v1", "note": "Milestone"}),
@@ -196,7 +196,7 @@ def test_version_commands_send_only_approved_arguments(args, operation, argument
     assert json.loads(capsys.readouterr().out) == {**reply, "command_status": "succeeded", "event": "result"}
 
 
-@pytest.mark.parametrize("args", [[], ["set"], ["set", "1"], ["set", "v0"], ["set", "v1.sv8"], ["set", "v-1"], ["create", "--file", "x.json"], ["list", "--workflow-id", "other", "--workflow_id", "conflicting"]])
+@pytest.mark.parametrize("args", [[], ["set"], ["set", "1"], ["set", "v0"], ["set", "v1.sv8"], ["set", "v-1"], ["create", "--file", "x.json"], ["list", "--workflow-id", "other", "--workflow-id", "conflicting"]])
 def test_version_usage_errors_do_not_dispatch(args, monkeypatch, capsys):
     monkeypatch.setattr(cli, "request", lambda *_a, **_kw: pytest.fail("must not dispatch"))
     assert cli.main(["workflow", "version", *args], socket_path="socket") == 2
@@ -309,7 +309,7 @@ def test_upload_sends_graph_not_host_path_and_preserves_source(monkeypatch, tmp_
         assert arguments == {"workflow_id": "wf", "major": "v1", "workflow": json.loads(original), "note": "Update", "expected_version": "v1.sv8"}
         return {"id": "wf", "version": "v1.sv9", "node_count": 0}
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["workflow", "upload", "wf", "--major", "v1", "--expected_version", "v1.sv8", "--file", str(source), "--note", "Update"], socket_path="socket") == 0
+    assert cli.main(["workflow", "upload", "wf", "--major", "v1", "--expected-version", "v1.sv8", "--file", str(source), "--note", "Update"], socket_path="socket") == 0
     assert json.loads(capsys.readouterr().out)["version"] == "v1.sv9"
     assert source.read_bytes() == original
 
@@ -320,7 +320,7 @@ def test_upload_unknown_result_does_not_encourage_retry(monkeypatch, tmp_path, c
     def fail(*args, **kwargs):
         raise TimeoutError()
     monkeypatch.setattr(cli, "request", fail)
-    assert cli.main(["workflow", "upload", "wf", "--major", "v1", "--expected_version", "v1.sv8", "--file", str(source)], socket_path="socket") == 1
+    assert cli.main(["workflow", "upload", "wf", "--major", "v1", "--expected-version", "v1.sv8", "--file", str(source)], socket_path="socket") == 1
     result = json.loads(capsys.readouterr().out)
     assert result["error"] == "result_unknown"
     assert "Do not automatically repeat" in result["hint"]

@@ -40,10 +40,10 @@ async def test_unexpected_host_failure_logs_locations_without_secret_values(monk
 def test_list_get_and_removed_commands(monkeypatch, capsys):
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append((args, kw)) or {"status": "succeeded"})
-    assert cli.main(["knowledge", "list", "--search", "资料"], socket_path="test") == 0
-    assert seen[-1] == ({"limit": 20, "offset": 0, "search": "资料"}, {"operation": "knowledge.list"})
+    assert cli.main(["knowledge", "list"], socket_path="test") == 0
+    assert seen[-1] == ({"limit": 20, "offset": 0}, {"operation": "knowledge.list"})
     identifier = str(uuid4())
-    assert cli.main(["knowledge", "get", "--knowledge_id", identifier], socket_path="test") == 0
+    assert cli.main(["knowledge", "get", "--knowledge-id", identifier], socket_path="test") == 0
     for removed in ("search", "status", "upload", "update", "refresh", "files", "read"):
         assert cli.main(["knowledge", removed], socket_path="test") == 2
     capsys.readouterr()
@@ -89,7 +89,7 @@ def test_check_and_create_require_source(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append(kw["operation"]) or {})
     for action in ("check", "create"):
-        assert cli.main(["knowledge", action, "--source_dir", str(tmp_path)], socket_path="test") == 0
+        assert cli.main(["knowledge", action, "--source-dir", str(tmp_path)], socket_path="test") == 0
     assert seen == ["knowledge.check", "knowledge.create"]
 
 
@@ -100,7 +100,7 @@ def test_upload_captures_complete_tree_with_expected_version(tmp_path, monkeypat
     (tmp_path / ".hidden").write_text("included")
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append(args) or {"package_version": 8})
-    assert cli.main(["knowledge", "publish", "--expected_version", "7", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
+    assert cli.main(["knowledge", "publish", "--expected-version", "7", "--knowledge-id", str(uuid4()), "--source-dir", str(tmp_path)], socket_path="test") == 0
     assert set(seen[0]) == {"knowledge_id", "files", "expected_version"}
     assert {f["path"] for f in seen[0]["files"]} == {"README.md", "nested/binary.bin", ".hidden"}
 
@@ -114,7 +114,7 @@ def test_unsafe_local_package_never_dispatches(tmp_path, monkeypatch, kind):
     if kind == "fifo":
         os.mkfifo(tmp_path / "pipe")
     monkeypatch.setattr(cli, "request", lambda *a, **kw: pytest.fail("must not dispatch"))
-    assert cli.main(["knowledge", "create", "--source_dir", str(tmp_path)], socket_path="test") == 2
+    assert cli.main(["knowledge", "create", "--source-dir", str(tmp_path)], socket_path="test") == 2
 
 
 @pytest.mark.parametrize("files", [
@@ -131,7 +131,7 @@ def test_download_no_overwrite_and_binary_roundtrip(tmp_path, monkeypatch, capsy
     target = tmp_path / "download"
     files = [encoded(), encoded("nested/raw.bin", bytes(range(256)))]
     monkeypatch.setattr(cli, "request", lambda *a, **kw: {"files": files, "package_version": 2, "file_count": 2})
-    command = ["knowledge", "download", "--knowledge_id", str(uuid4()), "--output_dir", str(target)]
+    command = ["knowledge", "download", "--knowledge-id", str(uuid4()), "--output-dir", str(target)]
     assert cli.main(command, socket_path="test") == 0
     assert (target / "nested/raw.bin").read_bytes() == bytes(range(256))
     assert target.stat().st_mode & 0o777 == 0o700
@@ -207,7 +207,7 @@ def test_large_package_has_no_four_mib_cli_cap(tmp_path, monkeypatch):
         assert len(base64.b64decode(next(f["data"] for f in args["files"] if f["path"] == "large.bin"))) == 5 * 1024 * 1024
         return {"package_version": 2}
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["knowledge", "publish", "--expected_version", "7", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
+    assert cli.main(["knowledge", "publish", "--expected-version", "7", "--knowledge-id", str(uuid4()), "--source-dir", str(tmp_path)], socket_path="test") == 0
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,7 @@ _CREDENTIAL_FILE_HELP = (
     "not into command arguments or logs. "
     "POST the StartNode input object directly to the returned endpoint with "
     "Content-Type: application/json; do not wrap it in an inputs property. "
-    "For example, --inputs '{\"batch_id\":\"example\",\"orders\":[]}' becomes "
+    "For example, --input '{\"batch_id\":\"example\",\"orders\":[]}' becomes "
     "the HTTP body {\"batch_id\":\"example\",\"orders\":[]}. "
     "The response contains final EndNode business values directly in outputs. "
     "For webhook POST, encode the JSON body once as UTF-8 bytes. Set "
@@ -39,46 +39,46 @@ def add_parser(groups):
     root = command(groups, "deployment", "Manage published Workflow entry points. Stateless, named arguments only. Creation does not execute. Deployment status is not execution success. Read leaf --help before acting.")
     actions = root.add_subparsers(dest="action", required=True)
     listing = command(actions, "list", "List authorized deployments. Optional Workflow filter; defaults to 20 items. Use next_offset for another page. No trigger/status/query filters.")
-    listing.add_argument("--workflow_id")
+    listing.add_argument("--workflow-id")
     listing.add_argument("--limit", type=int, default=20)
     listing.add_argument("--offset", type=int, default=0)
     for action, description in {
         "info": "Read deployment configuration, desired_version, active_version, rollout_status, rollout_error and public endpoint. active_version_known=false means this response has no runtime observation. Never returns credentials or proves execution health. " + _CREDENTIAL_FILE_HELP,
-        "status": "Read exactly one invocation status, timestamps and error. Requires --execution_id from run/history; never selects the latest implicitly.",
-        "result": "Read complete final business outputs for exactly one invocation, synchronous or asynchronous. Requires --execution_id. Never executes or waits. Inspect execution_status and result_available: pending/failed/missing results have outputs=null; successful empty outputs remain {}. Query success is not execution success. Poll this command for an accepted invocation, never run again.",
-        "logs": "Read one invocation workflow event log, oldest first. Requires --execution_id. Use --after CURSOR for the next page. These are persisted workflow events, not sandbox stdout. Older invocations may have no recorded trace; logs_available reports this explicitly.",
+        "status": "Read exactly one invocation status, timestamps and error. Requires --execution-id from run/history; never selects the latest implicitly.",
+        "result": "Read complete final business outputs for exactly one invocation, synchronous or asynchronous. Requires --execution-id. Never executes or waits. Inspect execution_status and result_available: pending/failed/missing results have outputs=null; successful empty outputs remain {}. Query success is not execution success. Poll this command for an accepted invocation, never run again.",
+        "logs": "Read one invocation workflow event log, oldest first. Requires --execution-id. Use --after CURSOR for the next page. These are persisted workflow events, not sandbox stdout. Older invocations may have no recorded trace; logs_available reports this explicitly.",
         "enable": "Enable future calls after approval; does not execute the Workflow.",
         "disable": "Disable new calls. Does not guarantee cancellation of in-flight execution or undo side effects.",
         "delete": "Soft-delete and disable the deployment, not its Workflow. Does not undo in-flight side effects. Approval applies.",
-        "rotate_key": "API deployments only. Old API key immediately stops working. Save the one-time replacement to --secret_file; never automatically rotate again after an unknown result.",
-        "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url only after human approval is reached. Other calls remain synchronous and execution timeout stops the workflow and returns HTTP 504. The admitted execution continues independently. Retrieve full outputs through result --execution_id or inspect status and its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
-        "history": "List invocation history newest first. Use next_cursor as --after. Exports default to the last seven days; override with --from/--to. --output_dir exports invocations.jsonl and history.json with paging metadata to a NEW directory. Use status/logs --execution_id for one invocation.",
-        "create": "Create an enabled deployment by default; does not execute. Required --version selects a fixed saved snapshot. --secret_file is a NEW sandbox file for the one-time API key/webhook secret (0600); stdout never prints it. After an unknown result inspect list before retrying. --slug defaults to the lowercased name with non-ASCII/alphanumeric groups replaced by hyphens (fallback deployment); collisions are errors.",
+        "rotate_key": "API deployments only. Old API key immediately stops working. Save the one-time replacement to --secret-file; never automatically rotate again after an unknown result.",
+        "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url only after human approval is reached. Other calls remain synchronous and execution timeout stops the workflow and returns HTTP 504. The admitted execution continues independently. Retrieve full outputs through result --execution-id or inspect status and its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
+        "history": "List invocation history newest first. Use next_cursor as --after. Exports default to the last seven days; override with --from/--to. --output-dir exports invocations.jsonl and history.json with paging metadata to a NEW directory. Use status/logs --execution-id for one invocation.",
+        "create": "Create an enabled deployment by default; does not execute. Required --version selects a fixed saved snapshot. --secret-file is a NEW sandbox file for the one-time API key/webhook secret (0600); stdout never prints it. After an unknown result inspect list before retrying. --slug defaults to the lowercased name with non-ASCII/alphanumeric groups replaced by hyphens (fallback deployment); collisions are errors.",
         "update": "Update ONLY supplied settings, not Workflow ID, trigger type or slug. Version changes and increased execution exposure may require approval. Use enable/disable for availability. Existing accepted calls retain their frozen version/mount. Updating configuration is asynchronous: old active instances serve new calls until replacement is ready. Use info to check rollout_status and active_version; do not repeat update to poll.",
     }.items():
         leaf = command(actions, action, description)
         if action != "create":
-            leaf.add_argument("--deployment_id", required=True, help="Deployment ID returned by create/list, never an execution ID.")
+            leaf.add_argument("--deployment-id", required=True, help="Deployment ID returned by create/list, never an execution ID.")
         if action in {"create", "update"}:
             leaf.add_argument("--name", required=action == "create")
             version = leaf.add_mutually_exclusive_group(required=action == "create")
             version.add_argument("--version", help="Fixed saved version, e.g. v2.sv3. Never infers a target from Chat state.")
-            leaf.add_argument("--timeout_seconds", type=int, help="Invocation execution budget in seconds, 1–3600; default 30. Approval waiting pauses this budget. Changes affect only new calls. Expiry stops execution; it does not switch a synchronous call to asynchronous.")
-            leaf.add_argument("--rate_limit_qps", type=int, help="Non-negative soft QPS cap, default 10 on create. 0 disables this rate limit, not a capacity guarantee.")
+            leaf.add_argument("--timeout-seconds", type=int, help="Invocation execution budget in seconds, 1–3600; default 30. Approval waiting pauses this budget. Changes affect only new calls. Expiry stops execution; it does not switch a synchronous call to asynchronous.")
+            leaf.add_argument("--rate-limit-qps", type=int, help="Non-negative soft QPS cap, default 10 on create. 0 disables this rate limit, not a capacity guarantee.")
             leaf.add_argument("--mount", choices=("true", "false"), help="Expose deployment owner's authorized /mount. Default false on create; omission preserves on update. Never shares Chat /data or /memory.")
         if action == "create":
-            leaf.add_argument("--workflow_id", required=True)
-            leaf.add_argument("--trigger_type", required=True, choices=("api", "webhook"))
+            leaf.add_argument("--workflow-id", required=True)
+            leaf.add_argument("--trigger-type", required=True, choices=("api", "webhook"))
             leaf.add_argument("--slug")
             leaf.add_argument("--enabled", choices=("true", "false"), default="true")
         if action in {"create", "rotate_key"}:
-            leaf.add_argument("--secret_file", required=True, help="Required NEW local file; parent must exist. Keep private, do not preview/share. No overwrite option. The file is reserved before dispatch and may remain empty after rejection or an unknown result. Only credential_saved=true confirms a usable credential was written; existence alone does not. " + _CREDENTIAL_FILE_HELP)
+            leaf.add_argument("--secret-file", required=True, help="Required NEW local file; parent must exist. Keep private, do not preview/share. No overwrite option. The file is reserved before dispatch and may remain empty after rejection or an unknown result. Only credential_saved=true confirms a usable credential was written; existence alone does not. " + _CREDENTIAL_FILE_HELP)
         if action == "run":
             inputs = leaf.add_mutually_exclusive_group()
-            inputs.add_argument("--inputs", help="JSON object matching StartNode input names; default {}.")
-            inputs.add_argument("--inputs_file", help="Read the input JSON object from a sandbox file.")
+            inputs.add_argument("--input", dest="inputs", help="JSON object matching StartNode input names; default {}.")
+            inputs.add_argument("--input-file", help="Read the input JSON object from a sandbox file.")
         if action in {"status", "logs", "result"}:
-            leaf.add_argument("--execution_id", required=True, help="Exact invocation ID from run/history.")
+            leaf.add_argument("--execution-id", required=True, help="Exact invocation ID from run/history.")
         if action == "logs":
             leaf.add_argument("--after", type=int, default=0, help="Exclusive event sequence cursor, default 0.")
             leaf.add_argument("--limit", type=int, default=100)
@@ -88,7 +88,7 @@ def add_parser(groups):
             leaf.add_argument("--to", dest="to_time", help="ISO-8601 with timezone.")
             leaf.add_argument("--limit", type=int)
             leaf.add_argument("--after")
-            leaf.add_argument("--output_dir", help="New directory containing history.json (paging metadata) and invocations.jsonl (invocation summaries).")
+            leaf.add_argument("--output-dir", help="New directory containing history.json (paging metadata) and invocations.jsonl (invocation summaries).")
 
 
 def validate(operation, arguments):
@@ -109,24 +109,24 @@ def validate(operation, arguments):
         raise ValueError("Unsupported parameters: " + ", ".join("--" + k for k in sorted(arguments.keys() - allowed[action])))
     value = dict(arguments)
     if action not in {"list", "create"} and "deployment_id" not in value:
-        raise ValueError("--deployment_id is required.")
+        raise ValueError("--deployment-id is required.")
     if action in {"status", "logs", "result"} and not value.get("execution_id"):
-        raise ValueError("--execution_id is required; use info for configuration or history to discover executions.")
+        raise ValueError("--execution-id is required; use info for configuration or history to discover executions.")
     for key in ("deployment_id", "execution_id"):
         if key in value:
             if not isinstance(value[key], str):
-                raise ValueError(f"--{key} must be a UUID.")
+                raise ValueError(f"--{key.replace('_', '-')} must be a UUID.")
             value[key] = str(UUID(value[key]))
     for key in ("workflow_id", "name"):
         if key in value:
             if not isinstance(value[key], str) or not value[key].strip():
-                raise ValueError(f"--{key} cannot be empty.")
+                raise ValueError(f"--{key.replace('_', '-')} cannot be empty.")
             value[key] = value[key].strip()
     if "name" in value and len(value["name"]) > 200:
         raise ValueError("--name must contain 1 to 200 characters.")
     if action == "create":
         if not value.get("workflow_id") or not value.get("name") or value.get("trigger_type") not in ("api", "webhook"):
-            raise ValueError("create requires --workflow_id, --name and --trigger_type api|webhook.")
+            raise ValueError("create requires --workflow-id, --name and --trigger-type api|webhook.")
         value.setdefault("enabled", True)
         value.setdefault("mount", False)
         value.setdefault("rate_limit_qps", 10)
@@ -135,23 +135,23 @@ def validate(operation, arguments):
         raise ValueError("--slug must contain 1 to 63 lowercase ASCII letters, digits or hyphens; no leading hyphen.")
     for key in ("enabled", "mount", "export"):
         if key in value and type(value[key]) is not bool:
-            raise ValueError(f"--{key} must be true or false.")
+            raise ValueError(f"--{key.replace('_', '-')} must be true or false.")
     if "timeout_seconds" in value and (type(value["timeout_seconds"]) is not int or not 1 <= value["timeout_seconds"] <= 3600):
-        raise ValueError("--timeout_seconds must be an integer from 1 to 3600.")
+        raise ValueError("--timeout-seconds must be an integer from 1 to 3600.")
     if "major" in value:
-        raise ValueError("Deployments require a fixed --version, e.g. v2.sv3; --major is no longer supported.")
+        raise ValueError("Deployments require a fixed --version, e.g. v2.sv3.")
     if action == "create" and not value.get("version"):
         raise ValueError("create requires --version.")
     for key, pattern in (("major", r"v[1-9]\d*"), ("version", r"v[1-9]\d*\.sv\d+")):
         if key in value and (not isinstance(value[key], str) or not re.fullmatch(pattern, value[key]) or value[key].endswith("sv")):
-            raise ValueError(f"Invalid --{key}. Use v2 for a major or v2.sv3 for a fixed version.")
+            raise ValueError(f"Invalid --{key.replace('_', '-')}. Use v2 for a major or v2.sv3 for a fixed version.")
     if action == "update" and not (settings & value.keys()):
         raise ValueError("update requires at least one setting.")
     for key, minimum, maximum in (("limit", 1, 200), ("offset", 0, None), ("rate_limit_qps", 0, None)):
         if key in value and (type(value[key]) is not int or value[key] < minimum or (maximum is not None and value[key] > maximum)):
-            raise ValueError(f"Invalid --{key}.")
+            raise ValueError(f"Invalid --{key.replace('_', '-')}.")
     if action == "status" and value.get("execution_id") and value.keys() & {"status", "from_time", "to_time", "limit", "after"}:
-        raise ValueError("--execution_id cannot be combined with paging, status or time filters.")
+        raise ValueError("--execution-id cannot be combined with paging, status or time filters.")
     for key in ("from_time", "to_time"):
         if key in value:
             dt = datetime.fromisoformat(value[key].replace("Z", "+00:00"))
@@ -188,14 +188,14 @@ def execute(args, endpoint, cli):
     result = {}
     try:
         value = {k: v for k, v in vars(args).items() if v is not None and k not in {
-            "resource", "action", "secret_file", "output_dir", "inputs_file"}}
+            "resource", "action", "secret_file", "output_dir", "input_file"}}
         for key in ("mount", "enabled"):
             if key in value:
                 value[key] = value[key] == "true"
         if "inputs" in value:
             value["inputs"] = cli.strict_json(value["inputs"])
-        if getattr(args, "inputs_file", None):
-            value["inputs"] = cli.read_workflow(args.inputs_file)
+        if getattr(args, "input_file", None):
+            value["inputs"] = cli.read_workflow(args.input_file)
         if output_dir:
             value["export"] = True
         value = validate(operation, value)

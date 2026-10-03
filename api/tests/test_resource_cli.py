@@ -14,10 +14,10 @@ def test_discovery_commands_are_read_only_and_latest(monkeypatch, capsys):
     calls = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: calls.append((args, kw)) or {"items": []})
     identifier = str(uuid4())
-    assert cli.main(["skill", "get", "--skill_id", identifier], socket_path="test") == 0
+    assert cli.main(["skill", "get", "--skill-id", identifier], socket_path="test") == 0
     assert calls[-1] == ({"skill_id": identifier}, {"operation": "skill.get"})
-    assert cli.main(["skill", "get", "--skill_id", identifier, "--revision_hash", "a" * 64], socket_path="test") == 2
-    assert cli.main(["mcp", "tools", "--server_id", identifier], socket_path="test") == 0
+    assert cli.main(["skill", "get", "--skill-id", identifier, "--revision_hash", "a" * 64], socket_path="test") == 2
+    assert cli.main(["mcp", "tools", "--server-id", identifier], socket_path="test") == 0
     assert resource_cli.OPERATIONS <= cli.READ_OPERATIONS
     assert not resource_cli.OPERATIONS & cli.WRITE_OPERATIONS
     capsys.readouterr()

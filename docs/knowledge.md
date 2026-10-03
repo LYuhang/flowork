@@ -88,25 +88,22 @@ prevents the Knowledge integration from duplicating the Agent's file tools.
 
 The CLI commands are `list/get/download/check/create/publish/delete`. There is
 no `search`, `refresh`, `files`, `read`, `status`, `upload`, or `update` command.
-`list --search` filters names/descriptions only. Use `download` and bash for
-content searches. `create`, `check` and `publish` require `--source_dir`.
+`list` returns one page. Follow `next_offset` with `--offset` until null; filter metadata with `jq`/`grep`. Use `download` and bash for
+content searches. `create`, `check` and `publish` require `--source-dir`.
 
 Root `README.md` carries YAML frontmatter with `name` (1–200 characters) and
 `description` (up to 2000 characters; empty string allowed). `check` validates
 the full package without saving it. Metadata and files publish together.
-`publish --knowledge_id ID --source_dir DIR --expected_version N` rejects stale
-versions without changing the package or its draft. The version guard is
-optional; without it the last serialized commit wins. Publication replaces
-all files and the remote draft; absent files are removed. Indexing is
+`publish --knowledge-id ID --source-dir DIR --expected-version N` rejects stale
+versions without changing the package or its draft. The expected version from download is required. A newer publication or an
+unpublished remote draft rejects the write. Successful publication replaces
+all package files; absent files are removed. Indexing is
 asynchronous and is never a reason to republish.
 
 The web metadata editor writes to the same README draft, with a required
 `expected_hash`. New version → Publish applies the name, description and files
-atomically. Historical views use metadata from their own README; old versions
-without recorded metadata retain their original bytes. Existing plain README
-packages remain usable: downloads add the existing metadata to the local copy,
-and the next publication persists it. This is a lazy compatibility conversion,
-not a rewrite of retained history, and needs no schema migration.
+atomically. Historical views use metadata from their own README. Downloads include package
+metadata in the local README and leave retained remote versions unchanged.
 
 By default, each fetched version is materialized in its own versioned local
 directory. This prevents files removed in a newer package version from being

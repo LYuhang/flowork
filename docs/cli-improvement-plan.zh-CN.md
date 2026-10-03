@@ -15,7 +15,7 @@
 
 ## 第 3 项 异步执行后的完整结果获取
 
-已新增 `flowork-cli deployment result --deployment_id ID --execution_id ID`，从持久化执行结果读取完整 EndNode 输出，适用于同步与异步调用。外部 API 和 Webhook 保持原有查询能力。
+已新增 `flowork-cli deployment result --deployment-id ID --execution-id ID`，从持久化执行结果读取完整 EndNode 输出，适用于同步与异步调用。外部 API 和 Webhook 保持原有查询能力。
 
 info、status、history、logs 分别负责资源配置、单次运行状态、历史列表和单次执行日志。result 是只读查询，不提交新执行、不等待执行完成；run 返回后会提示使用 result 回查。
 
@@ -35,8 +35,8 @@ info、status、history、logs 分别负责资源配置、单次运行状态、�
 
 实现约定：
 
-- `skill publish`、`knowledge publish` 必须传 `--expected_version N`，使用下载返回的已发布版本。
-- `workflow upload` 必须传 `--expected_version vN.svM`，检查目标大版本的最新小版本；其它大版本的更新不会制造冲突。
+- `skill publish`、`knowledge publish` 必须传 `--expected-version N`，使用下载返回的已发布版本。
+- `workflow upload` 必须传 `--expected-version vN.svM`，检查目标大版本的最新小版本；其它大版本的更新不会制造冲突。
 - 创建资源不需要预期版本。服务端在同一资源行锁事务内检查并保存，等待审批后仍使用原基准版本重新检查。
 - 版本不同返回 HTTP 409 / CLI `version_conflict`，包含 expected_version、current_version 和处理提示；CLI 非零退出，不产生新版本。
 - Skill、Knowledge 的整包发布遇到未发布草稿返回 `draft_conflict`，不替换草稿。需先检查并发布已有草稿，再重新下载并合并本地修改。Knowledge 旧文件上传、删除入口也受版本及草稿保护。
@@ -75,25 +75,17 @@ info、status、history、logs 分别负责资源配置、单次运行状态、�
 
 版本目录补充（2026-10-03）：Explorer 使用两层结构，第一层为 major，点击跟随该大版本最新小版本；左侧独立按钮控制折叠，默认展开当前大版本，刷新保留用户折叠选择。第二层按 sub 倒序展示全部小版本，点击进入带 snapshot=1 的固定快照，即使当时是最新小版本也不会自动转为跟随。收到 Agent 的 VIBE_ACTION / META_SYNC / WORKFLOW_SYNC 通知时，同时使画布、head 和版本目录查询失效以立即更新；独立浏览器通过现有 head 检查中的 tree_revision 感知其它大版本新增和更新，重新获取目录，不切换正在查看的大版本。没有增加额外服务或长期连接。49 项前端检查、3 项接口检查及生产构建通过；真实浏览器验证两层展示、折叠不跳转、新增其它大版本可见、折叠状态保留、小版本增加、固定快照不跟随，以及点击大版本回到最新内容，浏览器无脚本错误，测试 Workflow 已删除。
 
-## 第 6 项 次要易用性调整
+## 第 6 项 CLI 精简与参数统一
 
-### 评估配置
+已确认的设计：
 
-原始问题描述：task evaluation-config 必须传评估脚本，单独开关自动评估也需要重新提供脚本。
+- Task CLI 只在新建批量任务时接受 `--evaluation-script`，提供则自动评估，不提供则不评估。函数接收全部结果字典列表，返回指标字典，不得导入三方库。
+- 评估排队及完成／失败事件持久化至任务日志；`task logs` 读取指标与错误，`logs --follow` 等待推理和已排队的评估结束。评估失败保留推理结果，使用独立 evaluation_status 表达。CLI 以创建时配置、日志中读取为完整评估流程；前端 Evaluation 页提供独立的评估管理。
+- 命令行选项统一使用连字符。`--input` 接收内联 JSON 对象，`--input-file` 接收输入文件；单条／定时任务读取 JSON 对象，批量命令读取表格。内部 JSON/API 字段仍保持原有命名。
+- 资源 list 提供分页、状态和类型筛选。每页输出 next_offset，帮助要求翻页至 null，Agent 再使用管道和 jq/grep 处理全部元信息。Diagram 的 search-shapes 是独立能力，继续保留其 query。
+- CLI 帮助、命令模板、服务端提示、文档和 Agent 指引同步更新，既有对话在下次运行时加载新指引。
 
-建议允许只修改 --auto-evaluate，未提供脚本时保留已有脚本。没有已有脚本时如何启用自动评估，以及空参数提交的行为，留待设计确认。
-
-### 参数命名
-
-原始问题描述：同类输入文件参数存在 --input-file、--input_file、--inputs_file，Agent 容易混用。
-
-建议统一推荐写法，保留旧参数兼容，并同步调整帮助说明和示例。具体统一名称、适用命令及别名冲突处理待讨论。
-
-### 列表筛选
-
-原始问题描述：Skill、Knowledge、MCP 使用 --search，Task 使用 --query，Workflow 和 Deployment 的筛选能力较少。
-
-建议统一名称、描述筛选参数及帮助说明。筛选范围是资源元信息；文件内容检索仍通过下载后的 bash 命令完成，不增加文件内容搜索命令。具体参数名称及兼容策略待讨论。
+验收记录（2026-10-03）：CLI 参数、输入文件传输、命令输出协议、宿主授权、网关及 Agent 指引回归通过。真实 Terra Agent 仅收到业务目标，自行发现命令和参数，验证两条样本自动评估输出完整指标、评估报错后推理结果仍可下载、不配置评估仅执行推理，以及日志跟随等待评估终态。Workflow 内联和文件输入、暂停定时任务的单次手动执行、Deployment 文件输入、列表翻页和本地 jq 筛选均通过。Deployment 首次测试时尚未就绪，查询到 ready 后调用成功，未将该首次状态误报为执行成功。三个批量任务、一个定时任务、一个 Deployment、测试 Workflow 和凭据文件已删除。帮助与 Agent 指引只描述当前用法；Knowledge 发布文档明确 expected-version 必填，并拒绝覆盖未发布草稿。指引版本更新为 32，既有对话下次执行会接收新指引。私有验收记录与账号信息不入库。
 
 ## 后续验收原则
 

@@ -75,7 +75,7 @@ class Parser(argparse.ArgumentParser):
 class WorkflowTarget(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         if getattr(namespace, self.dest, None) is not None:
-            raise CliUsageError("Specify the workflow target only once; do not combine IDs or repeat aliases.")
+            raise CliUsageError("Specify the workflow target only once; supply one explicit workflow ID.")
         setattr(namespace, self.dest, values)
 
 
@@ -83,7 +83,7 @@ class OrderedOperation(argparse.Action):
     """One shared sequence across all repeatable operation flags."""
     def __call__(self, parser, namespace, values, option_string=None):
         operations = list(getattr(namespace, self.dest, None) or [])
-        operations.append((option_string[2:], values))
+        operations.append((option_string[2:].replace("-", "_"), values))
         setattr(namespace, self.dest, operations)
 
 
@@ -95,7 +95,7 @@ WORKFLOW_FILE_HELP = (
     'Do not wrap it in {"nodes":[...]} or add a separate edges array. '
     'Each node lists its outgoing node IDs in children; __meta__ is optional reserved metadata. '
     'get-spec describes individual node/config fields, not a graph envelope. '
-    'For an existing workflow, download --workflow_id ID --major vN --file PATH, edit that object, '
+    'For an existing workflow, download --workflow-id ID --major vN --file PATH, edit that object, '
     'check --file PATH, then upload to the explicit ID and major.'
 )
 
@@ -103,7 +103,7 @@ WORKFLOW_FILE_HELP = (
 def parser() -> Parser:
     root = Parser(prog="flowork-cli",
         description="Access Flowork resources from an active cloud Agent turn. No login required.",
-        epilog="Workflow commands are stateless: pass an exact workflow ID and --major vN for branch content. No connect/disconnect/status/version set. Read each command's --help. Default stdout is one final JSON; progress JSONL goes to stderr. workflow run/run-batch, document/diagram render accept --stream for stdout JSONL; task logs --follow also streams. Events are progress/result/error. command_status is the command outcome, not execution_status or resource_status; legacy status remains. Help is text. Workflow download without --file emits the raw workflow JSON only. Exit: 0 success, 1 failure/partial/unknown, 2 invalid input. Never automatically retry a mutation after result_unknown. Transport heartbeat deadlines are not command duration limits.")
+        epilog="Workflow commands are stateless: pass an exact workflow ID and --major vN for branch content. No connect/disconnect/status/version set. Read each command's --help. Default stdout is one final JSON; progress JSONL goes to stderr. workflow run/run-batch, document/diagram render accept --stream for stdout JSONL; task logs --follow also streams. Events are progress/result/error. command_status is the command outcome, not execution_status or resource_status. Help is text. Workflow download without --file emits the raw workflow JSON only. Exit: 0 success, 1 failure/partial/unknown, 2 invalid input. Never automatically retry a mutation after result_unknown. Transport heartbeat deadlines are not command duration limits.")
     groups = root.add_subparsers(dest="resource", required=True)
     task_cli.add_parser(groups)
     deployment_cli.add_parser(groups)
@@ -115,10 +115,10 @@ def parser() -> Parser:
     configuration = groups.add_parser("config", help="Read Workflow settings or eligible manually added model APIs.")
     config_actions = configuration.add_subparsers(dest="action", required=True)
     getting = config_actions.add_parser("get", help="Read one configuration scope without secrets.",
-        description="--scope workflow requires --workflow_id ID and --major vN. Reads that major's latest saved subversion, never Chat state or unsaved drafts. Output {id,version,settings,defaults}; settings includes timeouts.workflow/code/http, code_requirements, egress.allowed_hosts. defaults.timeouts are seconds, not final per-node limits. --scope model_api takes neither ID nor major and returns {models:{name:{provider,description,context_window_tokens}}}. Only your enabled manually added APIs with live use permission; no OpenRouter account connection, platform default, built-in fallback or secrets. Manual OpenRouter APIs are eligible. Use a models key as node_config.model_name. Empty models is valid; discovery does not test connectivity.")
+        description="--scope workflow requires --workflow-id ID and --major vN. Reads that major's latest saved subversion, never Chat state or unsaved drafts. Output {id,version,settings,defaults}; settings includes timeouts.workflow/code/http, code_requirements, egress.allowed_hosts. defaults.timeouts are seconds, not final per-node limits. --scope model_api takes neither ID nor major and returns {models:{name:{provider,description,context_window_tokens}}}. Only your enabled manually added APIs with live use permission; no OpenRouter account connection, platform default, built-in fallback or secrets. Manual OpenRouter APIs are eligible. Use a models key as node_config.model_name. Empty models is valid; discovery does not test connectivity.")
     getting.epilog = "An empty model catalog includes message and hint explaining the missing prerequisite. Follow the hint; do not invent model names or silently replace requested model analysis with rules."
     getting.add_argument("--scope", required=True, choices=("workflow", "model_api"))
-    getting.add_argument("--workflow_id", "--workflow-id", action=WorkflowTarget, help="Required only for workflow scope.")
+    getting.add_argument("--workflow-id", action=WorkflowTarget, help="Required only for workflow scope.")
     getting.add_argument("--major", help="Required only for workflow scope, e.g. v2.")
     workflow = groups.add_parser("workflow", help="Discover, edit, validate, version, execute and delete workflows.",
         description="Stateless commands. Every resource operation names its target explicitly; branch-content operations also require --major vN. No stored current workflow or selected branch. A command resolves the latest subversion once; run-batch freezes it for all rows. Commits preserve version history and follow the platform's global HEAD save semantics, but never write Chat selection state. Local file metadata never selects the target. Preview is a separate render_preview MCP call.")
@@ -126,13 +126,13 @@ def parser() -> Parser:
 
     layout = actions.add_parser("layout", help="Arrange saved nodes left-to-right on an explicit branch.",
         description="Changes only node x/y positions on the specified major's latest saved subversion. Preserves edges, configs and other visual attributes. Saves one new subversion only if positions change. Output {id,version,changed,moved_nodes,message}. Does not validate or execute the graph. No local file or Chat binding. After result_unknown inspect version list/download before retrying.",
-        epilog="Example: flowork-cli workflow layout --workflow_id wf_123 --major v2. Use render_preview with the returned id/version to display the saved result; do not upload again.")
-    layout.add_argument("--workflow_id", "--workflow-id", action=WorkflowTarget, required=True, help="Exact workflow ID (named option, not a positional argument).")
+        epilog="Example: flowork-cli workflow layout --workflow-id wf_123 --major v2. Use render_preview with the returned id/version to display the saved result; do not upload again.")
+    layout.add_argument("--workflow-id", action=WorkflowTarget, required=True, help="Exact workflow ID (named option, not a positional argument).")
     layout.add_argument("--major", required=True, help="Existing major, e.g. v2; arranges its latest saved subversion.")
 
     def target(command, branch=False, optional=False):
         targets = command.add_mutually_exclusive_group(required=not optional)
-        targets.add_argument("--workflow_id", "--workflow-id", action=WorkflowTarget, help="Exact workflow ID; never inferred from Chat state. Legacy positional IDs remain accepted, but cannot be combined with this option.")
+        targets.add_argument("--workflow-id", action=WorkflowTarget, help="Exact workflow ID; never inferred from Chat state.")
         targets.add_argument("workflow_id", nargs="?", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
         if branch or optional:
             command.add_argument("--major", required=branch and not optional, help="Existing major version, e.g. v2; reads/writes its latest subversion.")
@@ -167,9 +167,9 @@ def parser() -> Parser:
     downloading.add_argument("--file", help="Optional destination, relative or absolute sandbox path. Download uses --file, not the run/run-batch --output option.")
     downloading.add_argument("--overwrite", action="store_true")
     uploading = actions.add_parser("upload", help="Replace the specified branch and save a new subversion.",
-        description="Requires ID, --major, --file and --expected_version from download. Validates/tidies the graph; preserves history and Workflow metadata. Old file version selectors do not change the target; a different workflow_id is rejected. No force bypass or file rewrite. Output {id,version,node_count}, plus warnings when present. Full replacement atomically rejects a changed target branch tip with version_conflict. Preserve local edits, download and merge; never replace the expected version alone. After result_unknown inspect version list/download, never blindly retry.")
+        description="Requires ID, --major, --file and --expected-version from download. Validates/tidies the graph; preserves history and Workflow metadata. Old file version selectors do not change the target; a different workflow_id is rejected. No force bypass or file rewrite. Output {id,version,node_count}, plus warnings when present. Full replacement atomically rejects a changed target branch tip with version_conflict. Preserve local edits, download and merge; never replace the expected version alone. After result_unknown inspect version list/download, never blindly retry.")
     target(uploading, branch=True)
-    uploading.add_argument("--expected_version", required=True, help="Exact downloaded version, e.g. v1.sv3. Conflicts save nothing; download and merge before retrying.")
+    uploading.add_argument("--expected-version", required=True, help="Exact downloaded version, e.g. v1.sv3. Conflicts save nothing; download and merge before retrying.")
     uploading.add_argument("--file", required=True)
     uploading.add_argument("--note", default="")
     editing = actions.add_parser("operation", help="Apply ordered atomic edits to an explicitly specified branch.",
@@ -184,13 +184,13 @@ def parser() -> Parser:
         ("edge_add", 2, ("SOURCE", "TARGET"), "Append a directed children edge. Endpoints must exist; duplicate edges are errors."),
         ("edge_remove", 2, ("SOURCE", "TARGET"), "Remove a directed children edge. Missing edges are errors."),
     ):
-        editing.add_argument("--" + flag, dest="edits", action=OrderedOperation,
+        editing.add_argument("--" + flag.replace("_", "-"), dest="edits", action=OrderedOperation,
                              nargs=count, metavar=metavar, help=help_text)
-    editing.epilog = "Example: flowork-cli workflow operation --workflow_id wf_123 --major v1 --node_add_file /data/node.json --node_update_file /node_2/node_config/code /data/process.py --edge_add node_1 node_2. JSON values: --node_update /node_2/node_description '\"Text\"'; --node_update /node_2/node_config/options '{\"limit\":10}'. null is a value, not deletion. Escape '/' in path keys as ~1 and '~' as ~0. New nodes require node_id/node_type; node_config/children default to {}/[]. Children must already exist; duplicate IDs/edges and removing missing targets are errors. Node removal clears children edges, not config references. Parent objects must exist; a final field may be new. All files are read in the sandbox; no fixed byte-size ceiling. No new version if any operation fails. Graph/version pointer commit together; only a successful group refreshes the canvas. No graph execution or automatic Preview. After result_unknown inspect version list/download before submitting any further edits."
+    editing.epilog = "Example: flowork-cli workflow operation --workflow-id wf_123 --major v1 --node-add-file /data/node.json --node-update-file /node_2/node_config/code /data/process.py --edge-add node_1 node_2. JSON values: --node-update /node_2/node_description '\"Text\"'; --node-update /node_2/node_config/options '{\"limit\":10}'. null is a value, not deletion. Escape '/' in path keys as ~1 and '~' as ~0. New nodes require node_id/node_type; node_config/children default to {}/[]. Children must already exist; duplicate IDs/edges and removing missing targets are errors. Node removal clears children edges, not config references. Parent objects must exist; a final field may be new. All files are read in the sandbox; no fixed byte-size ceiling. No new version if any operation fails. Graph/version pointer commit together; only a successful group refreshes the canvas. No graph execution or automatic Preview. After result_unknown inspect version list/download before submitting any further edits."
     editing.add_argument("--note", default="", help="Optional note for the one saved subversion.")
 
     checking = actions.add_parser("check", help="Check a saved branch OR a local workflow JSON file.",
-        description="Exactly one mode: check --workflow_id ID --major vN, or check --file PATH. ID and file cannot be combined; file mode rejects --major. Validate static graph structure, node configuration/references and currently eligible model APIs. No execution, saving or connection. Output {valid,id,version,node_count} for saved content or {valid,path,node_count} for a file, plus errors/warnings. Exit 0 valid, 1 invalid/service error, 2 usage error. Validity does not guarantee execution success.")
+        description="Exactly one mode: check --workflow-id ID --major vN, or check --file PATH. ID and file cannot be combined; file mode rejects --major. Validate static graph structure, node configuration/references and currently eligible model APIs. No execution, saving or connection. Output {valid,id,version,node_count} for saved content or {valid,path,node_count} for a file, plus errors/warnings. Exit 0 valid, 1 invalid/service error, 2 usage error. Validity does not guarantee execution success.")
     target(checking, optional=True)
     checking.add_argument("--file")
     versions = actions.add_parser("version", help="List branches or create a branch from an explicit source.")
@@ -222,10 +222,10 @@ def parser() -> Parser:
             running.add_argument("--node", help="Execute only this exact node ID, not its upstream/downstream nodes. Inputs go directly to the node (overriding configured defaults); no previous outputs are reused. Supports --file. Validates only the target and its required resources. No autosave/new version. Loop/parallel control nodes require full workflow execution. Not supported by run-batch.")
             inputs = running.add_mutually_exclusive_group()
             inputs.add_argument("--input-file", help="UTF-8 JSON object containing workflow inputs.")
-            inputs.add_argument("--inputs", help="Inline JSON object; default: {}.")
+            inputs.add_argument("--input", dest="inputs", help="Inline JSON object; default: {}.")
             running.add_argument("--file", help="Optional local workflow JSON override; requires the explicit workflow ID/major and execute permission; does not save.")
         else:
-            running.epilog += " Example: flowork-cli workflow run-batch --workflow_id wf_123 --major v1 --input-file /data/rows.csv --output /data/results.jsonl > /data/progress.jsonl 2>&1. For background monitoring, use the runtime's managed long-running terminal session, or keep the parent shell alive and wait for its background child. A bare & followed by shell exit may terminate the child before it returns any status. Empty output is not evidence of a live process or of no side effects: check the original process/session handle; do not automatically retry. No --file or --node override. Ordinary row errors continue; authorization/transport/platform errors stop new rows."
+            running.epilog += " Example: flowork-cli workflow run-batch --workflow-id wf_123 --major v1 --input-file /data/rows.csv --output /data/results.jsonl > /data/progress.jsonl 2>&1. For background monitoring, use the runtime's managed long-running terminal session, or keep the parent shell alive and wait for its background child. A bare & followed by shell exit may terminate the child before it returns any status. Empty output is not evidence of a live process or of no side effects: check the original process/session handle; do not automatically retry. No --file or --node override. Ordinary row errors continue; authorization/transport/platform errors stop new rows."
             running.add_argument("--input-file", required=True, help="CSV/TSV/JSON/JSONL/XLSX/XLSM table. JSON: array of objects or {rows: [...]}; JSONL: one object per line.")
             running.add_argument("--concurrency", type=int, default=4, help="Positive requested worker count (default: 4; at most 16 active workers).")
             running.add_argument("--sheet", default="", help="Workbook sheet; required when multiple sheets exist.")
@@ -343,7 +343,7 @@ def validate_arguments(operation: str, arguments: dict) -> dict:
         if result.get("scope") not in ("workflow", "model_api"):
             raise CliUsageError("scope must be workflow or model_api.")
         if result["scope"] == "model_api" and ({"workflow_id", "major"} & result.keys()):
-            raise CliUsageError("--workflow_id and --major are only supported with --scope workflow.")
+            raise CliUsageError("--workflow-id and --major are only supported with --scope workflow.")
         if result["scope"] == "workflow":
             branch_ops.add(operation)
             target_ops.add(operation)
@@ -454,7 +454,7 @@ def validate_arguments(operation: str, arguments: dict) -> dict:
             raise CliUsageError("--file must contain a workflow JSON object.")
         if operation == "workflow.upload":
             if not isinstance(result.get("expected_version"), str) or not re.fullmatch(r"v[1-9]\d*\.sv\d+", result["expected_version"]):
-                raise CliUsageError("--expected_version must be an exact downloaded version such as v1.sv3.")
+                raise CliUsageError("--expected-version must be an exact downloaded version such as v1.sv3.")
             result.setdefault("note", "")
             if not isinstance(result["note"], str):
                 raise CliUsageError("note must be a string.")
@@ -548,7 +548,7 @@ def read_workflow(path: str) -> dict:
 
 def uncertain_result() -> dict:
     return error("result_unknown", "The command ended without a confirmed result; changes may have committed.",
-                 "Do not automatically repeat create, delete, update, upload, operation, version create, run, or run-batch. Use flowork-cli workflow get --workflow_id ID, version list and download to reconcile the explicitly targeted branch; use list to find a possibly created workflow. Inspect partial results and external side effects before retrying.")
+                 "Do not automatically repeat create, delete, update, upload, operation, version create, run, or run-batch. Use flowork-cli workflow get --workflow-id ID, version list and download to reconcile the explicitly targeted branch; use list to find a possibly created workflow. Inspect partial results and external side effects before retrying.")
 
 
 def save_download(result: dict, path: str, *, overwrite: bool) -> dict:

@@ -36,7 +36,7 @@ async def render_preview(
     and pins that exact version in the card. Pass the version returned by your
     CLI command to preview the branch you edited. No Chat binding is consulted.
     Opening it rechecks access. This tool never saves, uploads or runs a graph;
-    use flowork-cli workflow upload --workflow_id ID --major vN --file PATH first to save local changes.
+    use flowork-cli workflow upload --workflow-id ID --major vN --file PATH first to save local changes.
     Pass flat arguments, not a nested view object.
 
     ``title`` and ``description`` are optional. ``file_type`` defaults to

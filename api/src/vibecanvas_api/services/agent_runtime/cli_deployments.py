@@ -26,6 +26,7 @@ from vibecanvas_api.services.agent_runtime.resource_routes import resource_route
 from vibecanvas_api.services.deployment_snapshots import resolve_workflow
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_deployments import DeploymentsRepo
+from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
 
 _running_tests: set[asyncio.Task] = set()
 
@@ -67,9 +68,9 @@ def deployment_status(dep):
 def execution_status(row, deployment_id):
     result = {key: value for key, value in row.items() if key in {
         "status", "source", "trigger_type", "submitted_at", "started_at", "finished_at", "latency_ms", "result_summary"}}
-    result.update(execution_id=str(row["id"]), deployment_id=str(deployment_id), execution_error=row.get("error"))
+    result.update(execution_id=str(row["id"]), deployment_id=str(deployment_id), execution_error=row.get("error"), execution_url=f"/workflow-executions/{row['id']}")
     result["message"] = "Invocation status: " + str(row["status"]) + ". Query success is not execution success."
-    result["hint"] = f"flowork-cli deployment history --deployment_id {deployment_id} --execution_id {row['id']}"
+    result["hint"] = f"flowork-cli deployment status --deployment_id {deployment_id} --execution_id {row['id']}"
     return result
 
 
@@ -120,26 +121,33 @@ async def read(ctx, operation, args):
             items = [{key: deployment_status(item)[key] for key in ("deployment_id", "name", "workflow_id", "trigger_type", "status")} for item in result["items"]]
             offset = args.get("offset", 0) + len(items)
             return {"deployments": items, "next_offset": offset if offset < result.get("total", offset) else None,
-                    "message": "Authorized deployments listed. Use status for configuration."}
+                    "message": "Authorized deployments listed. Use info for configuration."}
         dep_id = uuid.UUID(args["deployment_id"])
         dep = await routes.get_deployment(dep_id, **params)
-        if operation == "deployment.status":
+        if operation == "deployment.info":
             return deployment_status(dep)
         await routes._authorize_deployment(deployment_id=dep_id, action=Action.INSPECT_RUNS,
             **{k: v for k, v in params.items() if k != "session"})
-        if args.get("execution_id"):
+        if operation in {"deployment.status", "deployment.logs"}:
             row = (await session.execute(text("""SELECT id,status,source,trigger_type,submitted_at,started_at,
                 finished_at,latency_ms,error,result_summary FROM deployment_invocations
                 WHERE deployment_id=:dep AND id=:id"""), {"dep": dep_id, "id": uuid.UUID(args["execution_id"])})).mappings().one_or_none()
             if row is None:
                 raise HTTPException(404, "Execution not found in this deployment.")
             result = execution_status(dict(row), dep_id)
-            if not args.get("export"):
-                return result
-            items = [result]
-            start = row["submitted_at"]
-            end = row["finished_at"] or datetime.now(timezone.utc)
-            cursor = None
+            if operation == "deployment.status":
+                return jsonable_encoder(result)
+            repo = WorkflowHistoryRepo(session)
+            run = await repo.get(args["execution_id"])
+            if run is not None and (run["source_type"] != "deployment" or str(run["source_id"]) != str(dep_id)):
+                raise HTTPException(404, "Execution trace not found in this deployment.")
+            after = args.get("after", 0)
+            frames = await repo.events(args["execution_id"], after=after, limit=args.get("limit", 100)) if run else []
+            cursor = frames[-1]["seq"] if frames else after
+            return jsonable_encoder({**result, "logs": frames, "cursor": cursor,
+                "has_more": bool(run and cursor < run["last_seq"]), "logs_available": run is not None,
+                "terminal": row["status"] in {"succeeded", "failed", "timed_out", "cancelled"},
+                "hint": f"flowork-cli deployment logs --deployment_id {dep_id} --execution_id {args['execution_id']} --after {cursor}"})
         else:
             start = datetime.fromisoformat(args["from_time"].replace("Z", "+00:00")) if args.get("from_time") else None
             end = datetime.fromisoformat(args["to_time"].replace("Z", "+00:00")) if args.get("to_time") else None
@@ -153,12 +161,11 @@ async def read(ctx, operation, args):
             result = {"deployment_id": str(dep_id), "history": items, "next_cursor": cursor,
                       "message": "Invocation summaries listed; these are not full node logs."}
         if args.get("export"):
-            metrics = await routes.metrics(dep_id, **params, from_=start, to=end, bucket="hour")
-            window = {"from": start.isoformat(), "to": end.isoformat()}
-            result.update(window=window, next_cursor=cursor, files={
-                "status.json": json.dumps({**deployment_status(dep), "window": window, "next_cursor": cursor}, ensure_ascii=False),
-                "metrics.json": json.dumps(jsonable_encoder(metrics), ensure_ascii=False),
-                "invocations.jsonl": "".join(json.dumps(jsonable_encoder(item), ensure_ascii=False) + "\n" for item in items)})
+            result["window"] = {"from": start.isoformat(), "to": end.isoformat()}
+            metadata = {key: value for key, value in result.items() if key != "history"}
+            result["files"] = {
+                "history.json": json.dumps(jsonable_encoder(metadata), ensure_ascii=False),
+                "invocations.jsonl": "".join(json.dumps(jsonable_encoder(item), ensure_ascii=False) + "\n" for item in items)}
             result.pop("history", None)
         return jsonable_encoder(result)
 
@@ -216,7 +223,7 @@ async def execute(call, args):
                 fresh = await DeploymentsRepo(session).get(dep_id)
                 keys = ("updated_at", "enabled", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "rate_limit_qps")
                 if fresh is None or any(fresh.get(key) != current.get(key) for key in keys):
-                    raise ToolError("state_conflict", "Deployment settings changed while waiting. Inspect status before requesting a new operation.")
+                    raise ToolError("state_conflict", "Deployment settings changed while waiting. Inspect info before requesting a new operation.")
             if operation in {"deployment.create", "deployment.rotate_key"}:
                 await step_up(params)
             started = True
@@ -262,15 +269,15 @@ async def execute(call, args):
     except HTTPException as exc:
         detail = exc.detail
         code = (detail.get("code") if isinstance(detail, dict) else None) or {401: "authentication_required", 403: "permission_denied", 404: "resource_unavailable", 409: "state_conflict", 422: "invalid_arguments"}.get(exc.status_code, "deployment_error")
-        return error(code, str(detail), "Inspect deployment status/history and this command's --help before retrying. Authentication requirements cannot be bypassed by approval.")
+        return error(code, str(detail), "Inspect deployment info/status/history and this command's --help before retrying. Authentication requirements cannot be bypassed by approval.")
     except ToolError as exc:
-        return error(str(exc), exc.message, "Respect approval decisions. Do not automatically resubmit; inspect current permissions and deployment status.")
+        return error(str(exc), exc.message, "Respect approval decisions. Do not automatically resubmit; inspect current permissions and deployment info.")
     except PermissionError:
         return error("permission_denied", "The current identity or command is no longer authorized.", "Use a new authorized Agent turn.")
     except ValueError as exc:
         return error("invalid_arguments", str(exc), "Check this command's --help.")
     except Exception:
-        return uncertain_result() if started else error("deployment_unavailable", "The deployment operation is unavailable.", "Inspect status and report the failure; do not retry repeatedly.")
+        return uncertain_result() if started else error("deployment_unavailable", "The deployment operation is unavailable.", "Inspect info and report the failure; do not retry repeatedly.")
 
 
 def invocation_result(deployment_id, response):
@@ -282,12 +289,12 @@ def invocation_result(deployment_id, response):
     result["errors"] = execution_errors(result.get("errors") or {})
     pending = result.get("http_status") == 202 or result["status"] in {"queued", "running", "waiting_approval"}
     if pending:
-        message = "Invocation accepted. Inspect this execution's history or detail link; do not submit it again."
+        message = "Invocation accepted. Inspect this execution's status or detail link; do not submit it again."
     elif result["status"] == "succeeded":
         message = "Test execution succeeded. External API key, signature and network access were not tested."
     else:
         message = "Test execution failed."
     return {
         "deployment_id": str(deployment_id), **result, "message": message,
-        "hint": f"flowork-cli deployment history --deployment_id {deployment_id} --execution_id {result['execution_id']}",
+        "hint": f"flowork-cli deployment status --deployment_id {deployment_id} --execution_id {result['execution_id']}",
     }

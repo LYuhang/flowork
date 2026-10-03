@@ -79,13 +79,13 @@ def test_workflow_stream_and_saved_business_result_are_independent(tmp_path,caps
 
 @pytest.mark.parametrize('resource,action,state,field',[
     ('task','status','failed','execution_status'),
-    ('deployment','status','enabled','resource_status'),
-    ('deployment','history','failed','execution_status'),
+    ('deployment','info','enabled','resource_status'),
+    ('deployment','status','failed','execution_status'),
 ])
 def test_successful_query_is_not_business_success(tmp_path,capsys,resource,action,state,field):
     command=[resource,action,'--'+('task_id' if resource=='task' else 'deployment_id'),str(uuid4())]
     if resource=='task':command+=['--task_type','batch_exec']
-    if action=='history':command+=['--execution_id',str(uuid4())]
+    if resource=='deployment' and action=='status':command+=['--execution_id',str(uuid4())]
     with peer(tmp_path,[{'status':state}]) as (endpoint,_):
         assert cli.main(command,socket_path=endpoint)==0
     result=json.loads(capsys.readouterr().out)

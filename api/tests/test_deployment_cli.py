@@ -45,7 +45,7 @@ def test_create_credential_private_and_never_stdout(tmp_path, monkeypatch, capsy
     assert json.loads(secret.read_text())["api_key"] == "one-time-secret"
 
 
-@pytest.mark.parametrize("action", ["create", "rotate_key", "status"])
+@pytest.mark.parametrize("action", ["create", "rotate_key", "info"])
 def test_credential_format_is_discoverable_without_reading_secrets(action, capsys):
     with pytest.raises(SystemExit) as exc:
         cli.parser().parse_args(["deployment", action, "--help"])
@@ -166,11 +166,11 @@ def test_history_export_new_directory(tmp_path, monkeypatch, capsys):
     folder = tmp_path / "diagnostics"
     def request(endpoint, args, **kw):
         assert args["export"] is True
-        return {"files": {"status.json": "{}", "metrics.json": "{}", "invocations.jsonl": ""}, "next_cursor": "next"}
+        return {"files": {"history.json": "{}", "invocations.jsonl": ""}, "next_cursor": "next"}
     monkeypatch.setattr(cli, "request", request)
     command = ["deployment", "history", "--deployment_id", str(uuid4()), "--output_dir", str(folder)]
     assert cli.main(command, socket_path="test") == 0
-    assert set(os.listdir(folder)) == {"status.json", "metrics.json", "invocations.jsonl"}
+    assert set(os.listdir(folder)) == {"history.json", "invocations.jsonl"}
     assert folder.stat().st_mode & 0o777 == 0o700
     assert json.loads(capsys.readouterr().out)["next_cursor"] == "next"
     assert cli.main(command, socket_path="test") == 2

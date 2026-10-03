@@ -129,6 +129,18 @@ def _task(value):
     return value
 
 
+def _info(task):
+    value = _task(task)
+    return {key: value[key] for key in ("task_id", "task_type", "workflow_id", "version", "config", "rows", "submitted_at") if key in value}
+
+
+def _batch_status(task):
+    value = _task(task)
+    for key in ("config", "version", "rows", "allowed_actions", "provenance"):
+        value.pop(key, None)
+    return _feedback(value, task["id"])
+
+
 def _batch_history(task, events):
     """Project durable start/terminal events into attempts, including pre-start failures."""
     attempts = []
@@ -181,11 +193,7 @@ async def _history(task, common, *, limit=20, offset=0):
         total = len(attempts)
         items = attempts[offset:offset + limit]
     result = {"task_id": str(task_id), "task_type": "schedule_run" if task["task_type"] == "scheduled_run" else "batch_exec",
-              "task": _task(task), "history": items, "next_offset": offset + len(items) if offset + len(items) < total else None}
-    if task["task_type"] == "scheduled_run":
-        plan = await routes.get_scheduled_run(task_id, **common)
-        result["schedule"] = _schedule(plan["schedule"])
-        result["plan_status"] = "enabled" if result["schedule"]["enabled"] else "paused"
+              "history": items, "next_offset": offset + len(items) if offset + len(items) < total else None}
     return result
 
 
@@ -280,6 +288,15 @@ async def _read(ctx, operation, arguments, emit):
         expected = "scheduled_run" if arguments["task_type"] == "schedule_run" else "batch_exec"
         if task["task_type"] != expected:
             raise ToolError("wrong_task_type", "--task_type does not match the stored Task type. No operation was performed.")
+        if operation == "task.info":
+            value = _info(task)
+            if expected == "scheduled_run":
+                plan = await routes.get_scheduled_run(task_id, **common)
+                value.pop("config", None)
+                value["version"] = (plan["schedule"].get("workflow_selector") or {}).get("version")
+                value["schedule"] = {key: item for key, item in _schedule(plan["schedule"]).items() if key not in {"last_status", "last_run_at"}}
+                return _feedback(value, task_id, plan=True)
+            return value
         if operation == "task.evaluation":
             return await routes.get_evaluation(task_id, **common)
         if operation in {"task.status", "task.logs", "task.download"}:
@@ -289,8 +306,10 @@ async def _read(ctx, operation, arguments, emit):
             if arguments.get("execution_id"):
                 execution = await routes.get_scheduled_run_execution(task_id, uuid.UUID(arguments["execution_id"]), **common)
                 return _execution(execution, task_id)
-            return _feedback(_task(task), task_id)
+            return _batch_status(task)
         if operation == "task.history":
+            if expected != "scheduled_run":
+                raise ToolError("invalid_arguments", "Batch tasks have no execution history; use task logs.")
             return await _history(task, common, limit=arguments.get("limit", 20), offset=arguments.get("offset", 0))
         if operation == "task.download":
             if expected == "scheduled_run":
@@ -344,11 +363,13 @@ async def _read(ctx, operation, arguments, emit):
                         "result": observed.get("result")}
             result = _feedback(result, task_id, execution=execution["id"] if execution else None)
             if exporting:
-                history = await _history(task, common)
+                history = await _history(task, common) if execution else {"history": [], "next_offset": None}
                 summary = {**result, "task": _task(task), "logs": None, "next_history_offset": history["next_offset"]}
                 result["files"] = {"status.json": json.dumps(summary, ensure_ascii=False, indent=2),
                     "logs.jsonl": "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in items),
                     "history.jsonl": "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in history["history"])}
+                if not execution:
+                    result["files"].pop("history.jsonl")
                 result.pop("logs", None)
             return result
     raise ToolError("unsupported_operation", "Unsupported Task query.")

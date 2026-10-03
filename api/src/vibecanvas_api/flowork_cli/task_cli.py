@@ -15,7 +15,7 @@ from uuid import UUID
 
 
 READ_OPERATIONS = frozenset("task." + name for name in (
-    "list", "status", "history", "logs", "download", "evaluation",
+    "list", "info", "status", "history", "logs", "download", "evaluation",
 ))
 WRITE_OPERATIONS = frozenset("task." + name for name in (
     "evaluate", "evaluation-config", "create", "update", "enable", "disable", "run", "cancel", "resume", "delete",
@@ -64,9 +64,10 @@ def add_parser(groups):
     listing.add_argument("--workflow_id")
     listing.add_argument("--query")
 
+    target(_command(actions, "info", help="Read task configuration and pinned Workflow version. Schedule availability is resource state, not an execution result."))
     status = _command(actions, "status", help="Read one execution's status, progress and result. schedule_run requires --execution_id; no implicit latest execution.")
     target(status, True)
-    history = _command(actions, "history", help="List past scheduled executions or batch attempts, newest first. Also returns task configuration and plan state when applicable.")
+    history = _command(actions, "history", help="schedule_run only: list executions newest first. Batch tasks have no history command; use logs to inspect resume activity.")
     target(history)
     page(history)
     logs = _command(actions, "logs", help="Read execution logs or follow incremental progress.",
@@ -150,6 +151,8 @@ def validate(operation, arguments):
     if operation in WRITE_OPERATIONS:
         action = {"task.enable": "resume", "task.disable": "pause"}.get(operation, operation.split(".")[1])
         operation = f"task.{supplied_type}.{action}"
+    if operation == "task.history" and supplied_type != "schedule_run":
+        raise ValueError("history only supports schedule_run; use task logs for batch execution and resume activity.")
     common = {"task_id"}
     schedule_fields = {"name", "major", "version", "interval", "cron", "timezone",
                        "start_at", "end_at", "inputs", "mount", "notify"}
@@ -158,6 +161,7 @@ def validate(operation, arguments):
         "task.batch_exec.evaluate": common,
         "task.batch_exec.evaluation-config": common | {"evaluation_script", "auto_evaluate"},
         "task.list": {"task_type", "status", "workflow_id", "query", "limit", "offset"},
+        "task.info": common | {"task_type"},
         "task.status": common | {"task_type", "execution_id"},
         "task.logs": common | {"task_type", "execution_id", "follow", "after", "before", "limit", "from_time", "to_time", "export"},
         "task.download": common | {"task_type", "execution_id", "format"},

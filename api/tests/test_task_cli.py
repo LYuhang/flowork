@@ -307,7 +307,7 @@ async def test_schedule_history_includes_execution_commands_without_exposing_int
         "status": "failed", "error": "Node failed.", "result": {"outcome_unknown": False}}], "total": 1})
     monkeypatch.setattr(cli_tasks.routes, "list_scheduled_run_executions", listing)
     result = await cli_tasks._read(SimpleNamespace(tenant_id="tenant"), "task.history", {"task_id": task_id, "task_type": "schedule_run"}, AsyncMock())
-    assert result["task_id"] == task_id and result["plan_status"] == "paused"
+    assert result["task_id"] == task_id and "plan_status" not in result and "task" not in result and "schedule" not in result
     latest = result["history"][0]
     assert latest["execution_id"] == execution_id and latest["task_id"] == task_id
     assert latest["status"] == "failed" and latest["execution_error"] == "Node failed."

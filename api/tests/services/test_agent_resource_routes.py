@@ -49,6 +49,14 @@ KNOWLEDGE_FORMAT_CONTRACT = {
 }
 
 
+@pytest.fixture
+def cli_legacy_auth(monkeypatch):
+    # These route integration fixtures explicitly use Bearer sessions.
+    from vibecanvas_api.config import config
+    monkeypatch.setattr(config, "web_session_cookie_enabled", False)
+    monkeypatch.setattr("vibecanvas_api.routes.auth._consume_unauthenticated_rate_limit", AsyncMock())
+
+
 async def _register(client) -> tuple[dict[str, str], dict]:
     response = await client.post(
         "/api/v1/auth/register",
@@ -275,14 +283,14 @@ async def test_knowledge_create_validates_before_persisting_resource(client) -> 
 
 
 @pytest.mark.asyncio
-async def test_task_cli_reads_and_diagnostics_use_authorized_database(client) -> None:
+async def test_task_cli_reads_and_diagnostics_use_authorized_database(client, cli_legacy_auth) -> None:
     from vibecanvas_api.services.agent_runtime.cli_tasks import _read
     headers, me = await _register(client)
     workflow_id = await _workflow(client, headers)
     context = _context(me, authorization_client=client._transport.app.state.openfga_client)
     created = await client.post("/api/v1/tasks/scheduled-runs", headers=headers,
         json={"name": "CLI query fixture", "workflow_id": workflow_id,
-              "major": "v1", "enabled": False, "schedule_type": "interval", "interval_seconds": 3600})
+              "version": "v1.sv0", "enabled": False, "schedule_type": "interval", "interval_seconds": 3600})
     assert created.status_code == 201, created.text
     task_id = created.json()["task"]["id"]
     emit = AsyncMock()
@@ -290,11 +298,11 @@ async def test_task_cli_reads_and_diagnostics_use_authorized_database(client) ->
     assert listed["tasks"][0]["task_id"] == task_id
     assert listed["tasks"][0]["task_type"] == "schedule_run"
     detail = await _read(context, "task.history", {"task_id": task_id, "task_type": "schedule_run"}, emit)
-    assert detail["schedule"]["workflow_selector"] == {"major": "v1"}
-    assert detail["task_id"] == task_id
-    assert detail["plan_status"] == "paused"
-    assert detail["history"] == []
-    assert "id" not in detail and "id" not in detail["schedule"]
+    assert detail["task_id"] == task_id and detail["history"] == []
+    assert "task" not in detail and "schedule" not in detail
+    info = await _read(context, "task.info", {"task_id": task_id, "task_type": "schedule_run"}, emit)
+    assert info["version"] == "v1.sv0" and info["status"] == "paused"
+    assert "id" not in info["schedule"] and "last_status" not in info["schedule"]
     async with session_scope(tenant_id=me["tenant_id"]) as session:
         repo = TasksRepo(session)
         schedule = await repo.get_schedule_by_task(uuid.UUID(task_id))
@@ -402,7 +410,7 @@ async def test_task_submission_reports_committed_id_when_projection_is_unavailab
 
 
 @pytest.mark.asyncio
-async def test_deployment_resource_routes_and_cli_diagnostics_use_authorized_database(client) -> None:
+async def test_deployment_resource_routes_and_cli_diagnostics_use_authorized_database(client, cli_legacy_auth) -> None:
     headers, me = await _register(client)
     workflow_id = await _workflow(client, headers)
     context = _context(
@@ -414,7 +422,7 @@ async def test_deployment_resource_routes_and_cli_diagnostics_use_authorized_dat
         params = resource_route_params(context, session)
         created = await deployments.create_deployment(
             deployments.CreateDeploymentBody(wf_id=workflow_id, name="Agent deployment",
-                slug=slug, trigger_type="api", version_pin="major", pinned_major=1),
+                slug=slug, trigger_type="api", version_pin="specific", pinned_major=1, pinned_sub=0),
             **params, _step_up=params["ctx"],
         )
     deployment_id = created["id"]
@@ -451,15 +459,13 @@ async def test_deployment_resource_routes_and_cli_diagnostics_use_authorized_dat
         "deployment_id": deployment_id, "from_time": (now - timedelta(hours=1)).isoformat(),
         "to_time": (now + timedelta(minutes=1)).isoformat(), "limit": 20, "export": True,
     })
-    metrics = json.loads(diagnostics["files"]["metrics.json"])
-    assert sum(item["calls"] for item in metrics["series"]) == 1
-    assert sum(item["errors"] for item in metrics["series"]) == 1
+    assert set(diagnostics["files"]) == {"history.json", "invocations.jsonl"}
     assert "workflow_timeout" in diagnostics["files"]["invocations.jsonl"]
     _, stranger = await _register(client)
     other = _context(stranger, authorization_client=context.authorization_client)
     assert (await cli_deployments.read(other, "deployment.list", {}))["deployments"] == []
     with pytest.raises(HTTPException):
-        await cli_deployments.read(other, "deployment.status", {"deployment_id": deployment_id})
+        await cli_deployments.read(other, "deployment.info", {"deployment_id": deployment_id})
     async with session_scope(tenant_id=context.tenant_id) as session:
         await deployments.delete_deployment(uuid.UUID(deployment_id), **resource_route_params(context, session))
     assert (await client.get(f"/api/v1/deployments/{deployment_id}", headers=headers)).status_code == 404

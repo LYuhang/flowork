@@ -270,8 +270,8 @@ async def _hydrate_run_folders(run_dir: str, wf_id: str, tenant_id: str) -> int:
     parent dirs. ``.vibekeep`` sentinels are normal 0-byte rows → writing them
     recreates empty dirs for free (no special handling).
 
-    Fail-soft per file AND per folder: a hydrate failure must never block session
-    creation (logged, then skipped). The DB reads stay on the event loop (async
+    A hydrate failure blocks creation: serving a partial workspace can silently
+    overwrite durable files on the next writeback. DB reads stay on the event loop (async
     session); the blocking ``open().write()`` runs off-loop via ``asyncio.to_thread``
     (matching how ``build_run_context`` is offloaded at the call site).
 
@@ -307,7 +307,7 @@ async def _hydrate_run_folders(run_dir: str, wf_id: str, tenant_id: str) -> int:
                         continue
                     data = await repo.read_bytes(wf_id=wf_id, path=entry.path)
                     if data is None:
-                        continue
+                        raise RuntimeError("workspace_artifact_unavailable")
                     destination = os.path.join(sub, *parts)
                     if os.path.commonpath(
                         [os.path.realpath(sub), os.path.realpath(destination)]
@@ -320,14 +320,14 @@ async def _hydrate_run_folders(run_dir: str, wf_id: str, tenant_id: str) -> int:
                         )
                         continue
                     payloads.append((destination, data))
-        except Exception:  # fail-soft per folder and transaction
+        except Exception:
             logger.warning(
                 "agent_hydrate_folder_failed",
                 wf_id=wf_id,
                 folder=folder,
                 exc_info=True,
             )
-            continue
+            raise
 
         def _flush(items: list[tuple[str, bytes]]) -> int:
             count = 0
@@ -337,7 +337,7 @@ async def _hydrate_run_folders(run_dir: str, wf_id: str, tenant_id: str) -> int:
                     with open(destination, "wb") as file:
                         file.write(data)
                     count += 1
-                except OSError:  # fail-soft per file
+                except OSError:
                     logger.warning(
                         "agent_hydrate_file_write_failed",
                         wf_id=wf_id,
@@ -345,6 +345,7 @@ async def _hydrate_run_folders(run_dir: str, wf_id: str, tenant_id: str) -> int:
                         dest=destination,
                         exc_info=True,
                     )
+                    raise
             return count
 
         if payloads:
@@ -745,7 +746,7 @@ class SandboxSession:
                     self.last_used = time.monotonic()
                     self._activity_was_busy = True
                     return False
-                await self.writeback_vfs()
+                await self.writeback_vfs(strict=True)
                 # Host-network and host-UDS connections are reset by restore.
                 # Persist Runtime-owned state, then close it cleanly instead of
                 # publishing a snapshot whose broker is already disconnected.
@@ -2316,21 +2317,25 @@ class SandboxSession:
                 "diff": _edit_unified_diff(content, new_content, path),
                 "content": new_content}
 
-    async def writeback_vfs(self) -> None:
-        """Best-effort write-back of the run's VFS folders to the durable VFS.
+    async def writeback_vfs(self, *, strict: bool = False) -> None:
+        """Write workspace files back; retirement must require durable success.
 
         ``/data`` ``/memory`` ``/logs`` live under ``run_dir`` and are mirrored
         with the SAME diff-and-upsert shape via :meth:`_sync_run_folder`. Never
-        raises — a write-back failure must never break the agent turn."""
+        raises during ordinary turn sweeps. Lifecycle transitions use strict
+        mode so a failed persistence operation cannot release its source files."""
+        failures: list[Exception] = []
         for folder in self.workspace_folders:
             try:
                 await self._sync_run_folder(folder)
-            except Exception:  # pragma: no cover - fail-soft
+            except Exception as exc:
+                failures.append(exc)
                 logger.warning("agent_run_writeback_failed", wf_id=self.wf_id,
                                folder=folder, exc_info=True)
         try:
             await self._sync_mount_folder()
-        except Exception:  # pragma: no cover - fail-soft
+        except Exception as exc:
+            failures.append(exc)
             logger.warning(
                 "agent_mount_writeback_failed",
                 wf_id=self.wf_id,
@@ -2345,11 +2350,14 @@ class SandboxSession:
                     self.workflow_run_dir,
                     self.wf_id,
                 )
-        except Exception:  # pragma: no cover - fail-soft
+        except Exception as exc:
+            failures.append(exc)
             logger.warning("workflow_run_writeback_failed",
                            wf_id=self.wf_id,
                            run_id=self.workflow_run_id,
                            tenant_id=self.tenant_id, exc_info=True)
+        if strict and failures:
+            raise RuntimeError("sandbox_workspace_persistence_failed") from failures[0]
 
     async def sync_workspace_path(self, path: str, *, expected_sha256: str | None = None,
                                   expected_bytes: int | None = None) -> bool:
@@ -2721,6 +2729,7 @@ class SandboxSession:
                         logger.warning("agent_run_folder_read_failed",
                                        wf_id=self.wf_id, folder=folder, rel=rel,
                                        exc_info=True)
+                        raise
             # Persist empty-leaf dirs via the hidden sentinel (0-byte artifact).
             for rel_dir in _empty_leaf_dirs(sub):
                 out.append((rel_dir + "/" + DIR_KEEP_SENTINEL, b""))
@@ -2746,9 +2755,12 @@ class SandboxSession:
                             content_type=_guess_ct(rel, data),
                         )
                     synced += 1
-                except Exception:  # fail-soft per file
+                except Exception:
                     logger.warning("agent_run_folder_file_failed", wf_id=self.wf_id,
                                    path=vfs_path, exc_info=True)
+                    # Let this transaction roll back. Ordinary sweeps catch
+                    # the folder failure; strict retirement retains its source.
+                    raise
         return synced
 
     def schedule_writeback(self) -> None:
@@ -2845,46 +2857,21 @@ class SandboxSession:
         historical = getattr(self, "_history_executions", None)
         if historical is not None:
             await historical.shutdown()
-        try:
-            await self.writeback_vfs()
-        except Exception:  # pragma: no cover - fail-soft
-            logger.warning("agent_close_writeback_failed", wf_id=wf_id,
-                           exc_info=True)
-        # Stop the shared Runtime before taking its final encrypted snapshot.
-        # Releasing the sandbox removes the projection, not the durable volume.
-        try:
-            async with self._lock:
-                await self._stop_agent_runtime_locked()
-        except Exception:  # pragma: no cover - fail-soft
-            logger.warning("agent_runtime_stop_failed", wf_id=wf_id,
-                           exc_info=True)
-        runtime_volume = getattr(self, "runtime_volume", None)
-        if runtime_volume is not None:
-            try:
-                await asyncio.to_thread(
-                    get_project_runtime_volume_provider().release,
-                    runtime_volume,
-                )
-            except Exception:  # pragma: no cover - durability failure is logged
-                logger.warning(
-                    "agent_runtime_volume_release_failed",
-                    wf_id=wf_id,
-                    volume_id=runtime_volume.volume_id,
-                    exc_info=True,
-                )
-        # Task 4b-ii — tear down the warm file-op worker (a long-lived gVisor
-        # process); ``stop()`` is sync → offload. Fail-soft: a teardown failure
-        # must never raise out of close(). ``getattr`` guards a bare session
-        # (constructed via ``__new__`` in writeback-only tests) that never set
-        # ``_fileop_pool``.
+        # Quiesce writers before taking the final durable snapshot. A failure
+        # below retains the projection and is retried by SandboxManager; it
+        # must never run the cleanup path with unpersisted source files.
+        async with self._lock:
+            await self._stop_agent_runtime_locked()
         fileop_pool = getattr(self, "_fileop_pool", None)
         if fileop_pool is not None:
-            try:
-                await asyncio.to_thread(fileop_pool.stop)
-            except Exception:  # pragma: no cover - fail-soft
-                logger.warning("agent_fileop_pool_stop_failed", wf_id=wf_id,
-                               exc_info=True)
+            await asyncio.to_thread(fileop_pool.stop)
             self._fileop_pool = None
+        await self.writeback_vfs(strict=True)
+        runtime_volume = getattr(self, "runtime_volume", None)
+        if runtime_volume is not None:
+            await asyncio.to_thread(
+                get_project_runtime_volume_provider().release, runtime_volume,
+            )
         snapshot_dir = getattr(self, "_snapshot_dir", None)
         if snapshot_dir:
             try:
@@ -2949,6 +2936,9 @@ class SandboxManager:
         self._lock = asyncio.Lock()
         self._close_tasks: set[asyncio.Task] = set()
         self._closing_scopes: dict[tuple[str, str], asyncio.Task] = {}
+        # Retain failed retirements so neither their unwritten files nor their
+        # identity are lost. Acquisition stays fenced until retry succeeds.
+        self._failed_closes: dict[tuple[str, str], SandboxSession] = {}
         self._shutdown = False
         from .deployment_runtime import DeploymentRuntime
         self.deployments = DeploymentRuntime(self)
@@ -3408,27 +3398,35 @@ class SandboxManager:
 
     async def _close_session_best_effort(self, session: SandboxSession, *, reason: str) -> None:
         timeout_s = max(0.1, float(config.sandbox_session_close_timeout_s))
+        key = (session.tenant_id, session.wf_id)
+        close = asyncio.create_task(session.close())
         try:
-            await asyncio.wait_for(session.close(), timeout=timeout_s)
-        except asyncio.TimeoutError:
-            session.closed = True
-            logger.warning(
-                "agent_session_close_timeout",
-                wf_id=session.wf_id,
-                reason=reason,
-                timeout_s=timeout_s,
-            )
+            try:
+                await asyncio.wait_for(asyncio.shield(close), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                self._failed_closes[key] = session
+                logger.warning("agent_session_close_timeout", wf_id=session.wf_id,
+                               reason=reason, timeout_s=timeout_s)
+                # Threaded object-store I/O cannot be cancelled safely. Keep
+                # observing this exact close, never retry over a live writer.
+                await close
         except Exception:  # pragma: no cover - fail-soft
-            session.closed = True
+            self._failed_closes[key] = session
             logger.warning(
                 "agent_session_close_failed",
                 wf_id=session.wf_id,
                 reason=reason,
                 exc_info=True,
             )
+        else:
+            if self._failed_closes.get(key) is session:
+                self._failed_closes.pop(key, None)
 
     def _schedule_close(self, session: SandboxSession, *, reason: str) -> asyncio.Task:
         key = (session.tenant_id, session.wf_id)
+        pending = self._closing_scopes.get(key)
+        if pending is not None and not pending.done():
+            return pending
         task = asyncio.create_task(self._close_session_best_effort(session, reason=reason))
         self._close_tasks.add(task)
         self._closing_scopes[key] = task
@@ -3452,6 +3450,8 @@ class SandboxManager:
             self._lock.release()
             await asyncio.shield(closing)
         try:
+            if key in self._failed_closes:
+                raise RuntimeError("sandbox_persistence_incomplete: release will be retried; workspace retained")
             yield
         finally:
             self._lock.release()
@@ -3509,6 +3509,8 @@ class SandboxManager:
                 if getattr(existing, "_requires_rehydrate", False):
                     self._sessions.pop(key, None)
                     await asyncio.shield(self._schedule_close(existing, reason="external_vfs_rehydrate"))
+                    if key in self._failed_closes:
+                        raise RuntimeError("sandbox_persistence_incomplete: workspace retained")
                     existing = None
             if existing is not None and not existing.closed:
                 if _session_lifecycle_state(existing) != "warm":
@@ -3536,8 +3538,10 @@ class SandboxManager:
                     return existing
                 self._sessions.pop(key, None)
                 await asyncio.shield(self._schedule_close(existing, reason="rebuild"))
+                if key in self._failed_closes:
+                    raise RuntimeError("sandbox_persistence_incomplete: workspace retained")
             # Make room (LRU evict) BEFORE building the new one.
-            while sum(
+            while len(self._failed_closes) + sum(
                 1
                 for loaded in self._sessions.values()
                 if _session_lifecycle_state(loaded) == "warm"
@@ -3612,6 +3616,18 @@ class SandboxManager:
         now = time.monotonic()
         observed_at_unix_s = time.time()
         async with self._lock:
+            pending_close = self._closing_scopes.get(key)
+            retained = self._failed_closes.get(key)
+            if retained is not None or (pending_close is not None and not pending_close.done()):
+                return {
+                    "status": "releasing", "lifecycle_state": "releasing",
+                    "activity_state": "busy", "idle_elapsed_s": None, "idle_for_s": None,
+                    "ttl_phase": None, "ttl_s": None, "ttl_paused": True,
+                    "ttl_remaining_s": None, "next_transition": "release",
+                    "observed_at_unix_s": observed_at_unix_s,
+                    "error": "sandbox_persistence_incomplete" if retained is not None else None,
+                    "resources": {**_session_resource_status(retained or object()), "lifecycle_state": "releasing"},
+                }
             session = self._sessions.get(key)
             if session is not None and not session.closed:
                 lifecycle_state = _session_lifecycle_state(session)
@@ -3757,7 +3773,7 @@ class SandboxManager:
         victim = None
         closing = None
         async with self._lock:
-            victim = self._sessions.pop(key, None)
+            victim = self._sessions.pop(key, None) or self._failed_closes.get(key)
             self._closed_markers[key] = time.monotonic()
             if victim is not None and wf_id.startswith(("batch-", "schedule-")):
                 self._retiring_task_sessions[key] = victim
@@ -4244,6 +4260,8 @@ class SandboxManager:
         victims: list[SandboxSession] = []
         hibernate: list[SandboxSession] = []
         async with self._lock:
+            for retained in list(self._failed_closes.values()):
+                self._schedule_close(retained, reason="persistence_retry")
             # This is the dedicated lifecycle observation pass. It refreshes
             # the host monotonic silence clock from both daemon-owned leases
             # and the positive activity state published by each warm worker.
@@ -4315,7 +4333,7 @@ class SandboxManager:
         victims: list[SandboxSession] = []
         async with self._lock:
             self._shutdown = True
-            victims = list(self._sessions.values())
+            victims = list({**self._failed_closes, **self._sessions}.values())
             self._sessions.clear()
             self._closed_markers.clear()
         for victim in victims:

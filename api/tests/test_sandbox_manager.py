@@ -19,6 +19,110 @@ from vibecanvas_api.services.sandbox.session_lifecycle import (
 
 
 @pytest.mark.asyncio
+async def test_failed_final_writeback_retains_files_and_fences_replacement(tmp_path):
+    root = tmp_path / "projection"
+    chat = root / "chats" / "conversation"
+    chat.mkdir(parents=True)
+    private_file = chat / "notes.txt"
+    private_file.write_text("not yet persisted")
+    session = SandboxSession(tenant_id="tenant", wf_id="workflow", run_dir=str(root),
+        overlay_dir=None, provider=MagicMock(), base_binds=[], expose_run=False,
+        materialized_projection_root=str(root))
+    session._sync_run_folder = AsyncMock(side_effect=OSError("object store unavailable"))
+    session._sync_mount_folder = AsyncMock()
+    session._stop_agent_runtime_locked = AsyncMock()
+    manager = SandboxManager(max_resident=2, idle_ttl_s=10)
+    manager._sessions[("tenant", "workflow")] = session
+    manager._build_session = AsyncMock()
+
+    result = await manager.close_session("tenant", "workflow")
+    assert result["status"] == "releasing"
+    assert result["error"] == "sandbox_persistence_incomplete"
+    assert private_file.read_text() == "not yet persisted"
+    assert not session.closed
+    with pytest.raises(RuntimeError, match="sandbox_persistence_incomplete"):
+        await manager.get_session("tenant", "workflow")
+    manager._build_session.assert_not_awaited()
+    session._stop_agent_runtime_locked.assert_awaited_once()
+
+    # The same source survives until a later successful persistence attempt.
+    session._sync_run_folder.side_effect = None
+    await manager.sweep_idle()
+    await manager.drain_background_closes()
+    assert session.closed
+    assert not root.exists()
+    assert not manager._failed_closes
+    assert (await manager.status("tenant", "workflow"))["status"] == "closed"
+
+
+@pytest.mark.asyncio
+async def test_slow_close_is_observed_without_cancelling_or_restarting_io(monkeypatch):
+    monkeypatch.setattr(config, "sandbox_session_close_timeout_s", 0.1)
+    manager = SandboxManager(max_resident=2, idle_ttl_s=10)
+    release = asyncio.Event()
+    cancelled = []
+
+    async def close():
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+
+    session = MagicMock(tenant_id="tenant", wf_id="workflow", closed=False, close=AsyncMock(side_effect=close))
+    task = manager._schedule_close(session, reason="test")
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(task), 0.2)
+        assert not task.done()
+        assert (await manager.status("tenant", "workflow"))["status"] == "releasing"
+        await manager.sweep_idle()
+        session.close.assert_awaited_once()
+        assert not cancelled
+    finally:
+        release.set()
+        await manager.drain_background_closes()
+    assert not manager._failed_closes
+
+
+@pytest.mark.asyncio
+async def test_file_upsert_failure_reaches_strict_writeback(tmp_path, monkeypatch):
+    import vibecanvas_api.services.sandbox.manager as mod
+    root = tmp_path / "workspace"
+    (root / "chats").mkdir(parents=True)
+    (root / "chats" / "notes.txt").write_text("keep this")
+    session = SandboxSession(tenant_id="tenant", wf_id="workflow", run_dir=str(root),
+        overlay_dir=None, provider=MagicMock(), base_binds=[], expose_run=False)
+    repository = MagicMock(upsert_artifact_bytes=AsyncMock(side_effect=OSError("storage offline")))
+
+    @asynccontextmanager
+    async def transaction(**kwargs):
+        yield object()
+
+    monkeypatch.setattr(mod, "short_session_scope", transaction)
+    monkeypatch.setattr(mod, "VfsRepo", lambda *args, **kwargs: repository)
+    await session.writeback_vfs()  # A failed background sweep does not fail the turn.
+    with pytest.raises(RuntimeError, match="sandbox_workspace_persistence_failed"):
+        await session.writeback_vfs(strict=True)
+    assert (root / "chats" / "notes.txt").read_text() == "keep this"
+
+
+@pytest.mark.asyncio
+async def test_hydration_failure_does_not_start_with_a_partial_workspace(tmp_path, monkeypatch):
+    import vibecanvas_api.services.sandbox.manager as mod
+    repository = MagicMock(ls=AsyncMock(side_effect=OSError("storage offline")))
+
+    @asynccontextmanager
+    async def transaction(**kwargs):
+        yield object()
+
+    monkeypatch.setattr(mod, "session_scope", transaction)
+    monkeypatch.setattr(mod, "VfsRepo", lambda *args, **kwargs: repository)
+    with pytest.raises(OSError, match="storage offline"):
+        await mod._hydrate_run_folders(str(tmp_path), "workflow", "tenant")
+
+
+@pytest.mark.asyncio
 async def test_purge_user_storage_removes_daemon_owned_runtime_trees(
     tmp_path,
     monkeypatch,

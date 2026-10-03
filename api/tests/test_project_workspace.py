@@ -11,15 +11,27 @@ from vibecanvas_api.services.chat_workspace import chat_working_directory, proje
 from vibecanvas_api.services.sandbox.manager import SandboxSession, _hydrate_run_folders
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.models import Chat
+from vibecanvas_api.config import config
+
+
+@pytest.fixture(autouse=True)
+def web_cookie_auth(monkeypatch):
+    monkeypatch.setattr(config, "environment", "test")
+    monkeypatch.setattr(config, "web_session_cookie_secure", False)
+    monkeypatch.setattr(config, "distributed_auth_rate_limit_enabled", False)
+    monkeypatch.setattr(config, "web_session_cookie_enabled", True)
+    monkeypatch.setattr(config.public_urls, "public_url", "")
 
 
 async def _user(client):
-    response = await client.post("/api/v1/auth/register", json={
+    client.cookies.clear()
+    response = await client.post("/api/v1/auth/register", headers={"Origin": "http://testserver"}, json={
         "email": f"project-{uuid.uuid4().hex}@example.com",
         "username": "Project tester", "password": "pw12345678",
     })
     assert response.status_code in (200, 201), response.text
-    headers = {"Authorization": f"Bearer {response.json()['session_token']}"}
+    headers = {"Origin": "http://testserver", "X-CSRF-Token": client.cookies.get("vibecanvas-web-csrf"),
+               "Cookie": "; ".join(f"{key}={value}" for key, value in client.cookies.items())}
     me = await client.get("/api/v1/auth/me", headers=headers)
     assert me.status_code == 200, me.text
     return headers, me.json()

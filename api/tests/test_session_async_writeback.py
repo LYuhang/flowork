@@ -8,6 +8,7 @@ counting stand-in for the real diff-sync ``writeback_vfs`` so we can assert how
 many times it ran.
 """
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -29,8 +30,9 @@ def _bare_session(delay: float = 0.0) -> SandboxSession:
     s.run_dir = None
     s.mount_dir = None
     s.n = 0
+    s._stop_agent_runtime_locked = AsyncMock()
 
-    async def _wb() -> None:
+    async def _wb(*, strict: bool = False) -> None:
         if delay:
             await asyncio.sleep(delay)
         s.n += 1

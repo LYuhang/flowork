@@ -170,3 +170,47 @@ async def test_canvas_execution_records_selected_version_not_editable_metadata(c
     response = await client.post(f"/api/v1/workflows/{wf_id}/executions", headers=headers, json={"input": {}})
     assert response.status_code == 200, response.text
     assert observed == [(graph, "v1.sv1")]
+
+
+@pytest.mark.asyncio
+async def test_workflow_delete_removes_linked_chats_and_internal_project(client, web_cookies, monkeypatch):
+    from sqlalchemy import select
+    from unittest.mock import AsyncMock
+    from vibecanvas_api.storage.models import Chat, ChatMessage, ChatProject
+    monkeypatch.setattr("vibecanvas_api.services.workflow_deletion.enqueue_background_job_in_transaction", AsyncMock())
+    me, headers, wf_id, _ = await setup(client)
+    cid = "delete-canvas-" + uuid.uuid4().hex
+    made = await client.put(f"/api/v1/chat-scopes/{wf_id}/chats/{cid}", headers=headers, json=payload(wf_id))
+    assert made.status_code == 200, made.text
+    pid = made.json()["project_id"]
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        ordinary = await ChatProjectRepo(session, me["user_id"]).create(name="Unaffected")
+        other = await ChatRepo(session, me["user_id"]).register_session("__chat", project_id=ordinary["project_id"])
+        await ChatRepo(session, me["user_id"]).persist_message(cid, {"role": "user", "content": {"text": "Delete fixture", "parts": [{"type": "text", "text": "Delete fixture"}]}, "message_id": "deletion-msg"})
+    deleted = await client.delete(f"/api/v1/workflows/{wf_id}", headers=headers)
+    assert deleted.status_code == 204, deleted.text
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        assert (await session.get(Chat, cid)).deleted_at is not None
+        assert (await session.get(ChatProject, pid)).deleted_at is not None
+        assert (await session.execute(select(ChatMessage).where(ChatMessage.chat_id == cid))).scalars().all() == []
+        assert (await session.get(Chat, other)).deleted_at is None
+        assert (await session.get(ChatProject, ordinary["project_id"])).deleted_at is None
+
+
+@pytest.mark.asyncio
+async def test_active_canvas_conversation_blocks_workflow_delete(client, web_cookies):
+    from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
+    from vibecanvas_api.storage.models import Chat, Workflow
+    me, headers, wf_id, _ = await setup(client)
+    cid = "active-canvas-" + uuid.uuid4().hex
+    made = await client.put(f"/api/v1/chat-scopes/{wf_id}/chats/{cid}", headers=headers, json=payload(wf_id))
+    assert made.status_code == 200, made.text
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        await AgentRunsRepo(session).create(run_id=uuid.uuid4().hex, tenant_id=me["tenant_id"],
+            chat_id=cid, creator_user_id=me["user_id"], client_request_id=uuid.uuid4().hex, input_snapshot={})
+    deleted = await client.delete(f"/api/v1/workflows/{wf_id}", headers=headers)
+    assert deleted.status_code == 409, deleted.text
+    assert "active canvas conversations" in deleted.text
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        assert (await session.get(Workflow, wf_id)).deleted_at is None
+        assert (await session.get(Chat, cid)).deleted_at is None

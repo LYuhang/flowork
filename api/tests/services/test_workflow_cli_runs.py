@@ -191,7 +191,7 @@ async def test_batch_freezes_selected_snapshot_and_emits_before_slowest_row(exec
 @pytest.mark.asyncio
 async def test_row_errors_continue_and_exit_nonzero(execution):
     capability, session, snapshot = execution
-    snapshot.return_value["workflow"]["node"] = {"node_type": "LoopStartNode"}
+    snapshot.return_value["workflow"]["node"] = {"node_type": "LoopBeginNode"}
     session.execute_workflow_job.side_effect = [
         {"result": {"final_outputs": {}, "error_dict": {"node": "Invalid input."}}},
         {"result": {"final_outputs": {"__end__": "ok"}, "error_dict": {}}},
@@ -201,7 +201,7 @@ async def test_row_errors_continue_and_exit_nonzero(execution):
     events = [run.queue.get_nowait() for _ in range(run.queue.qsize())]
     assert [event["record"]["status"] for event in events if "record" in event] == ["error", "success"]
     assert events[-1]["completed"] == 2 and events[-1]["failed"] == 1 and events[-1]["exit_code"] == 1
-    assert "flowork-cli workflow get-spec --type LoopStartNode" in events[-1]["hint"]
+    assert "flowork-cli workflow get-spec --type LoopBeginNode" in events[-1]["hint"]
 
 
 @pytest.mark.asyncio

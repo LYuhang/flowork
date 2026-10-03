@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from ..observability.timing import RequestTimings
+from ..agents.tools.decorator import ToolError
 
 from ..auth.deps import (
     AuthContext,
@@ -486,6 +487,12 @@ async def create_chat_session(
             request=request, auth=auth, service=service, workflow_repo=wf_repo,
             scope_id=scope_id, action=Action.UPDATE,
         )
+        # Serialize accepted canvas conversations with Workflow deletion.
+        from ..services.workflow_deletion import lock_live_workflow
+        try:
+            await lock_live_workflow(session, scope_id)
+        except ToolError as exc:
+            raise HTTPException(status_code=409, detail="workflow_unavailable") from exc
         existing_binding = await chat_repo.get_workflow_context(chat_id)
         if existing_binding is not None and existing_binding != workflow_binding.model_dump(mode="json"):
             raise HTTPException(status_code=409, detail="workflow_chat_binding_conflict")
@@ -3039,6 +3046,12 @@ async def post_message(
             request=http_request, auth=auth, service=authz_service, workflow_repo=wf_repo,
             scope_id=scope_id, action=Action.UPDATE,
         )
+        # Serialize accepted canvas conversations with Workflow deletion.
+        from ..services.workflow_deletion import lock_live_workflow
+        try:
+            await lock_live_workflow(session, scope_id)
+        except ToolError as exc:
+            raise HTTPException(status_code=409, detail="workflow_unavailable") from exc
         inspect_runs = await authz_service.check(
             principal_for_auth(auth), Action.INSPECT_RUNS,
             ResourceRef(ResourceType.WORKFLOW, scope_id, auth.active_organization_id),

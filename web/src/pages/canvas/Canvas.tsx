@@ -355,7 +355,13 @@ export function Canvas({ readOnly = false }: CanvasProps = {}) {
         // zoom back in or use Fit View; 10% keeps even long graphs navigable.
         minZoom={0.1}
         nodesDraggable={!readOnly}
-        showInteractiveControls={!readOnly}
+        showControls={false}
+        ariaLabelConfig={{
+          'controls.zoomIn.ariaLabel': t('canvas.tools.zoomIn', 'Zoom in'),
+          'controls.zoomOut.ariaLabel': t('canvas.tools.zoomOut', 'Zoom out'),
+          'controls.fitView.ariaLabel': t('canvas.tools.fitView', 'Fit to view'),
+          'controls.interactive.ariaLabel': t('canvas.tools.interactive', 'Toggle canvas interaction'),
+        }}
         nodesConnectable={!readOnly}
         elementsSelectable
       />

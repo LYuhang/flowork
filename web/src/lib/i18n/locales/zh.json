@@ -3856,5 +3856,10 @@
   "nodePicker.group.control": "流程控制与协作",
   "nodePicker.group.data": "数据处理",
   "nodePicker.group.integration": "代码与集成",
-  "nodePicker.group.other": "其他"
+  "nodePicker.group.other": "其他",
+  "canvas.tools.label": "画布工具栏",
+  "canvas.tools.zoomIn": "放大",
+  "canvas.tools.zoomOut": "缩小",
+  "canvas.tools.fitView": "居中适配",
+  "canvas.tools.interactive": "切换画布交互锁定"
 }

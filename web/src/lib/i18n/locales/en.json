@@ -3856,5 +3856,10 @@
   "nodePicker.group.control": "Flow & collaboration",
   "nodePicker.group.data": "Data processing",
   "nodePicker.group.integration": "Code & integrations",
-  "nodePicker.group.other": "Other"
+  "nodePicker.group.other": "Other",
+  "canvas.tools.label": "Canvas tools",
+  "canvas.tools.zoomIn": "Zoom in",
+  "canvas.tools.zoomOut": "Zoom out",
+  "canvas.tools.fitView": "Fit to view",
+  "canvas.tools.interactive": "Toggle canvas interaction"
 }

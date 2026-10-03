@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useNodes, useReactFlow } from '@xyflow/react';
+import { Controls, useNodes, useReactFlow } from '@xyflow/react';
 import { Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -73,13 +73,20 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
   return <NodePickerContext.Provider value={show}>
     <div className="relative h-full min-h-0 w-full" data-node-picker-surface>
       {children}
-      {!readOnly && <Popover open={open} onOpenChange={(value) => { setOpen(value); if (!value) setQuery(''); }}>
+      <Popover open={!readOnly && open} onOpenChange={(value) => { setOpen(value); if (!value) setQuery(''); }}>
         {point && <PopoverAnchor className="pointer-events-none fixed h-px w-px" style={{ left: point.x, top: point.y }} />}
         <div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center">
-          <PopoverTrigger asChild><Button ref={button} variant="outline" className="pointer-events-auto gap-2 rounded-full bg-popover px-5 shadow-md" data-action="add-node"
+          <div role="toolbar" aria-label={t('canvas.tools.label', 'Canvas tools')} data-canvas-toolbar
+            className="pointer-events-auto flex items-center gap-1 rounded-full border border-edge-structural bg-popover/95 p-1.5 shadow-lg backdrop-blur-sm">
+          <Controls orientation="horizontal" showInteractive={!readOnly}
+            fitViewOptions={{ padding: 0.16, minZoom: 0.1, maxZoom: 1, duration: 200 }}
+            className="!static !m-0 !translate-x-0 !gap-0.5 !border-0 !bg-transparent !shadow-none [&>button]:!h-8 [&>button]:!w-8 [&>button]:!rounded-full [&>button]:!border-0 [&>button]:!bg-transparent [&>button:hover]:!bg-accent" />
+          {!readOnly && <><div aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+          <PopoverTrigger asChild><Button ref={button} variant="ghost" className="h-8 gap-2 rounded-full px-3" data-action="add-node"
             onClick={() => { setPoint(null); flowPoint.current = null; setQuery(''); }}>
             <Plus className="h-4 w-4" />{t('nodePicker.add', 'Add node')}
-          </Button></PopoverTrigger>
+          </Button></PopoverTrigger></>}
+          </div>
         </div>
         <PopoverContent side={point ? 'right' : 'top'} align={point ? 'start' : 'center'} sideOffset={10} collisionPadding={12}
           className="w-[380px] max-w-[calc(100vw-24px)] overflow-hidden rounded-xl p-0 shadow-xl" aria-label={t('nodePicker.add', 'Add node')}
@@ -94,7 +101,7 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
             </CommandList>
           </Command>
         </PopoverContent>
-      </Popover>}
+      </Popover>
     </div>
   </NodePickerContext.Provider>;
 }

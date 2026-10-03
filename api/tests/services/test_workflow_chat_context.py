@@ -11,7 +11,7 @@ from vibecanvas_api.services.agent_runtime.protocol import RuntimeInstruction, R
 from vibecanvas_api.services.workflow_chat_context import (
     WorkflowChatBinding, WorkflowChatTarget, WorkflowContextError,
     resolve_workflow_chat_context,
-    resolve_workflow_run_context,
+    resolve_workflow_run_context, workflow_chat_title,
 )
 
 
@@ -175,3 +175,21 @@ async def test_empty_workflow_can_start_global_canvas_conversation():
     assert snapshot["nodes"] == {}
     assert snapshot["target"] == {"kind": "workflow"}
     assert "v2.sv3" in instruction.content
+
+
+@pytest.mark.asyncio
+async def test_readable_title_tracks_confirmed_context_without_rebinding_history():
+    reader = Reader()
+    reader.graph["focus"]["node_name"] = "Clean data"
+    reader.graph["end"]["node_name"] = "Result"
+    selected = binding(kind="edge", source="focus", target="end")
+    original, _ = await resolve_workflow_chat_context(reader, selected, chat_id="chat-one")
+    assert workflow_chat_title(original) == "[v2.sv3] Clean data → Result"
+    reader.sub = 4
+    reader.graph["focus"]["node_name"] = "Normalize data"
+    current, _ = await resolve_workflow_chat_context(reader, selected, chat_id="chat-one", creating=False)
+    assert workflow_chat_title(current) == "[v2.sv4] Normalize data → Result"
+    assert workflow_chat_title(original) == "[v2.sv3] Clean data → Result"
+    assert selected.initial_subversion == 3
+    current["nodes"]["focus"]["node_name"] = "Result"
+    assert workflow_chat_title(current) == "[v2.sv4] Result (focus) → Result (end)"

@@ -2,7 +2,7 @@
 
 本文记录专业 Workflow 构建者在画布内通过 Agent 微调流程的交互与实现原则。用户可以针对全局、某个节点或某条连线直接发起对话，由 Agent 读取上下文、修改 Workflow 并提交新子版本。
 
-状态：主要实现已部署到真实服务，已完成一轮覆盖全部 16 类现有节点的 Agent 编辑与运行验收，以及画布入口、历史恢复、上下文引用和关联清理验证。整体需求仍未验收完成；活动汇总／TTL、停止互不影响、写回失败及部分前端异常交互的实机验收仍需补齐。当前未推送交付，最新证据和剩余事项见文末。
+状态：两个文档的实现已部署，16 类节点及多种上下文、异常、共享生命周期的实机验收已完成。最终逐项证据见文末；下方各日期小节保留阶段记录，早期“待验收”描述不代表最终状态。GitHub 推送在最终提交后核对。
 
 ## 目标与范围
 
@@ -395,3 +395,48 @@
 历史切换验收发现并修复顶部菜单点击被标题栏拖动捕获的问题：React Portal 的事件会向标题栏冒泡，因此拖动现在必须起始于标题栏实际 DOM 内。新增回归在修复前失败，修复后连同其余 8 项用例全部通过；生产构建及部署路径检查通过，修复已部署。
 
 部署后在真实 Chromium 中，让 Terra 对话实际等待 30 秒，再从小窗顶部 History 切到 v2 的旧会话。v1 原执行继续并成功，消息没有进入选中的 v2；切回原 chat_id 后恢复完整回复，Workflow 版本未改变。菜单覆盖该 Workflow 的 v1／v2 会话，所有已显示会话的初始版本与时间均与服务端列表一致。
+
+
+### 2026-10-03 输入重试、失效选择及运行来源补验
+
+空完成采用明确的上游故障注入验收：公开 API 创建独立 QA Workflow／Chat，使用真实登录会话解析鉴权；独立进程运行已部署的 SandboxManager、gVisor、AgentRuntimeOrchestrator 和 Runtime worker，只将该进程的 Codex app-server 可执行文件换成返回一次空完成的协议测试桩。重试成功后，比对测试桩实际收到的两次 `turn/start.input` 与真实数据库中两份加密输入快照，内容哈希逐项一致，原因分别为 `user_turn`／`empty_completion_retry`，事件 ID 唯一，公开执行事件没有 `runtime.input`。所有独立 worker 正常关闭，临时可执行文件已删除。此项是原生服务链路的受控故障验收，不计为真实模型回答，也未更改线上服务的模型或鉴权配置。
+
+真实数据库汇总覆盖 51 条自然模型对话执行：47 条成功、3 条失败、1 条取消；首次提交前失败的记录没有伪造 Runtime 输入，失败与取消也保留已经生成的快照。另行记录上述故障注入，避免将其与自然模型效果混算。
+
+上次执行来源：先实际运行 v1.sv1，随后保存 v1.sv2，再要求 Terra 只解释版本及 `/run` 的含义。Agent 准确报告当前 v1.sv2／上次执行 v1.sv1，并说明 `/run` 是可变目录；没有新增执行或修改图。数据库快照也保留这两个不同版本及原执行 ID。
+
+真实 Chromium 补验：将别的 Workflow 的 chat_id 放入当前页面缓存，页面明确显示会话不可用，未请求该会话消息；从 History 选择合法会话后可正常查看。固定旧子版本仍可读历史，但不能发送或新建对话。画布历史附件经“Open source”打开独立 Preview，正确显示此前上传的文本原文，并保留来源 chat_id。
+
+
+## 最终逐项验收（2026-10-03）
+
+以下矩阵对应前述 20 项，证据保留于服务器验收目录 `canvas-agent-matrix`。提交仅包含产品代码、回归测试及本说明，不包含账号、私有输入快照或原始对话导出。
+
+| 项 | 已核对的最终证据 |
+| --- | --- |
+| 1 | 桌面／触摸三种入口、条件分支连线；`context_title_live_evidence.json` 验证可读两端名称，同名 End 以 ID 区分；Agent 正确解释所选分支。 |
+| 2 | `viewer_access`、`stale_selection_ui`、`branch_freeze_ui`：旧版只读、查看者、执行冻结均不能新建或发送。 |
+| 3 | `branch_freeze_ui` 未发送关闭无会话写入、无沙盒；`history_switch_live` 重开已发送会话且执行持续。 |
+| 4 | `browser_skill_mcp_corrected` 实际模型、Skill v2、MCP 运算；`shared_lifecycle` 停止 Chat 不影响 Workflow。 |
+| 5 | `browser_draft_send` 保存后绑定返回版本、双击只提交一次；`browser_draft_conflict` 409 保留草稿和正文、无 Chat 创建。 |
+| 6 | 16 类节点矩阵及 `live_canvas_follow`：真实 Terra 保存新子版本，画布和版本树无需刷新即更新，另一大版本不变。 |
+| 7 | `browser_draft_conflict` 验证并发陈旧保存拒绝、本地编辑保留；CLI 沿用预期版本校验。 |
+| 8 | `shared_lifecycle`／`shared_reverse` 验证清理 run 后聊天文件与消息仍在；Explorer 未暴露隐藏聊天文件，历史恢复通过。 |
+| 9 | `run_version_source`：当前 v1.sv2、上次执行 v1.sv1 明确分开，未增加执行；无运行样例上下文明确为空。 |
+| 10 | `major_binding`、`cross_account`、`deleted_resume`：跨大版本不串改、跨账号／租户拒绝、目标删除后 409 且不替换节点。 |
+| 11 | 最终数据库核对 53 条执行，关联版本／目标／运行来源及加密原始消息、私有输入；旧快照未随新版本改写。 |
+| 12 | 复用主 Chat 服务；`attachment_preview_ui` 从持久消息打开真实 Preview；command 自动续接及 `empty_retry_native` 分别核对多次提交。 |
+| 13 | `hot_result_mirror` 实际读取共享 run 文件及聊天标记；工作目录为当前 chats 子目录；`cross_account` 验证既有授权。 |
+| 14 | `browser_upload_resume` 上传首轮失败后重试、热沙盒立即读取；同名文件采用不同附件路径，未发送选择附件不启动沙盒。 |
+| 15 | `shared_lifecycle`、`run_first_approval`、`concurrent_first_start` 覆盖两种启动顺序和同时首次启动；`shared_reverse` 验证反向停止独立。 |
+| 16 | 上述共享执行记录、人工审批及 `native_ttl`：活动／排队时不回收，最后活动结束才重新计 TTL。 |
+| 17 | `native_ttl` 覆盖 acquire／sweep 两种先后顺序及重建文件；`persistence_failure` 验证写回失败保留现场，恢复权限后成功持久化、重新读取。 |
+| 18 | `history_switch_live` 核对同 Workflow 跨大版本会话、初始版本和时间；`context_title_live` 确认续聊标题更新但初始绑定不变。 |
+| 19 | 同一 chat_id 续聊最新子版本；`history_switch_live` 在活动流中切换历史不串消息，切回显示完整结果。 |
+| 20 | `browser_upload_resume` 覆盖执行中刷新、断网恢复、切换返回且无重复 POST；历史加载三个锚点位移 0px；失效选择、权限撤销均有明确状态。 |
+
+连线模型核对：当前普通边由 `children` 投影为 `source->target`，同一对节点只存在一条可编辑连接，并没有“同一两端、不同业务端口”的独立连线类型。条件节点的不同子节点分支已逐条验收；循环配对装饰线不能当作普通边发起对话。上下文保留可用 handle 信息；不宣称已经在不存在的多端口画布上实测。将来扩展边模型时，仍须遵守本文不混淆具体连接的约束。
+
+最终标题补验：同一 Code 会话从 `[v1.sv1] calculate` 续聊后更新为 `[v1.sv7] calculate`，浏览器无需刷新，初始绑定保持不变；两条条件边分别显示 `score_router → __end__ (node_3)` 与 `score_router → __end__ (node_5)`，服务端持久标题一致。两轮 Agent 均未修改或运行图。相关前端 10 项、后端 25 项测试通过，生产构建及部署路径检查通过。
+
+验收边界：真实模型样例不是首次全成功率保证，早期错误和纠正过程保留；短暂授权数据库超时的重试属于缓解，不宣称根因消除。空完成是原生服务链路的协议故障注入；TTL 边界使用独立 manager 的 6 秒配置，未改线上默认 TTL。浏览器覆盖 Chromium 和触摸模拟，不声称完成实体 Safari 验收。没有进行压测。

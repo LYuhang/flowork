@@ -18,6 +18,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
@@ -126,7 +127,7 @@ from ..services.agent_runtime.mcp_host_resolution import (
 from ..services.agent_runtime.instructions import command_instructions_for_modes
 from ..services.workflow_chat_context import (
     WorkflowChatBinding, WorkflowContextError, resolve_workflow_chat_context,
-    resolve_workflow_run_context,
+    resolve_workflow_run_context, workflow_chat_title,
 )
 from ..services.agent_runtime.history_recovery import (
     build_durable_history_snapshot,
@@ -503,14 +504,7 @@ async def create_chat_session(
                 )
             except WorkflowContextError as exc:
                 raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
-            target = workflow_binding.target
-            label = "Workflow"
-            if target.kind == "node":
-                node = context["nodes"][target.node_id]
-                label = str(node.get("node_name") or target.node_id)
-            elif target.kind == "edge":
-                label = f"{target.source} → {target.target}"
-            name = f"[{context['version']}] {label}"[:120]
+            name = workflow_chat_title(context)
         project = await project_repo.for_workflow(scope_id)
         project_id = project.project_id
     else:
@@ -3714,6 +3708,15 @@ async def post_message(
                 "X-Turn-Id": reserved_run.run_id,
             },
         )
+
+    if workflow_context_snapshot is not None:
+        # A successful new submission confirms a fresh context. Keep custom
+        # titles, immutable initial bindings and old input snapshots intact.
+        current_title = next((item.get("chat_context", "") for item in sessions
+                              if item["chat_id"] == chat_id), "")
+        if re.match(r"^\[v[1-9]\d*\.sv\d+\]", current_title):
+            await chat_repo.rename_session(scope_id, chat_id,
+                                           workflow_chat_title(workflow_context_snapshot))
 
     # Only an accepted, newly reserved Turn may advance the Chat's Resume
     # selection. An active-run rejection or an idempotent POST replay must not

@@ -42,6 +42,7 @@ function Launcher() {
     <button disabled={!reference?.enabled} onClick={() => void reference?.add({ kind: 'node', node_id: 'code' })}>Reference node</button>
     <button disabled={!reference?.enabled} onClick={() => void reference?.add({ kind: 'workflow' })}>Reference workflow</button>
     <button onClick={() => open?.({ kind: 'node', node_id: 'code' }, { x: 50, y: 80 })}>Node context</button>
+    <button onClick={() => open?.({ kind: 'edge', source: 'code', target: 'end' }, { x: 50, y: 80 })}>Edge context</button>
     <div className="react-flow__pane" data-testid="canvas" />
   </>;
 }
@@ -64,6 +65,17 @@ beforeEach(() => {
 });
 
 describe('Workflow contextual conversation lifecycle', () => {
+  it('names a draft edge with readable endpoints and disambiguates duplicate names', () => {
+    useWorkflowEditStore.getState().setDraft({
+      code: { node_id: 'code', node_type: 'CodeNode', node_name: 'Result', children: ['end'] },
+      end: { node_id: 'end', node_type: 'EndNode', node_name: 'Result', children: [] },
+    }, 'v2.sv3');
+    mount();
+    fireEvent.click(screen.getByText('Edge context'));
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('[v2.sv3] Edge Result (code) → Result (end)');
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it('does not capture portalled history clicks as a panel drag', () => {
     mount();
     fireEvent.click(screen.getByText('Node context'));

@@ -16,6 +16,26 @@ from .agent_runtime.protocol import RuntimeInstruction
 from .chat_workspace import chat_working_directory
 
 
+def workflow_chat_title(context: dict) -> str:
+    """Name the accepted context; stable target IDs stay in its binding."""
+    nodes = context.get("nodes", {})
+
+    def node_label(node_id: str) -> str:
+        name = str((nodes.get(node_id) or {}).get("node_name") or node_id)
+        # Distinct output nodes can share a conventional name such as __end__.
+        if sum(node.get("node_name") == name for node in nodes.values()) > 1:
+            return f"{name} ({node_id})"
+        return name
+
+    target = context["target"]
+    label = "Workflow"
+    if target["kind"] == "node":
+        label = node_label(target["node_id"])
+    elif target["kind"] == "edge":
+        label = f"{node_label(target['source'])} → {node_label(target['target'])}"
+    return f"[{context['version']}] {label}"[:120]
+
+
 class WorkflowChatTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

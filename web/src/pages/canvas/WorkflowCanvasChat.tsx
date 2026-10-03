@@ -23,7 +23,7 @@ import { standalonePreviewHref } from '@/lib/preview/standalone-preview';
 import type { components } from '@/lib/api/schema';
 
 type Binding = components['schemas']['WorkflowChatBinding'];
-type Draft = { chatId: string; binding: Binding; nodeName?: string };
+type Draft = { chatId: string; binding: Binding; targetName?: string };
 
 function rememberedChat(key: string): string | null {
   try { return window.sessionStorage.getItem(key); } catch { return null; }
@@ -95,10 +95,18 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
     const version = useWorkflowEditStore.getState().baseVersion?.match(/^v(\d+)\.sv(\d+)$/);
     if (!version) return;
     const chatId = crypto.randomUUID();
-    const node = target.kind === 'node' && target.node_id ? useWorkflowEditStore.getState().draft?.[target.node_id] : null;
-    const nodeName = node && typeof node === 'object' && 'node_name' in node && typeof node.node_name === 'string'
-      ? node.node_name : undefined;
-    setDraft({ chatId, nodeName, binding: { workflow_id: wfId, major_version: Number(version[1]),
+    const graph = useWorkflowEditStore.getState().draft;
+    const nodeLabel = (id: string) => {
+      const node = graph?.[id];
+      const name = node && typeof node === 'object' && 'node_name' in node && typeof node.node_name === 'string'
+        ? node.node_name || id : id;
+      const duplicates = Object.values(graph ?? {}).filter(value => value && typeof value === 'object'
+        && 'node_name' in value && value.node_name === name).length;
+      return duplicates > 1 ? `${name} (${id})` : name;
+    };
+    const targetName = target.kind === 'node' && target.node_id ? nodeLabel(target.node_id)
+      : target.kind === 'edge' && target.source && target.target ? `${nodeLabel(target.source)} → ${nodeLabel(target.target)}` : undefined;
+    setDraft({ chatId, targetName, binding: { workflow_id: wfId, major_version: Number(version[1]),
       initial_subversion: Number(version[2]), target } });
     setCreated(null);
     setSelectedId(chatId);
@@ -182,8 +190,8 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
 
   const target = binding?.target;
   const version = binding ? `v${binding.major_version}.sv${binding.initial_subversion}` : '';
-  const targetLabel = target?.kind === 'node' ? `${t('canvasChat.node')} ${draft?.nodeName || target.node_id}`
-    : target?.kind === 'edge' ? `${t('canvasChat.edge')} ${target.source} → ${target.target}`
+  const targetLabel = target?.kind === 'node' ? `${t('canvasChat.node')} ${draft?.targetName || target.node_id}`
+    : target?.kind === 'edge' ? `${t('canvasChat.edge')} ${draft?.targetName || `${target.source} → ${target.target}`}`
       : t('canvasChat.global');
   const sameMajor = currentBaseVersion?.startsWith(`v${binding?.major_version}.sv`);
   const title = selected?.chat_context || (binding ? `[${version}] ${targetLabel}` : t('chat_history', 'Chat History'));

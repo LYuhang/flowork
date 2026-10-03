@@ -173,7 +173,12 @@ async def operate_workflow(ctx, arguments: dict) -> dict:
             try:
                 graph = apply_operation(graph, operation)
             except ToolError as exc:
-                failure = {**error(str(exc), f"{exc.message} No operations were saved.", "Fix the failed operation and resubmit the entire group."),
+                hint = "Fix the failed operation and resubmit the entire group."
+                if operation["op"] == "node_add" and str(exc) == "node_not_found":
+                    hint = ("A child referenced by the new node does not exist yet. Add new nodes with children: [], "
+                            "then add their edges after all endpoints exist, in the same atomic group. "
+                            "Resubmit the entire group; nothing was saved.")
+                failure = {**error(str(exc), f"{exc.message} No operations were saved.", hint),
                            "failed_index": index, "failed_operation": operation["op"]}
                 results.append({"index": index, "op": operation["op"], "status": "failed",
                                 "error": str(exc), "message": exc.message})

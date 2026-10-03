@@ -18,7 +18,7 @@ and selected object, use that binding directly. Do not list all workflows or
 inspect every major just to rediscover an explicit target. Outside such a bound
 canvas, use list/get/version list only when the requested target or branch is
 unknown. Create only when the user needs a new Workflow. Pass the ID explicitly on every resource command and --major vN on
-graph commands; there is no connect, status or version set. Keep that explicit
+commands that read or edit a saved graph. `get-spec` is a global node-type catalog: pass only `--type` or `--list-types`, without Workflow ID or major. There is no connect, status or version set. Keep that explicit
 target consistent through download, config, editing, check and run. Use update
 for names/descriptions/tags rather than rewriting the graph.
 
@@ -66,7 +66,8 @@ and graph validation alone do not prove a human approval run completed.
 ### 3. Choose one editing path
 
 - Small saved changes: use `flowork-cli workflow operation`. Add nodes before
-  wiring their edges. The entire group is atomic: on a business error nothing
+  wiring their edges: create new nodes with children: [], then add all edges
+  once the endpoints exist, within the same group. The entire group is atomic: on a business error nothing
   is saved. Fix the failed operation and resubmit the entire group. Incomplete
   drafts are allowed. Prefer file-valued edits for
   long code or prompts, avoiding fragile shell quoting. CodeNode source lives

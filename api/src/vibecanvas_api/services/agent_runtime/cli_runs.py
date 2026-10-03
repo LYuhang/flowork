@@ -96,6 +96,7 @@ class Run:
     pool_used: bool = False
     pool_close_task: asyncio.Task | None = None
     durable_lease: bool = False
+    lease_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     capacity: int = 1
 
     async def emit(self, **event):
@@ -151,6 +152,7 @@ async def _execute_one(run: Run, workflow: dict, row: dict, index: int, code_pyt
         tenant_id=ctx.tenant_id, source_type="workflow", source_id=run.workflow_id,
         user_id=ctx.username, workflow_id=run.workflow_id, workflow=workflow, inputs=row, node_id=node_id,
         input_index=index if run.operation == "workflow.run-batch" else None,
+        workflow_version=run.reference.get("version") if run.reference.get("source") == "saved" and not node_id else None,
     )
     subpath = f"cli/{run.run_id}/{index}"
     run.active[job_id] = subpath
@@ -237,12 +239,17 @@ async def _work(run: Run, arguments: dict):
             execution_resource_type=ResourceType.AGENT_RUN.value,
         )
         iterator = iter(enumerate(rows))
+        failed_node_types: set[str] = set()
 
         async def worker():
             for index, row in iterator:
                 if run.stopping:
                     return
                 record = await _execute_one(run, workflow, row, index, code_pythonpath, resources)
+                for failed_node_id in record["errors"]:
+                    node_type = workflow.get(failed_node_id, {}).get("node_type")
+                    if node_type:
+                        failed_node_types.add(node_type)
                 run.completed += 1
                 run.failed += int(record["status"] == "error")
                 if run.operation == "workflow.run-batch":
@@ -253,8 +260,8 @@ async def _work(run: Run, arguments: dict):
                     await run.emit(status="running", total=1, completed=1, failed=run.failed,
                                    execution_id=record["execution_id"], execution_url=record["execution_url"],
                                    result={"run_id": run.run_id, **run.reference, **record},
-                                   **({"errors": record["errors"], "message": "The selected node failed. Inspect errors and the result file before retrying."}
-                                      if run.reference.get("node_id") and record["errors"] else {}))
+                                   **({"errors": record["errors"], "message": "Node execution failed. Inspect the original errors and actual node inputs/outputs; read the failing node type definition with workflow get-spec before fixing it."}
+                                      if record["errors"] else {}))
 
         for _ in range(min(run.capacity, len(rows))):
             workers.append(asyncio.create_task(worker()))
@@ -262,8 +269,19 @@ async def _work(run: Run, arguments: dict):
         if not await _close_pool(run):
             raise ToolError("pool_close_unconfirmed", "The execution finished, but its worker pool shutdown could not be confirmed.")
         await run.session.writeback_vfs()
+        failure_guidance = {}
+        if run.failed:
+            specs = "; ".join(
+                f"flowork-cli workflow get-spec --type {node_type}"
+                for node_type in sorted(failed_node_types)
+            ) or "flowork-cli workflow get-spec --type <failing_node_type>"
+            failure_guidance = {
+                "hint": "Inspect the original node errors and actual inputs/outputs in the result file. "
+                        f"Read the corresponding node definitions before correcting configuration or code: {specs}",
+            }
         await run.emit(status="completed_with_errors" if run.failed else "completed", total=run.total,
-                       completed=run.completed, failed=run.failed, terminal=True, exit_code=1 if run.failed else 0)
+                       completed=run.completed, failed=run.failed, terminal=True, exit_code=1 if run.failed else 0,
+                       **failure_guidance)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -289,9 +307,13 @@ async def _work(run: Run, arguments: dict):
                 worker_task.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
         await _close_pool(run)
-        if run.durable_lease and run.cancellation_confirmed:
-            await cli_run_lease.release(run.capability.tenant_id, run.run_id)
-            run.durable_lease = False
+        # Polls may still be draining queued results after the worker exits.
+        # Serialize release with renewal so our own deletion cannot look like
+        # an expired ownership lease and mask the actual execution result.
+        async with run.lease_lock:
+            if run.durable_lease and run.cancellation_confirmed:
+                await cli_run_lease.release(run.capability.tenant_id, run.run_id)
+                run.durable_lease = False
 
 
 async def _stop(key: tuple):
@@ -352,11 +374,11 @@ async def command(capability, operation: str, arguments: dict) -> dict:
     if run.pending is not None and ack == run.sequence:
         run.pending = None
     run.lease = monotonic()
-    if run.durable_lease:
-        renewed = await cli_run_lease.renew(capability.tenant_id, run.run_id)
-        if not renewed:
-            await _stop(key)
-            return error("result_unknown", "The execution ownership lease expired.", "Inspect partial output before retrying.")
+    async with run.lease_lock:
+        renewed = (await cli_run_lease.renew(capability.tenant_id, run.run_id)) if run.durable_lease else True
+    if not renewed:
+        await _stop(key)
+        return error("result_unknown", "The execution ownership lease expired.", "Inspect partial output before retrying.")
     if run.pending is None:
         try:
             run.pending = run.queue.get_nowait()

@@ -95,10 +95,14 @@ async def test_single_node_uses_frozen_snapshot_isolated_pool_and_node_output(ex
     result = next(event["result"] for event in events if "result" in event)
     assert result["node_id"] == "node_2" and result["node_type"] == "CodeNode"
     assert result["version"] == "v1.sv8" and result["source"] == "saved"
+    assert runs.create_execution.await_args.kwargs["workflow_version"] is None
     assert result["output"] == (None if node_error else {"answer": 42})
     assert events[-1]["exit_code"] == int(node_error)
     if node_error:
         assert any(event.get("errors") == {"node_2": "Node failed."} for event in events)
+        assert "flowork-cli workflow get-spec --type CodeNode" in events[-1]["hint"]
+    else:
+        assert "hint" not in events[-1]
     assert selector.await_args.args[0] == snapshot.return_value["workflow"]
     runs.validate_workflow_for_context.assert_not_awaited()
     assert session.execute_workflow_job.await_args.kwargs["node_id"] == "node_2"
@@ -186,7 +190,8 @@ async def test_batch_freezes_selected_snapshot_and_emits_before_slowest_row(exec
 
 @pytest.mark.asyncio
 async def test_row_errors_continue_and_exit_nonzero(execution):
-    capability, session, _ = execution
+    capability, session, snapshot = execution
+    snapshot.return_value["workflow"]["node"] = {"node_type": "LoopStartNode"}
     session.execute_workflow_job.side_effect = [
         {"result": {"final_outputs": {}, "error_dict": {"node": "Invalid input."}}},
         {"result": {"final_outputs": {"__end__": "ok"}, "error_dict": {}}},
@@ -196,6 +201,7 @@ async def test_row_errors_continue_and_exit_nonzero(execution):
     events = [run.queue.get_nowait() for _ in range(run.queue.qsize())]
     assert [event["record"]["status"] for event in events if "record" in event] == ["error", "success"]
     assert events[-1]["completed"] == 2 and events[-1]["failed"] == 1 and events[-1]["exit_code"] == 1
+    assert "flowork-cli workflow get-spec --type LoopStartNode" in events[-1]["hint"]
 
 
 @pytest.mark.asyncio
@@ -341,3 +347,74 @@ def test_invalid_batch_tables_rejected_before_execution(rows):
 def test_large_concurrency_is_not_arbitrarily_capped():
     arguments = batch_arguments([], concurrency=10000)
     assert cli.validate_arguments("workflow.run-batch", arguments)["concurrency"] == 10000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('node_error', [False, True])
+async def test_result_poll_during_lease_release_keeps_real_result(execution, monkeypatch, node_error):
+    capability, session, _ = execution
+    if node_error:
+        session.execute_workflow_job.return_value = {'result': {
+            'final_outputs': {}, 'error_dict': {'node_7': "Missing output key 'doubled'"},
+        }}
+    releasing, finish_release = asyncio.Event(), asyncio.Event()
+
+    async def release(*args):
+        releasing.set()
+        await finish_release.wait()
+
+    monkeypatch.setattr(runs.cli_run_lease, 'release', release)
+    # Reproduce a poll arriving after DELETE but before _work clears the flag.
+    renew = AsyncMock(return_value=False)
+    monkeypatch.setattr(runs.cli_run_lease, 'renew', renew)
+    stop = AsyncMock()
+    monkeypatch.setattr(runs, '_stop', stop)
+    run = runs.Run(capability, 'release-race', 'workflow.run', asyncio.Queue(8))
+    key = (*runs._scope(capability), run.run_id)
+    runs._runs[key] = run
+    work = asyncio.create_task(runs._work(run, {'workflow_id': 'workflow', 'major': 'v1', 'inputs': {}}))
+    poll = None
+    try:
+        await asyncio.wait_for(releasing.wait(), 5)
+        poll = asyncio.create_task(runs.command(capability, 'workflow.run.poll', {'run_id': run.run_id, 'ack': 0}))
+        await asyncio.sleep(0)
+        renew.assert_not_awaited()
+        assert not poll.done()
+        finish_release.set()
+        await asyncio.wait_for(work, 5)
+        first = await asyncio.wait_for(poll, 5)
+        assert 'error' not in first
+        events = [first['event']]
+        ack = first['sequence']
+        while not events[-1].get('terminal'):
+            response = await runs.command(capability, 'workflow.run.poll', {'run_id': run.run_id, 'ack': ack})
+            ack = response['sequence']
+            events.append(response['event'])
+        result = next(event['result'] for event in events if 'result' in event)
+        assert bool(result['errors']) is node_error
+        assert events[-1]['exit_code'] == int(node_error)
+        assert runs.create_execution.await_args.kwargs['workflow_version'] == 'v1.sv8'
+        stop.assert_not_awaited()
+        renew.assert_not_awaited()
+    finally:
+        finish_release.set()
+        await asyncio.gather(work, *([poll] if poll else []), return_exceptions=True)
+        runs._runs.pop(key, None)
+
+
+@pytest.mark.asyncio
+async def test_real_durable_lease_loss_still_stops_execution(execution, monkeypatch):
+    capability, _, _ = execution
+    run = runs.Run(capability, 'expired-lease', 'workflow.run', asyncio.Queue(8))
+    run.durable_lease = True
+    key = (*runs._scope(capability), run.run_id)
+    runs._runs[key] = run
+    monkeypatch.setattr(runs.cli_run_lease, 'renew', AsyncMock(return_value=False))
+    stop = AsyncMock()
+    monkeypatch.setattr(runs, '_stop', stop)
+    try:
+        result = await runs.command(capability, 'workflow.run.poll', {'run_id': run.run_id, 'ack': 0})
+        assert result['error'] == 'result_unknown'
+        stop.assert_awaited_once_with(key)
+    finally:
+        runs._runs.pop(key, None)

@@ -169,3 +169,17 @@ async def test_retry_whole_group_after_failure_saves_once_and_allows_incomplete_
     assert saved["p"]["node_config"] == {}  # Missing required prompt config remains a valid draft edit.
     assert saved["p"]["children"] == ["b"]
     assert saved["p"]["node_description"] == "Unfinished draft"
+
+
+@pytest.mark.asyncio
+async def test_forward_child_reference_explains_atomic_construction_order(service):
+    ctx, _, repo, _, _ = service
+    result = await ops.operate_workflow(ctx, {'workflow_id': 'wf', 'major': 'v2', 'operations': [
+        {'op': 'node_add', 'node': {'node_id': 'node_4', 'node_type': 'CodeNode', 'children': ['node_5']}},
+        {'op': 'node_add', 'node': {'node_id': 'node_5', 'node_type': 'EndNode'}},
+    ]})
+    assert result['error'] == 'node_not_found'
+    assert result['applied'] == 0
+    assert 'children: []' in result['hint']
+    assert 'same atomic group' in result['hint']
+    repo.commit.assert_not_awaited()

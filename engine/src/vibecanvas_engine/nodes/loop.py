@@ -77,6 +77,7 @@ class LoopBeginNode(BaseNode):
             "Loop control uses init_value, end_value, and step_value. If init_value.reference or end_value.reference is non-empty, that reference overrides the static value.",
             "The loop runs while i < end_value, then increments i by step_value after each completed iteration; step_value must be >= 1.",
             "output_fields must be exactly loop_output (array) and i (integer).",
+            "Each loop_output item maps body node_name to that node's output object, not directly to output fields. Example: [{'multiply_item': {'doubled': 2}}, {'multiply_item': {'doubled': 4}}]. Extract results with [iteration['multiply_item']['doubled'] for iteration in loop_output]; iteration['doubled'] is incorrect. Inspect the actual loop_output before choosing a path.",
             "loop_output contains completed iteration snapshots only. During the current iteration, read current values from the body node outputs; the current iteration is appended to loop_output only when LoopEndNode is reached.",
             "When drafting, create the pair first, use loop_end_node_id=null only while the LoopEndNode is missing, then fill both pair pointers after the target nodes exist."
         ],

@@ -171,6 +171,7 @@ async def run_bounded_agent(
 ) -> SubAgentResult:
     """Run a stateless, bounded workflow worker to a structured result."""
     from langchain.agents import create_agent
+    from langchain.agents.middleware import AgentMiddleware
     from langgraph.errors import GraphRecursionError
     from vibecanvas_api.agents.tools.subagent.images import ToolImageMessages
 
@@ -188,13 +189,21 @@ async def run_bounded_agent(
             error="cancelled",
         )
 
+    class RequiredWorkflowToolCall(AgentMiddleware):
+        async def awrap_model_call(self, request, handler):
+            # Every successful node must submit its declared fields through
+            # set_output. A free-text final answer cannot satisfy that contract.
+            # Require a tool call while preserving the model's choice of which
+            # tool to use for intermediate work.
+            return await handler(request.override(tool_choice="required"))
+
     holder: dict[str, dict] = {}
     output_tool = _make_output_tool(output_fields, holder)
     agent = create_agent(
         model=model,
         tools=[*tools, output_tool],
         context_schema=AgentContext,
-        middleware=[ToolImageMessages()],
+        middleware=[ToolImageMessages(), RequiredWorkflowToolCall()],
     )
     messages = [
         {"role": "system", "content": _system_message(system_prompt, output_fields, output_tool.name)},
@@ -250,4 +259,6 @@ async def run_bounded_agent(
         output=coerce_to_fields({}, output_fields),
         trace=trace,
         messages=chatml_messages(list(result.get("messages") or [])),
+        error="The model ended without submitting the required set_output tool. "
+              "Inspect the node trace and use a model that supports required tool calls.",
     )

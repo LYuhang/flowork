@@ -45,6 +45,7 @@ async def test_real_agent_image_tool_reaches_chat_request_without_text_base64(mo
     async def reply(request):
         payload = json.loads(request.content)
         requests.append(payload)
+        assert payload["tool_choice"] == "required"
         if len(requests) == 1:
             name, args = "read_images", {"paths": [str(path)]}
         else:

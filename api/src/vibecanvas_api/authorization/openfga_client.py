@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+import structlog
 
 from .types import ConsistencyPreference
+
+logger = structlog.get_logger(__name__)
 
 
 class OpenFgaUnavailableError(RuntimeError):
@@ -135,36 +139,51 @@ class OpenFgaHttpClient:
                 }
                 for index, (user, relation, object_) in enumerate(chunk)
             ]
-            payload = await self._request(
-                "POST",
-                f"/stores/{self.store_id}/batch-check",
-                json={
-                    "authorization_model_id": self.authorization_model_id,
-                    "checks": request_checks,
-                    "consistency": consistency.value,
-                },
-            )
-            # The server API names this map ``result`` (singular).  Client SDK
-            # examples often expose a higher-level ``results`` collection, so
-            # keep this parser pinned to the wire contract rather than an SDK
-            # projection.
-            raw_results = payload.get("result")
-            if not isinstance(raw_results, dict):
-                raise OpenFgaUnavailableError(
-                    "authorization_invalid_response"
+            # BatchCheck can return HTTP 200 while an individual check failed
+            # (for example, a transient datastore connection timeout). Retry
+            # the complete read-only chunk once; never reuse partial grants.
+            for attempt in range(2):
+                payload = await self._request(
+                    "POST",
+                    f"/stores/{self.store_id}/batch-check",
+                    json={
+                        "authorization_model_id": self.authorization_model_id,
+                        "checks": request_checks,
+                        "consistency": consistency.value,
+                    },
                 )
-            for index in range(offset, offset + len(chunk)):
-                item = raw_results.get(str(index))
-                if not isinstance(item, dict) or "error" in item:
-                    raise OpenFgaUnavailableError(
-                        "authorization_check_failed"
-                    )
-                allowed = item.get("allowed")
-                if not isinstance(allowed, bool):
-                    raise OpenFgaUnavailableError(
-                        "authorization_invalid_response"
-                    )
-                result.append(allowed)
+                raw_results = payload.get("result")
+                if not isinstance(raw_results, dict):
+                    raise OpenFgaUnavailableError("authorization_invalid_response")
+                items = [raw_results.get(str(index))
+                         for index in range(offset, offset + len(chunk))]
+                retryable = False
+                for item in items:
+                    if not isinstance(item, dict):
+                        raise OpenFgaUnavailableError("authorization_check_failed")
+                    if "error" in item:
+                        failure = item["error"]
+                        if (not isinstance(failure, dict)
+                                or failure.get("internal_error") != "internal_error"
+                                or failure.get("input_error")):
+                            raise OpenFgaUnavailableError("authorization_check_failed")
+                        retryable = True
+                    elif not isinstance(item.get("allowed"), bool):
+                        raise OpenFgaUnavailableError("authorization_invalid_response")
+                if retryable:
+                    # No provider message, tuple, user, token or raw response:
+                    # datastore errors can contain private connection details.
+                    logger.warning("openfga_batch_check_transient_failure",
+                                   attempt=attempt + 1, will_retry=attempt == 0,
+                                   reason_code="authorization_check_internal_error")
+                    if attempt == 0:
+                        await asyncio.sleep(0.05)
+                        continue
+                    raise OpenFgaUnavailableError("authorization_check_failed")
+                if attempt:
+                    logger.info("openfga_batch_check_recovered", attempts=attempt + 1)
+                result.extend(item["allowed"] for item in items)
+                break
         return tuple(result)
 
     async def list_objects(

@@ -21,7 +21,15 @@ _CREDENTIAL_FILE_HELP = (
     "Content-Type: application/json; do not wrap it in an inputs property. "
     "For example, --inputs '{\"batch_id\":\"example\",\"orders\":[]}' becomes "
     "the HTTP body {\"batch_id\":\"example\",\"orders\":[]}. "
-    "The response contains final EndNode business values directly in outputs."
+    "The response contains final EndNode business values directly in outputs. "
+    "For webhook POST, encode the JSON body once as UTF-8 bytes. Set "
+    "X-Vibecanvas-Timestamp to current Unix seconds and X-Vibecanvas-Signature "
+    "to sha256= followed by the hex HMAC-SHA256 using hmac_secret over "
+    "timestamp.encode() + b\".\" + body_bytes. Send those exact body bytes, "
+    "not re-serialized JSON. Timestamps must be within 300 seconds. "
+    "For result GET, sign timestamp + \".GET \" + the canonical result_url path "
+    "returned in the ticket, without any reverse-proxy prefix; use the same headers. "
+    "Never print credentials or signatures. Poll the existing ticket instead of resubmitting."
 )
 
 
@@ -35,7 +43,7 @@ def add_parser(groups):
     listing.add_argument("--limit", type=int, default=20)
     listing.add_argument("--offset", type=int, default=0)
     for action, description in {
-        "info": "Read deployment configuration, enabled status and public endpoint. Never returns credentials or proves execution health. " + _CREDENTIAL_FILE_HELP,
+        "info": "Read deployment configuration, desired_version, active_version, rollout_status, rollout_error and public endpoint. active_version_known=false means this response has no runtime observation. Never returns credentials or proves execution health. " + _CREDENTIAL_FILE_HELP,
         "status": "Read exactly one invocation status, timestamps and error. Requires --execution_id from run/history; never selects the latest implicitly.",
         "logs": "Read one invocation workflow event log, oldest first. Requires --execution_id. Use --after CURSOR for the next page. These are persisted workflow events, not sandbox stdout. Older invocations may have no recorded trace; logs_available reports this explicitly.",
         "enable": "Enable future calls after approval; does not execute the Workflow.",
@@ -45,7 +53,7 @@ def add_parser(groups):
         "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url after human approval is reached or the observation wait expires. The admitted execution continues independently. Inspect that execution through status or its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
         "history": "List invocation history newest first. Use next_cursor as --after. Exports default to the last seven days; override with --from/--to. --output_dir exports invocations.jsonl and history.json with paging metadata to a NEW directory. Use status/logs --execution_id for one invocation.",
         "create": "Create an enabled deployment by default; does not execute. Required --version selects a fixed saved snapshot. --secret_file is a NEW sandbox file for the one-time API key/webhook secret (0600); stdout never prints it. After an unknown result inspect list before retrying. --slug defaults to the lowercased name with non-ASCII/alphanumeric groups replaced by hyphens (fallback deployment); collisions are errors.",
-        "update": "Update ONLY supplied settings, not Workflow ID, trigger type or slug. Version changes and increased execution exposure may require approval. Use enable/disable for availability. Existing accepted calls retain their frozen version/mount.",
+        "update": "Update ONLY supplied settings, not Workflow ID, trigger type or slug. Version changes and increased execution exposure may require approval. Use enable/disable for availability. Existing accepted calls retain their frozen version/mount. Updating configuration is asynchronous: old active instances serve new calls until replacement is ready. Use info to check rollout_status and active_version; do not repeat update to poll.",
     }.items():
         leaf = command(actions, action, description)
         if action != "create":

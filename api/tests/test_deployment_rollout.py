@@ -236,3 +236,32 @@ async def test_slow_candidate_does_not_block_metrics_or_crash_recovery(monkeypat
         finish.set()
         await asyncio.wait_for(worker, 2)
     controller.drain.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('reason,state', [('resident sandbox capacity is full', 'waiting_capacity'),
+                                          ('broken runtime', 'failed')])
+async def test_active_recovery_backs_off_and_preserves_revision(pg_engine, app_engine, monkeypatch, reason, state):
+    controller, dep, spec = await setup_rollout(pg_engine, app_engine)
+    clock = [100.0]
+    monkeypatch.setattr('vibecanvas_api.services.deployment_rollout.time.monotonic', lambda: clock[0])
+    prepare = controller.manager.deployments.prepare
+    prepare.side_effect = RuntimeError(reason)
+    await controller.reconcile(dep)
+    await controller.reconcile(dep)
+    assert prepare.await_count == 1
+    clock[0] = 105.0
+    await controller.reconcile(dep)
+    assert prepare.await_count == 2
+    clock[0] = 110.0
+    await controller.reconcile(dep)
+    assert prepare.await_count == 2
+    async with short_session_scope(tenant_id=str(dep['tenant_id'])) as db:
+        row = (await db.execute(text('SELECT active_revision_id,rollout_status FROM deployments WHERE id=:id'), {'id': dep['id']})).one()
+    assert row == (dep['active_revision_id'], state)
+    prepare.side_effect = None
+    clock[0] = 115.0
+    await controller.reconcile(dep)
+    assert str(dep['active_revision_id']) not in controller.retry_after
+    async with short_session_scope(tenant_id=str(dep['tenant_id'])) as db:
+        assert (await db.execute(text('SELECT rollout_status FROM deployments WHERE id=:id'), {'id': dep['id']})).scalar_one() == 'ready'

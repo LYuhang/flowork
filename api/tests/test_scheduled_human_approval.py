@@ -145,6 +145,7 @@ async def test_scheduled_review_waits_skips_overlap_and_persists_result(pg_engin
                     await run
                     pytest.fail("scheduled worker ended before approval")
                 await asyncio.sleep(0.05)
+        assert manager.get_session.call_args.kwargs["lease"] == "resident"
         assert detail["source_type"] == "task" and detail["source_id"] == str(task_id)
         assert detail["initiator_user_id"] == str(actor)
         async with session_scope(tenant_id=str(tenant)) as db:

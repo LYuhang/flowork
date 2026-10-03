@@ -1061,3 +1061,21 @@ async def test_idle_sweep_maintains_resident_skill_views_without_touching_activi
     assert await manager.sweep_idle() == 0
     session.maintain_workflow_skills.assert_awaited_once()
     assert session.last_used == last_used
+
+
+@pytest.mark.asyncio
+async def test_execution_lease_prevents_eviction_between_rpc_calls():
+    manager = SandboxManager(max_resident=1, idle_ttl_s=600)
+    protected = SandboxSession(tenant_id='tenant', wf_id='schedule', run_dir=None,
+        overlay_dir=None, provider=MagicMock(), base_binds=[], expose_run=True)
+    protected.lease = 'resident'
+    protected.close = AsyncMock()
+    manager._sessions[('tenant', 'schedule')] = protected
+    manager._build_session = AsyncMock()
+    with pytest.raises(RuntimeError, match='capacity is full'):
+        await manager.get_session('tenant', 'deployment')
+    assert await manager.get_loaded_session('tenant', 'schedule') is protected
+    protected.close.assert_not_awaited()
+    manager._build_session.assert_not_awaited()
+    await manager.close_session('tenant', 'schedule')
+    assert await manager.get_loaded_session('tenant', 'schedule') is None

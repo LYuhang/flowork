@@ -59,7 +59,22 @@ def deployment_status(dep):
     result["endpoint"] = config.public_urls.absolute(path) if config.public_urls.public_url else None
     result["endpoint_path"] = path
     result["message"] = "The deployment is enabled. This does not confirm successful execution." if dep["enabled"] else "The deployment is disabled for new calls. In-flight side effects are not undone."
-    result["hint"] = f"flowork-cli deployment history --deployment_id {dep['id']}"
+    result["desired_version"] = result.get("version")
+    result["rollout_status"] = dep.get("rollout_status", "unknown")
+    result["rollout_error"] = dep.get("rollout_error")
+    runtime = dep.get("runtime")
+    result["active_version"] = None
+    if isinstance(runtime, dict):
+        active = next((item for item in runtime.get("instances", [])
+                       if item.get("state") == "active"
+                       and str(item.get("id")) == str(dep.get("active_revision_id"))), None)
+        result["active_version"] = active.get("version") if active else None
+    result["active_version_known"] = isinstance(runtime, dict)
+    if dep["enabled"]:
+        result["message"] += " version/desired_version describe saved configuration, not completed rollout."
+        if result["rollout_status"] != "ready":
+            result["message"] += " Rollout is not ready; an existing active version may still serve new calls."
+    result["hint"] = f"flowork-cli deployment info --deployment_id {dep['id']}"
     if result["endpoint"] is None:
         result["message"] += " The public URL is not configured; ask the operator to set VIBECANVAS_PUBLIC_URL."
     return result

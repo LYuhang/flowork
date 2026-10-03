@@ -239,3 +239,23 @@ def test_null_error_does_not_fail_successful_or_accepted_run(monkeypatch, capsys
     result = json.loads(capsys.readouterr().out)
     assert result["command_status"] == "succeeded" and result["event"] == "result"
     assert result["execution_status"] == state
+
+
+def test_info_distinguishes_desired_and_active_version_without_runtime_secrets():
+    from vibecanvas_api.services.agent_runtime.cli_deployments import deployment_status
+    dep = dict(id='dep', name='Demo', wf_id='wf', trigger_type='api', enabled=True,
+               slug='demo', rate_limit_qps=10, version_pin='specific', pinned_major=1,
+               pinned_sub=2, rollout_status='preparing', rollout_error=None,
+               active_revision_id='old', runtime={'instances': [
+                   {'id': 'old', 'state': 'active', 'version': 'v1.sv1', 'secret': 'never expose'},
+                   {'id': 'new', 'state': 'preparing', 'version': 'v1.sv2'}]})
+    result = deployment_status(dep)
+    assert result['desired_version'] == 'v1.sv2'
+    assert result['active_version'] == 'v1.sv1'
+    assert result['active_version_known'] is True
+    assert result['rollout_status'] == 'preparing'
+    assert 'never expose' not in str(result)
+    dep.pop('runtime')
+    result = deployment_status(dep)
+    assert result['active_version'] is None
+    assert result['active_version_known'] is False

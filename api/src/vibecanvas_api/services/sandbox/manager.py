@@ -3549,7 +3549,9 @@ class SandboxManager:
                     and _session_inflight_operations(s) == 0
                 }
                 if not candidates:
-                    raise RuntimeError("resident sandbox capacity is full")
+                    raise RuntimeError("resident sandbox capacity is full; no execution slot is available. "
+                                       "Wait for running work to finish or ask the operator to review capacity. "
+                                       "Workflow execution has not started in this sandbox.")
                 victim_key = min(
                     candidates,
                     key=lambda k: candidates[k].last_used,

@@ -58,7 +58,7 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
     await worker._execute_scheduled_run(task_id=task_id, schedule_id=schedule_id,
         execution_id=execution_id, tenant_id=str(tenant), user_id=str(user), workflow_id="wf-original")
     manager.get_session.assert_awaited_once_with(str(tenant), scope, user_id=str(user),
-        expose_run=True, expose_mount=mount_enabled)
+        expose_run=True, expose_mount=mount_enabled, lease="resident")
     manager.close_session.assert_awaited_once_with(str(tenant), scope)
     assert updates[-1]["status"] == ("failed" if outcome in {"empty", "error"} else "succeeded")
     assert bool(updates[-1]["error"]) is (outcome in {"empty", "error"})

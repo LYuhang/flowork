@@ -114,8 +114,30 @@ class DeploymentRollouts:
         # newer desired revision is broken or there is no rolling-update slot.
         active = next((r for r in revisions if r['id'] == dep['active_revision_id']), None)
         if active:
-            await self.manager.deployments.prepare(tenant_id=tenant, revision_id=str(active['id']),
-                spec=active['spec'], workflow=await self.graph(active['spec']))
+            active_key = str(active['id'])
+            failures, retry_at = self.retry_after.get(active_key, (0, 0))
+            if time.monotonic() < retry_at:
+                return
+            try:
+                await self.manager.deployments.prepare(tenant_id=tenant, revision_id=active_key,
+                    spec=active['spec'], workflow=await self.graph(active['spec']))
+            except Exception as exc:
+                # Recovery needs the same bounded backoff as a new candidate.
+                # Otherwise broken active instances rebuild every tick and compete
+                # with task execution for the shared resident capacity.
+                self.retry_after[active_key] = (failures + 1,
+                    time.monotonic() + min(60, 5 * 2 ** min(failures, 4)))
+                code = 'waiting_capacity' if 'capacity' in str(exc).lower() else 'preparation_failed'
+                async with short_session_scope(tenant_id=tenant) as db:
+                    await db.execute(text("""UPDATE deployments
+                        SET rollout_status=:state, rollout_error=:code
+                        WHERE id=:id AND active_revision_id=:revision
+                            AND enabled AND deleted_at IS NULL"""),
+                        {'id': dep['id'], 'revision': active['id'], 'code': code,
+                         'state': 'waiting_capacity' if code == 'waiting_capacity' else 'failed'})
+                log.warning('deployment_active_not_ready', deployment_id=str(dep['id']), reason=code)
+                return
+            self.retry_after.pop(active_key, None)
         workflow = await self.graph(dep)
         spec = execution_spec(dep, workflow, str(dep['runtime_user_id']))
         already_active = active is not None and active['spec'] == spec

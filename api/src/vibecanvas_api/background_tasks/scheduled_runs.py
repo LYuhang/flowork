@@ -457,6 +457,7 @@ async def _execute_owned_scheduled_run(
             user_id=user_id,
             expose_run=True,
             expose_mount=mount_enabled,
+            lease="resident",  # Protect preparation, approval waits and RPC gaps until finally closes it.
         )
         runtime_extra = (
             await inject_into_run_context_async(

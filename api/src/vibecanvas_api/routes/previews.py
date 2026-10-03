@@ -176,16 +176,16 @@ async def _resolve_file(
     lock: bool = False,
 ) -> _ResolvedFile:
     if isinstance(file_ref, ProjectFileRefV1):
-        project_id = (await session.execute(
-            select(ChatProject.project_id).where(
+        project = (await session.execute(
+            select(ChatProject.project_id, ChatProject.workflow_id).where(
                 ChatProject.project_id == file_ref.project_id,
                 ChatProject.creator_user_id == auth.user_id,
                 ChatProject.deleted_at.is_(None),
             )
-        )).scalar_one_or_none()
-        if project_id is None:
+        )).one_or_none()
+        if project is None:
             raise HTTPException(status_code=404, detail="preview_file_not_found")
-        scope_id = project_workspace_scope_id(project_id)
+        scope_id = project_workspace_scope_id(project.project_id, workflow_id=project.workflow_id)
         query = select(VfsArtifact).where(
             VfsArtifact.scope_id == scope_id,
             VfsArtifact.path == file_ref.path,
@@ -567,16 +567,16 @@ async def _event_scope(
     *, file_ref: FileRefV1, user_id: str, session: AsyncSession
 ) -> tuple[str, str]:
     if isinstance(file_ref, ProjectFileRefV1):
-        project_id = (await session.execute(
-            select(ChatProject.project_id).where(
+        project = (await session.execute(
+            select(ChatProject.project_id, ChatProject.workflow_id).where(
                 ChatProject.project_id == file_ref.project_id,
                 ChatProject.creator_user_id == user_id,
                 ChatProject.deleted_at.is_(None),
             )
-        )).scalar_one_or_none()
-        if project_id is None:
+        )).one_or_none()
+        if project is None:
             raise HTTPException(status_code=404, detail="preview_file_not_found")
-        return "artifact", project_workspace_scope_id(project_id)
+        return "artifact", project_workspace_scope_id(project.project_id, workflow_id=project.workflow_id)
     if isinstance(file_ref, MountFileRefV1):
         return "artifact", mount_scope_id(user_id)
     return "run", file_ref.run_id

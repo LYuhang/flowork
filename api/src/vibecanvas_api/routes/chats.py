@@ -216,7 +216,7 @@ async def _chat_workspace_scope(
     inventory = await chat_repo.get_authorized_inventory(chat_id)
     if inventory is None:
         raise HTTPException(status_code=404, detail="chat_not_found")
-    return _project_workspace_scope_id(inventory["project_id"]), inventory
+    return _project_workspace_scope_id(inventory["project_id"], workflow_id=inventory.get("workflow_id")), inventory
 
 
 async def _require_project(project_repo, project_id: str | None):
@@ -570,10 +570,12 @@ async def delete_chat_project(
     project = await project_repo.get(project_id, for_update=True)
     if project is None:
         raise HTTPException(status_code=404, detail="project_not_found")
+    if project.workflow_id is not None:
+        raise HTTPException(status_code=409, detail="workflow_project_lifecycle_owned_by_workflow")
     chat_ids = await project_repo.chat_ids(project_id)
     await _require_project_workspace_idle(session, auth, chat_ids)
 
-    workspace_scope_id = _project_workspace_scope_id(project_id)
+    workspace_scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
     await get_sandbox_manager().close_session(auth.tenant_id, workspace_scope_id)
     vfs_deleted = await VfsRepo(
         session,
@@ -658,7 +660,7 @@ async def get_project_sandbox_statuses(
         project = await project_repo.get(pid)
         if project is None:
             continue
-        scope_id = _project_workspace_scope_id(pid)
+        scope_id = _project_workspace_scope_id(pid, workflow_id=project.workflow_id)
         items.append({
             "project_id": pid,
             "scope_id": scope_id,
@@ -724,7 +726,7 @@ async def get_project_workspace(
         raise HTTPException(status_code=404, detail="project_not_found")
     return {
         "project_id": project_id,
-        "workspace_scope_id": _project_workspace_scope_id(project_id),
+        "workspace_scope_id": _project_workspace_scope_id(project_id, workflow_id=project.workflow_id),
         "mount_scope_id": _mount_scope_id(auth.user_id),
     }
 
@@ -735,8 +737,8 @@ async def start_project_sandbox(
     project_repo=Depends(get_chat_project_repo),
     auth: AuthContext = Depends(current_user),
 ) -> dict:
-    await _require_project(project_repo, project_id)
-    scope_id = _project_workspace_scope_id(project_id)
+    project = await _require_project(project_repo, project_id)
+    scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
     sandbox = await get_sandbox_manager().get_session(
         auth.tenant_id, scope_id, user_id=auth.user_id, expose_run=True,
         expose_runtime=True, lease="interactive",
@@ -757,7 +759,7 @@ async def close_project_sandbox(
     if project is None:
         raise HTTPException(status_code=404, detail="project_not_found")
     await _require_project_workspace_idle(session, auth, await project_repo.chat_ids(project_id))
-    scope_id = _project_workspace_scope_id(project_id)
+    scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
     return {"project_id": project_id, "scope_id": scope_id,
             **await get_sandbox_manager().close_session(auth.tenant_id, scope_id)}
 
@@ -1068,7 +1070,7 @@ async def delete_chat_session(
             },
         )
 
-    workspace_scope_id = _project_workspace_scope_id(selected["project_id"])
+    workspace_scope_id = _project_workspace_scope_id(selected["project_id"], workflow_id=selected.get("workflow_id"))
     # Thread deletion never tears down the Project's shared process or files.
     vfs_deleted = 0
     runtime_state_deleted = False
@@ -1249,7 +1251,11 @@ def _session_to_list_item(
         chat_context=(
             session.get("chat_context", "") if can_view_content else ""
         ),
-        created_at=str(session.get("created_at", "")),
+        created_at=(
+            datetime.fromtimestamp(session["created_at"], timezone.utc).isoformat()
+            if isinstance(session.get("created_at"), (int, float))
+            else str(session.get("created_at", ""))
+        ),
         updated_at=session.get("updated_at"),
         last_message_at=session.get("last_message_at"),
         workflow_context=session.get("workflow_context") if can_view_content else None,

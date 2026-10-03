@@ -16903,6 +16903,16 @@
               }
             ],
             "title": "Project Id"
+          },
+          "workflow_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowChatBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -17033,6 +17043,38 @@
             "type": "string",
             "title": "Created At",
             "default": ""
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "last_message_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message At"
+          },
+          "workflow_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowChatBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "browser_control_status": {
             "type": "string",
@@ -25993,6 +26035,130 @@
           "tree_revision"
         ],
         "title": "WorkflowHeadOut"
+      },
+      "WorkflowChatBinding": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Workflow Id"
+          },
+          "major_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Major Version"
+          },
+          "initial_subversion": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Initial Subversion"
+          },
+          "target": {
+            "$ref": "#/components/schemas/WorkflowChatTarget"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "major_version",
+          "initial_subversion"
+        ],
+        "title": "WorkflowChatBinding",
+        "description": "Persisted in private Chat metadata; major never follows global HEAD."
+      },
+      "WorkflowChatTarget": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "workflow",
+              "node",
+              "edge"
+            ],
+            "title": "Kind",
+            "default": "workflow"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "source_handle": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Handle"
+          },
+          "target_handle": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Handle"
+          },
+          "condition_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Index"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "WorkflowChatTarget"
       }
     },
     "securitySchemes": {

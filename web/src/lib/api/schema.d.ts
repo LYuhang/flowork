@@ -5150,6 +5150,7 @@ export interface components {
         ChatCreateBody: {
             /** Project Id */
             project_id?: string | null;
+            workflow_context?: components["schemas"]["WorkflowChatBinding"] | null;
         };
         /**
          * ChatInventoryItem
@@ -5208,6 +5209,11 @@ export interface components {
              * @default
              */
             created_at: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Last Message At */
+            last_message_at?: string | null;
+            workflow_context?: components["schemas"]["WorkflowChatBinding"] | null;
             /**
              * Browser Control Status
              * @default inactive
@@ -8476,6 +8482,40 @@ export interface components {
             sub: number;
             /** Tree Revision */
             tree_revision: number;
+        };
+        /**
+         * WorkflowChatBinding
+         * @description Persisted in private Chat metadata; major never follows global HEAD.
+         */
+        WorkflowChatBinding: {
+            /** Workflow Id */
+            workflow_id: string;
+            /** Major Version */
+            major_version: number;
+            /** Initial Subversion */
+            initial_subversion: number;
+            target?: components["schemas"]["WorkflowChatTarget"];
+        };
+        /** WorkflowChatTarget */
+        WorkflowChatTarget: {
+            /**
+             * Kind
+             * @default workflow
+             * @enum {string}
+             */
+            kind: "workflow" | "node" | "edge";
+            /** Node Id */
+            node_id?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Target */
+            target?: string | null;
+            /** Source Handle */
+            source_handle?: string | null;
+            /** Target Handle */
+            target_handle?: string | null;
+            /** Condition Index */
+            condition_index?: number | null;
         };
     };
     responses: never;

@@ -35,7 +35,7 @@ vi.mock('@/lib/api/queries/chats', () => ({
   fetchChatHistory: vi.fn(),
   fetchChatHistoryPage: (...a: unknown[]) => fetchHistoryPageMock(...a),
   useChatHistory: (...a: unknown[]) => historyMock(...a),
-  useChatSessions: (...a: unknown[]) => sessionsMock(...a),
+  useChatSessions: (...a: unknown[]) => ({ refetch: vi.fn(), ...sessionsMock(...a) }),
   useCreateChatSession: () => ({
     isPending: false,
     mutateAsync: createChatMock,
@@ -995,6 +995,30 @@ describe('ChatMessageList', () => {
 describe('ChatHistoryMenu', () => {
   beforeEach(() => {
     sessionsMock.mockReset();
+  });
+
+  it('shows workflow version, target and time and resumes the original chat', async () => {
+    const refetch = vi.fn();
+    const onSelect = vi.fn();
+    sessionsMock.mockReturnValue({
+      refetch,
+      isLoading: false,
+      data: { items: [{
+        chat_id: 'workflow-chat', chat_context: 'Fix the parser',
+        created_at: '2026-10-01T10:00:00Z', last_message_at: '2026-10-02T12:00:00Z',
+        workflow_context: { workflow_id: 'wf', major_version: 2, initial_subversion: 3,
+          target: { kind: 'node', node_id: 'parser' } },
+      }] },
+    });
+    render(<ChatHistoryMenu wfId="wf" activeChatId="workflow-chat" onSelect={onSelect} />);
+    await userEvent.click(screen.getByRole('button', { name: /chat history/i }));
+    expect(refetch).toHaveBeenCalledOnce();
+    expect(screen.getByText('v2.sv3 · parser')).toBeInTheDocument();
+    const item = screen.getByRole('menuitem');
+    expect(item).toHaveAttribute('aria-current', 'true');
+    expect(item.querySelector('time')).toHaveAttribute('datetime', '2026-10-02T12:00:00Z');
+    await userEvent.click(item);
+    expect(onSelect).toHaveBeenCalledWith('workflow-chat');
   });
 
   it('empty → "No chats yet."', async () => {

@@ -1,5 +1,6 @@
 """Canvas Chat resource creation on the shared Chat HTTP/storage path."""
 import uuid
+from datetime import datetime
 
 import pytest
 
@@ -52,6 +53,19 @@ async def test_create_retry_history_metadata_and_hidden_project(client, web_cook
     assert item["workflow_context"]["initial_subversion"] == 0
     assert "Clean data" in item["chat_context"]
     assert item["created_at"] and item["updated_at"]
+    workspace = await client.get("/api/v1/chats/workspace", params={"chat_id": "canvas-history"})
+    assert workspace.status_code == 200, workspace.text
+    assert workspace.json()["workspace_scope_id"] == wf_id
+    project_workspace = await client.get(f"/api/v1/projects/{item['project_id']}/workspace")
+    assert project_workspace.status_code == 200, project_workspace.text
+    assert project_workspace.json()["workspace_scope_id"] == wf_id
+    from sqlalchemy import text
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        rows = (await session.execute(text(
+            "SELECT scope_id, path FROM vfs_artifacts WHERE path = '/chats/canvas-history/.keep'"
+        ))).all()
+        assert rows == [(wf_id, "/chats/canvas-history/.keep")]
+
     async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         await WorkflowRepo(session, me["user_id"]).commit(wf_id, graph, target_major=1)
         assert await ChatProjectRepo(session, me["user_id"]).list() == []
@@ -101,3 +115,39 @@ async def test_concurrent_canvas_chats_share_internal_project(client, web_cookie
         sessions = await ChatRepo(session, me["user_id"]).list_sessions(wf_id)
         assert len(sessions) == 3
         assert {item["workflow_context"]["target"]["node_id"] for item in sessions} == {"focus"}
+
+
+@pytest.mark.asyncio
+async def test_history_spans_major_versions_but_not_other_workflows(client, web_cookies):
+    me, headers, wf_id, graph = await setup(client)
+    other_wf = "wf-" + uuid.uuid4().hex[:12]
+    first = await client.put(f"/api/v1/chat-scopes/{wf_id}/chats/major-one",
+                             headers=headers, json=payload(wf_id))
+    assert first.status_code == 200, first.text
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        workflows = WorkflowRepo(session, me["user_id"])
+        assert await workflows.new_version(wf_id, graph) == 2
+        await workflows.create_workflow(wf_id=other_wf, name="Other", initial_workflow=graph)
+    second_payload = payload(wf_id)
+    second_payload["workflow_context"]["major_version"] = 2
+    for scope, chat, body in [(wf_id, "major-two", second_payload),
+                              (other_wf, "unrelated", payload(other_wf)),
+                              (wf_id, "unsent", second_payload)]:
+        response = await client.put(f"/api/v1/chat-scopes/{scope}/chats/{chat}", headers=headers, json=body)
+        assert response.status_code == 200, response.text
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        repo = ChatRepo(session, me["user_id"])
+        for chat in ["major-one", "major-two", "unrelated"]:
+            await repo.persist_message(chat, {"message_id": str(uuid.uuid4()), "role": "user",
+                                              "content": {"text": "Inspect this node"}})
+        # Exercise the same authorized-ID intersection used by the History API.
+        rows = await repo.list_authorized_sessions(wf_id,
+            ["major-one", "major-two", "unrelated", "unsent"], surface="chat")
+        assert {row["chat_id"] for row in rows} == {"major-one", "major-two"}
+        assert {row["workflow_context"]["major_version"] for row in rows} == {1, 2}
+        assert all(row["workflow_context"]["workflow_id"] == wf_id for row in rows)
+        assert all(datetime.fromisoformat(row["last_message_at"]) for row in rows)
+        binding = await repo.get_workflow_context("major-one")
+        assert binding["major_version"] == 1
+        assert binding["initial_subversion"] == 0
+        assert binding["target"]["node_id"] == "focus"

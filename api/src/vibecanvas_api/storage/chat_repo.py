@@ -193,7 +193,7 @@ class ChatRepo:
         self._s.add(chat)
         await self._s.flush()
         await VfsRepo(self._s, object_store=get_object_store()).upsert_artifact_bytes(
-            wf_id=project_workspace_scope_id(project_id), tenant=str(tenant_id),
+            wf_id=project_workspace_scope_id(project_id, workflow_id=project.workflow_id), tenant=str(tenant_id),
             path=f"{chat_working_directory(chat_id)}/.keep", data=b"",
             content_type="application/x-directory",
         )
@@ -278,7 +278,7 @@ class ChatRepo:
         # keys (`chat_context`/`created_at`) so callers stay frozen.
         for chat in rows:
             await self._materialize_chat_private(chat)
-        return [{"chat_id": c.chat_id, "project_id": c.project_id, "name": c.name,
+        return [{"chat_id": c.chat_id, "project_id": c.project_id, "workflow_id": c.project.workflow_id, "name": c.name,
                  "chat_context": c.name,
                  "surface": c.surface,
                  "runtime_type": c.project.runtime_type,
@@ -332,6 +332,7 @@ class ChatRepo:
             {
                 "chat_id": chat.chat_id,
                 "project_id": chat.project_id,
+                "workflow_id": chat.project.workflow_id if chat.project is not None else None,
                 "name": chat.name,
                 "chat_context": chat.name,
                 "surface": chat.surface,
@@ -390,6 +391,7 @@ class ChatRepo:
         return {
             "chat_id": chat.chat_id,
             "project_id": chat.project_id,
+            "workflow_id": chat.project.workflow_id if chat.project is not None else None,
             "scope_id": chat.scope_id,
             "surface": chat.surface,
             "runtime_type": project.runtime_type if project is not None else None,
@@ -419,6 +421,7 @@ class ChatRepo:
         return {
             "chat_id": chat.chat_id,
             "project_id": chat.project_id,
+            "workflow_id": chat.project.workflow_id if chat.project is not None else None,
             "status": chat.browser_control_status,
             "browser_session_id": chat.browser_session_id,
             "browser_session_generation": chat.browser_session_generation,
@@ -1028,7 +1031,7 @@ class ChatRepo:
         statement = select(
             Chat.chat_id, Chat.project_id,
             Chat.scope_id.label("carrier_scope_id"),
-            ChatProject.runtime_session_id, ChatProject.runtime_type,
+            ChatProject.runtime_session_id, ChatProject.runtime_type, ChatProject.workflow_id,
         ).join(ChatProject, ChatProject.project_id == Chat.project_id).where(
             Chat.chat_id == chat_id,
             Chat.creator_user_id == self._user_id,

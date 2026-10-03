@@ -15,6 +15,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { useChatSessions } from '@/lib/api/queries/chats';
+import { useFormatDateTime } from '@/lib/timezone';
 
 export interface ChatHistoryMenuProps {
   wfId: string;
@@ -35,12 +36,10 @@ export function ChatHistoryMenu({
   active = true,
 }: ChatHistoryMenuProps) {
   const { t } = useTranslation();
+  const formatDateTime = useFormatDateTime();
   const [open, setOpen] = useState(false);
   const sessions = useChatSessions(wfId, surface);
-  const items = (sessions.data?.items ?? []) as Array<{
-    chat_id: string;
-    chat_context?: string | null;
-  }>;
+  const items = sessions.data?.items ?? [];
 
   useEffect(() => {
     // Closing synchronously prevents portalled menu content remaining visible
@@ -50,7 +49,11 @@ export function ChatHistoryMenu({
   }, [active]);
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={(next) => {
+      setOpen(next);
+      // Pick up conversations created in another canvas window.
+      if (next) void sessions.refetch();
+    }}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
@@ -75,17 +78,35 @@ export function ChatHistoryMenu({
         ) : items.length ? (
           items.map((s) => {
             const label = s.chat_context || s.chat_id.slice(0, 8);
+            const context = s.workflow_context;
+            const target = context?.target;
+            const contextLabel = context
+              ? [`v${context.major_version}.sv${context.initial_subversion}`,
+                target?.kind === 'node' ? target.node_id
+                  : target?.kind === 'edge' ? `${target.source} → ${target.target}`
+                    : context.workflow_id].filter(Boolean).join(' · ')
+              : null;
+            const activityAt = s.last_message_at ?? s.updated_at ?? s.created_at;
             return (
               <DropdownMenuItem
                 key={s.chat_id}
                 data-chat-id={s.chat_id}
+                aria-current={s.chat_id === activeChatId ? 'true' : undefined}
                 onSelect={() => onSelect(s.chat_id)}
                 onPointerEnter={() => onIntent?.(s.chat_id)}
                 onFocus={() => onIntent?.(s.chat_id)}
                 className={s.chat_id === activeChatId ? 'min-w-0 bg-accent text-accent-foreground' : 'min-w-0'}
                 title={label}
               >
-                <span className="min-w-0 flex-1 truncate whitespace-nowrap">{label}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate whitespace-nowrap">{label}</span>
+                  {contextLabel && (
+                    <span className="mt-0.5 block space-y-0.5 text-xs text-muted-foreground">
+                      <span className="block truncate" title={contextLabel}>{contextLabel}</span>
+                      {activityAt && <time className="block" dateTime={activityAt}>{formatDateTime(activityAt)}</time>}
+                    </span>
+                  )}
+                </span>
               </DropdownMenuItem>
             );
           })

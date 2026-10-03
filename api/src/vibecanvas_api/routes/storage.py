@@ -155,14 +155,14 @@ def _join_vfs(prefix: str, rest: list[str]) -> str:
 
 async def _project_storage_scope(session: AsyncSession, project_id: str) -> str | None:
     row = (await session.execute(
-        select(ChatProject.project_id).where(
+        select(ChatProject.project_id, ChatProject.workflow_id).where(
             ChatProject.project_id == project_id,
             ChatProject.deleted_at.is_(None),
         )
     )).one_or_none()
     if row is None:
         return None
-    return _project_workspace_scope_id(row.project_id)
+    return _project_workspace_scope_id(row.project_id, workflow_id=row.workflow_id)
 
 
 async def _resolve_path(

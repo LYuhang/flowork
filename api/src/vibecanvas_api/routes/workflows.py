@@ -509,6 +509,7 @@ async def start_workflow_sandbox(
         wf_id,
         user_id=auth.user_id,
         expose_run=True,
+        expose_runtime=True,
     )
     await sandbox_session.prewarm_fileops()
     return await _workflow_sandbox_status_payload(

@@ -299,18 +299,19 @@ export interface CreateChatSessionInput {
   scopeId: string;
   chatId: string;
   projectId?: string | null;
+  workflowContext?: components['schemas']['WorkflowChatBinding'];
 }
 
 export const useCreateChatSession = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ scopeId, chatId, projectId }: CreateChatSessionInput): Promise<ChatListItem> => {
+    mutationFn: async ({ scopeId, chatId, projectId, workflowContext }: CreateChatSessionInput): Promise<ChatListItem> => {
       const response = await fetch(
         `${getApiBase()}/api/v1/chat-scopes/${encodeURIComponent(scopeId)}/chats/${encodeURIComponent(chatId)}`,
         {
           method: 'PUT',
           headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project_id: projectId ?? null }),
+          body: JSON.stringify({ project_id: projectId ?? null, workflow_context: workflowContext }),
         },
       );
       if (response.status === 401) useAuthStore.getState().handle401();

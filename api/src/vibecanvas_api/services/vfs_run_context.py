@@ -23,6 +23,9 @@ from vibecanvas_api.storage.vfs_run_repo import PostgresVfsRunStore, VfsRunRepo
 
 logger = structlog.get_logger(__name__)
 
+# These are durable Chat workspace bind sources, not execution output.
+PERSISTENT_WORKSPACE_FOLDERS = frozenset({"data", "memory", "logs", "chats"})
+
 def _guess_ct(rel: str, data: bytes) -> str:
     """Determine the content type of a temporary run output."""
     return content_type_for(rel, data)
@@ -30,7 +33,9 @@ def _guess_ct(rel: str, data: bytes) -> str:
 
 def _collect_run_files(run_dir: str, run_id: str) -> list[tuple[str, bytes]]:
     collected: list[tuple[str, bytes]] = []
-    for root, _directories, files in os.walk(run_dir):
+    for root, directories, files in os.walk(run_dir):
+        if os.path.abspath(root) == os.path.abspath(run_dir):
+            directories[:] = [name for name in directories if name not in PERSISTENT_WORKSPACE_FOLDERS]
         for name in files:
             file_path = os.path.join(root, name)
             relative_path = os.path.relpath(file_path, run_dir)
@@ -205,13 +210,11 @@ async def clear_run_contents(run_id: str, tenant_id: str) -> str | None:
             os.makedirs(run_dir, exist_ok=True)
             for name in os.listdir(run_dir):
                 path = os.path.join(run_dir, name)
-                # These top-level dirs may be live bind sources in a resident
-                # session. Keep the directory itself stable; clear its children.
-                if name in {"data", "memory", "logs", "chats"} and os.path.isdir(path):
-                    for child in os.listdir(path):
-                        _clear_path(os.path.join(path, child))
-                else:
-                    _clear_path(path)
+                # Preserve both the live bind inode AND its durable workspace
+                # contents. Starting a run must not erase a concurrent Chat.
+                if name in PERSISTENT_WORKSPACE_FOLDERS and os.path.isdir(path):
+                    continue
+                _clear_path(path)
 
         await asyncio.to_thread(_clear_dir)
         return run_dir

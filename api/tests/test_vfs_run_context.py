@@ -103,7 +103,7 @@ async def test_sync_run_back_noops_without_directory(monkeypatch, pg_session, tm
 
 
 @pytest.mark.asyncio
-async def test_clear_run_keeps_all_live_bind_source_directories(monkeypatch, pg_session, tmp_path):
+async def test_clear_run_keeps_live_workspace_files_and_bind_directories(monkeypatch, pg_session, tmp_path):
     tenant, _wf_id, _ = await _seed_pg(pg_session)
     store = FilesystemObjectStore(root=str(tmp_path / "objects"))
     _patch_scope_and_store(monkeypatch, pg_session, store)
@@ -115,11 +115,15 @@ async def test_clear_run_keeps_all_live_bind_source_directories(monkeypatch, pg_
         mounted[path] = os.stat(path).st_ino
         with open(os.path.join(path, "old-output.txt"), "wb") as output:
             output.write(b"previous execution")
+    with open(os.path.join(run_dir, "old-node-output.json"), "w") as output:
+        output.write("{}")
     await rc_mod.clear_run_contents("canvas-run", tenant)
+    assert not os.path.exists(os.path.join(run_dir, "old-node-output.json"))
     for path, inode in mounted.items():
         assert os.path.isdir(path)
         assert os.stat(path).st_ino == inode
-        assert os.listdir(path) == []
+        assert os.listdir(path) == ["old-output.txt"]
+        assert open(os.path.join(path, "old-output.txt"), "rb").read() == b"previous execution"
 
 
 def test_sync_run_back_sync_uses_sync_facade(monkeypatch, tmp_path):
@@ -164,3 +168,12 @@ async def test_purge_prior_workflow_runs_keeps_current(monkeypatch, pg_session):
     assert await rc_mod.purge_prior_workflow_runs(wf_id, tenant, "new") == 1
     assert await repo.read(run_id="old", path="/run/a.txt") is None
     assert await repo.read(run_id="new", path="/run/b.txt") is not None
+
+
+def test_run_collection_excludes_persistent_chat_workspace(tmp_path):
+    for folder in ("data", "memory", "logs", "chats"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / "private.txt").write_text("private Chat data")
+    (tmp_path / "node_1").mkdir()
+    (tmp_path / "node_1" / "result.txt").write_text("node result")
+    assert rc_mod._collect_run_files(str(tmp_path), "workflow") == [("node_1/result.txt", b"node result")]

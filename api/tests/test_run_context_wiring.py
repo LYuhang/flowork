@@ -34,6 +34,8 @@ async def test_produce_execution_prepare_raise_yields_error_and_discards(monkeyp
     monkeypatch.setattr(exec_mod, "classify_workflow", lambda wf: "pure")
     monkeypatch.setattr(exec_mod, "clear_run_contents", _boom_prepare)
     monkeypatch.setattr(exec_mod, "_with_execution_repo", _persist_noop)
+    monkeypatch.setattr(exec_mod, "_fail_history", _persist_noop)
+    monkeypatch.setattr(exec_mod, "create_execution", _persist_noop)
 
     class _SessionWithoutOwnedClear:
         pass
@@ -50,7 +52,7 @@ async def test_produce_execution_prepare_raise_yields_error_and_discards(monkeyp
     monkeypatch.setattr(exec_mod.stop_registry, "discard", _spy_discard)
 
     stop = asyncio.Event()
-    body = SimpleNamespace(mode="whole", input={})
+    body = SimpleNamespace(mode="whole", input={}, resume_from=None)
     wf_dict = {
         "__meta__": {"workflow_version": 1},
         "node_1": {"node_id": "node_1", "node_type": "CodeNode"},

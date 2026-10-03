@@ -147,6 +147,7 @@ async def claim_due_purge_job() -> PurgeLease | None:
 class ProjectRuntimeCoordinate:
     tenant_id: uuid.UUID
     project_id: str
+    workflow_id: str | None = None
 
 
 async def _project_runtime_coordinates(
@@ -158,13 +159,14 @@ async def _project_runtime_coordinates(
                 select(
                     ChatProject.tenant_id,
                     ChatProject.project_id,
+                    ChatProject.workflow_id,
                 ).where(
                     (ChatProject.tenant_id == lease.tenant_id)
                     | (ChatProject.creator_user_id == lease.user_id)
                 )
             )
         ).all()
-    return tuple(ProjectRuntimeCoordinate(uuid.UUID(str(tenant)), project_id) for tenant, project_id in rows)
+    return tuple(ProjectRuntimeCoordinate(uuid.UUID(str(tenant)), project_id, workflow_id) for tenant, project_id, workflow_id in rows)
 
 
 async def _user_tenant_ids(lease: PurgeLease) -> tuple[uuid.UUID, ...]:
@@ -279,7 +281,7 @@ async def _purge_runtime_state(lease: PurgeLease) -> None:
     volume_provider = get_project_runtime_volume_provider()
     deleted_runtime_scopes: set[tuple[str, str]] = set()
     for coordinate in coordinates:
-        workspace_scope_id = project_workspace_scope_id(coordinate.project_id)
+        workspace_scope_id = project_workspace_scope_id(coordinate.project_id, workflow_id=coordinate.workflow_id)
         key = (str(coordinate.tenant_id), workspace_scope_id)
         if key in deleted_runtime_scopes:
             continue

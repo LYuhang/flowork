@@ -14,8 +14,8 @@ def test_discovery_commands_are_read_only_and_latest(monkeypatch, capsys):
     calls = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: calls.append((args, kw)) or {"items": []})
     identifier = str(uuid4())
-    assert cli.main(["skill", "read", "--skill_id", identifier], socket_path="test") == 0
-    assert calls[-1] == ({"skill_id": identifier, "path": "SKILL.md", "offset": 0, "limit": 12000}, {"operation": "skill.read"})
+    assert cli.main(["skill", "get", "--skill_id", identifier], socket_path="test") == 0
+    assert calls[-1] == ({"skill_id": identifier}, {"operation": "skill.get"})
     assert cli.main(["skill", "get", "--skill_id", identifier, "--revision_hash", "a" * 64], socket_path="test") == 2
     assert cli.main(["mcp", "tools", "--server_id", identifier], socket_path="test") == 0
     assert resource_cli.OPERATIONS <= cli.READ_OPERATIONS
@@ -43,7 +43,7 @@ def setup_host(monkeypatch):
         yield object()
     monkeypatch.setattr(host, "session_scope", session_scope)
     monkeypatch.setattr(host, "resource_route_params", lambda context, session: {"session": session})
-    return SimpleNamespace(tenant_id="test")
+    return SimpleNamespace(tenant_id="test", chat_id="test-chat")
 
 
 @pytest.mark.asyncio
@@ -69,7 +69,7 @@ async def test_mcp_discovery_drops_connection_secrets_and_checks_use(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_skill_reads_latest_published_snapshot_each_time(monkeypatch):
+async def test_skill_metadata_reports_latest_publication_and_runtime_location(monkeypatch):
     context = setup_host(monkeypatch)
     monkeypatch.setattr(host.skills, "_authorize_skill", AsyncMock())
     monkeypatch.setattr(host.skills, "_authorize_skill_revision", AsyncMock())
@@ -80,8 +80,29 @@ async def test_skill_reads_latest_published_snapshot_each_time(monkeypatch):
                                                 {"revision_id": "r2", "revision_hash": "b" * 64, "version": 2, "is_latest": True}]),
         read_revision_files=AsyncMock(side_effect=[[('SKILL.md', 'text/markdown', b'First')], [('SKILL.md', 'text/markdown', b'Second')]]))
     monkeypatch.setattr(host, "SkillsRepo", lambda session: repo)
-    first = await host.read(context, "skill.read", {"skill_id": identifier})
-    second = await host.read(context, "skill.read", {"skill_id": identifier})
-    assert (first["content"], second["content"]) == ("First", "Second")
+    first = await host.read(context, "skill.get", {"skill_id": identifier})
+    second = await host.read(context, "skill.get", {"skill_id": identifier})
+    assert (first["version"], second["version"]) == (1, 2)
     assert (first["revision_hash"], second["revision_hash"]) == ("a" * 64, "b" * 64)
-    assert [call.args[1] for call in repo.read_revision_files.await_args_list] == ["r1", "r2"]
+    repo.read_revision_files.assert_not_awaited()
+    assert "files" not in first and "content" not in first
+    from vibecanvas_api.services.runtime_skills import runtime_skill_root
+    assert first["runtime_path"] == second["runtime_path"] == runtime_skill_root("test-chat", identifier)
+    assert first["entrypoint"] == first["runtime_path"] + "/SKILL.md"
+    assert "refresh" in first["runtime_hint"]
+    context.chat_id = "other-chat"
+    assert host.runtime_location(context, identifier)["runtime_path"] != first["runtime_path"]
+
+
+@pytest.mark.asyncio
+async def test_skill_list_includes_runtime_paths_without_reading_files(monkeypatch):
+    context = setup_host(monkeypatch)
+    identifier = str(uuid4())
+    monkeypatch.setattr(host.skills, "list_skills", AsyncMock(return_value={"items": [
+        {"id": identifier, "name": "Visible", "access": {"capabilities": ["use"]}},
+        {"id": str(uuid4()), "name": "Not usable", "access": {"capabilities": ["view"]}},
+    ]}))
+    result = await host.read(context, "skill.list", {})
+    assert result["total"] == 1
+    assert result["items"][0]["runtime_path"].endswith("/" + identifier)
+    assert "skill update" in result["runtime_hint"]

@@ -1,29 +1,31 @@
 import base64
 import json
+
+import pytest
 from uuid import uuid4
 
 from vibecanvas_api.flowork_cli import cli, skill_cli
 
 
-def test_local_template_does_not_publish_or_overwrite(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize('arguments', [
+    ['files', '--skill_id', str(uuid4())],
+    ['read', '--skill_id', str(uuid4())],
+    ['init', '--name', 'example', '--output_dir', '/tmp/unused'],
+    ['update', '--skill_id', str(uuid4()), '--source_dir', '/tmp/unused'],
+])
+def test_removed_commands_never_dispatch(arguments, monkeypatch, capsys):
     monkeypatch.setattr(cli, 'request', lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('unexpected request')))
-    target = tmp_path / 'new-skill'
-    args = ['skill','init','--name','my-skill','--output_dir',str(target)]
-    assert cli.main(args) == 0
-    assert json.loads(capsys.readouterr().out)['published'] is False
-    original = (target/'SKILL.md').read_text()
-    assert 'name: my-skill' in original
-    assert cli.main(args) == 2
-    assert (target/'SKILL.md').read_text() == original
+    assert cli.main(['skill', *arguments], socket_path='test') == 2
+    capsys.readouterr()
 
 
-def test_skill_update_freezes_entire_package_and_is_a_write(tmp_path, monkeypatch, capsys):
+def test_skill_publish_freezes_entire_package_and_is_a_write(tmp_path, monkeypatch, capsys):
     (tmp_path/'SKILL.md').write_text('---\nname: example\ndescription: Example\n---\nInstructions')
     (tmp_path/'reference.txt').write_text('details')
     calls = []
     monkeypatch.setattr(cli,'request',lambda endpoint,args,**kwargs: calls.append((args,kwargs)) or {'version':2})
     identifier = str(uuid4())
-    assert cli.main(['skill','update','--skill_id',identifier,'--source_dir',str(tmp_path)],socket_path='test') == 0
+    assert cli.main(['skill','publish','--skill_id',identifier,'--source_dir',str(tmp_path)],socket_path='test') == 0
     args, operation = calls[0]
     assert operation['operation'] == 'skill.update'
     assert {item['path'] for item in args['files']} == {'SKILL.md','reference.txt'}

@@ -24,6 +24,17 @@ def metadata(row, resource):
                for key in fields if key in row}}
 
 
+RUNTIME_HINT = "Version metadata describes the latest publication. Use bash ls/find/cat on runtime_path; run skill update --skill_id ID first if the folder is missing or needs refreshing."
+
+
+def runtime_location(context, identifier):
+    from vibecanvas_api.services.runtime_skills import runtime_skill_root
+    if not context.chat_id:
+        return {}
+    path = runtime_skill_root(context.chat_id, str(identifier))
+    return {"runtime_path": path, "entrypoint": f"{path}/SKILL.md"}
+
+
 async def read(context, operation, arguments):
     args = validate(operation, arguments)
     resource, action = operation.split(".")
@@ -39,10 +50,13 @@ async def read(context, operation, arguments):
                 rows = [metadata(row, resource) for row in rows
                         if "use" in row.get("access", {}).get("capabilities", [])
                         and search in (row.get("name", "") + " " + (row.get("description") or "")).casefold()]
+                if resource == "skill":
+                    rows = [{**row, **runtime_location(context, row["id"])} for row in rows]
                 rows.sort(key=lambda row: (row.get("name", "").casefold(), row["id"]))
                 start, stop = args["offset"], args["offset"] + args["limit"]
                 return {"status": "succeeded", "items": rows[start:stop], "total": len(rows),
-                        "next_offset": stop if stop < len(rows) else None}
+                        "next_offset": stop if stop < len(rows) else None,
+                        **({"runtime_hint": RUNTIME_HINT} if resource == "skill" else {})}
             if resource == "mcp":
                 identifier = UUID(args["server_id"])
                 await mcp_servers._authorize_mcp(server_id=identifier, action=Action.USE, **auth)
@@ -68,30 +82,10 @@ async def read(context, operation, arguments):
             if revision is None:
                 raise HTTPException(404, "skill_version_unavailable")
             await skills._authorize_skill_revision(revision_id=revision["revision_id"], action=Action.USE, **auth)
-            files = await repo.read_revision_files(identifier, revision["revision_id"])
-            if files is None:
-                raise HTTPException(404, "skill_version_unavailable")
-            result = {"status": "succeeded", **metadata(row, resource),
-                      "revision_hash": revision_hash, "version": revision["version"],
-                      "is_latest": bool(revision["is_latest"])}
-            if action in {"get", "files"}:
-                result["files"] = [{"path": path, "content_type": content_type, "size_bytes": len(data)}
-                                   for path, content_type, data in sorted(files)]
-                result["entrypoint"] = "SKILL.md"
-                return result
-            found = next((data for path, _content_type, data in files if path == args["path"]), None)
-            if found is None:
-                raise HTTPException(404, "skill_file_unavailable")
-            try:
-                content = found.decode("utf-8")
-                if "\x00" in content:
-                    raise UnicodeError("binary file")
-            except UnicodeError:
-                return {**result, "error": "binary_file", "status": "failed",
-                        "message": "This file is not UTF-8 text. Read the Skill instructions for its intended use."}
-            start, stop = args["offset"], args["offset"] + args["limit"]
-            return {**result, "path": args["path"], "content": content[start:stop],
-                    "total_characters": len(content), "next_offset": stop if stop < len(content) else None}
+            return {"status": "succeeded", **metadata(row, resource),
+                    "revision_hash": revision_hash, "version": revision["version"],
+                    "is_latest": bool(revision["is_latest"]),
+                    **runtime_location(context, identifier), "runtime_hint": RUNTIME_HINT}
     except HTTPException as exc:
         return {"status": "failed", "error": "resource_unavailable", "message": str(exc.detail),
                 "hint": "Discover an accessible installed resource with skill list or mcp list; check its published version and current use permission."}

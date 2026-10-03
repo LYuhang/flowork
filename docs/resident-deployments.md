@@ -393,7 +393,7 @@ Tools and Connection & settings, with technical identity/JSON collapsed.
 read-only `/skills` namespace without remounting or restarting it. It resolves the
 latest authorized immutable revision, stages files on the host, replaces that
 folder and removes obsolete files. `skill publish --skill_id ID --source_dir DIR`
-updates the platform package; the old `update --source_dir` spelling is preserved.
+updates the platform package. `update` accepts no source directory.
 Read the returned `runtime_path/SKILL.md` again after refresh. New Agent turns
 already hydrate published Skills automatically.
 

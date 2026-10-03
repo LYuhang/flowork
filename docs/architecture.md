@@ -612,7 +612,7 @@ and [`egress_broker.py`](../api/src/vibecanvas_api/services/sandbox/egress_broke
 SubAgent nodes declare optional `skills` and `mcp_servers` arrays. Each reference
 contains only an installation `id` and a display `name`; IDs determine execution.
 The editor supports multiple selections. The constructing Agent can discover
-resources through `flowork-cli skill list/get/files/read` and
+resources through `flowork-cli skill list/get` and
 `flowork-cli mcp list/get/tools` before writing a Workflow.
 
 Every execution resolves the latest published Skill contents once. A batch
@@ -697,12 +697,12 @@ is local to the current turn; it does not activate a persistent management mode.
 
 | CLI command | Effect |
 | --- | --- |
-| `flowork-cli skill list/get/files/read` | Discover installed catalog/custom Skills and inspect their latest published contents; list includes source. |
-| `flowork-cli skill init --name NAME --output_dir NEW_DIR` | Create a local SKILL.md template without publishing. |
+| `flowork-cli skill list/get` | Discover installed Skills, latest published metadata and the current Chat runtime path; inspect files with bash ls/find/cat. |
 | `flowork-cli skill download --skill_id ID --output_dir NEW_DIR` | Download the latest full package without overwriting local files. |
 | `flowork-cli skill check --source_dir DIR` | Validate the complete package without publishing. |
 | `flowork-cli skill create --source_dir DIR` | Validate and publish a new Custom Skill. |
-| `flowork-cli skill update --skill_id ID --source_dir DIR` | Replace the full package and unpublished draft, validate, and publish the next version automatically. Missing local files are removed from the published package. |
+| `flowork-cli skill publish --skill_id ID --source_dir DIR` | Replace the full package and unpublished draft, validate, and publish the next version automatically. Missing local files are removed from the published package. |
+| `flowork-cli skill update --skill_id ID` | Refresh only the current Chat runtime folder from the latest publication; does not publish. |
 | `flowork-cli skill delete --skill_id ID` | Remove the caller's own installation while preserving local downloads and any upstream catalog source. |
 
 Only the creator may update a Custom Skill. Catalog packages and other users'
@@ -718,3 +718,8 @@ Chats do not overwrite one another's Skill projection. Instructions use the same
 path generator as sandbox setup. Missing selected files fail before model
 invocation; removed or renamed selections require choosing the Skill again.
 The Workflow/SubAgent immutable resource paths described above remain separate.
+
+Skill file browsing and local template creation use ordinary shell/file tools.
+The CLI no longer provides `files`, `read` or `init`, and `update` rejects
+`--source_dir`; use `publish` for publication. Runtime paths are locations, not
+a guarantee of current mounted content: refresh before reading when necessary.

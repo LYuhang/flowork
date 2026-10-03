@@ -3844,5 +3844,7 @@
 ,
   "api.error.versionConflict": "This resource has changed. Your edits are preserved; read the latest version and merge them before saving.",
   "api.error.draftConflict": "Unpublished edits exist. Review and publish the existing draft before replacing the package.",
-  "workflow.save.missingVersion": "Keep your edits and reload the workflow before saving; its base version is unavailable."
+  "workflow.save.missingVersion": "Keep your edits and reload the workflow before saving; its base version is unavailable.",
+  "vfs.collapse_version": "Collapse {{version}}",
+  "vfs.expand_version": "Expand {{version}}"
 }

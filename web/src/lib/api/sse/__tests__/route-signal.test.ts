@@ -384,6 +384,8 @@ describe('routeAgentSignalWith', () => {
     expect(client.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ['workflow', 'wf_real'],
     });
+    expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['workflow-versions', 'wf_real'] });
+    expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['workflow-head', 'wf_real'] });
   });
 
   it('workflow context tool_end refreshes chat workspace, sandbox, VFS, and workflow', () => {

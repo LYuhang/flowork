@@ -219,23 +219,19 @@ beforeEach(() => {
 });
 
 describe('WorkflowVersionsSection', () => {
-  it('links to a major version (its latest sv)', () => {
+  it('separates following a major from opening a fixed subversion', () => {
     wrap(<WorkflowVersionsSection wfId="wf1" activeMajor={1} activeSub={0} />);
-    // The list shows ONE row per major (its latest sv) — major 1's row is v1.sv1
-    // (sv1 > sv0), and exposes a native link to that latest subversion.
-    expect(screen.getByText('v1.sv1').closest('a')).toHaveAttribute(
-      'href',
-      '/workflow/wf1/version/v1',
-    );
+    expect(screen.getByText('v1').closest('a')).toHaveAttribute('href', '/workflow/wf1/version/v1');
+    expect(screen.getByText('v1.sv1').closest('a')).toHaveAttribute('href', '/workflow/wf1/version/v1.sv1?snapshot=1');
+    expect(screen.getByText('v1.sv0')).toBeInTheDocument();
+    expect(screen.queryByText('v2.sv0')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand v2' }));
+    expect(screen.getByText('v2.sv0')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse v1' }));
+    expect(screen.queryByText('v1.sv1')).not.toBeInTheDocument();
+    expect(screen.getByText('v1').closest('a')).toHaveAttribute('href', '/workflow/wf1/version/v1');
   });
 
-  it('renders one entry per major, newest first (v2.sv0, v1.sv1)', () => {
-    wrap(<WorkflowVersionsSection wfId="wf1" activeMajor={1} activeSub={0} />);
-    const rows = screen.getAllByText(/^v\d+\.sv\d+$/).map((n) => n.textContent);
-    // Versions (1,0)(2,0)(1,1) collapse to the latest sv of each major: major 2
-    // → v2.sv0, major 1 → v1.sv1. v1.sv0 is folded into its major's latest.
-    expect(rows).toEqual(['v2.sv0', 'v1.sv1']);
-  });
 });
 
 describe('VfsExplorer section labels', () => {

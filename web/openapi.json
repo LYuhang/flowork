@@ -25980,12 +25980,17 @@
           "sub": {
             "type": "integer",
             "title": "Sub"
+          },
+          "tree_revision": {
+            "type": "number",
+            "title": "Tree Revision"
           }
         },
         "type": "object",
         "required": [
           "major",
-          "sub"
+          "sub",
+          "tree_revision"
         ],
         "title": "WorkflowHeadOut"
       }

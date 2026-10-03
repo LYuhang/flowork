@@ -305,7 +305,10 @@ function workflowIdFromToolArtifact(
 }
 
 function invalidateWorkflow(client: QueryClient, payload: unknown, fallbackWfId: string) {
-  client.invalidateQueries({ queryKey: ['workflow', getWorkflowId(payload) ?? fallbackWfId] });
+  const wfId = getWorkflowId(payload) ?? fallbackWfId;
+  for (const key of ['workflow', 'workflow-head', 'workflow-versions']) {
+    client.invalidateQueries({ queryKey: [key, wfId] });
+  }
 }
 
 const VFS_MUTATING_TOOLS = new Set([

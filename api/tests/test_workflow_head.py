@@ -11,10 +11,10 @@ from vibecanvas_api.routes import workflows
 async def test_head_uses_explicit_major_and_checks_view_permission(monkeypatch):
     authorize = AsyncMock()
     monkeypatch.setattr(workflows, '_authorize_workflow', authorize)
-    repo = SimpleNamespace(get_meta=AsyncMock(return_value={'active_v': 3}),
+    repo = SimpleNamespace(get_meta=AsyncMock(return_value={'active_v': 3, 'updated_at': 123.5}),
                            max_subversion=AsyncMock(return_value=7))
     result = await workflows.get_workflow_head('wf', None, major=2, repo=repo, auth=None, service=None)
-    assert result.model_dump() == {'major': 2, 'sub': 7}
+    assert result.model_dump() == {'major': 2, 'sub': 7, 'tree_revision': 123.5}
     repo.max_subversion.assert_awaited_once_with('wf', 2)
     assert authorize.await_args.kwargs['action'] == workflows.Action.VIEW
     result = await workflows.get_workflow_head('wf', None, major=None, repo=repo, auth=None, service=None)

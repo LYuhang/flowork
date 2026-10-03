@@ -3844,5 +3844,7 @@
 ,
   "api.error.versionConflict": "资源已有更新。已保留你的编辑内容，请读取最新版本并合并修改后再保存。",
   "api.error.draftConflict": "存在未发布的修改，请先检查并发布现有草稿，再替换整个文件包。",
-  "workflow.save.missingVersion": "无法确定编辑的基准版本，请保留修改并重新加载 Workflow 后再保存。"
+  "workflow.save.missingVersion": "无法确定编辑的基准版本，请保留修改并重新加载 Workflow 后再保存。",
+  "vfs.collapse_version": "折叠 {{version}}",
+  "vfs.expand_version": "展开 {{version}}"
 }

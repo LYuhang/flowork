@@ -5,7 +5,7 @@
  * Remote updates preserve dirty drafts and offer explicit reconciliation.
  */
 import { useCallback, useEffect, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { ReactFlowProvider } from '@xyflow/react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -45,6 +45,8 @@ export function CanvasPage() {
   // (`effectiveReadOnly` below).
   const isPinned = match !== null;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fixedSnapshot = searchParams.get("snapshot") === "1";
   const head = useWorkflowHead(wfId ?? '', v);
   const followsMajor = !!followingMajor;
   const resolvedRouteRef = useRef<string | null>(null);
@@ -66,14 +68,14 @@ export function CanvasPage() {
   // that route never follows global HEAD when another major is edited.
   useEffect(() => {
     if (followsMajor) { resolvedRouteRef.current = null; return; }
-    if (!head.data || !head.isFetchedAfterMount) return;
+    if (!head.data || !head.isFetchedAfterMount || fixedSnapshot) return;
     const route = `${wfId}:${vKey ?? ""}`;
     if (resolvedRouteRef.current === route) return;
     resolvedRouteRef.current = route;
     if (match && (head.data.major !== v || head.data.sub !== sv)) return;
     if (useWorkflowEditStore.getState().isDirty()) return;
     navigate(`/workflow/${wfId}/version/v${head.data.major}`, { replace: true });
-  }, [head.data, head.isFetchedAfterMount, followsMajor, v, sv, wfId, navigate]);
+  }, [head.data, head.isFetchedAfterMount, followsMajor, fixedSnapshot, v, sv, wfId, vKey, navigate]);
 
   const setDraft = useWorkflowEditStore((s) => s.setDraft);
   const applyServerMeta = useWorkflowEditStore((s) => s.applyServerMeta);

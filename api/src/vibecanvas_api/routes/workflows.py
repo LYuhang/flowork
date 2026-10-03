@@ -551,6 +551,7 @@ async def close_workflow_sandbox(
 class WorkflowHeadOut(BaseModel):
     major: int
     sub: int
+    tree_revision: float
 
 
 @router.get("/{wf_id}/head", response_model=WorkflowHeadOut)
@@ -572,7 +573,7 @@ async def get_workflow_head(
     sub = await repo.max_subversion(wf_id, selected)
     if sub < 0:
         raise HTTPException(status_code=404, detail="Major version not found")
-    return WorkflowHeadOut(major=selected, sub=sub)
+    return WorkflowHeadOut(major=selected, sub=sub, tree_revision=meta["updated_at"])
 
 
 @router.get("/{wf_id}/at/v{v}.sv{sv}", response_model=WorkflowSnapshotOut)

@@ -8474,6 +8474,8 @@ export interface components {
             major: number;
             /** Sub */
             sub: number;
+            /** Tree Revision */
+            tree_revision: number;
         };
     };
     responses: never;

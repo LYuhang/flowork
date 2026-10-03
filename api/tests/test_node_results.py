@@ -12,6 +12,7 @@ row, patch a FilesystemObjectStore onto the module's `get_object_store`, and let
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
@@ -26,6 +27,15 @@ from vibecanvas_api.services.node_results import (
     write_node_result,
 )
 from vibecanvas_api.services.object_store import FilesystemObjectStore
+
+
+@pytest.fixture(autouse=True)
+def live_result_mirror(monkeypatch):
+    manager = AsyncMock()
+    monkeypatch.setattr(
+        "vibecanvas_api.services.sandbox.manager.get_sandbox_manager", lambda: manager,
+    )
+    return manager.mirror_vfs_write
 
 
 # --------------------------------------------------------------------------- #
@@ -101,7 +111,7 @@ def test_persist_frame_no_node_id_returns_none():
 # write_node_result / read_node_result — round-trip against a real DB + FS     #
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
-async def test_write_read_roundtrip(app_engine, tmp_path, monkeypatch):
+async def test_write_read_roundtrip(app_engine, tmp_path, monkeypatch, live_result_mirror):
     tenant = uuid.uuid4()
     async with app_engine.begin() as c:
         await c.execute(text("INSERT INTO tenants(tenant_id,name) VALUES (:t,'x')"),
@@ -112,7 +122,20 @@ async def test_write_read_roundtrip(app_engine, tmp_path, monkeypatch):
     payload = build_node_payload(
         node_id="node_5", node_name="code5", node_type="CodeNode",
         status="completed", inputs={"a": 1}, output={"b": 2}, execution_time=0.1)
+    mirrored = []
+    async def mirror_after_commit(tenant_id, run_id, path, data):
+        # A separate transaction must see the result before it becomes visible
+        # in the sandbox, so release/rebuild cannot lose a merely mirrored file.
+        assert await read_node_result(run_id, tenant_id, "node_5") == payload
+        assert path == node_result_path("node_5")
+        import json
+        assert json.loads(data) == payload
+        mirrored.append(path)
+        return True
+    live_result_mirror.side_effect = mirror_after_commit
     await write_node_result("r1", str(tenant), payload)
+    live_result_mirror.assert_awaited_once()
+    assert mirrored == [node_result_path("node_5")]
 
     got = await read_node_result("r1", str(tenant), "node_5")
     assert got is not None
@@ -135,7 +158,7 @@ async def test_read_missing_returns_none(app_engine, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_write_is_fail_soft(app_engine, tmp_path, monkeypatch):
+async def test_write_is_fail_soft(app_engine, tmp_path, monkeypatch, live_result_mirror):
     """A bad node_id (→ ValueError in node_result_path) must NOT raise — the
     fail-soft write swallows it so a results-write never breaks a run."""
     tenant = uuid.uuid4()
@@ -143,6 +166,20 @@ async def test_write_is_fail_soft(app_engine, tmp_path, monkeypatch):
     monkeypatch.setattr(nr_mod, "get_object_store", lambda: store)
     # No exception escapes even though the node_id is invalid.
     await write_node_result("r1", str(tenant), {"node_id": "bogus", "status": "completed"})
+    live_result_mirror.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mirror_failure_keeps_committed_result(app_engine, tmp_path, monkeypatch, live_result_mirror):
+    tenant = uuid.uuid4()
+    async with app_engine.begin() as c:
+        await c.execute(text("INSERT INTO tenants(tenant_id,name) VALUES (:t,'x')"), {"t": tenant})
+    monkeypatch.setattr(nr_mod, "get_object_store", lambda: FilesystemObjectStore(root=str(tmp_path)))
+    live_result_mirror.side_effect = RuntimeError("sandbox unavailable")
+    payload = build_node_payload(node_id="node_1", status="completed", output={"n": 4})
+    await write_node_result("workflow", str(tenant), payload)
+    live_result_mirror.assert_awaited_once()
+    assert await read_node_result("workflow", str(tenant), "node_1") == payload
 
 
 # --------------------------------------------------------------------------- #

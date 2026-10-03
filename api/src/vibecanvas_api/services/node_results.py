@@ -131,6 +131,17 @@ async def write_node_result(run_id: str, tenant_id: str, payload: dict) -> None:
         logger.warning(
             "node_result_write_failed", run_id=run_id,
             node_id=(payload or {}).get("node_id"), exc_info=True)
+        return
+    # Commit the durable result before updating an already-mounted workspace.
+    # A Workflow chat may have warmed this sandbox before the run started.
+    # Updating only object storage leaves its /run projection stale.
+    try:
+        from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
+        await get_sandbox_manager().mirror_vfs_write(tenant_id, run_id, path, data)
+    except Exception:
+        logger.warning(
+            "node_result_mirror_failed", run_id=run_id,
+            node_id=payload.get("node_id"), exc_info=True)
 
 
 async def persist_node_debug_result(

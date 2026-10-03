@@ -490,6 +490,13 @@ async def test_mirror_vfs_write_targets_mount_and_chat_workspace(tmp_path):
     assert (tmp_path / "mount" / "shared.json").read_bytes() == b"{}"
     assert (tmp_path / "workspace" / "data" / "input.txt").read_bytes() == b"hello"
     assert not await session.mirror_vfs_write("/unknown/file", b"x")
+    assert not await session.mirror_vfs_write("/run/__exec__/nodes/node_1.json", b"{}")
+
+    session.expose_run = True
+    session.workflow_run_dir = str(tmp_path / "workflow-run")
+    assert await session.mirror_vfs_write("/run/__exec__/nodes/node_1.json", b'{"output":8}')
+    assert (tmp_path / "workflow-run" / "__exec__" / "nodes" / "node_1.json").read_bytes() == b'{"output":8}'
+    assert not await session.mirror_vfs_write("/run/../outside.json", b"{}")
 
     assert await session.mirror_vfs_rename(
         "/data/input.txt", "/data/archive/input.txt",

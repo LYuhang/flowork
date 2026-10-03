@@ -2529,6 +2529,9 @@ class SandboxSession:
         if norm.startswith("/mount/") and self.mount_dir:
             root = self.mount_dir
             relative = norm[len("/mount/"):]
+        elif norm.startswith("/run/") and self.expose_run and self.workflow_run_dir:
+            root = self.workflow_run_dir
+            relative = norm[len("/run/"):]
         else:
             for folder in self.workspace_folders:
                 prefix = f"/{folder}/"

@@ -241,6 +241,6 @@ def execute(args, endpoint, cli):
     if destination and not saved and dispatched:
         result.update(secret_file=destination, credential_saved=False)
     result.pop("_credential", None)
-    code = 2 if result.get("error") == "invalid_arguments" else (1 if "error" in result or (args.action == "run" and result.get("status") in {"failed", "timed_out", "cancelled"}) else 0)
+    code = 2 if result.get("error") == "invalid_arguments" else (1 if result.get("error") or (args.action == "run" and result.get("status") in {"failed", "timed_out", "cancelled"}) else 0)
     return cli.emit_result(result, exit_code=code,
         state_field="execution_status" if args.action in {"run", "status", "logs"} else "resource_status")

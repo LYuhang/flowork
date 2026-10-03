@@ -230,3 +230,12 @@ def test_history_accepts_new_execution_statuses(monkeypatch, capsys, state):
 def test_deployment_rejects_floating_major():
     with pytest.raises(ValueError, match='fixed --version'):
         deployment_cli.validate('deployment.update', {'deployment_id': str(uuid4()), 'major': 'v1'})
+
+
+@pytest.mark.parametrize("state", ["succeeded", "running", "waiting_approval"])
+def test_null_error_does_not_fail_successful_or_accepted_run(monkeypatch, capsys, state):
+    monkeypatch.setattr(cli, "request", lambda *a, **kw: {"status": state, "error": None, "outputs": {"value": 0}})
+    assert cli.main(["deployment", "run", "--deployment_id", str(uuid4())], socket_path="test") == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["command_status"] == "succeeded" and result["event"] == "result"
+    assert result["execution_status"] == state

@@ -103,7 +103,7 @@ WORKFLOW_FILE_HELP = (
 def parser() -> Parser:
     root = Parser(prog="flowork-cli",
         description="Access Flowork resources from an active cloud Agent turn. No login required.",
-        epilog="Workflow commands are stateless: pass an exact workflow ID and --major vN for branch content. No connect/disconnect/status/version set. Read each command's --help. Business results/errors are JSON on stdout; run/run-batch/delete stream JSONL; help is text. Exit: 0 success, 1 failure/partial/unknown, 2 invalid input. Never automatically retry a mutation after result_unknown. Transport heartbeat deadlines are not command duration limits.")
+        epilog="Workflow commands are stateless: pass an exact workflow ID and --major vN for branch content. No connect/disconnect/status/version set. Read each command's --help. Default stdout is one final JSON; progress JSONL goes to stderr. workflow run/run-batch, document/diagram render accept --stream for stdout JSONL; task logs --follow also streams. Events are progress/result/error. command_status is the command outcome, not execution_status or resource_status; legacy status remains. Help is text. Workflow download without --file emits the raw workflow JSON only. Exit: 0 success, 1 failure/partial/unknown, 2 invalid input. Never automatically retry a mutation after result_unknown. Transport heartbeat deadlines are not command duration limits.")
     groups = root.add_subparsers(dest="resource", required=True)
     task_cli.add_parser(groups)
     deployment_cli.add_parser(groups)
@@ -159,7 +159,7 @@ def parser() -> Parser:
     tags.add_argument("--tag", action="append")
     tags.add_argument("--clear-tags", action="store_true")
     deleting = actions.add_parser("delete", help="Delete an explicitly identified workflow after platform approval.",
-        description="Deletes the entire workflow, not one branch. Requires delete permission. agent/always_ask require user approval; always_allow reports automatic approval. No --force/--yes. Active executions or enabled deployments/schedules block deletion. All versions become unavailable; Workflow data/run files are cleaned durably; full recovery is not available. Chat files, memory and mounts remain. Pending approval survives page refresh only while this CLI command lives. Ending the command cancels pending approval, not committed deletion. stdout JSONL: awaiting_approval, approved/auto_approved, then {id,deleted,cleanup,message}. cleanup:pending means deletion committed, not a reason to retry. No Chat binding is changed.")
+        description="Deletes the entire workflow, not one branch. Requires delete permission. agent/always_ask require user approval; always_allow reports automatic approval. No --force/--yes. Active executions or enabled deployments/schedules block deletion. All versions become unavailable; Workflow data/run files are cleaned durably; full recovery is not available. Chat files, memory and mounts remain. Pending approval survives page refresh only while this CLI command lives. Ending the command cancels pending approval, not committed deletion. stderr progress: awaiting_approval, approved/auto_approved; stdout is one final JSON with {id,deleted,cleanup,message}. cleanup:pending means deletion committed, not a reason to retry. No Chat binding is changed.")
     target(deleting)
     downloading = actions.add_parser("download", help="Output the specified branch's workflow JSON, or save it to a file.",
         description="Requires ID and --major. Omit --file to output only the workflow dictionary with __meta__ stamped to the actual saved version. With --file returns {id,version,node_count,path}. Atomic file write; existing files require --overwrite. Never reads/writes Chat state or edits saved versions.")
@@ -209,9 +209,10 @@ def parser() -> Parser:
     selection.add_argument("--type", dest="node_types", action="append", help="Comma-separated exact node types; repeatable.")
     selection.add_argument("--list-types", action="store_true")
     for command in ("run", "run-batch"):
-        running = actions.add_parser(command, help="Execute the explicit branch; stream JSONL progress.",
-            description="Requires workflow ID, --major and execute permission. Freeze one saved snapshot for the entire invocation/batch; run --file optionally overrides its content without saving. No Chat selection. stdout is incremental JSONL and results are flushed to a file. Workflow/node configured execution limits apply; transport deadlines do not cap total execution. Long managed terminal sessions are supported only inside the original Agent turn. CLI exit, turn end or sandbox loss cancels unfinished work; this is not a durable Task. Exit 0 success, 1 failure/partial/unknown, 2 invalid input.")
+        running = actions.add_parser(command, help="Execute the explicit branch; use --stream for stdout JSONL progress.",
+            description="Requires workflow ID, --major and execute permission. Freeze one saved snapshot for the entire invocation/batch; run --file optionally overrides its content without saving. No Chat selection. Default stdout is one final JSON; progress goes to stderr. --stream emits progress and a terminal result/error as stdout JSONL. Business results are flushed to a file. Workflow/node configured execution limits apply; transport deadlines do not cap total execution. Long managed terminal sessions are supported only inside the original Agent turn. CLI exit, turn end or sandbox loss cancels unfinished work; this is not a durable Task. Exit 0 success, 1 failure/partial/unknown, 2 invalid input.")
         target(running, branch=True)
+        running.add_argument("--stream", action="store_true", help="Stream JSONL progress and one terminal result/error on stdout; default progress goes to stderr.")
         running.add_argument("--output", help="Result file; default unique /data/runs/<run_id>/result.json or results.jsonl.")
         running.add_argument("--overwrite", action="store_true")
         running.epilog = "Each invocation owns its pool. Completion closes it; cancellation stops new rows and hard-kills only this pool, not the Chat sandbox. Results record input/output/node_outputs/errors/execution_time; batch rows append in completion order with zero-based index. Partial files cannot undo external side effects. Check terminal status, not file existence. Never automatically rerun result_unknown. Follow AGENTS.md path visibility rules."
@@ -230,6 +231,26 @@ def parser() -> Parser:
             running.add_argument("--name", help="Batch name; defaults to input filename.")
 
     return root
+
+
+def emit_progress(value: dict, *, stream: bool = False) -> None:
+    """Progress never contaminates a normal command's machine-readable result."""
+    if not isinstance(value, dict):
+        raise ValueError("Invalid CLI progress frame.")
+    print(json.dumps({**value, "event": "progress"}, ensure_ascii=False),
+          file=sys.stdout if stream else sys.stderr, flush=True)
+
+
+def emit_result(value: dict, *, exit_code: int = 0, state_field: str | None = None) -> int:
+    """Keep business fields compatible while separating command outcome."""
+    result = dict(value)
+    if state_field and "status" in result:
+        result.setdefault(state_field, result["status"])
+    result["command_status"] = ("unknown" if result.get("error") == "result_unknown"
+                                else "failed" if exit_code else "succeeded")
+    result["event"] = "error" if exit_code else "result"
+    print(json.dumps(result, ensure_ascii=False), flush=True)
+    return exit_code
 
 
 def error(code: str, message: str, hint: str) -> dict:
@@ -576,7 +597,7 @@ def request(socket_path: str, arguments: dict, *, operation: str = "workflow.lis
                     if on_progress is not None:
                         on_progress(frame["_progress"])
                     else:
-                        print(json.dumps(frame["_progress"], ensure_ascii=False), flush=True)
+                        emit_progress(frame["_progress"])
                     continue
                 break
         if not response.endswith(b"\n"):
@@ -648,8 +669,7 @@ def execute_command(args, endpoint: str) -> int:
     output = None
     try:
         if not endpoint:
-            print(json.dumps(error("runtime_unavailable", "No Agent turn is active.", "Run inside an active Flowork Agent turn.")), flush=True)
-            return 1
+            return emit_result(error("runtime_unavailable", "No Agent turn is active.", "Run inside an active Flowork Agent turn."), exit_code=1)
         if args.overwrite and args.output is None:
             raise CliUsageError("--overwrite requires --output.")
         operation = f"workflow.{args.action}"
@@ -686,6 +706,8 @@ def execute_command(args, endpoint: str) -> int:
                     frame = json.loads(line)
                     if not isinstance(frame, dict):
                         raise ValueError("Invalid execution response.")
+                    if frame.get("_transport") == "heartbeat":
+                        continue
                     record = frame.pop("record", None)
                     result = frame.pop("result", None)
                     if record is not None or result is not None:
@@ -694,9 +716,9 @@ def execute_command(args, endpoint: str) -> int:
                     terminal = frame.pop("terminal", "error" in frame)
                     exit_code = frame.pop("exit_code", 1 if "error" in frame else 0)
                     frame.update(run_id=run_id, path=path)
-                    print(json.dumps(frame, ensure_ascii=False), flush=True)
                     if terminal:
-                        return exit_code
+                        return emit_result(frame, exit_code=exit_code, state_field="execution_status")
+                    emit_progress(frame, stream=args.stream)
     except (CliUsageError, UnicodeError) as exc:
         result = error("invalid_arguments", str(exc), "Run flowork-cli workflow run --help or run-batch --help.")
         code = 2
@@ -710,8 +732,7 @@ def execute_command(args, endpoint: str) -> int:
     finally:
         if output is not None:
             output.close()
-    print(json.dumps({**result, "run_id": run_id}, ensure_ascii=False), flush=True)
-    return code
+    return emit_result({**result, "run_id": run_id}, exit_code=code)
 
 
 def main(argv: list[str] | None = None, *, socket_path: str | None = None) -> int:
@@ -785,12 +806,12 @@ def main(argv: list[str] | None = None, *, socket_path: str | None = None) -> in
         # Retain earlier create/upload error contracts; check exposes specific
         # local input codes so the Agent can distinguish I/O from graph errors.
         if args is None or args.action in {"check", "operation"}:
-            print(json.dumps(error(exc.code, str(exc), exc.hint), ensure_ascii=False))
+            emit_result(error(exc.code, str(exc), exc.hint), exit_code=2)
         else:
-            print(json.dumps(error("invalid_arguments", str(exc), "Run flowork-cli <resource> <command> --help."), ensure_ascii=False))
+            emit_result(error("invalid_arguments", str(exc), "Run flowork-cli <resource> <command> --help."), exit_code=2)
         return 2
     except CliUsageError as exc:
-        print(json.dumps(error("invalid_arguments", str(exc), "Run flowork-cli <resource> <command> --help.")))
+        emit_result(error("invalid_arguments", str(exc), "Run flowork-cli <resource> <command> --help."), exit_code=2)
         return 2
     endpoint = socket_path or os.environ.get("FLOWORK_CLI_SOCKET", "")
     if not endpoint:
@@ -824,8 +845,7 @@ def main(argv: list[str] | None = None, *, socket_path: str | None = None) -> in
             result = error("invalid_response", "The platform returned no workflow object.", "Retry or contact platform support.")
     if args.action == "check" and args.file is not None and "error" not in result:
         result = {**result, "path": os.path.abspath(args.file)}
-    print(json.dumps(result, ensure_ascii=False))
-    return 1 if "error" in result or result.get("valid") is False else 0
+    return emit_result(result, exit_code=1 if "error" in result or result.get("valid") is False else 0)
 
 
 if __name__ == "__main__":

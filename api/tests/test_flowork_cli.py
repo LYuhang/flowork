@@ -65,7 +65,7 @@ def test_layout_dispatch_and_stdout(monkeypatch, capsys):
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["workflow", "layout", "--workflow_id", "wf", "--major", "v2"], socket_path="socket") == 0
     captured = capsys.readouterr()
-    assert json.loads(captured.out) == reply and captured.err == ""
+    assert json.loads(captured.out) == {**reply, "command_status": "succeeded", "event": "result"} and captured.err == ""
 
 
 @pytest.mark.parametrize("args", [[], ["wf", "--major", "v2"], ["--workflow_id", "wf"],
@@ -136,7 +136,7 @@ def test_spec_and_disconnect_contract(args, operation, arguments, reply, monkeyp
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["workflow", *args], socket_path="socket") == 0
     captured = capsys.readouterr()
-    assert json.loads(captured.out) == reply and captured.err == ""
+    assert json.loads(captured.out) == {**reply, "command_status": "succeeded", "event": "result"} and captured.err == ""
 
 
 @pytest.mark.parametrize("args", [
@@ -193,7 +193,7 @@ def test_version_commands_send_only_approved_arguments(args, operation, argument
         return reply
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["workflow", "version", *args], socket_path="socket") == 0
-    assert json.loads(capsys.readouterr().out) == reply
+    assert json.loads(capsys.readouterr().out) == {**reply, "command_status": "succeeded", "event": "result"}
 
 
 @pytest.mark.parametrize("args", [[], ["set"], ["set", "1"], ["set", "v0"], ["set", "v1.sv8"], ["set", "v-1"], ["create", "--file", "x.json"], ["list", "--workflow-id", "other", "--workflow_id", "conflicting"]])
@@ -222,7 +222,7 @@ def test_check_defaults_to_saved_workflow_without_reading_a_file(monkeypatch, ca
 
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["workflow", "check", "wf", "--major", "v1"], socket_path="socket") == 0
-    assert json.loads(capsys.readouterr().out) == expected
+    assert json.loads(capsys.readouterr().out) == {**expected, "command_status": "succeeded", "event": "result"}
 
 
 @pytest.mark.parametrize("reply,exit_code", [
@@ -244,7 +244,7 @@ def test_check_file_output_and_exit_codes(reply, exit_code, monkeypatch, tmp_pat
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["workflow", "check", "--file", "workflow.json"], socket_path="socket") == exit_code
     captured = capsys.readouterr()
-    assert json.loads(captured.out) == {**reply, "path": str(source)}
+    assert json.loads(captured.out) == {**reply, "path": str(source), "command_status": "failed" if exit_code else "succeeded", "event": "error" if exit_code else "result"}
     assert captured.err == ""
     assert source.read_text() == original
 
@@ -284,7 +284,7 @@ def test_download_is_atomic_and_requires_explicit_overwrite(monkeypatch, tmp_pat
     assert destination.read_text() == "existing edits"
     assert cli.main([*command, "--overwrite"], socket_path="socket") == 0
     assert json.loads(destination.read_text()) == reply["workflow"]
-    assert json.loads(capsys.readouterr().out) == {"id": "wf", "version": "v1.sv3", "node_count": 0, "path": str(destination)}
+    assert json.loads(capsys.readouterr().out) == {"id": "wf", "version": "v1.sv3", "node_count": 0, "path": str(destination), "command_status": "succeeded", "event": "result"}
     assert list(tmp_path.glob(".flowork-download-*")) == []
 
 
@@ -344,7 +344,7 @@ def test_list_prints_business_data_only(monkeypatch, capsys):
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["workflow", "list", "--offset", "20"], socket_path="/test/socket") == 0
     captured = capsys.readouterr()
-    assert json.loads(captured.out) == expected
+    assert json.loads(captured.out) == {**expected, "command_status": "succeeded", "event": "result"}
     assert captured.err == ""
     assert calls == [("/test/socket", {"limit": 20, "offset": 20})]
 
@@ -358,7 +358,7 @@ def test_usage_errors_are_json_on_stdout(args, capsys):
     assert cli.main(args) == 2
     captured = capsys.readouterr()
     result = json.loads(captured.out)
-    assert set(result) == {"error", "message", "hint"}
+    assert set(result) == {"error", "message", "hint", "event", "command_status"}
     assert result["error"] == "invalid_arguments"
     assert captured.err == ""
 
@@ -481,7 +481,7 @@ def test_update_sends_only_explicit_changes(flags, expected, monkeypatch, capsys
 
     monkeypatch.setattr(cli, "request", request)
     assert cli.main(["workflow", "update", "wf", *flags], socket_path="socket") == 0
-    assert json.loads(capsys.readouterr().out) == {"id": "wf"}
+    assert json.loads(capsys.readouterr().out) == {"id": "wf", "command_status": "succeeded", "event": "result"}
 
 
 @pytest.mark.parametrize("args", [

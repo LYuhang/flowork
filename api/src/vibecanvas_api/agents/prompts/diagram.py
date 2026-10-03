@@ -63,7 +63,7 @@ Workflow:
    warnings. This checks structure, not layout quality or diagram semantics.
 3. Run `flowork-cli diagram render --file PATH`. It uses official draw.io
    Desktop and defaults to every page. It does not rewrite your source or
-   implicitly route/rearrange shapes. Read the final JSONL status and image
+   implicitly route/rearrange shapes. Read the final JSON status (progress is on stderr; --stream enables tagged stdout JSONL) and image
    paths; do not mistake progress for completion. Prefer omitting --output_dir;
    if specified, do NOT mkdir that target first: the CLI creates it and rejects
    existing directories to preserve previous feedback. --pages is for iteration,

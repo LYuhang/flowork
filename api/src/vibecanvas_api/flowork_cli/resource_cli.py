@@ -1,5 +1,4 @@
 """Stdlib-only discovery of workflow Skills and MCP installations."""
-import json
 from uuid import UUID
 
 try:
@@ -68,5 +67,4 @@ def execute(args, endpoint, cli):
     except (ValueError, OSError) as exc:
         result = cli.error("invalid_arguments", str(exc), f"Read flowork-cli {operation.replace('.', ' ')} --help.")
     result.setdefault("status", "failed" if "error" in result else "succeeded")
-    print(json.dumps(result, ensure_ascii=False), flush=True)
-    return 2 if result.get("error") == "invalid_arguments" else (1 if "error" in result else 0)
+    return cli.emit_result(result, exit_code=2 if result.get("error") == "invalid_arguments" else (1 if "error" in result else 0))

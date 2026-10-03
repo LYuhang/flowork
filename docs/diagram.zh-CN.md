@@ -13,7 +13,7 @@ UML、ER 图、BPMN、架构图、网络图、思维导图、时间线、线框�
 3. `flowork-cli diagram render --file PATH` 通过 draw.io Desktop 将文件导出为 PNG，查看真实
    像素，并在必要时修正明显的视觉问题。Flowork 的轻量启动器只负责在沙盒内提供
    一次性的无头显示环境，实际渲染仍由 draw.io 完成。默认渲染全部页面；可选
-   `--pages "1-3,5"` 使用从 1 开始的页序号。stdout 逐页输出 JSONL 进度，
+   `--pages "1-3,5"` 使用从 1 开始的页序号。默认 stdout 只输出最终 JSON，逐页进度写入 stderr；加 `--stream` 时 stdout 才逐行输出带 `event` 的 JSONL，
    最后返回状态、源文件 hash 和 PNG 路径。没有固定总执行超时；取消会结束
    对应 worker 进程组。渲染不修改源文件，也不隐式重新布局。
 4. 验收后的文件复用平台原有的 Sandbox→VFS 持久化流程，并作为预览卡片发布到对话中。

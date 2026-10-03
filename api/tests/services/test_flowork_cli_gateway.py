@@ -78,7 +78,7 @@ async def test_standalone_launcher_and_inactive_runtime():
         )
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
         assert process.returncode == 0
-        assert json.loads(stdout) == {"workflows": [], "next_offset": None}
+        assert json.loads(stdout) == {"workflows": [], "next_offset": None, "command_status": "succeeded", "event": "result"}
         assert stderr == b""
         invoke.assert_awaited_once_with("workflow.list", {"limit": 3, "offset": 0})
         await gateway.deactivate()

@@ -1,6 +1,5 @@
 """Agent-facing stateless diagram commands; no MCP or connection state."""
 
-import json
 import os
 
 try:
@@ -39,8 +38,9 @@ def add_parser(groups):
         epilog=XML_EXAMPLE, formatter_class=argparse.RawDescriptionHelpFormatter)
     review.add_argument("--file", required=True, help="Existing .drawio file, absolute or relative to your shell working directory.")
     render = actions.add_parser("render", help="Render all or selected draw.io pages through official Desktop.",
-        description="Uses the pinned official draw.io Desktop renderer, not a replacement renderer. Default: ALL pages. Works from a source snapshot without modifying layout or rewriting your file. Output incremental JSONL page progress, then {status,file,source_hash,total_pages,rendered_pages,complete,output_dir,images:[{page,name,file}],message}. No image/base64 stdout. On failure completed images remain and exit is nonzero. No fixed total execution deadline. Open every PNG with view_image before delivery. Partial --pages coverage is not full-document acceptance; coverage accumulates only for the same file/source_hash. Editing source invalidates evidence. Publish the final .drawio via render_preview, not the feedback PNG.",
+        description="Uses the pinned official draw.io Desktop renderer, not a replacement renderer. Default: ALL pages. Works from a source snapshot without modifying layout or rewriting your file. Progress goes to stderr by default; --stream emits stdout JSONL progress, then {status,file,source_hash,total_pages,rendered_pages,complete,output_dir,images:[{page,name,file}],message}. No image/base64 stdout. On failure completed images remain and exit is nonzero. No fixed total execution deadline. Open every PNG with view_image before delivery. Partial --pages coverage is not full-document acceptance; coverage accumulates only for the same file/source_hash. Editing source invalidates evidence. Publish the final .drawio via render_preview, not the feedback PNG.",
         epilog='Examples: flowork-cli diagram render --file /data/system.drawio; flowork-cli diagram render --file system.drawio --pages "1-3,5" --output_dir /data/diagram-review')
+    render.add_argument("--stream", action="store_true", help="Emit stdout JSONL progress plus a terminal result/error; default stdout is one JSON and progress goes to stderr.")
     render.add_argument("--file", required=True)
     render.add_argument("--pages", help="1-based page positions, e.g. 1-3,5; not page IDs/names. Omit for all.")
     render.add_argument("--output_dir", help="CLI creates this NEW directory; do NOT mkdir it first. Only its parent must exist. Reusing an existing directory fails without overwriting files. Prefer omitting this option for a unique /memory/diagram-feedback directory.")
@@ -82,8 +82,8 @@ def execute(args, endpoint, core):
         result = core.error("runtime_unavailable", "No active Agent runtime is available.", "Run during an active cloud Agent turn.")
     else:
         try:
-            result = core.request(endpoint, arguments, operation=operation)
+            result = core.request(endpoint, arguments, operation=operation,
+                on_progress=lambda value: core.emit_progress(value, stream=getattr(args, "stream", False)))
         except (OSError, ValueError):
             result = core.error("runtime_unavailable", "Diagram execution was interrupted or its result is unavailable.", "Inspect any completed output files, then retry in an active turn. Do not claim review passed.")
-    print(json.dumps(result, ensure_ascii=False), flush=True)
-    return 2 if result.get("error") == "invalid_arguments" else (0 if result.get("status") in {"passed", "succeeded"} else 1)
+    return core.emit_result(result, exit_code=2 if result.get("error") == "invalid_arguments" else (0 if result.get("status") in {"passed", "succeeded"} else 1))

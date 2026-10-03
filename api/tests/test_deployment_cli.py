@@ -19,7 +19,7 @@ def test_simplified_list(monkeypatch, capsys):
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append((args, kw)) or {"deployments": []})
     assert cli.main(["deployment", "list"], socket_path="test") == 0
     assert seen[0] == ({"limit": 20, "offset": 0}, {"operation": "deployment.list"})
-    assert json.loads(capsys.readouterr().out) == {"deployments": []}
+    assert json.loads(capsys.readouterr().out) == {"deployments": [], "command_status": "succeeded", "event": "result"}
     assert cli.main(["deployment", "list", "--status", "enabled"], socket_path="test") != 0
 
 

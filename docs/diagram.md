@@ -17,7 +17,9 @@ wireframes, engineering stencils, and free-form canvases.
    visual defects when necessary. A thin Flowork launcher provides a disposable
    headless display inside the sandbox; draw.io remains the renderer. All pages
    render by default; optional `--pages "1-3,5"` selects 1-based page positions.
-   JSONL reports page progress, then final status, source hash and PNG paths.
+   By default stdout is one final JSON with status, source hash and PNG paths;
+   page progress goes to stderr. Add `--stream` for stdout JSONL with
+   `event=progress` followed by one `event=result|error`.
    There is no fixed total export deadline. Cancellation tears down the worker
    process group. Render never rewrites source or implicitly rearranges it.
 4. The normal Sandbox-to-VFS lifecycle persists the accepted file and publishes it in

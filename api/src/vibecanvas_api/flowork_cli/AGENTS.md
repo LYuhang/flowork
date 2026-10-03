@@ -4,6 +4,14 @@ Managed by Flowork, not a memory file. This guidance and active /command playboo
 
 Flowork is a cloud platform for workflows, tasks, deployments and Knowledge packages. Your conversation runs in a persistent Project workspace. Use your provided working directory for task files and the shared paths below when needed. Platform access uses the active user's current permissions; the CLI needs no separate login. The platform checks identity, permissions and required approvals on each request. Do not provide user IDs, credentials or permission claims to gain resource access. Use the provided flowork-cli on PATH; if a custom shell resets PATH, invoke "$FLOWORK_CLI_BIN" instead of searching for platform installation directories. Workflow commands are stateless: always pass --workflow_id ID; graph commands also require --major vN. There is no current or connected Workflow.
 
+## CLI output contract
+
+Default stdout contains exactly one final JSON object. Progress, including approval waits, is JSONL on stderr; keep stdout/stderr separate when parsing with json.loads (do not merge 2>&1). Help remains text. `workflow download` without --file is a raw workflow JSON export with no result envelope, so it can be uploaded unchanged.
+
+Final envelopes carry event=result|error and command_status=succeeded|failed|unknown. command_status describes this command, not a background execution. Read execution_status for Task/Deployment/Workflow execution state, resource_status for enabled/paused resource state, and evaluation_status for evaluation state when supplied. The old status field remains for compatibility. A successful query can report execution_status=failed; successful submission may be queued. An unknown mutation outcome must be inspected, never automatically retried.
+
+Use `--stream` on workflow run/run-batch or document/diagram render to get stdout JSONL: event=progress records followed by one event=result|error record. `task logs --follow` uses that streaming format automatically. Do not treat the first progress record as completion. Exit codes remain 0 success, 1 failure or unknown, 2 invalid input; status/history queries report command success even when the queried execution failed. Streaming does not change execution lifetime, approval behavior, output files or cancellation semantics.
+
 ## Available commands
 
 Use `flowork-cli config get --scope workflow --workflow_id ID --major vN` for saved Workflow settings, or `config get --scope model_api` to discover your authorized manually added model APIs. Account connections and platform defaults are not Workflow model candidates.

@@ -70,7 +70,7 @@ def add_parser(groups):
     target(history)
     page(history)
     logs = _command(actions, "logs", help="Read execution logs or follow incremental progress.",
-        description="schedule_run requires --execution_id; batch_exec rejects it. Without --follow returns one page with logs, cursor and has_more; use --after CURSOR to continue. --follow streams JSONL until the selected execution is terminal, then reports actual status/errors. Stopping observation never cancels execution. --output_dir exports this page plus diagnostic context to a NEW directory; use returned cursors for more pages. Log cursor IDs are not task/execution IDs.")
+        description="schedule_run requires --execution_id; batch_exec rejects it. Without --follow returns one page with logs, cursor and has_more; use --after CURSOR to continue. --follow streams stdout JSONL with event=progress until the selected execution is terminal, then one event=result|error. command_status describes observation success; execution_status reports the selected execution. Without --follow stdout is one final JSON and progress goes to stderr. Stopping observation never cancels execution. --output_dir exports this page plus diagnostic context to a NEW directory; use returned cursors for more pages. Log cursor IDs are not task/execution IDs.")
     target(logs, True)
     logs.add_argument("--follow", action="store_true")
     logs.add_argument("--after", type=int, default=0)
@@ -344,7 +344,7 @@ def execute(args, endpoint, api):
                 output.write(base64.b64decode(value["chunk"], validate=True))
                 output.flush()
             else:
-                print(json.dumps(value, ensure_ascii=False), flush=True)
+                api.emit_progress(value, stream=bool(operation == "task.logs" and args.follow))
 
         dispatched = True
         result = api.request(endpoint, arguments, operation=operation, on_progress=progress)
@@ -370,15 +370,16 @@ def execute(args, endpoint, api):
                     handle.write(content)
                 paths.append(os.path.join(directory, name))
             result.update(directory=directory, files=paths)
-        print(json.dumps(result, ensure_ascii=False), flush=True)
-        return 1 if "error" in result else 0
+        state_field = ("evaluation_status" if args.action in {"evaluation", "evaluate", "evaluation-config"}
+                       else "resource_status" if args.action == "delete" or result.get("status") in {"enabled", "paused"}
+                       else "execution_status")
+        return api.emit_result(result, exit_code=1 if "error" in result else 0, state_field=state_field)
     except (ValueError, OSError, RuntimeError, KeyboardInterrupt) as exc:
         unknown = dispatched and operation in WRITE_OPERATIONS
         result = api.uncertain_result() if unknown else api.error(
             "command_interrupted" if dispatched else "invalid_arguments", str(exc) or "Command interrupted.",
             "Task execution is independent of this listener. Inspect task status/list before retrying." if dispatched else "Run this command's --help; check input and output paths.")
-        print(json.dumps(result, ensure_ascii=False), flush=True)
-        return 1 if dispatched or isinstance(exc, RuntimeError) else 2
+        return api.emit_result(result, exit_code=1 if dispatched or isinstance(exc, RuntimeError) else 2)
     finally:
         if output is not None:
             output.close()

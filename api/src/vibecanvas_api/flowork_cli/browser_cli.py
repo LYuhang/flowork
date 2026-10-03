@@ -6,7 +6,6 @@ opens a browser, reads credentials or executes page code itself.
 
 from __future__ import annotations
 
-import json
 import math
 import os
 
@@ -193,5 +192,4 @@ def execute(args, endpoint, core):
                       "message": "The browser command was interrupted; its result is unavailable.",
                       "hint": "Inspect the tab and output files before retrying; the action may already have happened." if unknown else "Check the extension connection and retry this observation."}
     result.setdefault("status", "failed" if result.get("error") else "succeeded")
-    print(json.dumps(result, ensure_ascii=False), flush=True)
-    return 2 if result.get("error") == "invalid_arguments" else (0 if result.get("status") == "succeeded" else 1)
+    return core.emit_result(result, exit_code=2 if result.get("error") == "invalid_arguments" else (0 if result.get("status") == "succeeded" else 1))

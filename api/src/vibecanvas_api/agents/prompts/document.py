@@ -72,7 +72,7 @@ Working contract:
    of readability.
    Default rendering covers all pages. --pages is for targeted iteration, not a
    substitute for full-document acceptance. Page coverage accumulates only for
-   the same file and source_hash. Progress is JSONL; wait for the final result.
+   the same file and source_hash. Progress is JSONL on stderr; stdout contains the final JSON. Use --stream for tagged stdout JSONL. Wait for the final result.
    Do not use shell output or self-written JSON as evidence of successful checks.
 7. Reopen the final native file with its format library, run one final
    `flowork-cli document review --file PATH`, and publish that exact file with

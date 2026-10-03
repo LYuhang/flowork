@@ -421,6 +421,20 @@ describe('<DeploymentDetailPage>', () => {
     expect(chart.innerHTML).not.toMatch(/NaN|Infinity/);
   });
 
+  it('validates and saves the call timeout', async () => {
+    const user = userEvent.setup(); renderAt(DEP_ID);
+    await screen.findByRole('heading', { name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
+    const input = screen.getByRole('spinbutton', { name: 'Call timeout (seconds)' });
+    expect(input).toHaveValue(30);
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    fireEvent.change(input, { target: { value: '45' } });
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm and save' }));
+    await waitFor(() => expect(patchDeployment).toHaveBeenCalledExactlyOnceWith(DEP_ID, { timeout_seconds: 45 }));
+  });
+
   it('confirms a QPS-only update and preserves the draft on cancel', async () => {
     const user = userEvent.setup();
     renderAt(DEP_ID);

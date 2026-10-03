@@ -289,6 +289,17 @@ class WorkflowHistoryRepo:
             {"id": run["id"], "reason": "execution_lost" if error_code == "execution_lost" else "cancelled"},
         )
 
+    async def confirm_timed_out(self, execution_id: str):
+        """Process owner calls only after its execution worker has stopped."""
+        run = await self.get(execution_id, lock=True)
+        if run is None:
+            raise KeyError(execution_id)
+        if run["status"] in TERMINAL_STATUSES:
+            return
+        await self._finish(run, status="timed_out", error_code="execution_timeout",
+            result={"final_outputs": {}, "error_dict": {"__engine__": "execution_timeout"},
+                    "execution_time": None})
+
     async def confirm_cancelled(self, execution_id: str):
         """Only the process owner calls this after confirming execution stopped."""
         run = await self.get(execution_id, lock=True)

@@ -260,7 +260,12 @@ async def invoke_sync(
     async with session_scope(tenant_id=tenant_id) as session:
         receipt_id, fresh = await claim_invocation(session, deployment=dep, key=idempotency_key, inputs=body)
         if not fresh:
-            return await replay_response(session, slug=slug, invocation_id=receipt_id, asynchronous=False)
+            replay = await replay_response(session, slug=slug, invocation_id=receipt_id, asynchronous=False)
+            if replay is not None:
+                return replay
+            await session.commit()
+            from vibecanvas_api.services.deployment_observer import observe_invocation
+            return await observe_invocation(tenant_id=tenant_id, slug=slug, invocation_id=str(receipt_id))
         await check_rate_limit(dep)
         from vibecanvas_api.services.deployment_revisions import admit_revision
         from vibecanvas_api.services.deployment_snapshots import resolve_workflow

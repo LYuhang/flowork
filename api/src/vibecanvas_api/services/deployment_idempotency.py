@@ -62,7 +62,9 @@ async def replay_response(session, *, slug: str, invocation_id, asynchronous: bo
         SELECT 1 FROM workflow_execution_approvals WHERE execution_id=:id)"""),
         {"id": invocation_id},
     )
-    if not asynchronous and not encountered_approval and run["status"] in TERMINAL_STATUSES:
-        return sync_result_response(await history.result_detail(str(invocation_id)))
+    if not asynchronous and not encountered_approval:
+        if run["status"] in TERMINAL_STATUSES:
+            return sync_result_response(await history.result_detail(str(invocation_id)))
+        return None  # Caller observes after the admission transaction closes.
     return accepted_response(slug=slug, invocation_id=str(invocation_id), state=run["status"],
-                             async_reason="explicit_async" if asynchronous else "human_approval" if encountered_approval else "dispatch_pending")
+                             async_reason="explicit_async" if asynchronous else "human_approval")

@@ -65,6 +65,15 @@ class WorkflowRpcPool:
         return bool(self._owners)
 
     @property
+    def accepting(self) -> bool:
+        """The pool can acquire slots, replacing dead workers on demand.
+
+        Losing the last warm worker does not retire its deployment session.
+        Capacity admission is still enforced separately by acquire().
+        """
+        return not self._closed
+
+    @property
     def ready(self) -> bool:
         return not self._closed and any(slot.alive for slot in self._slots.values())
 

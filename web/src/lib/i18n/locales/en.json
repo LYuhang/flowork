@@ -3838,4 +3838,7 @@
   "taskDetail.scheduledLastFailed": "Last scheduled execution failed",
   "taskDetail.scheduledErrorHint": "Open execution logs to inspect the failed run and its node errors. The schedule status is shown separately.",
   "taskDetail.viewExecutionLogs": "View execution logs"
+  ,"deployments.settings.timeout": "Call timeout (seconds)"
+  ,"deployments.settings.timeoutHelp": "1–3600 seconds; default 30. Expiry stops the call. Human approval waiting uses its own node timeout and does not count toward this limit. Changes apply to new calls without restarting the instance."
+  ,"deployments.settings.timeoutInvalid": "Enter a whole number from 1 to 3600."
 }

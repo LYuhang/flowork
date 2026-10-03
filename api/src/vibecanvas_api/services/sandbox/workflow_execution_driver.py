@@ -52,6 +52,8 @@ class WorkflowExecutionDriver:
         self.slot = slot
         self.persist_artifacts = persist_artifacts
         self.on_event = on_event
+        self._timeout = None
+        self._remaining_timeout = None
 
     def _session(self):
         return short_session_scope(tenant_id=self.tenant_id)
@@ -69,6 +71,9 @@ class WorkflowExecutionDriver:
             try:
                 async with self._session() as session:
                     repo = WorkflowHistoryRepo(session)
+                    before = await repo.get(self.execution_id, lock=True)
+                    if before.get("timeout_requested_at") is not None:
+                        return before["last_seq"], before, [], None
                     through = await repo.persist_events(self.execution_id, generation, frames)
                     run = await repo.get(self.execution_id)
                     commands = await repo.pending_commands(self.execution_id)
@@ -93,18 +98,26 @@ class WorkflowExecutionDriver:
         async with self._session() as session:
             repo = WorkflowHistoryRepo(session)
             run = await repo.get(self.execution_id)
-            if run["cancel_requested_at"] is not None:
+            if error_code == "execution_timeout" or run.get("timeout_requested_at") is not None:
+                await repo.confirm_timed_out(self.execution_id)
+            elif run["cancel_requested_at"] is not None:
                 await repo.confirm_cancelled(self.execution_id)
             else:
                 await repo.fail(self.execution_id, error_code=error_code)
             detail = await repo.detail(self.execution_id)
         return detail["result"]
 
-    async def run(self, *, inputs: dict, context: dict) -> dict:
+    async def run(self, *, inputs: dict, context: dict, timeout_seconds: float | None = None) -> dict:
         try:
-            return await self._run(inputs=inputs, context=context)
+            async with asyncio.timeout(timeout_seconds) as budget:
+                self._timeout = budget
+                return await self._run(inputs=inputs, context=context)
+        except TimeoutError:
+            if self._timeout is not None and self._timeout.expired():
+                return await self._lost(error_code="execution_timeout")
+            await self._lost()
+            raise
         except BaseException:
-            # Kill confirmation and durable failure precede capacity release.
             await self._lost()
             raise
 
@@ -174,7 +187,16 @@ class WorkflowExecutionDriver:
             through, run, commands, result = await self._persist_frames(generation, frames)
             after = through
 
+            if run.get("timeout_requested_at") is not None:
+                return await self._lost(error_code="execution_timeout")
             for frame in frames:
+                if self._timeout is not None:
+                    if frame["type"] == "approval_requested" and self._timeout.when() is not None:
+                        self._remaining_timeout = max(0, self._timeout.when() - asyncio.get_running_loop().time())
+                        self._timeout.reschedule(None)
+                    elif frame["type"] == "approval_resolved" and self._remaining_timeout is not None:
+                        self._timeout.reschedule(asyncio.get_running_loop().time() + self._remaining_timeout)
+                        self._remaining_timeout = None
                 if frame["type"] == "approval_ready":
                     pending_resumes.setdefault(frame["approval_id"], None)
                 if frame["type"] == "approval_requested":

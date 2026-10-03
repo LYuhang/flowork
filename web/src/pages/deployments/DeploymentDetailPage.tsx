@@ -246,6 +246,7 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
 function ConfigTab({ dep }: { dep: Deployment }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const [timeoutSeconds, setTimeoutSeconds] = useState(dep.timeout_seconds ?? 30);
   const [rateQps, setRateQps] = useState<number>(dep.rate_limit_qps);
   const [enabled, setEnabled] = useState(dep.enabled);
   const [mountEnabled, setMountEnabled] = useState(dep.mount_enabled ?? true);
@@ -259,13 +260,15 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   const versionOptions = [...new Set([originalVersion, ...versions.map(v => `v${v.major}.sv${v.sub}`)])];
 
   const resourcesChanged = cpuMillis !== (dep.cpu_millis ?? 500) || memoryMb !== (dep.memory_mb ?? 256);
-  const dirty = rateQps !== dep.rate_limit_qps || enabled !== dep.enabled || mountEnabled !== (dep.mount_enabled ?? true) || version !== originalVersion || resourcesChanged;
+  const dirty = timeoutSeconds !== (dep.timeout_seconds ?? 30) || rateQps !== dep.rate_limit_qps || enabled !== dep.enabled || mountEnabled !== (dep.mount_enabled ?? true) || version !== originalVersion || resourcesChanged;
   const validQps = Number.isSafeInteger(rateQps) && rateQps >= 0;
   const validResources = Number.isInteger(cpuMillis) && cpuMillis >= 100 && cpuMillis <= 256000 && Number.isInteger(memoryMb) && memoryMb >= 128 && memoryMb <= 1048576;
-  const validForm = validQps && validResources;
+  const validTimeout = Number.isInteger(timeoutSeconds) && timeoutSeconds >= 1 && timeoutSeconds <= 3600;
+  const validForm = validQps && validResources && validTimeout;
   const needsReplacement = version !== originalVersion || mountEnabled !== (dep.mount_enabled ?? true) || resourcesChanged;
   const booleanLabel = (value: boolean) => value ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off');
   const changes = [
+    ...(timeoutSeconds !== (dep.timeout_seconds ?? 30) ? [{ label: t("deployments.settings.timeout", "Call timeout (seconds)"), before: String(dep.timeout_seconds ?? 30), after: String(timeoutSeconds) }] : []),
     ...(cpuMillis !== (dep.cpu_millis ?? 500) ? [{ label: t('deployments.resources.cpu', 'CPU cores'), before: String((dep.cpu_millis ?? 500) / 1000), after: String(cpuMillis / 1000) }] : []),
     ...(memoryMb !== (dep.memory_mb ?? 256) ? [{ label: t('deployments.resources.memory', 'Memory (MiB)'), before: String(dep.memory_mb ?? 256), after: String(memoryMb) }] : []),
     ...(rateQps !== dep.rate_limit_qps ? [{ label: t('deployments.create.fields.rateLimitQps', 'Rate limit (QPS)'), before: String(dep.rate_limit_qps), after: String(rateQps) }] : []),
@@ -277,6 +280,7 @@ function ConfigTab({ dep }: { dep: Deployment }) {
     mutationFn: () => {
       const match = /^v(\d+)(?:\.sv(\d+))?$/.exec(version);
       return patchDeployment(dep.id, {
+        ...(timeoutSeconds !== (dep.timeout_seconds ?? 30) ? { timeout_seconds: timeoutSeconds } : {}),
         ...(cpuMillis !== (dep.cpu_millis ?? 500) ? { cpu_millis: cpuMillis } : {}),
         ...(memoryMb !== (dep.memory_mb ?? 256) ? { memory_mb: memoryMb } : {}),
         ...(rateQps !== dep.rate_limit_qps ? { rate_limit_qps: rateQps } : {}),
@@ -296,6 +300,7 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   });
 
   const reset = () => {
+    setTimeoutSeconds(dep.timeout_seconds ?? 30);
     setCpuMillis(dep.cpu_millis ?? 500);
     setMemoryMb(dep.memory_mb ?? 256);
     setRateQps(dep.rate_limit_qps);
@@ -355,6 +360,12 @@ function ConfigTab({ dep }: { dep: Deployment }) {
           </div>
           <Switch id="dep-mount" aria-describedby="dep-mount-help" checked={mountEnabled} onCheckedChange={setMountEnabled} disabled={patchMutation.isPending} className="mt-0.5 shrink-0" />
         </div>
+      </div>
+      <div className="border-t border-edge-subtle px-5 py-5 sm:px-6 space-y-2">
+        <Label htmlFor="dep-timeout">{t('deployments.settings.timeout', 'Call timeout (seconds)')}</Label>
+        <Input id="dep-timeout" type="number" min={1} max={3600} step={1} value={timeoutSeconds} aria-describedby="dep-timeout-help" disabled={patchMutation.isPending} onChange={event => setTimeoutSeconds(Number(event.target.value))} />
+        <p id="dep-timeout-help" className="text-xs leading-5 text-muted-foreground">{t('deployments.settings.timeoutHelp', '1–3600 seconds; default 30. Expiry stops the call. Human approval waiting uses its own node timeout and does not count toward this limit. Changes apply to new calls without restarting the instance.')}</p>
+        {!validTimeout && <p role="alert" className="text-xs text-destructive">{t('deployments.settings.timeoutInvalid', 'Enter a whole number from 1 to 3600.')}</p>}
       </div>
       <details className="border-t border-edge-subtle px-5 py-4 sm:px-6">
         <summary className="cursor-pointer text-sm font-medium">{t('deployments.resources.title', 'Advanced · instance resources')}</summary>

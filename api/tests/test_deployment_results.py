@@ -38,7 +38,7 @@ def test_external_result_excludes_internal_outputs_and_raw_errors(state, code):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("disconnect", [False, True])
-async def test_http_wait_returns_ticket_without_cancelling_dispatch(pg_engine, monkeypatch, disconnect):
+async def test_http_wait_does_not_convert_sync_or_cancel_dispatch(pg_engine, monkeypatch, disconnect):
     from tests.storage.test_workflow_history import owner
 
     tenant, actor, _ = await owner()
@@ -80,7 +80,6 @@ async def test_http_wait_returns_ticket_without_cancelling_dispatch(pg_engine, m
             )
 
     task = deployment_observer.own_dispatch(dispatch())
-    monkeypatch.setattr(deployment_observer, "SYNC_WAIT_SECONDS", 30 if disconnect else 0.01)
     try:
         observation = asyncio.create_task(
             deployment_observer.observe_invocation(
@@ -96,12 +95,13 @@ async def test_http_wait_returns_ticket_without_cancelling_dispatch(pg_engine, m
             with pytest.raises(asyncio.CancelledError):
                 await observation
         else:
-            response = await observation
-            assert response.status_code == 202
-            assert json.loads(response.body)["invocation_id"] == invocation
+            await asyncio.sleep(0.15)
+            assert not observation.done()
         assert not task.done()
         finish.set()
         await task
+        if not disconnect:
+            assert (await observation)["outputs"] == {"value": 7}
         result = await deployment_observer.observe_invocation(
             tenant_id=tenant,
             slug="example",

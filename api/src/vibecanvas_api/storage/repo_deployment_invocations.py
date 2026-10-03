@@ -93,7 +93,7 @@ class DeploymentInvocationsRepo:
                 INSERT INTO deployment_invocations (
                     id, tenant_id, deployment_id, wf_id, trigger_type, source,
                     status, started_at, revision_id, private_ciphertext, private_nonce,
-                    private_key_id, dispatch_deadline
+                    private_key_id, dispatch_deadline, timeout_seconds
                 )
                 VALUES (
                     :id, :tenant_id, :deployment_id, :wf_id, :trigger_type,
@@ -101,7 +101,8 @@ class DeploymentInvocationsRepo:
                     CASE WHEN :status = 'running' THEN now() ELSE NULL END,
                     :revision_id, :private_ciphertext, :private_nonce, :private_key_id,
                     CASE WHEN CAST(:revision_id AS uuid) IS NOT NULL AND :source IN ('sync_api','test')
-                        THEN now()+interval '5 minutes' ELSE NULL END
+                        THEN now()+interval '5 minutes' ELSE NULL END,
+                    (SELECT timeout_seconds FROM deployments WHERE id=:deployment_id)
                 )
                 """
             ),

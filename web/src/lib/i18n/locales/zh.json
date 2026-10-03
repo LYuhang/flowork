@@ -3838,4 +3838,7 @@
   "taskDetail.scheduledLastFailed": "上次定时执行失败",
   "taskDetail.scheduledErrorHint": "请在执行日志中查看该次执行及节点错误。定时计划是否启用单独显示。",
   "taskDetail.viewExecutionLogs": "查看执行日志"
+  ,"deployments.settings.timeout": "调用超时（秒）"
+  ,"deployments.settings.timeoutHelp": "范围 1～3600 秒，默认 30 秒。超时后停止该次执行。人工审批等待使用节点自身的超时时间，不计入此限制。修改只影响后续调用，无需重启实例。"
+  ,"deployments.settings.timeoutInvalid": "请输入 1～3600 之间的整数。"
 }

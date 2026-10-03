@@ -54,6 +54,7 @@ export interface Deployment {
   pinned_sub: number | null;
   enabled: boolean;
   mount_enabled?: boolean;
+  timeout_seconds?: number;
   cpu_millis?: number;
   memory_mb?: number;
   rate_limit_qps: number;
@@ -105,6 +106,7 @@ export interface ListDeploymentsParams {
 }
 
 export interface CreateDeploymentBody {
+  timeout_seconds?: number;
   cpu_millis?: number;
   memory_mb?: number;
   wf_id: string;
@@ -133,6 +135,7 @@ export interface CreateDeploymentResponse {
 }
 
 export interface PatchDeploymentBody {
+  timeout_seconds?: number;
   cpu_millis?: number;
   memory_mb?: number;
   name?: string;

@@ -295,3 +295,55 @@ async def test_detached_start_owns_one_execution_after_caller_disconnect(
         may_claim.set()
         finish.set()
         await asyncio.gather(caller, *runtime._dispatches.values(), return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('sibling_running', [False, True])
+async def test_dead_worker_replaced_without_rebuilding_deployment(sibling_running):
+    from vibecanvas_api.services.sandbox.workflow_rpc_pool import WorkflowRpcPool
+
+    class Slot:
+        invocation_id = None
+        alive = False
+
+        async def start(self):
+            self.alive = True
+
+        async def close(self):
+            self.alive = False
+
+    pool = WorkflowRpcPool(capacity=2, factory=lambda _: Slot())
+    manager = SimpleNamespace(close_session=AsyncMock(), get_session=AsyncMock())
+    runtime = DeploymentRuntime(manager)
+    session = SimpleNamespace(
+        closed=False,
+        _fileop_pool=SimpleNamespace(_handles=[SimpleNamespace(proc=SimpleNamespace(poll=lambda: None))]),
+        _workflow_rpc_pool=pool,
+    )
+    runtime._ready['tenant:revision'] = session
+    try:
+        await pool.prewarm()
+        dead = pool._slots[0]
+        async with pool.acquire('timed-out') as worker:
+            assert worker is dead
+            await worker.close()
+        assert not pool.ready and pool.accepting
+
+        async def check_recovery(sibling=None):
+            prepared = await runtime.prepare(tenant_id='tenant', revision_id='revision', spec={}, workflow={})
+            assert prepared is session
+            async with pool.acquire('next-request') as replacement:
+                assert replacement.alive and replacement is not dead
+                if sibling is not None:
+                    assert sibling.alive
+            manager.close_session.assert_not_awaited()
+            manager.get_session.assert_not_awaited()
+
+        if sibling_running:
+            async with pool.acquire('sibling') as sibling:
+                await check_recovery(sibling)
+        else:
+            await check_recovery()
+    finally:
+        await pool.close()
+    assert not pool.accepting

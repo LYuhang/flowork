@@ -51,7 +51,7 @@ def add_parser(groups):
         "disable": "Disable new calls. Does not guarantee cancellation of in-flight execution or undo side effects.",
         "delete": "Soft-delete and disable the deployment, not its Workflow. Does not undo in-flight side effects. Approval applies.",
         "rotate_key": "API deployments only. Old API key immediately stops working. Save the one-time replacement to --secret_file; never automatically rotate again after an unknown result.",
-        "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url after human approval is reached or the observation wait expires. The admitted execution continues independently. Retrieve full outputs through result --execution_id or inspect status and its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
+        "run": "Make one REAL test call, like the page Test action. Not a dry run. Uses current platform permission, not an API key. Returns final outputs/errors when completed promptly, or HTTP 202 with execution_id and execution_url only after human approval is reached. Other calls remain synchronous and execution timeout stops the workflow and returns HTTP 504. The admitted execution continues independently. Retrieve full outputs through result --execution_id or inspect status and its detail link; do not run again to poll. Workflow business timeouts still apply. Tests execution, not external key/signature/network reachability.",
         "history": "List invocation history newest first. Use next_cursor as --after. Exports default to the last seven days; override with --from/--to. --output_dir exports invocations.jsonl and history.json with paging metadata to a NEW directory. Use status/logs --execution_id for one invocation.",
         "create": "Create an enabled deployment by default; does not execute. Required --version selects a fixed saved snapshot. --secret_file is a NEW sandbox file for the one-time API key/webhook secret (0600); stdout never prints it. After an unknown result inspect list before retrying. --slug defaults to the lowercased name with non-ASCII/alphanumeric groups replaced by hyphens (fallback deployment); collisions are errors.",
         "update": "Update ONLY supplied settings, not Workflow ID, trigger type or slug. Version changes and increased execution exposure may require approval. Use enable/disable for availability. Existing accepted calls retain their frozen version/mount. Updating configuration is asynchronous: old active instances serve new calls until replacement is ready. Use info to check rollout_status and active_version; do not repeat update to poll.",
@@ -63,6 +63,7 @@ def add_parser(groups):
             leaf.add_argument("--name", required=action == "create")
             version = leaf.add_mutually_exclusive_group(required=action == "create")
             version.add_argument("--version", help="Fixed saved version, e.g. v2.sv3. Never infers a target from Chat state.")
+            leaf.add_argument("--timeout_seconds", type=int, help="Invocation execution budget in seconds, 1–3600; default 30. Approval waiting pauses this budget. Changes affect only new calls. Expiry stops execution; it does not switch a synchronous call to asynchronous.")
             leaf.add_argument("--rate_limit_qps", type=int, help="Non-negative soft QPS cap, default 10 on create. 0 disables this rate limit, not a capacity guarantee.")
             leaf.add_argument("--mount", choices=("true", "false"), help="Expose deployment owner's authorized /mount. Default false on create; omission preserves on update. Never shares Chat /data or /memory.")
         if action == "create":
@@ -94,7 +95,7 @@ def validate(operation, arguments):
     if operation not in OPERATIONS or not isinstance(arguments, dict):
         raise ValueError("Unsupported Deployment operation or arguments.")
     target = {"deployment_id"}
-    settings = {"name", "major", "version", "rate_limit_qps", "mount"}
+    settings = {"name", "major", "version", "rate_limit_qps", "mount", "timeout_seconds"}
     allowed = {
         "list": {"workflow_id", "limit", "offset"}, "info": target, "status": target | {"execution_id"}, "result": target | {"execution_id"},
         "logs": target | {"execution_id", "after", "limit"},
@@ -135,6 +136,8 @@ def validate(operation, arguments):
     for key in ("enabled", "mount", "export"):
         if key in value and type(value[key]) is not bool:
             raise ValueError(f"--{key} must be true or false.")
+    if "timeout_seconds" in value and (type(value["timeout_seconds"]) is not int or not 1 <= value["timeout_seconds"] <= 3600):
+        raise ValueError("--timeout_seconds must be an integer from 1 to 3600.")
     if "major" in value:
         raise ValueError("Deployments require a fixed --version, e.g. v2.sv3; --major is no longer supported.")
     if action == "create" and not value.get("version"):

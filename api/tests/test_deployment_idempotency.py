@@ -35,7 +35,6 @@ async def test_retry_reuses_live_and_finished_invocation_and_rejects_changed_inp
     from vibecanvas_api.services import deployment_observer
 
     tenant, slug, key, dep_id, limiter = await setup_deployment(pg_engine, app_engine, monkeypatch)
-    monkeypatch.setattr(deployment_observer, "SYNC_WAIT_SECONDS", 0.01)
     finish = asyncio.Event()
     finished = asyncio.Event()
     dispatched = []
@@ -71,10 +70,14 @@ async def test_retry_reuses_live_and_finished_invocation_and_rejects_changed_inp
     args = {"slug": slug, "body": {"x": 7}, "authorization": f"Bearer {key}", "idempotency_key": "client-operation"}
     try:
         # Two modest simultaneous requests exercise the database unique-key race.
-        responses = await asyncio.gather(routes.invoke_sync(**args), routes.invoke_sync(**args))
+        waiting = asyncio.gather(routes.invoke_sync(**args), routes.invoke_sync(**args))
+        await asyncio.sleep(0.2)
+        assert not waiting.done()
+        finish.set()
+        responses = await asyncio.wait_for(waiting, 10)
         first, second = map(payload, responses)
         assert first["invocation_id"] == second["invocation_id"]
-        assert all(response.status_code == 202 for response in responses)
+        assert all(payload(response)["status"] == "succeeded" for response in responses)
         assert dispatched == [first["invocation_id"]]
         limiter.assert_awaited_once()
         with pytest.raises(HTTPException) as conflict:

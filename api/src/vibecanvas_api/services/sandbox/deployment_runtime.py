@@ -77,7 +77,7 @@ class DeploymentRuntime:
                 execution_pool = getattr(previous, "_workflow_rpc_pool", None)
                 if (not previous.closed and pool is not None and pool._handles
                         and pool._handles[0].proc.poll() is None
-                        and execution_pool is not None and execution_pool.ready):
+                        and execution_pool is not None and execution_pool.accepting):
                     return previous
                 if execution_pool is not None and execution_pool.busy:
                     raise RuntimeError("deployment_instance_unavailable")
@@ -189,7 +189,7 @@ class DeploymentRuntime:
         claim = uuid.uuid4()
         # No arbitrary RPC-supplied graph may select another deployment's pool.
         async with short_session_scope(tenant_id=tenant_id) as db:
-            row = (await db.execute(text("""SELECT r.spec FROM deployment_runtime_revisions r
+            row = (await db.execute(text("""SELECT r.spec,i.timeout_seconds,i.submitted_at FROM deployment_runtime_revisions r
                 JOIN deployment_invocations i ON i.revision_id=r.id
                 WHERE r.id=:revision AND r.deployment_id=:deployment
                 AND i.id=:invocation AND i.status IN ('queued','running')
@@ -228,6 +228,11 @@ class DeploymentRuntime:
                         inputs=inputs, approvers=approvers, revision_id=revision_id,
                     )
             runtime_extra = dict(extra or {})
+            # Admission captures the budget; edits never change in-flight work.
+            from datetime import datetime, timezone
+            timeout = row["timeout_seconds"]
+            remaining = None if timeout is None else max(0, timeout - (datetime.now(timezone.utc) - row["submitted_at"]).total_seconds())
+            runtime_extra["_deployment_timeout_deadline"] = None if remaining is None else time.monotonic() + remaining
             from vibecanvas_api.services.workflow_resources import (
                 collect_subagent_resources, prepare_execution_resources,
             )
@@ -274,6 +279,7 @@ class DeploymentRuntime:
                         renewed = (await db.execute(text("""UPDATE deployment_invocations
                             SET execution_lease_until=now()+interval '60 seconds'
                             WHERE id=:id AND runtime_claim=:claim AND status IN ('running','waiting_approval')
+                            AND NOT EXISTS (SELECT 1 FROM workflow_execution_runs h WHERE h.id=:id AND h.timeout_requested_at IS NOT NULL)
                             AND execution_lease_until > now() RETURNING id"""),
                             {'id': uuid.UUID(run_id), 'claim': claim})).scalar_one_or_none()
                 if renewed is None:
@@ -298,7 +304,10 @@ class DeploymentRuntime:
             history = WorkflowHistoryRepo(db)
             execution = await history.get(run_id)
             if execution is not None and execution["status"] not in TERMINAL_STATUSES:
-                await history.fail(run_id, error_code="execution_failed")
+                if execution.get("timeout_requested_at") is not None:
+                    await history.confirm_timed_out(run_id)
+                else:
+                    await history.fail(run_id, error_code="execution_failed")
                 execution = await history.get(run_id)
             terminal_status = execution["status"] if execution is not None else ("failed" if failed else "succeeded")
             await DeploymentInvocationsRepo(db).mark_terminal(
@@ -343,7 +352,10 @@ class DeploymentRuntime:
                     tenant_id=tenant_id, execution_id=run_id, slot=slot,
                     persist_artifacts=persist_artifacts, on_event=on_event,
                 )
-                return await driver.run(inputs=inputs, context=extra)
+                context = dict(extra)
+                deadline = context.pop("_deployment_timeout_deadline", None)
+                timeout = None if deadline is None else max(0, deadline - time.monotonic())
+                return await driver.run(inputs=inputs, context=context, timeout_seconds=timeout)
         finally:
             session._end_activity()
 

@@ -37,8 +37,10 @@ Run makes one REAL test call under platform authorization, not a dry run. Only
 test when requested or needed for agreed acceptance; side effects are possible.
 Observe terminal status/errors before claiming success. External credentials,
 webhook signatures and network access are not validated by this test. Long calls
-may return an accepted execution ID while still running or waiting for human
-approval. Use result with that ID to retrieve outputs later, or status/logs to
+return an accepted execution ID only upon actually entering human approval.
+Other calls remain synchronous: expiry of timeout_seconds stops execution and
+returns HTTP 504. Settings and create/update support --timeout_seconds (1–3600,
+default 30); the budget excludes approval waiting and applies to new calls. Use result with that ID to retrieve outputs later, or status/logs to
 inspect progress. Never call run again merely to poll an existing invocation.
 
 Enable/disable control future calls. Delete removes the deployment, not Workflow.

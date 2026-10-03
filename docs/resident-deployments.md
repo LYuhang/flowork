@@ -117,9 +117,9 @@ retains execution capacity. A deployment call that reaches an approval returns
 HTTP 202 with `invocation_id`, its compatibility alias `task_id`, and a
 `Location`/`status_url`. `result_url` remains an alias for existing clients.
 Tickets also include `async_reason` and `poll_after_seconds`; the latter equals
-the `Retry-After` header (3 seconds). Reasons are `human_approval`,
-`http_wait_timeout`, `explicit_async`, and `dispatch_pending` (an admitted call
-whose dispatch outcome still needs observation). Calls that take another branch can still complete
+the `Retry-After` header (3 seconds). Reasons are `human_approval` and `explicit_async`. A synchronous invocation never
+changes contract merely because HTTP observation takes longer or dispatch returns
+before completion. Calls that take another branch can still complete
 synchronously. The notification hook is currently a placeholder; review takes
 place in the execution detail page linked from the deployment's Activity log.
 The page shows the frozen graph and node results without granting graph-edit
@@ -411,3 +411,13 @@ separate node and run information. The inspected pages produced no JavaScript
 page errors. Desktop and narrow-screen layouts were checked without load tests.
 Private test fixtures, credentials, screenshots and deployment backups remain
 outside the repository.
+
+## Invocation timeout
+
+Deployment Settings and CLI create/update expose `timeout_seconds` (integer 1–3600, default 30). Each invocation snapshots this value at admission; editing the setting affects new calls without restarting the instance. Ordinary execution consumes the budget; Human approval waiting pauses it and uses the node timeout. The budget resumes after approval resolves. Explicit asynchronous calls use the same execution budget.
+
+A synchronous call returns HTTP 202 only after its actual path encounters Human approval. Without approval, expiry stops that invocation’s isolated worker before recording `timed_out` and returning HTTP 504 with `execution_timeout`. A queued, unclaimed call is fenced from late dispatch before timeout is recorded. Existing side effects are not rolled back. Result queries retain the same execution ID and terminal status; an HTTP disconnect alone is not an execution timeout.
+
+The timeout closes only the invocation’s RPC worker and its descendants. The resident Deployment session and sibling workers remain available. An open execution pool can replace a dead worker on the next acquisition even when no warm worker remains; absence of a warm worker alone must not trigger instance teardown. Capacity is released only after the worker has stopped.
+
+Native-service acceptance (2026-10-03) verified HTTP 504 on an ordinary call timeout, OS-level disappearance of the worker process group, HTTP 200 on the next call using a replacement worker, and no resident-session rebuild. A sibling Human approval call survived another call's timeout and completed after its own approval deadline. A 32-second ordinary call remained synchronous with a 45-second budget. Explicit asynchronous execution timed out durably and the next call succeeded. The Settings control rejected zero and persisted a changed timeout across reload without changing the active revision. Private credentials and test evidence remain outside the repository.

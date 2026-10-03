@@ -254,6 +254,7 @@ class CreateDeploymentBody(BaseModel):
     version_pin: str
     pinned_major: Optional[int] = None
     pinned_sub: Optional[int] = None
+    timeout_seconds: int = Field(default=30, ge=1, le=3600, strict=True)
     rate_limit_qps: int = 10
     mount_enabled: bool = False
     cpu_millis: int = Field(default=500, ge=100, le=256000, strict=True)
@@ -361,6 +362,7 @@ async def create_deployment(
         version_pin="specific",
         pinned_major=pinned_major,
         pinned_sub=pinned_sub,
+        timeout_seconds=body.timeout_seconds,
         rate_limit_qps=body.rate_limit_qps,
         mount_enabled=body.mount_enabled,
         cpu_millis=body.cpu_millis,
@@ -529,6 +531,7 @@ class PatchDeploymentBody(BaseModel):
 
     name: Optional[str] = None
     enabled: Optional[bool] = None
+    timeout_seconds: Optional[int] = Field(default=None, ge=1, le=3600, strict=True)
     rate_limit_qps: Optional[int] = None
     version_pin: Optional[str] = None
     pinned_major: Optional[int] = None
@@ -720,7 +723,7 @@ async def patch_deployment(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="rate_limit_qps must be >= 0",
             )
-    if any(fields.get(key, False) is None for key in ("name", "enabled", "mount_enabled", "rate_limit_qps", "version_pin", "cpu_millis", "memory_mb")):
+    if any(fields.get(key, False) is None for key in ("name", "enabled", "mount_enabled", "rate_limit_qps", "version_pin", "cpu_millis", "memory_mb", "timeout_seconds")):
         raise HTTPException(422, "Deployment settings cannot be null.")
     if "name" in fields and (not fields["name"].strip() or len(fields["name"]) > 200):
         raise HTTPException(422, "name must contain 1 to 200 characters.")
@@ -1122,7 +1125,7 @@ async def test_invoke(
 ):
     """Session-authenticated invocation with the same sync/async contract as /invoke.
 
-    Human approval or the HTTP observation deadline returns 202. The admitted
+    Only actual human approval switches a synchronous call to HTTP 202. The admitted
     execution continues independently; links use session-authorized history.
 
     Foreign-tenant ``dep_id`` → repo returns ``None`` (RLS filtered) → 404.

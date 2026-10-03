@@ -286,7 +286,7 @@ async def _complete_dispatch(**kwargs):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_wait_limit_returns_session_ticket_without_restarting(pg_engine, app_engine, monkeypatch):
+async def test_dashboard_waits_for_completion_without_restarting(pg_engine, app_engine, monkeypatch):
     import asyncio
     import json
     from unittest.mock import AsyncMock
@@ -310,20 +310,19 @@ async def test_dashboard_wait_limit_returns_session_ticket_without_restarting(pg
 
     monkeypatch.setattr(deployments, "_authorize_deployment", AsyncMock())
     monkeypatch.setattr("vibecanvas_api.services.deployment_dispatch.dispatch_invocation", dispatch)
-    monkeypatch.setattr(deployment_observer, "SYNC_WAIT_SECONDS", 0.01)
     try:
         async with short_session_scope(tenant_id=str(dep["tenant_id"])) as session:
-            response = await deployments.test_invoke(
+            pending = asyncio.create_task(deployments.test_invoke(
                 dep_id=dep["id"], body={}, request=_StubRequest(),
                 ctx=_Ctx(dep["tenant_id"], dep["user_id"]), session=session, service=_AllowAuthz(),
-            )
-        assert response.status_code == 202
-        payload = json.loads(response.body)
+            ))
+            await asyncio.sleep(0.15)
+            assert not pending.done()
+            finish.set()
+            response = await asyncio.wait_for(pending, 10)
+        payload = response if isinstance(response, dict) else json.loads(response.body)
+        assert payload["status"] == "succeeded"
         assert calls == [payload["execution_id"]]
-        assert payload["invocation_id"] == payload["task_id"] == payload["execution_id"]
-        assert payload["result_url"] == response.headers["location"] == f"/api/v1/workflow-executions/{calls[0]}"
-        assert payload["execution_url"] == f"/workflow-executions/{calls[0]}"
-        assert not completed.is_set()
     finally:
         finish.set()
         await asyncio.wait_for(completed.wait(), 5)

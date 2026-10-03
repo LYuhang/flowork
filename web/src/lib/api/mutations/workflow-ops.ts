@@ -52,12 +52,15 @@ export const useCommitWorkflow = (wfId: string, targetMajor?: number | null) => 
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (workflow: WorkflowDraft) => {
+      const expectedVersion = useWorkflowEditStore.getState().baseVersion;
+      if (!expectedVersion) throw new Error(i18n.t('workflow.save.missingVersion', 'Keep your edits and reload the workflow before saving; its base version is unavailable.'));
       const { data, error } = await apiClient.POST(
         '/api/v1/workflows/{wf_id}/commits',
         {
           params: { path: { wf_id: wfId } },
           body: {
             workflow: normalizeForSend(workflow),
+            expected_version: expectedVersion,
             note: '',
             ...(targetMajor != null ? { target_major: targetMajor } : {}),
           },
@@ -66,12 +69,12 @@ export const useCommitWorkflow = (wfId: string, targetMajor?: number | null) => 
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data, workflow) => {
       // Re-baseline the draft so `isDirty()` re-derives to clean (the
       // markSaved fix — today Save never cleared dirty). Done BEFORE the
       // invalidate so the server echo of our own commit (draft bytes ==
       // server bytes) reconciles as clean, not as an agent conflict.
-      useWorkflowEditStore.getState().markSaved();
+      useWorkflowEditStore.getState().markSaved(`v${data.active_v}.sv${data.active_sv}`, workflow);
       qc.invalidateQueries({ queryKey: ['workflow', wfId] });
       qc.invalidateQueries({ queryKey: workflowVersionsQueryKey(wfId) });
       toast.success(i18n.t('workflow.save.success', 'Saved'));

@@ -1,4 +1,6 @@
 """Live, authorized Skill package operations using the existing publication API."""
+from vibecanvas_api.services.write_conflicts import WriteConflict
+
 import base64
 import hashlib
 import io
@@ -124,11 +126,12 @@ async def execute(call, arguments):
             from .cli_delete import _approve
             summary = {'skill_id':str(identifier) if identifier else None, 'name':frontmatter.get('name'),
                 'file_count':len(files),'size_bytes':sum(len(data) for _,_,data in files),
+                'expected_version':args.get('expected_version'),
                 'content_sha256':hashlib.sha256(json.dumps(args.get('files', []),sort_keys=True).encode()).hexdigest()}
             if deleting:
                 summary = {'skill_id': str(identifier), 'operation': 'delete installation'}
             await _approve(call, summary, prompt='Approve '+operation.replace('.', ' ')+'? '
-                +json.dumps(summary)+(' Removes your platform installation; local downloads and the catalog source are preserved.' if deleting else ' Updating replaces the complete package and unpublished draft, then publishes a new version.'))
+                +json.dumps(summary)+(' Removes your platform installation; local downloads and the catalog source are preserved.' if deleting else ' Publication replaces the complete package only if its expected version matches and no unpublished draft exists.'))
         ctx = await agent_context.resolve_context(cap)
         async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
             await _require_active_chat_write(session, ctx)
@@ -146,11 +149,13 @@ async def execute(call, arguments):
             if identifier is None:
                 result = await skills.create_custom_skill(bundle=upload, **params)
             else:
-                result = await skills.update_custom_skill_bundle(skill_id=str(identifier), bundle=upload, **params)
+                result = await skills.update_custom_skill_bundle(skill_id=str(identifier), bundle=upload, expected_version=args['expected_version'], **params)
             await session.commit()
             return {'status':'succeeded','skill_id':result.id,'name':result.name,'source':result.source,
                 'version':result.version,'revision_hash':result.revision_hash,'file_count':len(files),
                 'message':'Skill package validated and published.'}
+    except WriteConflict as exc:
+        return exc.cli_result()
     except Exception as exc:
         deletion = getattr(request.state, 'skill_deletion_receipt', None) if request is not None else None
         if deletion:

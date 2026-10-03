@@ -353,7 +353,7 @@ class WorkflowRepo:
     async def commit(self, wf_id: str, workflow: dict, note: str = "",
                      editor: str = "",
                      target_major: int | None = None,
-                     stamp_metadata: bool = False) -> "VersionPointer":
+                     stamp_metadata: bool = False, expected_version: str | None = None) -> "VersionPointer":
         """Allocate a sub-version atomically with bounded conflict retries.
 
         ``target_major`` (editable-historical-versions, UX-5):
@@ -402,6 +402,11 @@ class WorkflowRepo:
         # the latest sub of THAT major (we branch off its tip).
         parent_sub = w.active_sub if target_major is None else (
             await self.max_subversion(wf_id, major))
+        if expected_version is not None:
+            from vibecanvas_api.services.write_conflicts import WriteConflict
+            current_version = f"v{major}.sv{await self.max_subversion(wf_id, major)}"
+            if expected_version != current_version:
+                raise WriteConflict(expected_version=expected_version, current_version=current_version)
         for _ in range(5):
             next_sub = int((await self._s.execute(
                 select(func.coalesce(func.max(WorkflowVersion.sub), -1) + 1)

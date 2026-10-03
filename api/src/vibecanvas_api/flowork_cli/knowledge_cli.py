@@ -21,7 +21,7 @@ def add_parser(groups):
         "download": "Download the latest published package. --output_dir must NOT exist; omission creates a unique directory under /data/knowledge. Never overwrites local edits. Legacy README gets metadata frontmatter in the local copy only. Returns local_directory/readme/package_version/file_count; inspect files using bash.",
         "check": "Validate ALL files in --source_dir without saving or publishing. Root README.md requires YAML frontmatter with name (1..200 characters) and description (up to 2000 characters, may be empty). Only regular files; no symlinks. No third-party CLI dependency needed.",
         "create": "Create a new package from ALL files in --source_dir, including hidden files. Name/description come from root README.md YAML frontmatter. Run check first. Exclude private credentials. Returns knowledge_id and package_version. After an unknown outcome inspect list before retrying.",
-        "publish": "Publish ALL files in --source_dir as a new version, including README.md name/description. Replaces the whole package and any draft; absent files are removed. --expected_version rejects publication if the current version differs (recommended after download). Without it, last commit wins. Approval freezes submitted bytes. Indexing is asynchronous; never republish to wait for indexing.",
+        "publish": "Publish ALL files in --source_dir as a new version, including README.md name/description. Replaces the whole package; absent files are removed. --expected_version from download is required. Newer publications or unpublished drafts reject the write; download and merge before retrying. Approval freezes submitted bytes. Indexing is asynchronous; never republish to wait for indexing.",
         "delete": "Delete the remote package, preserving local downloads. Requires configured write approval; no bypass flag. Active indexing may block deletion; inspect get and wait before retrying.",
     }
     for action, description in descriptions.items():
@@ -35,7 +35,7 @@ def add_parser(groups):
         if action in {"create", "check", "publish"}:
             leaf.add_argument("--source_dir", required=True, help="Directory of regular files; root README.md required. Limits: 256 files, 200 MiB total, 16 path levels.")
         if action == "publish":
-            leaf.add_argument("--expected_version", type=int)
+            leaf.add_argument("--expected_version", type=int, required=True)
         if action == "download":
             leaf.add_argument("--output_dir")
 
@@ -96,6 +96,8 @@ def validate(operation, arguments):
             raise ValueError("--offset must be non-negative.")
         if "search" in value and (not isinstance(value["search"], str) or len(value["search"]) > 2000):
             raise ValueError("--search must be text up to 2000 characters.")
+    if action == "publish" and "expected_version" not in value:
+        raise ValueError("--expected_version from download is required.")
     if "expected_version" in value and (type(value["expected_version"]) is not int or value["expected_version"] < 1):
         raise ValueError("--expected_version must be a positive integer.")
     if action in {"create", "check", "publish"}:

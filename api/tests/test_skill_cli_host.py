@@ -70,7 +70,7 @@ async def test_denied_update_never_creates_lease_or_publishes(monkeypatch):
     monkeypatch.setattr(host,'authorize',AsyncMock(side_effect=HTTPException(403,'denied')))
     publish=AsyncMock()
     monkeypatch.setattr(host.skills,'update_custom_skill_bundle',publish)
-    result=await host.execute(call,{'skill_id':str(uuid4()),'files':files()})
+    result=await host.execute(call,{'skill_id':str(uuid4()),'files':files(),'expected_version':1})
     assert result['error']=='permission_denied'
     session.execute.assert_not_awaited()
     publish.assert_not_awaited()
@@ -122,3 +122,28 @@ async def test_delete_approval_and_dispatch(monkeypatch,mode,deny):
         assert result['deleted'] is True
         delete.assert_awaited_once_with(skill_id=identifier,request=request)
         assert authorize.await_count==2
+
+
+@pytest.mark.asyncio
+async def test_publication_rechecks_original_version_after_approval(monkeypatch):
+    from vibecanvas_api.services.agent_runtime import cli_delete
+    from vibecanvas_api.services.write_conflicts import WriteConflict
+    call,ctx,session=setup(monkeypatch,'skill.update')
+    call.capability=SimpleNamespace(approval_mode='always_ask',tenant_id=ctx.tenant_id,turn_id='turn')
+    session.execute.return_value=SimpleNamespace(first=lambda: (1,))
+    monkeypatch.setattr(host,'authorize',AsyncMock())
+    monkeypatch.setattr(host,'_require_active_chat_write',AsyncMock())
+    monkeypatch.setattr(host,'resource_route_params',lambda *a: {'request':SimpleNamespace(state=SimpleNamespace())})
+    version=1
+    async def approve(*a,**k):
+        nonlocal version
+        version=2  # Another editor publishes while the confirmation is open.
+    monkeypatch.setattr(cli_delete,'_approve',approve)
+    async def publish(*a,expected_version,**k):
+        assert expected_version==1
+        raise WriteConflict(expected_version=expected_version,current_version=version)
+    monkeypatch.setattr(host.skills,'update_custom_skill_bundle',publish)
+    result=await host.execute(call,{'skill_id':str(uuid4()),'files':files(),'expected_version':1})
+    assert result['error']=='version_conflict'
+    assert result['current_version']==2 and result['expected_version']==1
+    session.commit.assert_not_awaited()

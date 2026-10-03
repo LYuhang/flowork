@@ -96,7 +96,7 @@ from ..services.sandbox.manager import get_sandbox_manager
 from ..services.user_mount_workspace import mount_scope_id as _mount_scope_id
 from ..schemas.pagination import Page, PageRequest
 from ..schemas.workflow import (
-    CheckRequest, CheckResponse, CheckoutRequest, CommitRequest, EditsRequest,
+    CheckRequest, CheckResponse, CheckoutRequest, CommitRequest, GuardedCommitRequest, EditsRequest,
     EditsResponse, PromptHistoryOut, WorkflowCreate, WorkflowMetaOut,
     WorkflowMetaPatch, WorkflowSnapshotOut,
 )
@@ -917,7 +917,7 @@ async def apply_edits(
 @router.post("/{wf_id}/commits", response_model=WorkflowMetaOut)
 async def commit_workflow(
     wf_id: str,
-    body: CommitRequest,
+    body: GuardedCommitRequest,
     request: Request,
     repo: WorkflowRepo = Depends(get_workflow_repo),
     session: AsyncSession = Depends(tenant_db),
@@ -951,7 +951,7 @@ async def commit_workflow(
     try:
         await repo.commit(
             wf_id, workflow, note=body.note,
-            target_major=body.target_major,
+            target_major=body.target_major, expected_version=body.expected_version,
         )
     except ValueError as e:
         # repo.commit raises ValueError when target_major doesn't exist.

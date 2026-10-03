@@ -11,7 +11,7 @@ import i18n from '@/lib/i18n';
 
 beforeEach(async () => {
   await i18n.changeLanguage('en');
-  useWorkflowEditStore.getState().setDraft({ __meta__: { name: 'Before' } });
+  useWorkflowEditStore.getState().setDraft({ __meta__: { name: 'Before' } }, 'v1.sv2');
   useWorkflowEditStore.getState().applyEdit(() => ({ __meta__: { name: 'Unsaved' } }));
 });
 
@@ -52,4 +52,24 @@ describe('workflow save responses', () => {
     expect(success).toHaveBeenCalledWith('Saved');
     success.mockRestore();
   });
+});
+
+it('keeps the loaded base version on metadata refresh and preserves edits after conflict', async () => {
+  const store = useWorkflowEditStore.getState();
+  store.applyEdit((workflow) => ({ ...workflow, edited_node: { node_name: 'Unsaved node' } }));
+  store.applyServerMeta({ workflow_version: 1, workflow_subversion: 9, workflow_name: 'Renamed' });
+  const before = useWorkflowEditStore.getState();
+  expect(before.baseVersion).toBe('v1.sv2');
+  let expectedVersion: unknown;
+  server.use(http.post('*/api/v1/workflows/wf_test_1/commits', async ({ request }) => {
+    expectedVersion = (await request.json() as Record<string, unknown>).expected_version;
+    return HttpResponse.json({ detail: { error: 'version_conflict', expected_version: 'v1.sv2', current_version: 'v1.sv9' } }, { status: 409 });
+  }));
+  const { result } = setup();
+  act(() => result.current.mutate(before.draft!));
+  await waitFor(() => expect(result.current.isError).toBe(true));
+  expect(expectedVersion).toBe('v1.sv2');
+  expect(useWorkflowEditStore.getState().draft).toEqual(before.draft);
+  expect(useWorkflowEditStore.getState().baseVersion).toBe('v1.sv2');
+  expect(useWorkflowEditStore.getState().isDirty()).toBe(true);
 });

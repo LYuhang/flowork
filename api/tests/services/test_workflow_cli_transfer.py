@@ -61,10 +61,10 @@ async def test_download_uses_fresh_binding_and_one_immutable_version(state):
 
 
 @pytest.mark.asyncio
-async def test_upload_accepts_old_version_but_keeps_identity_and_history(state):
+async def test_upload_passes_explicit_base_version_and_keeps_identity_and_history(state):
     graph = {"__meta__": {"workflow_id": "live", "workflow_version": 1, "workflow_subversion": 0, "tags": ["ignored"]}, "start": {"node_type": "StartNode"}}
     original = deepcopy(graph)
-    result = await transfer.upload_workflow(state.ctx, workflow_id="live", major="v2", workflow= graph, note="Change")
+    result = await transfer.upload_workflow(state.ctx, workflow_id="live", major="v2", expected_version="v2.sv5", workflow= graph, note="Change")
     assert result == {"id": "live", "version": "v2.sv6", "node_count": 1}
     assert graph == original
     assert state.committed == [True]
@@ -74,13 +74,13 @@ async def test_upload_accepts_old_version_but_keeps_identity_and_history(state):
     args = state.repo.commit.await_args
     assert args.args[0] == "live"
     assert "tags" not in args.args[1]["__meta__"]
-    assert args.kwargs == {"note": "Change", "stamp_metadata": True, "target_major": 2}
+    assert args.kwargs == {"note": "Change", "stamp_metadata": True, "target_major": 2, "expected_version": "v2.sv5"}
 
 
 @pytest.mark.asyncio
 async def test_upload_wrong_workflow_never_commits(state):
     with pytest.raises(ToolError, match="workflow_mismatch"):
-        await transfer.upload_workflow(state.ctx, workflow_id="live", major="v2", workflow= {"__meta__": {"workflow_id": "other"}})
+        await transfer.upload_workflow(state.ctx, workflow_id="live", major="v2", expected_version="v2.sv5", workflow= {"__meta__": {"workflow_id": "other"}})
     state.repo.commit.assert_not_awaited()
     assert not state.committed
 
@@ -89,7 +89,7 @@ async def test_upload_wrong_workflow_never_commits(state):
 async def test_upload_invalid_graph_never_commits(state):
     state.validate.return_value = [{"node_id": "bad", "message": "Missing node config"}]
     with pytest.raises(ToolError, match="invalid_workflow"):
-        await transfer.upload_workflow(state.ctx, workflow_id="live", major="v2", workflow= {})
+        await transfer.upload_workflow(state.ctx, workflow_id="live", major="v2", expected_version="v2.sv5", workflow= {})
     state.fence.assert_not_awaited()
     state.repo.commit.assert_not_awaited()
 
@@ -99,7 +99,7 @@ async def test_upload_invalid_graph_never_commits(state):
 async def test_upload_denied_or_inactive_turn_never_commits(state, guard):
     getattr(state, guard).side_effect = ToolError("permission_denied", "Denied")
     with pytest.raises(ToolError):
-        await transfer.upload_workflow(state.ctx, workflow_id="live", major="v2", workflow= {})
+        await transfer.upload_workflow(state.ctx, workflow_id="live", major="v2", expected_version="v2.sv5", workflow= {})
     state.repo.commit.assert_not_awaited()
     assert not state.committed
 
@@ -137,7 +137,7 @@ async def test_upload_refreshes_skill_name_without_changing_reference_or_input(s
                         SimpleNamespace(check=AsyncMock(return_value=SimpleNamespace(allowed=True))))
     monkeypatch.setattr(workflow_resources, 'SkillsRepo', lambda session:
                         SimpleNamespace(get=AsyncMock(return_value={'name': 'current name'})))
-    await transfer.upload_workflow(state.ctx, graph, workflow_id='live', major='v2')
+    await transfer.upload_workflow(state.ctx, graph, workflow_id='live', major='v2', expected_version='v2.sv5')
     saved = state.repo.commit.await_args.args[1]
     assert saved['worker']['node_config']['skills'] == [{'id': identifier, 'name': 'current name'}]
     assert graph == original

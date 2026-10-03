@@ -188,15 +188,16 @@ async def replace_package(
     *,
     kb_id: uuid.UUID,
     actor_user_id: uuid.UUID,
-    expected_version: int | None,
+    expected_version: int,
     files: list[PackageFile],
+    protect_draft: bool = False,
     increment_version: bool = True,
     derive_index: bool = True,
 ) -> tuple[int, list[uuid.UUID]]:
     """Replace one package tree under a row lock.
 
-    A None expected_version means unconditional publication against the latest
-    row-locked version. Legacy callers can still request optimistic checking.
+    The caller must supply the version it read. Whole-package CLI publication
+    also protects any unpublished draft under the same row lock.
     The version increment and metadata swap are transactional. Object
     writes use opaque, revision-specific keys, so a failed transaction cannot
     overwrite the prior authoritative package.
@@ -212,8 +213,7 @@ async def replace_package(
     ).scalar_one_or_none()
     if kb is None:
         raise LookupError("knowledge_not_found")
-    if expected_version is not None and kb.package_version != expected_version:
-        raise RuntimeError(f"knowledge_version_conflict:{kb.package_version}")
+    await check_package_write(session, kb, expected_version, protect_draft=protect_draft)
 
     from vibecanvas_api.services.knowledge_versions import archive_current, save_snapshot, clear_draft
     await archive_current(session, kb)
@@ -298,3 +298,16 @@ __all__ = [
     "replace_package",
     "validate_package",
 ]
+
+
+async def check_package_write(session, kb, expected_version, *, protect_draft=True):
+    """Call with the Knowledge identity row locked, before changing files."""
+    from vibecanvas_api.services.write_conflicts import WriteConflict
+    if type(expected_version) is not int or expected_version < 1:
+        raise ValueError('expected_version must be a positive integer')
+    if kb.package_version != expected_version:
+        raise WriteConflict(expected_version=expected_version, current_version=kb.package_version)
+    if protect_draft:
+        from vibecanvas_api.services.knowledge_versions import snapshot_row
+        if await snapshot_row(session, kb.id, 0) is not None:
+            raise WriteConflict(expected_version=expected_version, current_version=kb.package_version, draft=True)

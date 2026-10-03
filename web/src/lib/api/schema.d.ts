@@ -3673,17 +3673,7 @@ export interface paths {
          */
         get: operations["list_files_api_v1_kb__kb_id__files_get"];
         put?: never;
-        /**
-         * Upload File
-         * @description Add one raw file to a Knowledge package.
-         *
-         *     Supported document types are queued for the replaceable search index.
-         *     Other file types remain available as authoritative package files with a
-         *     ``stored`` status.
-         *     Errors:
-         *       * 413 ``kb_file_too_large`` — payload > 50 MB.
-         *       * 404 ``kb_not_found`` — KB missing or soft-deleted.
-         */
+        /** Upload File */
         post: operations["upload_file_api_v1_kb__kb_id__files_post"];
         delete?: never;
         options?: never;
@@ -5048,6 +5038,8 @@ export interface components {
         Body_update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put: {
             /** Bundle */
             bundle: string;
+            /** Expected Version */
+            expected_version: number;
         };
         /** Body_upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post */
         Body_upload_chat_attachment_api_v1_chat_scopes__scope_id__chats__chat_id__attachments_post: {
@@ -5058,6 +5050,8 @@ export interface components {
         Body_upload_file_api_v1_kb__kb_id__files_post: {
             /** File */
             file: string;
+            /** Expected Version */
+            expected_version: number;
         };
         /** Body_upload_file_api_v1_vfs_upload_post */
         Body_upload_file_api_v1_vfs_upload_post: {
@@ -7835,6 +7829,8 @@ export interface components {
         SkillDraftSave: {
             /** Skill Md */
             skill_md: string;
+            /** Expected Hash */
+            expected_hash: string;
         };
         /**
          * SkillOut
@@ -7930,6 +7926,8 @@ export interface components {
         SkillVersionCreate: {
             /** Version */
             version: number;
+            /** Expected Hash */
+            expected_hash: string;
         };
         /** SsoProviderList */
         SsoProviderList: {
@@ -8433,6 +8431,22 @@ export interface components {
                 [key: string]: unknown;
             };
             meta: components["schemas"]["WorkflowMetaOut"];
+        };
+        /** GuardedCommitRequest */
+        GuardedCommitRequest: {
+            /** Workflow */
+            workflow: {
+                [key: string]: unknown;
+            };
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Target Major */
+            target_major?: number | null;
+            /** Expected Version */
+            expected_version: string;
         };
     };
     responses: never;
@@ -10593,7 +10607,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CommitRequest"];
+                "application/json": components["schemas"]["GuardedCommitRequest"];
             };
         };
         responses: {
@@ -15613,7 +15627,9 @@ export interface operations {
     };
     delete_file_api_v1_kb__kb_id__files__file_id__delete: {
         parameters: {
-            query?: never;
+            query: {
+                expected_version: number;
+            };
             header?: never;
             path: {
                 kb_id: string;

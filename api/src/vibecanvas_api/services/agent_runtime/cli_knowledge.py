@@ -7,6 +7,8 @@ import json
 import traceback
 import uuid
 
+from vibecanvas_api.services.write_conflicts import WriteConflict
+
 from fastapi import HTTPException
 from sqlalchemy import text
 import structlog
@@ -142,7 +144,7 @@ async def execute(call, arguments):
             if files is not None:
                 summary.update(file_count=len(files), size_bytes=sum(len(f.data) for f in files),
                     content_sha256=hashlib.sha256(json.dumps(args["files"], sort_keys=True).encode()).hexdigest())
-            warning = " Publication replaces the entire package and draft, removing absent files. expected_version, when supplied, rejects intervening publications." if operation == "knowledge.publish" else ""
+            warning = " Publication requires the expected version from download, rejects intervening publications and unpublished drafts, and removes absent files." if operation == "knowledge.publish" else ""
             await _approve(call, summary, prompt="Approve " + operation.replace(".", " ") + "? " + json.dumps(summary) + warning)
         await call.emit({"progress": {"status": "approved" if needs_approval else "auto_approved", "message": "Operation approved. Rechecking current permissions before publication."}})
         ctx = await agent_context.resolve_context(cap)
@@ -163,11 +165,13 @@ async def execute(call, arguments):
                 await routes.delete_kb(kb_id, **params)
                 return {"status": "succeeded", "knowledge_id": str(kb_id), "message": "Knowledge package deleted. Local downloads were not removed."}
             await call.emit({"progress": {"status": "publishing", "knowledge_id": str(kb_id), "message": "Publishing the complete package snapshot."}})
-            number, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(cap.user_id), expected_version=args.get("expected_version"), files=files)
+            number, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(cap.user_id), expected_version=args["expected_version"], files=files, protect_draft=True)
             await session.commit()
             committed = publication(kb_id, number, files, pending=bool(pending))
         await enqueue_package_indexing(tenant_id=cap.tenant_id, user_id=cap.user_id, file_ids=pending)
         return committed
+    except WriteConflict as exc:
+        return exc.cli_result()
     except Exception as exc:
         receipt = getattr(request.state, "cli_knowledge_receipt", None) if request is not None else None
         if committed or receipt:

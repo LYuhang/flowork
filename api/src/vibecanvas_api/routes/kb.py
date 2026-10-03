@@ -849,6 +849,7 @@ async def _write_file(
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
     replace_id: uuid.UUID | None = None,
+    expected_version: int | None = None,
 ):
     """Add one raw file to a Knowledge package.
 
@@ -873,6 +874,11 @@ async def _write_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="kb_not_found",
         )
+
+    from vibecanvas_api.services.knowledge_packages import check_package_write
+    if type(expected_version) is not int or expected_version < 1:
+        raise HTTPException(422, 'expected_version is required')
+    await check_package_write(session, kb, expected_version)
 
     # Step 1: validate.
     blob = await file.read(MAX_FILE_SIZE_BYTES + 1)
@@ -985,10 +991,11 @@ async def _write_file(
 @router.post("/{kb_id}/files")
 async def upload_file(
     kb_id: uuid.UUID, request: Request, file: UploadFile = File(...),
+    expected_version: int = Form(..., ge=1),
     ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
-    return await _write_file(kb_id, request, file, ctx, session, service)
+    return await _write_file(kb_id, request, file, ctx, session, service, expected_version=expected_version)
 
 
 @router.get("/{kb_id}/files", response_model=list[KbFileOut])
@@ -1074,6 +1081,7 @@ async def delete_file(
     kb_id: uuid.UUID,
     file_id: uuid.UUID,
     request: Request,
+    expected_version: int = Query(..., ge=1),
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
@@ -1117,6 +1125,8 @@ async def delete_file(
         action=Action.DELETE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
+    from vibecanvas_api.services.knowledge_packages import check_package_write
+    await check_package_write(session, kb, expected_version)
     await archive_current(session, kb)
     await repo.soft_delete_file(file_id)
     await repo.bump_package_version(kb_id)

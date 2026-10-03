@@ -74,7 +74,7 @@ When the user needs a tidy canvas, use layout on the explicit saved branch
 (named --workflow_id and --major). It only changes positions, saves when needed,
 and returns the saved version. Do not download/re-upload merely to arrange nodes.
 Before a full replacement, compare the latest saved graph with your editing
-baseline and reconcile intervening changes; upload is not an atomic conflict guard.
+baseline and reconcile intervening changes; upload requires --expected_version from download and atomically rejects a changed branch tip. On version_conflict preserve local edits, download and merge before retrying; do not just substitute the latest version number.
 When changing --major, inspect/download that branch before reusing local files.
 Build small coherent slices. Use proper loop/parallel pairs and branch joins
 rather than forcing ordinary nodes to emulate scheduler behavior.

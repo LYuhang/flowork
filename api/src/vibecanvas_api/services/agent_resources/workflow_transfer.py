@@ -69,7 +69,7 @@ async def download_workflow(ctx, *, workflow_id: str, major: str) -> dict:
     return {key: result[key] for key in ("id", "version", "node_count", "workflow")}
 
 
-async def upload_workflow(ctx, workflow: dict, *, workflow_id: str, major: str, note: str = "") -> dict:
+async def upload_workflow(ctx, workflow: dict, *, workflow_id: str, major: str, expected_version: str, note: str = "") -> dict:
     graph = deepcopy(workflow)
     if not isinstance(graph.get("__meta__", {}), dict):
         raise ToolError("invalid_workflow", "__meta__ must be an object.")
@@ -104,7 +104,7 @@ async def upload_workflow(ctx, workflow: dict, *, workflow_id: str, major: str, 
                 service=_service(ctx, session), principal=_principal(ctx),
                 context=_request_context(ctx, consistency=ConsistencyPreference.HIGHER_CONSISTENCY))
         pointer = await repo.commit(workflow_id, graph, note=note or "agent: workflow upload",
-                                    target_major=selection["major"], stamp_metadata=True)
+                                    target_major=selection["major"], stamp_metadata=True, expected_version=expected_version)
         result = {"id": workflow_id, "version": f"v{pointer.parent_v}.sv{pointer.sv}", "node_count": _node_count(graph)}
         if warnings:
             result["warnings"] = warnings[:20]

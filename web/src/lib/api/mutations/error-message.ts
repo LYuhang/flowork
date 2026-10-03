@@ -31,6 +31,8 @@ function readableError(value: unknown, depth = 0): string | undefined {
     return value.map((item) => readableError(item, depth + 1)).filter(Boolean).join('; ') || undefined;
   }
   const record = value as Record<string, unknown>;
+  if (record.error === 'version_conflict') return i18n.t('api.error.versionConflict', 'This resource has changed. Your edits are preserved; read the latest version and merge them before saving.');
+  if (record.error === 'draft_conflict') return i18n.t('api.error.draftConflict', 'Unpublished edits exist. Review and publish the existing draft before replacing the package.');
   const detail = readableError(record.detail, depth + 1);
   if (detail) return detail;
   for (const key of ['message', 'msg']) {

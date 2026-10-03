@@ -93,15 +93,15 @@ def test_check_and_create_require_source(tmp_path, monkeypatch):
     assert seen == ["knowledge.check", "knowledge.create"]
 
 
-def test_upload_captures_complete_tree_without_expected_version(tmp_path, monkeypatch):
+def test_upload_captures_complete_tree_with_expected_version(tmp_path, monkeypatch):
     (tmp_path / "README.md").write_text("# Package")
     (tmp_path / "nested").mkdir()
     (tmp_path / "nested" / "binary.bin").write_bytes(bytes(range(256)))
     (tmp_path / ".hidden").write_text("included")
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append(args) or {"package_version": 8})
-    assert cli.main(["knowledge", "publish", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
-    assert set(seen[0]) == {"knowledge_id", "files"}
+    assert cli.main(["knowledge", "publish", "--expected_version", "7", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
+    assert set(seen[0]) == {"knowledge_id", "files", "expected_version"}
     assert {f["path"] for f in seen[0]["files"]} == {"README.md", "nested/binary.bin", ".hidden"}
 
 
@@ -195,7 +195,7 @@ async def test_denial_never_publishes(monkeypatch):
     monkeypatch.setattr(host, "replace_package", publish)
     call = SimpleNamespace(operation="knowledge.publish", call_id="call", emit=AsyncMock(),
         capability=SimpleNamespace(tenant_id="tenant", turn_id="turn", approval_mode="agent"))
-    result = await host.execute(call, {"knowledge_id": str(uuid4()), "files": [encoded()]})
+    result = await host.execute(call, {"knowledge_id": str(uuid4()), "files": [encoded()], "expected_version": 1})
     assert result["error"] == "approval_denied"
     publish.assert_not_awaited()
 
@@ -207,7 +207,7 @@ def test_large_package_has_no_four_mib_cli_cap(tmp_path, monkeypatch):
         assert len(base64.b64decode(next(f["data"] for f in args["files"] if f["path"] == "large.bin"))) == 5 * 1024 * 1024
         return {"package_version": 2}
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["knowledge", "publish", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
+    assert cli.main(["knowledge", "publish", "--expected_version", "7", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
 
 
 @pytest.mark.asyncio
@@ -244,12 +244,14 @@ async def test_host_approval_and_frozen_publication(monkeypatch, mode, action, a
         args["description"] = ""
     if action == "publish":
         args["files"] = [encoded()]
+        args["expected_version"] = 8
     result = await host.execute(call, args)
     assert result["status"] == "succeeded", result
     assert approve.await_count == int(approval)
     assert authorize.await_count == 2
     if action == "publish":
-        assert replace.await_args.kwargs["expected_version"] is None
+        assert replace.await_args.kwargs["expected_version"] == 8
+        assert replace.await_args.kwargs["protect_draft"] is True
         assert replace.await_args.kwargs["files"][0].data == b'---\nname: Package\ndescription: ""\n---\n# Package'
         if approval:
             summary = approve.await_args.args[1]
@@ -273,27 +275,24 @@ async def test_concurrent_uploads_increment_and_rollback_atomically(pg_engine, m
         identifier = kb.id
         await packages.replace_package(session, kb_id=identifier, actor_user_id=user, expected_version=1,
             files=[packages.PackageFile("README.md", b"initial", "")], increment_version=False, derive_index=False)
-    async def publish(content):
+    async def publish(content, expected=1):
         async with session_scope(tenant_id=str(tenant)) as session:
             # Prime ORM identity map with an older version before acquiring lock.
             cached = await KbRepo(session).get_active(identifier)
             assert cached
             return (await packages.replace_package(session, kb_id=identifier, actor_user_id=user,
-                expected_version=None, files=[packages.PackageFile("README.md", content, "")], derive_index=False))[0]
-    versions = await asyncio.gather(publish(b"second"), publish(b"third"))
-    assert sorted(versions) == [2, 3]
-    # Frontend single-file mutations also increment against the current row,
-    # even when their ORM identity map was populated before a CLI publication.
-    async with session_scope(tenant_id=str(tenant)) as session:
-        cached = await KbRepo(session).get_active(identifier)
-        assert cached.package_version == 3
-        assert await publish(b"fourth") == 4
-        assert await KbRepo(session).bump_package_version(identifier) == 5
+                expected_version=expected, files=[packages.PackageFile("README.md", content, "")], derive_index=False))[0]
+    from vibecanvas_api.services.write_conflicts import WriteConflict
+    versions = await asyncio.gather(publish(b"second"), publish(b"third"), return_exceptions=True)
+    assert sum(v == 2 for v in versions) == 1
+    conflicts = [v for v in versions if isinstance(v, WriteConflict)]
+    assert len(conflicts) == 1
+    assert conflicts[0].detail['current_version'] == 2
     async with session_scope(tenant_id=str(tenant)) as session:
         before = await packages.package_snapshot(session, identifier)
     with pytest.raises(OSError):
-        await publish(b"FAIL")
+        await publish(b"FAIL", expected=2)
     async with session_scope(tenant_id=str(tenant)) as session:
         kb = await KbRepo(session).get_active(identifier)
-        assert kb.package_version == 5
+        assert kb.package_version == 2
         assert await packages.package_snapshot(session, identifier) == before

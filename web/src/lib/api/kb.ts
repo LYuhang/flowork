@@ -251,10 +251,12 @@ export async function getKbFileRaw(kbId: string, fileId: string): Promise<Blob> 
 export async function uploadKbFile(
   kbId: string,
   file: File,
+  expectedVersion: number,
   path?: string,
 ): Promise<UploadKbFileResponse> {
   const fd = new FormData();
   fd.append('file', file, path ?? file.name);
+  fd.append('expected_version', String(expectedVersion));
   const resp = await authedFetch(`/api/v1/kb/${kbId}/files`, {
     method: 'POST',
     body: fd,
@@ -262,8 +264,8 @@ export async function uploadKbFile(
   return jsonOrThrow<UploadKbFileResponse>(resp, 'uploadKbFile');
 }
 
-export async function deleteKbFile(kbId: string, fileId: string): Promise<void> {
-  const resp = await authedFetch(`/api/v1/kb/${kbId}/files/${fileId}`, {
+export async function deleteKbFile(kbId: string, fileId: string, expectedVersion: number): Promise<void> {
+  const resp = await authedFetch(`/api/v1/kb/${kbId}/files/${fileId}?${new URLSearchParams({expected_version: String(expectedVersion)})}`, {
     method: 'DELETE',
   });
   await okOrThrow(resp, 'deleteKbFile');

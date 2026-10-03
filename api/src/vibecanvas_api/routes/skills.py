@@ -736,8 +736,7 @@ async def save_custom_skill_draft(
     repo = SkillsRepo(session)
     current = await repo.get(sid)
     _require_owned_custom_skill(current, ctx.user_id)
-    if body.expected_hash is not None:
-        await _editable_skill_files(skill_id, body.expected_hash, request, ctx, session, service)
+    await _editable_skill_files(skill_id, body.expected_hash, request, ctx, session, service)
     existing = await repo.read_draft_files(sid)
     if existing is None:
         existing = await repo.read_current_files(sid)
@@ -794,13 +793,13 @@ async def publish_custom_skill_version(
         action=Action.PUBLISH,
     )
     repo = SkillsRepo(session)
-    current = await repo.get(sid)
+    current = await repo._lock_custom_skill(sid)
     _require_owned_custom_skill(current, ctx.user_id)
     draft = await repo.get_draft(sid)
     files = await repo.read_draft_files(sid)
     if draft is None or files is None:
         raise HTTPException(status_code=409, detail="Save a draft before creating a version")
-    if body.expected_hash is not None and body.expected_hash != draft["draft_hash"]:
+    if body.expected_hash != draft["draft_hash"]:
         raise HTTPException(status_code=409, detail="package_file_changed")
     raw = next((data for path, _ct, data in files if path == "SKILL.md"), b"")
     try:
@@ -854,6 +853,7 @@ async def update_custom_skill_bundle(
     skill_id: str,
     request: Request,
     bundle: UploadFile = File(...),
+    expected_version: int = Form(..., ge=1),
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
@@ -871,6 +871,13 @@ async def update_custom_skill_bundle(
     # Serialize with UI publications before assigning the next version.
     current = await repo._lock_custom_skill(sid)
     _require_owned_custom_skill(current, ctx.user_id)
+    from vibecanvas_api.services.write_conflicts import WriteConflict
+    if type(expected_version) is not int or expected_version < 1:
+        raise HTTPException(422, 'expected_version is required')
+    if current['version'] != expected_version:
+        raise WriteConflict(expected_version=expected_version, current_version=current['version'])
+    if await repo.get_draft(sid) is not None:
+        raise WriteConflict(expected_version=expected_version, current_version=current['version'], draft=True)
     version = int(current["version"]) + 1
     raw = next(data for path, _ct, data in files if path == "SKILL.md")
     try:

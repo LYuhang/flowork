@@ -60,6 +60,10 @@ class CommitRequest(BaseModel):
     target_major: int | None = None
 
 
+class GuardedCommitRequest(CommitRequest):
+    expected_version: str = Field(pattern=r"^v[1-9]\d*\.sv\d+$")
+
+
 class CheckRequest(BaseModel):
     # Optional in-progress DRAFT to validate. When present, Check validates THIS
     # (so the user can Check unsaved edits without saving first); when absent,

@@ -3841,4 +3841,8 @@
   ,"deployments.settings.timeout": "调用超时（秒）"
   ,"deployments.settings.timeoutHelp": "范围 1～3600 秒，默认 30 秒。超时后停止该次执行。人工审批等待使用节点自身的超时时间，不计入此限制。修改只影响后续调用，无需重启实例。"
   ,"deployments.settings.timeoutInvalid": "请输入 1～3600 之间的整数。"
+,
+  "api.error.versionConflict": "资源已有更新。已保留你的编辑内容，请读取最新版本并合并修改后再保存。",
+  "api.error.draftConflict": "存在未发布的修改，请先检查并发布现有草稿，再替换整个文件包。",
+  "workflow.save.missingVersion": "无法确定编辑的基准版本，请保留修改并重新加载 Workflow 后再保存。"
 }

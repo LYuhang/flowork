@@ -114,7 +114,7 @@ export const useDuplicateWorkflow = () => {
         '/api/v1/workflows/{wf_id}/commits',
         {
           params: { path: { wf_id: created.wf_id } },
-          body: { workflow: snap?.workflow ?? {}, note: 'Duplicated' },
+          body: { workflow: snap?.workflow ?? {}, note: 'Duplicated', expected_version: `v${created.active_v}.sv${created.active_sv}` },
         },
       );
       if (commitErr) throw commitErr;

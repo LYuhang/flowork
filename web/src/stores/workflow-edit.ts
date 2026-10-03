@@ -51,11 +51,13 @@ export interface WorkflowEditState {
   dirty: boolean;
   /** JSON of the last saved/loaded committed version. */
   baseline: string;
+  /** Version actually loaded for editing; metadata refresh must not advance it. */
+  baseVersion: string | null;
   undoStack: string[];
   redoStack: string[];
   /** In-memory node clipboard (Stream 0c — NOT the OS clipboard). */
   clipboard: NodeRec[];
-  setDraft: (wf: WorkflowDraft | null) => void;
+  setDraft: (wf: WorkflowDraft | null, version?: string) => void;
   /**
    * Merge a fresh server `__meta__` (e.g. after a rename) into BOTH the draft
    * and the baseline WITHOUT touching the draft's graph — so the new name
@@ -79,7 +81,7 @@ export interface WorkflowEditState {
   pasteNodes: (anchorPos: { x: number; y: number }) => void;
   /** DERIVED save-state truth: draft diverges from the last baseline. */
   isDirty: () => boolean;
-  markSaved: () => void;
+  markSaved: (version?: string, savedDraft?: WorkflowDraft) => void;
   /** @deprecated kept for back-compat; prefer `markSaved`. */
   markClean: () => void;
   undo: () => void;
@@ -476,20 +478,28 @@ export function stripWorkflowMeta(wf: WorkflowDraft): unknown {
 // Store.
 // ---------------------------------------------------------------------------
 
+function workflowVersion(workflow: WorkflowDraft | null): string | null {
+  const meta = workflow?.__meta__ as Record<string, unknown> | undefined;
+  return Number.isInteger(meta?.workflow_version) && Number.isInteger(meta?.workflow_subversion)
+    ? `v${meta!.workflow_version}.sv${meta!.workflow_subversion}` : null;
+}
+
 export const useWorkflowEditStore = create<WorkflowEditState>()(
   subscribeWithSelector((set, get) => ({
     draft: null,
     dirty: false,
     baseline: 'null',
+    baseVersion: null,
     undoStack: [],
     redoStack: [],
     clipboard: [],
 
-    setDraft: (wf) =>
+    setDraft: (wf, version) =>
       set({
         draft: wf,
         dirty: false,
         baseline: JSON.stringify(wf),
+        baseVersion: version ?? workflowVersion(wf),
         undoStack: [],
         redoStack: [],
       }),
@@ -736,10 +746,11 @@ export const useWorkflowEditStore = create<WorkflowEditState>()(
       return JSON.stringify(draft) !== baseline;
     },
 
-    markSaved: () =>
+    markSaved: (version, savedDraft) =>
       set((state) => ({
-        baseline: JSON.stringify(state.draft),
-        dirty: false,
+        baseline: JSON.stringify(savedDraft ?? state.draft),
+        baseVersion: version ?? state.baseVersion,
+        dirty: JSON.stringify(state.draft) !== JSON.stringify(savedDraft ?? state.draft),
       })),
 
     markClean: () =>

@@ -18,9 +18,9 @@ For publication: prepare the complete local directory. Root README.md requires
 YAML frontmatter with name and description (empty description is allowed).
 Run check --source_dir, then create --source_dir for a new resource, or publish
 --knowledge_id --source_dir for an existing one. Metadata and files publish
-together. Publication replaces the entire tree and any shared draft: files
-absent locally are removed remotely. Pass --expected_version from download to
-reject overwriting newer versions; without it, last commit wins. Reconcile
+together. Publication replaces the entire tree: absent files are removed.
+--expected_version from download is required. Newer publications and any
+unpublished draft reject publication without changing remote content. Reconcile
 changes after a version conflict. Every regular source file is included:
 exclude credentials and unrelated hidden files before publication.
 

@@ -167,8 +167,9 @@ def parser() -> Parser:
     downloading.add_argument("--file", help="Optional destination, relative or absolute sandbox path. Download uses --file, not the run/run-batch --output option.")
     downloading.add_argument("--overwrite", action="store_true")
     uploading = actions.add_parser("upload", help="Replace the specified branch and save a new subversion.",
-        description="Requires ID, --major and --file. Validates/tidies the graph; preserves history and Workflow metadata. Old file version selectors do not change the target; a different workflow_id is rejected. No if-version/force bypass or file rewrite. Output {id,version,node_count}, plus warnings when present. Full replacement can overwrite concurrent edits: reconcile a fresh download first. After result_unknown inspect version list/download, never blindly retry.")
+        description="Requires ID, --major, --file and --expected_version from download. Validates/tidies the graph; preserves history and Workflow metadata. Old file version selectors do not change the target; a different workflow_id is rejected. No force bypass or file rewrite. Output {id,version,node_count}, plus warnings when present. Full replacement atomically rejects a changed target branch tip with version_conflict. Preserve local edits, download and merge; never replace the expected version alone. After result_unknown inspect version list/download, never blindly retry.")
     target(uploading, branch=True)
+    uploading.add_argument("--expected_version", required=True, help="Exact downloaded version, e.g. v1.sv3. Conflicts save nothing; download and merge before retrying.")
     uploading.add_argument("--file", required=True)
     uploading.add_argument("--note", default="")
     editing = actions.add_parser("operation", help="Apply ordered atomic edits to an explicitly specified branch.",
@@ -309,7 +310,7 @@ def validate_arguments(operation: str, arguments: dict) -> dict:
         "workflow.update": {"workflow_id", "name", "description", "tags"},
         "workflow.get": {"workflow_id"},
         "workflow.download": {"workflow_id", "major"},
-        "workflow.upload": {"workflow_id", "major", "workflow", "note"},
+        "workflow.upload": {"workflow_id", "major", "workflow", "note", "expected_version"},
         "workflow.layout": {"workflow_id", "major"},
         "workflow.operation": {"workflow_id", "major", "operations", "note"},
         "workflow.check": {"workflow_id", "major", "workflow"},
@@ -452,6 +453,8 @@ def validate_arguments(operation: str, arguments: dict) -> dict:
         if (operation == "workflow.upload" or "workflow" in result) and not isinstance(result.get("workflow"), dict):
             raise CliUsageError("--file must contain a workflow JSON object.")
         if operation == "workflow.upload":
+            if not isinstance(result.get("expected_version"), str) or not re.fullmatch(r"v[1-9]\d*\.sv\d+", result["expected_version"]):
+                raise CliUsageError("--expected_version must be an exact downloaded version such as v1.sv3.")
             result.setdefault("note", "")
             if not isinstance(result["note"], str):
                 raise CliUsageError("note must be a string.")
@@ -782,7 +785,7 @@ def main(argv: list[str] | None = None, *, socket_path: str | None = None) -> in
         elif args.action in {"download", "layout"}:
             arguments = {"workflow_id": args.workflow_id, "major": args.major}
         elif args.action == "upload":
-            arguments = {"workflow_id": args.workflow_id, "major": args.major, "workflow": read_workflow(args.file), "note": args.note}
+            arguments = {"workflow_id": args.workflow_id, "major": args.major, "workflow": read_workflow(args.file), "note": args.note, "expected_version": args.expected_version}
         elif args.action == "check":
             arguments = {"workflow": read_workflow(args.file)} if args.file is not None else {}
             if args.workflow_id is not None:

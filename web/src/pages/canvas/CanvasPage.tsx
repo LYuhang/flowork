@@ -167,6 +167,11 @@ export function CanvasPage() {
     const { draft, baseline } = useWorkflowEditStore.getState();
     const dirty = useWorkflowEditStore.getState().isDirty();
     const serverWorkflow = query.data.workflow;
+    // The graph may omit or contain historical __meta__; trust the selected
+    // immutable route or the snapshot's server metadata, never editable JSON.
+    const loadedVersion = match
+      ? `v${Number(match[1])}.sv${Number(match[2])}`
+      : `v${query.data.meta.active_v}.sv${query.data.meta.active_sv}`;
 
     // Bug A discriminator: compare the server's committed GRAPH to the
     // BASELINE graph, both with `__meta__` stripped. Equal ⇒ the committed
@@ -194,7 +199,7 @@ export function CanvasPage() {
     });
 
     if (decision === 'seed') {
-      setDraft(serverWorkflow);
+      setDraft(serverWorkflow, loadedVersion);
       if (conflictToastIdRef.current !== null) {
         toast.dismiss(conflictToastIdRef.current);
         conflictToastIdRef.current = null;
@@ -231,7 +236,7 @@ export function CanvasPage() {
       loadLabel: t('load_agent_version', 'Load agent version (discard my edits)'),
       keepLabel: t('keep_my_edits', 'Keep mine'),
       onLoadAgent: () => {
-        setDraft(serverWorkflow);
+        setDraft(serverWorkflow, loadedVersion);
         dismiss();
       },
       onKeepMine: dismiss,

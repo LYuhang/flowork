@@ -57,14 +57,14 @@ class SkillDraftSave(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     skill_md: str = Field(min_length=1)
-    expected_hash: str | None = None
+    expected_hash: str = Field(min_length=1)
 
 
 class SkillVersionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = Field(gt=0)
-    expected_hash: str | None = None
+    expected_hash: str = Field(min_length=1)
 
 
 class SkillRevisionOut(BaseModel):

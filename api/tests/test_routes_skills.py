@@ -18,13 +18,22 @@ SKILL_MD = (
 
 
 @pytest_asyncio.fixture
-async def authed_client(client):
+async def authed_client(client, monkeypatch):
+    # This route suite tests publication, not the cross-loop Redis rate limiter.
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("vibecanvas_api.routes.auth._consume_unauthenticated_rate_limit", AsyncMock())
     email = f"skills-{uuid.uuid4().hex[:8]}@example.com"
-    token = (await client.post(
+    client.base_url = "https://flowork.top"
+    client.headers['Origin'] = 'https://flowork.top'
+    response = await client.post(
         "/api/v1/auth/register",
         json={"email": email, "username": "Test User", "password": "pw12345678"},
-    )).json()["session_token"]
-    client.headers.update({"Authorization": f"Bearer {token}"})
+    )
+    assert response.status_code == 201, response.text
+    if response.json().get('session_token'):
+        client.headers['Authorization'] = 'Bearer ' + response.json()['session_token']
+    else:
+        client.headers['X-CSRF-Token'] = next(c.value for c in client.cookies.jar if c.name.endswith('-csrf'))
     return client
 
 
@@ -108,7 +117,7 @@ async def test_custom_skill_draft_does_not_move_head_until_version_is_published(
     draft_md = SKILL_MD.replace("say hi nicely", "say hello with the reference")
     saved = await authed_client.put(
         f"/api/v1/skills/{row['id']}/draft",
-        json={"skill_md": draft_md},
+        json={"skill_md": draft_md, "expected_hash": row["revision_hash"]},
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()["has_changes"] is True
@@ -140,7 +149,7 @@ async def test_custom_skill_draft_does_not_move_head_until_version_is_published(
 
     updated = await authed_client.post(
         f"/api/v1/skills/{row['id']}/versions",
-        json={"version": 2},
+        json={"version": 2, "expected_hash": saved.json()["draft_hash"]},
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["version"] == 2
@@ -171,7 +180,7 @@ async def test_custom_skill_draft_does_not_move_head_until_version_is_published(
 
     no_draft = await authed_client.post(
         f"/api/v1/skills/{row['id']}/versions",
-        json={"version": 3},
+        json={"version": 3, "expected_hash": "stale"},
     )
     assert no_draft.status_code == 409
 

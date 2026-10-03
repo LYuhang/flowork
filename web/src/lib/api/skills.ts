@@ -1,3 +1,4 @@
+import { errorMessage } from './mutations/error-message';
 import { getApiBase } from '@/lib/base-path';
 import type {
   ResourceAccess,
@@ -141,7 +142,7 @@ async function errorDetail(response: Response): Promise<string> {
   try {
     const payload = await response.json();
     if (payload && typeof payload === 'object' && 'detail' in payload) {
-      return String((payload as { detail: unknown }).detail);
+      return errorMessage(payload);
     }
   } catch {
     // Non-JSON upstream errors use the HTTP status below.
@@ -214,7 +215,7 @@ export async function getSkillDraft(id: string): Promise<SkillDraft> {
   return jsonOrThrow<SkillDraft>(response, 'getSkillDraft');
 }
 
-export async function saveSkillDraft(id: string, skillMd: string, expectedHash?: string): Promise<SkillDraft> {
+export async function saveSkillDraft(id: string, skillMd: string, expectedHash: string): Promise<SkillDraft> {
   const response = await authedFetch(`/api/v1/skills/${encodeURIComponent(id)}/draft`, {
     method: 'PUT',
     body: JSON.stringify({ skill_md: skillMd, expected_hash: expectedHash }),
@@ -222,7 +223,7 @@ export async function saveSkillDraft(id: string, skillMd: string, expectedHash?:
   return jsonOrThrow<SkillDraft>(response, 'saveSkillDraft');
 }
 
-export async function publishSkillVersion(id: string, version: number, expectedHash?: string): Promise<Skill> {
+export async function publishSkillVersion(id: string, version: number, expectedHash: string): Promise<Skill> {
   const response = await authedFetch(`/api/v1/skills/${encodeURIComponent(id)}/versions`, {
     method: 'POST',
     body: JSON.stringify({ version, expected_hash: expectedHash }),

@@ -10,7 +10,7 @@ from vibecanvas_api.flowork_cli import cli
 @pytest.mark.parametrize("command,extra", [
     (["get"], []), (["update"], ["--name", "Renamed"]), (["delete"], []),
     (["download"], ["--major", "v2"]),
-    (["upload"], ["--major", "v2", "--file", "graph.json"]),
+    (["upload"], ["--major", "v2", "--expected_version", "v2.sv0", "--file", "graph.json"]),
     (["operation"], ["--major", "v2", "--node_remove", "node_2"]),
     (["check"], ["--major", "v2"]), (["version", "list"], []),
     (["version", "create"], ["--major", "v2"]),
@@ -306,10 +306,10 @@ def test_upload_sends_graph_not_host_path_and_preserves_source(monkeypatch, tmp_
     original = source.read_bytes()
     def request(endpoint, arguments, *, operation):
         assert operation == "workflow.upload"
-        assert arguments == {"workflow_id": "wf", "major": "v1", "workflow": json.loads(original), "note": "Update"}
+        assert arguments == {"workflow_id": "wf", "major": "v1", "workflow": json.loads(original), "note": "Update", "expected_version": "v1.sv8"}
         return {"id": "wf", "version": "v1.sv9", "node_count": 0}
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["workflow", "upload", "wf", "--major", "v1", "--file", str(source), "--note", "Update"], socket_path="socket") == 0
+    assert cli.main(["workflow", "upload", "wf", "--major", "v1", "--expected_version", "v1.sv8", "--file", str(source), "--note", "Update"], socket_path="socket") == 0
     assert json.loads(capsys.readouterr().out)["version"] == "v1.sv9"
     assert source.read_bytes() == original
 
@@ -320,7 +320,7 @@ def test_upload_unknown_result_does_not_encourage_retry(monkeypatch, tmp_path, c
     def fail(*args, **kwargs):
         raise TimeoutError()
     monkeypatch.setattr(cli, "request", fail)
-    assert cli.main(["workflow", "upload", "wf", "--major", "v1", "--file", str(source)], socket_path="socket") == 1
+    assert cli.main(["workflow", "upload", "wf", "--major", "v1", "--expected_version", "v1.sv8", "--file", str(source)], socket_path="socket") == 1
     result = json.loads(capsys.readouterr().out)
     assert result["error"] == "result_unknown"
     assert "Do not automatically repeat" in result["hint"]

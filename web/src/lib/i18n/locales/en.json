@@ -3841,4 +3841,8 @@
   ,"deployments.settings.timeout": "Call timeout (seconds)"
   ,"deployments.settings.timeoutHelp": "1–3600 seconds; default 30. Expiry stops the call. Human approval waiting uses its own node timeout and does not count toward this limit. Changes apply to new calls without restarting the instance."
   ,"deployments.settings.timeoutInvalid": "Enter a whole number from 1 to 3600."
+,
+  "api.error.versionConflict": "This resource has changed. Your edits are preserved; read the latest version and merge them before saving.",
+  "api.error.draftConflict": "Unpublished edits exist. Review and publish the existing draft before replacing the package.",
+  "workflow.save.missingVersion": "Keep your edits and reload the workflow before saving; its base version is unavailable."
 }

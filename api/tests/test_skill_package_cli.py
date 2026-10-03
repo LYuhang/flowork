@@ -26,7 +26,7 @@ def test_skill_publish_freezes_entire_package_and_is_a_write(tmp_path, monkeypat
     calls = []
     monkeypatch.setattr(cli,'request',lambda endpoint,args,**kwargs: calls.append((args,kwargs)) or {'version':2})
     identifier = str(uuid4())
-    assert cli.main(['skill','publish','--skill_id',identifier,'--source_dir',str(tmp_path)],socket_path='test') == 0
+    assert cli.main(['skill','publish','--expected_version','1','--skill_id',identifier,'--source_dir',str(tmp_path)],socket_path='test') == 0
     args, operation = calls[0]
     assert operation['operation'] == 'skill.update'
     assert {item['path'] for item in args['files']} == {'SKILL.md','reference.txt'}
@@ -79,6 +79,6 @@ def test_publish_command_is_explicit_platform_write(tmp_path,monkeypatch,capsys)
     (tmp_path/'SKILL.md').write_text('---\nname: example\ndescription: Example\n---\nInstructions')
     calls=[]
     monkeypatch.setattr(cli,'request',lambda endpoint,args,**kwargs:calls.append(kwargs['operation']) or {'version':2})
-    assert cli.main(['skill','publish','--skill_id',str(uuid4()),'--source_dir',str(tmp_path)],socket_path='test') == 0
+    assert cli.main(['skill','publish','--expected_version','1','--skill_id',str(uuid4()),'--source_dir',str(tmp_path)],socket_path='test') == 0
     assert calls == ['skill.update']
     capsys.readouterr()

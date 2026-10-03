@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from vibecanvas_api.services.write_conflicts import WriteConflict
+
 from copy import deepcopy
 
 import structlog
@@ -139,7 +141,7 @@ async def invoke_workflow_command(*, operation: str, identity_token: str, argume
         if operation in {"workflow.download", "workflow.upload"}:
             if operation == "workflow.upload":
                 write_started = True
-                result = await upload_workflow(context, arguments["workflow"], workflow_id=arguments["workflow_id"], major=arguments["major"], note=arguments["note"])
+                result = await upload_workflow(context, arguments["workflow"], workflow_id=arguments["workflow_id"], major=arguments["major"], expected_version=arguments["expected_version"], note=arguments["note"])
             else:
                 result = await download_workflow(context, workflow_id=arguments['workflow_id'], major=arguments['major'])
             logger.info("flowork_cli_completed", operation=operation, chat_id=capability.chat_id,
@@ -178,6 +180,8 @@ async def invoke_workflow_command(*, operation: str, identity_token: str, argume
         logger.info("flowork_cli_completed", operation=operation, chat_id=capability.chat_id,
                     turn_id=capability.turn_id, user_id=capability.user_id, workflow_id=result["id"])
         return result
+    except WriteConflict as exc:
+        return exc.cli_result()
     except OpenFgaUnavailableError as exc:
         _log_authorization_unavailable(operation, exc)
         return error("authorization_unavailable", "Authorization is temporarily unavailable.", "Retry when authorization is available.")

@@ -35,24 +35,20 @@ import { getBasePath } from '@/lib/base-path';
 import { SSEStatusBanner } from '@/components/agent-sidebar/SSEStatusBanner';
 import { ChatHistoryMenu } from '@/components/agent-sidebar/ChatHistoryMenu';
 import { ChatMessageList } from '@/components/agent-sidebar/ChatMessageList';
-import type { RawChunk } from '@/components/agent-sidebar/types';
 import type { SubmitInteractiveAsNewTurn } from '@/components/agent-sidebar/tool-render/InteractiveArtifactBlock';
 import { ChatComposer } from '@/components/agent-sidebar/ChatComposer';
 import { AgentSettingsModal } from '@/components/agent-sidebar/AgentSettingsModal';
 import {
-  CHAT_INITIAL_HISTORY_LIMIT,
   CHAT_HISTORY_GC_TIME_MS,
   CHAT_HISTORY_STALE_TIME_MS,
   fetchChatHistory,
-  fetchChatHistoryPage,
-  useChatHistory,
   useChatWorkspace,
   useChatSessions,
   useCreateChatSession,
 } from '@/lib/api/queries/chats';
 import { queryClient } from '@/app/query-client';
 import { cn } from '@/lib/utils';
-import { mergeHistoryWindow, type ChatHistoryWindow } from '@/pages/chat/history-window';
+import { useConversationHistory } from '@/lib/chat/use-conversation-history';
 import { fileRefFromAgentPath } from '@/lib/preview/protocol';
 import { standalonePreviewHref } from '@/lib/preview/standalone-preview';
 
@@ -60,19 +56,6 @@ const AGENT_WIDTH_KEY = 'vibecanvas.agentWidth';
 const MIN_AGENT_WIDTH = 320;
 const MAX_AGENT_WIDTH = 760;
 const DEFAULT_AGENT_WIDTH = 420;
-const MAX_SIDEBAR_HISTORY_WINDOWS = 20;
-
-function retainSidebarHistoryWindow(
-  current: Record<string, ChatHistoryWindow>,
-  key: string,
-  value: ChatHistoryWindow,
-): Record<string, ChatHistoryWindow> {
-  const next = { ...current };
-  delete next[key];
-  next[key] = value;
-  return Object.fromEntries(Object.entries(next).slice(-MAX_SIDEBAR_HISTORY_WINDOWS));
-}
-
 type BrowserChatSession = {
   chat_id: string;
   project_id: string;
@@ -170,11 +153,6 @@ export function AgentChatSidebar({
   const workspaceScopeId = selectedChatIsPersisted
     ? (workspace.data?.workspace_scope_id ?? '')
     : '';
-  const activeProjectionTurnId = useChatStreamStore((state) => {
-    if (!activeChatId) return null;
-    const runtime = state.runtimes[activeChatId];
-    return runtime?.projectionActive ? runtime.turnId : null;
-  });
   const selectedSession = activeChatId
     ? sessionItems.find((s) => s.chat_id === activeChatId)
     : undefined;
@@ -212,59 +190,10 @@ export function AgentChatSidebar({
       'noopener,noreferrer',
     );
   }, [workspace.data?.project_id, activeChatId]);
-  const selectedHistory = useChatHistory(
-    lastWfId,
-    selectedChatIsPersisted ? activeChatId : null,
-    selectedChatIsPersisted,
-    activeProjectionTurnId || null,
-  );
-  const selectedHistoryKey = lastWfId && activeChatId
-    ? `${lastWfId}:${activeChatId}`
-    : '';
-  const [historyWindows, setHistoryWindows] = useState<Record<string, ChatHistoryWindow>>({});
-  // The query page is render-derived state. Keep only pages explicitly loaded
-  // by the user's "earlier messages" action in local state, then merge the
-  // live query result during render. This avoids an effect-driven extra render
-  // while preserving the same bounded per-Chat history window.
-  const selectedHistoryWindow = useMemo(() => {
-    if (!selectedHistoryKey) return undefined;
-    const retained = historyWindows[selectedHistoryKey];
-    return selectedHistory.data
-      ? mergeHistoryWindow(retained, selectedHistory.data)
-      : retained;
-  }, [historyWindows, selectedHistory.data, selectedHistoryKey]);
-  const olderHistoryLoadingRef = useRef(false);
-  const [olderHistoryLoading, setOlderHistoryLoading] = useState(false);
-  const hasOlderHistory = !!selectedHistoryWindow && selectedHistoryWindow.offset > 0;
-  const loadOlderHistory = useCallback(async () => {
-    if (!lastWfId || !activeChatId || !selectedHistoryKey || !selectedHistoryWindow) return;
-    if (olderHistoryLoadingRef.current || selectedHistoryWindow.offset <= 0) return;
-    olderHistoryLoadingRef.current = true;
-    setOlderHistoryLoading(true);
-    try {
-      const limit = Math.min(CHAT_INITIAL_HISTORY_LIMIT, selectedHistoryWindow.offset);
-      const offset = Math.max(0, selectedHistoryWindow.offset - limit);
-      const page = await fetchChatHistoryPage(lastWfId, activeChatId, {
-        limit,
-        offset,
-        ...(activeProjectionTurnId ? { beforeTurnId: activeProjectionTurnId } : {}),
-      });
-      setHistoryWindows((current) => retainSidebarHistoryWindow(
-        current,
-        selectedHistoryKey,
-        mergeHistoryWindow(current[selectedHistoryKey], page),
-      ));
-    } finally {
-      olderHistoryLoadingRef.current = false;
-      setOlderHistoryLoading(false);
-    }
-  }, [
-    activeChatId,
-    activeProjectionTurnId,
-    lastWfId,
-    selectedHistoryKey,
-    selectedHistoryWindow,
-  ]);
+  const {
+    query: selectedHistory, items: historyItems, hasOlder: hasOlderHistory,
+    loadingOlder: olderHistoryLoading, loadOlder: loadOlderHistory,
+  } = useConversationHistory(lastWfId ?? '', activeChatId, selectedChatIsPersisted);
   const historyReady =
     !selectedChatIsPersisted ||
       selectedHistory.data !== undefined ||
@@ -607,10 +536,7 @@ export function AgentChatSidebar({
           activeChatId={activeChatId}
           surface={chatSurface}
           compact={embedded}
-          historyItems={
-            selectedHistoryWindow?.items ??
-            (selectedHistory.data?.items as RawChunk[] | undefined)
-          }
+          historyItems={historyItems}
           historyLoading={selectedHistory.isLoading}
           hasOlderHistory={hasOlderHistory}
           olderHistoryLoading={olderHistoryLoading}

@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
-import { ChatComposer } from '@/components/agent-sidebar/ChatComposer';
+import { ChatComposer, type ChatComposerProps } from '@/components/agent-sidebar/ChatComposer';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { useAgentSettingsStore } from '@/stores/agent-settings';
 import { useChatAgentSettingsStore } from '@/stores/chat-agent-settings';
@@ -28,6 +28,7 @@ function renderComposer(
   onSendStart?: () => void,
   embedded = false,
   strict = false,
+  overrides: Partial<ChatComposerProps> = {},
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -42,6 +43,7 @@ function renderComposer(
           embedded={embedded}
           showModelSelector={showModelSelector}
           onSendStart={onSendStart}
+          {...overrides}
         />
       </MemoryRouter>
     </QueryClientProvider>
@@ -82,6 +84,48 @@ describe('ChatComposer Stop', () => {
     useChatStreamStore.getState().reset();
     useAgentSettingsStore.getState().reset();
     useChatAgentSettingsStore.setState({ entries: {} });
+  });
+
+  it('preserves a contextual draft and local files when canvas preparation fails', async () => {
+    const prepare = vi.fn(async () => { throw new Error('Workflow version conflict'); });
+    const send = vi.fn();
+    const upload = vi.fn();
+    server.use(
+      http.post('*/api/v1/chat-scopes/wf_x/chats/context-draft/messages', () => { send(); return new HttpResponse(null, { status: 500 }); }),
+      http.post('*/api/v1/chat-scopes/wf_x/chats/context-draft/attachments', () => { upload(); return new HttpResponse(null, { status: 500 }); }),
+    );
+    const { container } = renderComposer('context-draft', false, undefined, false, false,
+      { projectId: null, prepareConversation: prepare });
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    await userEvent.upload(fileInput, new File(['x,y\n1,2'], 'input.csv', { type: 'text/csv' }));
+    const input = screen.getByRole('textbox');
+    await userEvent.type(input, 'Repair this node');
+    expect(prepare).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /send|发送/i }));
+    await waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+    expect(input).toHaveValue('Repair this node');
+    expect(screen.getByText('input.csv')).toBeInTheDocument();
+    expect(upload).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('does not send stale text changed while the canvas is being saved', async () => {
+    let resolve!: (projectId: string) => void;
+    const prepare = vi.fn(() => new Promise<string>(done => { resolve = done; }));
+    const send = vi.fn();
+    server.use(http.post('*/api/v1/chat-scopes/wf_x/chats/context-change/messages', () => {
+      send(); return new HttpResponse(null, { status: 500 });
+    }));
+    renderComposer('context-change', false, undefined, false, false, { prepareConversation: prepare });
+    const input = screen.getByRole('textbox');
+    await userEvent.type(input, 'First request');
+    await userEvent.click(screen.getByRole('button', { name: /send|发送/i }));
+    await waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+    await userEvent.type(input, ' revised');
+    await act(async () => { resolve('project_test'); });
+    expect(input).toHaveValue('First request revised');
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('shows and stores the concrete API selection instead of a synthetic Default', async () => {

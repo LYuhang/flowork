@@ -10,6 +10,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { CanvasNodePicker } from './CanvasNodePicker';
+import { WorkflowCanvasChat } from './WorkflowCanvasChat';
 import { Canvas } from '@/pages/canvas/Canvas';
 import { decideSeed, showConflictToast } from '@/pages/canvas/seedPolicy';
 import { useDirtyNavigationGuard } from '@/lib/navigation/use-dirty-navigation-guard';
@@ -344,12 +345,14 @@ export function CanvasPage() {
           pinnedMajor={isPinned ? pinnedMajor : null}
           onToggleExplorer={toggleExplorer} explorerOpen={explorerOpen} />
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <WorkflowCanvasChat wfId={wfId!} readOnly={effectiveReadOnly}>
             <CanvasNodePicker readOnly={effectiveReadOnly}>
               <ContextMenuLayer readOnly={effectiveReadOnly}>
                 <Canvas readOnly={effectiveReadOnly} />
               </ContextMenuLayer>
             </CanvasNodePicker>
+            </WorkflowCanvasChat>
           </div>
           <RightInspector wfId={wfId!} readOnly={effectiveReadOnly} canExecute={canExecute} canDeploy={canDeploy} />
         </div>

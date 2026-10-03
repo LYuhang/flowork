@@ -23,7 +23,9 @@
  */
 import { useRef, useState, type ReactNode } from 'react';
 import { useNodePicker } from './NodePickerContext';
-import { Plus, Copy, ClipboardPaste, Trash2 } from 'lucide-react';
+import { Plus, Copy, ClipboardPaste, Trash2, WandSparkles } from 'lucide-react';
+import { useOpenCanvasChat } from './CanvasChatContext';
+import type { components } from '@/lib/api/schema';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useEdges, useNodes, useReactFlow } from '@xyflow/react';
@@ -50,6 +52,9 @@ export function ContextMenuLayer({
 }: ContextMenuLayerProps) {
   const { t } = useTranslation();
   const showNodePicker = useNodePicker();
+  const openChat = useOpenCanvasChat();
+  const [chatTarget, setChatTarget] = useState<components['schemas']['WorkflowChatTarget'] | null>(null);
+  const openingChat = useRef(false);
   const openingNodePicker = useRef(false);
   // Screen coords of the right-click that opened the menu — used by Paste so a
   // pasted node lands where the user clicked.
@@ -71,6 +76,14 @@ export function ContextMenuLayer({
 
   const handleContextMenu = (e: React.MouseEvent) => {
     setMenuCoord({ x: e.clientX, y: e.clientY });
+    const element = e.target instanceof Element ? e.target : null;
+    const nodeId = element?.closest('.react-flow__node')?.getAttribute('data-id');
+    const edgeId = element?.closest('.react-flow__edge')?.getAttribute('data-id');
+    const edge = edgeId ? edges.find(item => item.id === edgeId) : undefined;
+    setChatTarget(nodeId ? { kind: 'node', node_id: nodeId }
+      : edge && !edge.id.startsWith('pair:') ? { kind: 'edge', source: edge.source, target: edge.target,
+        source_handle: edge.sourceHandle, target_handle: edge.targetHandle }
+      : edgeId ? null : { kind: 'workflow' });
   };
 
   const onDeleteSelectedEdge = () => {
@@ -112,6 +125,13 @@ export function ContextMenuLayer({
         </ContextMenuTrigger>
         {!readOnly && (
           <ContextMenuContent className="min-w-56" onCloseAutoFocus={(event) => {
+            if (openingChat.current) {
+              event.preventDefault();
+              openingChat.current = false;
+              const target = chatTarget;
+              if (target && menuCoord) requestAnimationFrame(() => openChat?.(target, menuCoord));
+              return;
+            }
             if (!openingNodePicker.current) return;
             event.preventDefault();
             openingNodePicker.current = false;
@@ -122,6 +142,10 @@ export function ContextMenuLayer({
               // Let the menu release its focus trap before opening the picker.
               openingNodePicker.current = true;
             }}><Plus className="mr-2 h-4 w-4" />{t('nodePicker.add', 'Add node')}</ContextMenuItem>
+            {openChat && <ContextMenuItem data-action="context-chat" disabled={!chatTarget}
+              onSelect={() => { openingChat.current = true; }}>
+              <WandSparkles className="mr-2 h-4 w-4" />{t('canvasChat.here', 'Chat here')}
+            </ContextMenuItem>}
             <ContextMenuSeparator />
               <ContextMenuItem
                 disabled={!selectedNode}

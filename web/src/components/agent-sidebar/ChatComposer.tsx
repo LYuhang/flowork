@@ -39,6 +39,8 @@ import { ContextAttachmentCard } from './ContextAttachmentCard';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
 import { acceptProjectChatDraft } from '@/lib/chat/project-draft';
+import { fetchProjectMcpSelection } from '@/lib/api/queries/chats';
+import { errorMessage } from '@/lib/api/mutations/error-message';
 import { Blocks, BrainCircuit, FileText, Image, Loader2, Paperclip, RotateCcw, Send, SlidersHorizontal, Square, Video } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -135,7 +137,7 @@ interface PendingUpload {
   scopeId: string;
   projectId?: string | null;
   controller: AbortController;
-  status: 'queued' | 'uploading' | 'failed';
+  status: 'staged' | 'queued' | 'uploading' | 'failed';
   error?: string;
 }
 
@@ -171,6 +173,12 @@ export interface ChatComposerProps {
   disabledReason?: string | null;
   /** Reports whether text, attachments, or an in-flight upload occupies the draft. */
   onDraftPresenceChange?: (hasDraft: boolean) => void;
+  /** Materialize a contextual conversation only at Send; return its Project.
+   * Files remain local until this succeeds, so save conflicts preserve drafts.
+   * Callers keep this callback idempotent and recheck their editing context.
+   */
+  prepareConversation?: () => Promise<string>;
+  onSendAccepted?: () => void;
 }
 
 export function ChatComposer({
@@ -187,9 +195,18 @@ export function ChatComposer({
   historyReady = true,
   disabledReason = null,
   onDraftPresenceChange,
+  prepareConversation,
+  onSendAccepted,
 }: ChatComposerProps) {
   const { t } = useTranslation();
   const account = useAuthStore((state) => state.user);
+  const preparedConversation = useRef<{ chatId: string; projectId: string } | null>(null);
+  const currentConversation = useRef(chatId);
+  useEffect(() => {
+    currentConversation.current = chatId;
+    return () => { currentConversation.current = null; };
+  }, [chatId]);
+  const [draftMcpIds, setDraftMcpIds] = useState<string[] | null>(null);
   const commandBootstrap = useChatBootstrap(agentSurface);
   const slashCommands = useMemo<SlashCommand[]>(
     () => slashCommandsFromCatalog(
@@ -247,7 +264,7 @@ export function ChatComposer({
     runtimeCapabilitiesQuery.data,
   ]);
   const mcpServersQuery = useMcpServers({ enabled: !!chatId && historyReady });
-  const selectedMcpIds = projectMcpQuery.data?.mcp_server_ids ?? [];
+  const selectedMcpIds = draftMcpIds ?? projectMcpQuery.data?.mcp_server_ids ?? [];
   // A server can be uninstalled while another page still has its id in the
   // durable selection. Keep temporarily disabled/unhealthy installations so
   // the picker can explain them, but never count or resend an id that is no
@@ -261,6 +278,10 @@ export function ChatComposer({
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [compactOptions, setCompactOptions] = useState(false);
   const setSelectedMcpIds = (ids: string[]) => {
+    if (prepareConversation && !projectId) {
+      setDraftMcpIds(ids);
+      return;
+    }
     if (!projectId || !projectMcpQuery.data || updateProjectMcp.isPending) return;
     updateProjectMcp.mutate({
       projectId,
@@ -391,7 +412,7 @@ export function ChatComposer({
     try {
       while (uploadQueue.current.length) {
         const item = uploadQueue.current[0];
-        if (item.status === 'failed') break;
+        if (item.status === 'failed' || item.status === 'staged') break;
         item.status = 'uploading';
         setUploads([...uploadQueue.current]);
         try {
@@ -460,15 +481,18 @@ export function ChatComposer({
       }));
     }
 
+    const prepared = preparedConversation.current?.chatId === chatId ? preparedConversation.current : null;
+    const stageLocally = !!prepareConversation && !chatPersisted && !prepared;
     const batch: PendingUpload[] = files.map(file => ({
       id: crypto.randomUUID(), composerKey: composerStateKey, name: file.name,
-      type: requestedType ?? inferredAttachmentType(file), file, chatId, scopeId: wfId, projectId,
-      controller: new AbortController(), status: 'queued',
+      type: requestedType ?? inferredAttachmentType(file), file, chatId, scopeId: wfId,
+      projectId: prepared?.projectId ?? projectId,
+      controller: new AbortController(), status: stageLocally ? 'staged' : 'queued',
     }));
     uploadQueue.current.push(...batch);
     setUploads([...uploadQueue.current]);
     await processUploadQueue();
-  }, [chatId, composerStateKey, historyReady, projectId, readOnly, t, wfId, processUploadQueue]);
+  }, [chatId, chatPersisted, composerStateKey, historyReady, projectId, prepareConversation, readOnly, t, wfId, processUploadQueue]);
 
   const handleFileInput = useCallback((
     event: ChangeEvent<HTMLInputElement>,
@@ -621,8 +645,8 @@ export function ChatComposer({
     !draftPreparing &&
     !contextDraft?.conflict &&
     !updateProjectMcp.isPending &&
-    (value.trim().length > 0 || pendingAttachments.length > 0) &&
-    activeUploads.length === 0 &&
+    (value.trim().length > 0 || pendingAttachments.length > 0 || activeUploads.some(item => item.status === 'staged')) &&
+    activeUploads.every(item => item.status === 'staged') &&
     !isStreaming &&
     !readOnly &&
     historyReady &&
@@ -653,7 +677,8 @@ export function ChatComposer({
     return runAgentTurn({
       wfId,
       chatId,
-      projectId,
+      projectId: preparedConversation.current?.chatId === chatId
+        ? preparedConversation.current.projectId : projectId,
       content,
       control,
       attachments,
@@ -710,6 +735,25 @@ export function ChatComposer({
     preparationRef.current = true;
     setDraftPreparing(true);
     try {
+      if (prepareConversation && chatId) {
+        const preparedProjectId = await prepareConversation();
+        if (currentConversation.current !== chatId) return;
+        preparedConversation.current = { chatId, projectId: preparedProjectId };
+        if (draftMcpIds !== null) {
+          const selection = await fetchProjectMcpSelection(preparedProjectId);
+          await updateProjectMcp.mutateAsync({ projectId: preparedProjectId,
+            selection: { ...selection, mcp_server_ids: draftMcpIds } });
+          setDraftMcpIds(null);
+        }
+        uploadQueue.current = uploadQueue.current.map(item => item.chatId === chatId && item.status === 'staged'
+          ? { ...item, projectId: preparedProjectId, status: 'queued' } : item);
+        await processUploadQueue();
+        if (currentConversation.current !== chatId || uploadQueue.current.some(item => item.chatId === chatId)) return;
+        if ((useChatStreamStore.getState().composerInputs[composerStateKey!] ?? '').trim() !== content) {
+          toast.info(t('composer.context.changedBeforeSend', 'Your draft changed while syncing. Review it and send again.'));
+          return;
+        }
+      }
       if (draftSyncEnabled && contextDraft) {
         setValue(content);
         await contextDraft.flush();
@@ -720,7 +764,8 @@ export function ChatComposer({
         }
       }
     } catch (error) {
-      toast.error(t('composer.context.syncFailed', 'Could not sync the draft. Your message is preserved; retry before sending.'));
+      toast.error(prepareConversation ? errorMessage(error)
+        : t('composer.context.syncFailed', 'Could not sync the draft. Your message is preserved; retry before sending.'));
       return;
     } finally {
       preparationRef.current = false;
@@ -768,6 +813,7 @@ export function ChatComposer({
       undefined,
       () => {
         accepted = true;
+        onSendAccepted?.();
         optimisticSubmissionRef.current = false;
         setAttachmentCreatedChat(chatId);
         void contextDraft?.finishSend(true).catch(() => undefined);
@@ -802,7 +848,7 @@ export function ChatComposer({
           useChatStreamStore.getState().setAttachments(composerStateKey,
             [...attachments, ...currentAttachments.filter(item => !keys.has(contextAttachmentKey(item)))]);
         }
-        if (contextDraft) { contextDraft.sending = false; contextDraft.submission = undefined; contextDraft.save(); }
+        contextDraft?.discardSubmission();
       }
       textareaRef.current?.focus();
     }
@@ -1120,7 +1166,7 @@ export function ChatComposer({
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       {upload.status === 'uploading' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
                       <span title={upload.error}>{upload.status === 'failed' ? t('composer.uploadFailed', 'Upload failed')
-                        : upload.status === 'queued' ? t('composer.uploadQueued', 'Waiting…') : t('composer.uploading', 'Uploading…')}</span>
+                        : upload.status === 'queued' || upload.status === 'staged' ? t('composer.uploadQueued', 'Waiting…') : t('composer.uploading', 'Uploading…')}</span>
                     </span>
                   </span>
                   {upload.status === 'failed' ? <button type="button" className="shrink-0 rounded px-1 hover:bg-surface-hover"
@@ -1330,7 +1376,7 @@ export function ChatComposer({
               servers={mcpServersQuery.data ?? []}
               selectedIds={effectiveSelectedMcpIds}
               onChange={setSelectedMcpIds}
-              disabled={isStreaming || !projectMcpQuery.isSuccess || updateProjectMcp.isPending}
+              disabled={isStreaming || (!projectMcpQuery.isSuccess && !prepareConversation) || updateProjectMcp.isPending}
               runtimeType={runtimeCapabilitiesQuery.data?.runtime_type}
             />
             <ApprovalModePicker disabled={isStreaming} />
@@ -1366,7 +1412,7 @@ export function ChatComposer({
                 servers={mcpServersQuery.data ?? []}
                 selectedIds={effectiveSelectedMcpIds}
                 onChange={setSelectedMcpIds}
-                disabled={isStreaming || !projectMcpQuery.isSuccess || updateProjectMcp.isPending}
+                disabled={isStreaming || (!projectMcpQuery.isSuccess && !prepareConversation) || updateProjectMcp.isPending}
                 runtimeType={runtimeCapabilitiesQuery.data?.runtime_type}
               />
               <ApprovalModePicker disabled={isStreaming} />

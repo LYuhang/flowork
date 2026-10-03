@@ -3905,5 +3905,14 @@
   "deployments.workflow.viewAll": "View all",
   "deployments.workflow.empty": "No related deployments yet.",
   "deployments.workflow.running": "Running",
-  "deployments.workflow.activeVersion": "Serving version"
+  "deployments.workflow.activeVersion": "Serving version",
+  "canvasChat.here": "Chat here",
+  "canvasChat.open": "Workflow conversations",
+  "canvasChat.node": "Node",
+  "canvasChat.edge": "Edge",
+  "canvasChat.global": "Global workflow",
+  "canvasChat.readOnly": "This canvas is read-only. Open an editable version to continue.",
+  "canvasChat.unavailable": "This conversation is unavailable. Choose an accessible conversation from History.",
+  "canvasChat.contextChanged": "The canvas context changed. Return to the selected major version before starting this conversation.",
+  "canvasChat.empty": "Right-click the canvas, a node or an edge to start a conversation, or choose one from History."
 }

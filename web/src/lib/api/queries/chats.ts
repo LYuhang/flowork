@@ -371,10 +371,13 @@ export interface ProjectMcpSelection {
   mcp_config_revision: number;
 }
 
+export const fetchProjectMcpSelection = (projectId: string) =>
+  projectRequest<ProjectMcpSelection>(`/${encodeURIComponent(projectId)}/mcp`);
+
 export const useProjectMcpSelection = (projectId: string | null | undefined, enabled = true) => useQuery({
   queryKey: ['project-mcp', projectId],
   enabled: !!projectId && enabled,
-  queryFn: () => projectRequest<ProjectMcpSelection>(`/${encodeURIComponent(projectId!)}/mcp`),
+  queryFn: () => fetchProjectMcpSelection(projectId!),
 });
 
 export const useSetProjectMcpSelection = () => {

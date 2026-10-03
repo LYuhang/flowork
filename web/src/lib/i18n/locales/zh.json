@@ -3905,5 +3905,14 @@
   "deployments.workflow.viewAll": "查看全部",
   "deployments.workflow.empty": "暂无关联部署",
   "deployments.workflow.running": "运行中",
-  "deployments.workflow.activeVersion": "实际运行版本"
+  "deployments.workflow.activeVersion": "实际运行版本",
+  "canvasChat.here": "在此处对话",
+  "canvasChat.open": "Workflow 对话",
+  "canvasChat.node": "节点",
+  "canvasChat.edge": "边",
+  "canvasChat.global": "全局 Workflow",
+  "canvasChat.readOnly": "当前画布只读，请打开可编辑版本后继续对话。",
+  "canvasChat.unavailable": "此对话暂不可用，请从历史中选择可访问的对话。",
+  "canvasChat.contextChanged": "画布上下文已变化，请返回选定的大版本后开始此对话。",
+  "canvasChat.empty": "在画布、节点或连线上右键开始对话，或从历史中选择已有对话。"
 }

@@ -194,6 +194,8 @@ export class DraftController {
     await this.execute({kind:'remove',operation_id:crypto.randomUUID(),attachment_keys:[key]});
   }); }
   beginSend() { this.submission = {...this.bridge.read(),generation:this.remote.generation}; this.sending = true; this.save(); }
+  /** The caller already restored a purely local, unaccepted submission. */
+  discardSubmission() { this.sending = false; this.submission = undefined; this.save(); }
   finishSend(accepted: boolean) { return this.queue(async () => {
     // The HTTP response can disappear after durable acceptance. Reconcile
     // against the server generation before restoring the submitted draft.

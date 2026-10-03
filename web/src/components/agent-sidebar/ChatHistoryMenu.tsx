@@ -25,6 +25,7 @@ export interface ChatHistoryMenuProps {
   surface?: 'chat' | 'browser';
   /** Close portalled menu content while its parent panel is CSS-hidden. */
   active?: boolean;
+  workflowContextOnly?: boolean;
 }
 
 export function ChatHistoryMenu({
@@ -34,12 +35,13 @@ export function ChatHistoryMenu({
   onIntent,
   surface = 'chat',
   active = true,
+  workflowContextOnly = false,
 }: ChatHistoryMenuProps) {
   const { t } = useTranslation();
   const formatDateTime = useFormatDateTime();
   const [open, setOpen] = useState(false);
   const sessions = useChatSessions(wfId, surface);
-  const items = sessions.data?.items ?? [];
+  const items = (sessions.data?.items ?? []).filter(item => !workflowContextOnly || item.workflow_context?.workflow_id === wfId);
 
   useEffect(() => {
     // Closing synchronously prevents portalled menu content remaining visible

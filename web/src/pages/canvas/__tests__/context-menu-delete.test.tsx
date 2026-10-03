@@ -9,7 +9,8 @@
  * state from the surrounding `ReactFlowProvider`.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { CanvasChatContext } from '../CanvasChatContext';
 import { ReactFlowProvider } from '@xyflow/react';
 
 const selection = {
@@ -87,5 +88,40 @@ describe('ContextMenuLayer delete-edge', () => {
 
     const draft = useWorkflowEditStore.getState().draft as Record<string, any>;
     expect(draft.node_1.children).toEqual([]);
+  });
+});
+
+describe('ContextMenuLayer contextual conversation', () => {
+  it('uses the right-clicked node even when a different node is selected', async () => {
+    const open = vi.fn();
+    selection.nodes = [{ id: 'selected', selected: true }, { id: 'clicked', selected: false }];
+    render(<ReactFlowProvider><CanvasChatContext.Provider value={open}>
+      <ContextMenuLayer><div className="react-flow__node" data-id="clicked" data-testid="clicked-node" /></ContextMenuLayer>
+    </CanvasChatContext.Provider></ReactFlowProvider>);
+    fireEvent.contextMenu(screen.getByTestId('clicked-node'), { clientX: 120, clientY: 160 });
+    fireEvent.click(screen.getByText('Chat here'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith({ kind: 'node', node_id: 'clicked' }, { x: 120, y: 160 }));
+  });
+
+  it('binds the actual edge endpoints instead of a selected edge', async () => {
+    const open = vi.fn();
+    selection.edges = [{ id: 'from->to', source: 'from', target: 'to', selected: false }];
+    render(<ReactFlowProvider><CanvasChatContext.Provider value={open}>
+      <ContextMenuLayer><svg><g className="react-flow__edge" data-id="from->to" data-testid="clicked-edge" /></svg></ContextMenuLayer>
+    </CanvasChatContext.Provider></ReactFlowProvider>);
+    fireEvent.contextMenu(screen.getByTestId('clicked-edge'), { clientX: 120, clientY: 160 });
+    fireEvent.click(screen.getByText('Chat here'));
+    await waitFor(() => expect(open).toHaveBeenCalledWith(expect.objectContaining({ kind: 'edge', source: 'from', target: 'to' }), { x: 120, y: 160 }));
+  });
+
+  it('does not treat a loop pairing indicator as an ordinary edge', () => {
+    const open = vi.fn();
+    selection.edges = [{ id: 'pair:begin->end', source: 'begin', target: 'end', selected: false }];
+    render(<ReactFlowProvider><CanvasChatContext.Provider value={open}>
+      <ContextMenuLayer><svg><g className="react-flow__edge" data-id="pair:begin->end" data-testid="pair-edge" /></svg></ContextMenuLayer>
+    </CanvasChatContext.Provider></ReactFlowProvider>);
+    fireEvent.contextMenu(screen.getByTestId('pair-edge'));
+    expect(screen.getByText('Chat here').closest('[role="menuitem"]')).toHaveAttribute('data-disabled');
+    expect(open).not.toHaveBeenCalled();
   });
 });

@@ -256,7 +256,10 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
         maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100vh - 16px)', display: open ? undefined : 'none' }}>
       <div className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b px-2"
         onPointerDown={event => {
-          if (event.button !== 0 || (event.target as Element).closest('button')) return;
+          // React bubbles portalled menu events through this header too.
+          // Only capture a drag that actually starts inside the title bar.
+          if (event.button !== 0 || !event.currentTarget.contains(event.target as Node)
+            || (event.target as Element).closest('button')) return;
           const start = { x: event.clientX - point.x, y: event.clientY - point.y };
           const element = event.currentTarget;
           element.setPointerCapture(event.pointerId);

@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { WorkflowCanvasChat } from '../WorkflowCanvasChat';
@@ -29,7 +30,8 @@ vi.mock('@/components/agent-sidebar/ChatComposer', () => ({ ChatComposer: (props
 vi.mock('@/components/agent-sidebar/ChatMessageList', () => ({ ChatMessageList: () => <div>Transcript</div> }));
 vi.mock('@/components/agent-sidebar/SSEStatusBanner', () => ({ SSEStatusBanner: () => null }));
 vi.mock('@/components/agent-sidebar/ChatHistoryMenu', () => ({ ChatHistoryMenu: ({ onSelect }: { onSelect: (id: string) => void }) =>
-  <button onClick={() => onSelect('history')}>Choose history</button> }));
+  <><button onClick={() => onSelect('history')}>Choose history</button>
+    {createPortal(<div role="menuitem" onClick={() => onSelect('history')}>Portalled history item</div>, document.body)}</> }));
 
 function Launcher() {
   const open = useOpenCanvasChat();
@@ -62,6 +64,23 @@ beforeEach(() => {
 });
 
 describe('Workflow contextual conversation lifecycle', () => {
+  it('does not capture portalled history clicks as a panel drag', () => {
+    mount();
+    fireEvent.click(screen.getByText('Node context'));
+    const heading = screen.getByRole('dialog').firstElementChild as HTMLElement;
+    const capture = vi.fn();
+    Object.defineProperty(heading, 'setPointerCapture', { value: capture });
+    const pointerDown = () => {
+      const event = new Event('pointerdown', { bubbles: true });
+      Object.defineProperties(event, { button: { value: 0 }, pointerId: { value: 1 } });
+      return event;
+    };
+    fireEvent(screen.getAllByRole('menuitem').at(-1)!, pointerDown());
+    expect(capture).not.toHaveBeenCalled();
+    fireEvent(heading, pointerDown());
+    expect(capture).toHaveBeenCalledWith(1);
+  });
+
   it('only references into an open conversation, deduplicates and retains the pinned version', async () => {
     mount();
     expect(screen.getByText('Reference node')).toBeDisabled();

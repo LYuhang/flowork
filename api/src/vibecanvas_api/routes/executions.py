@@ -442,6 +442,7 @@ async def _persist_node_progress(
 async def _produce_execution_sandbox(
     stop: asyncio.Event, wf_id: str, exec_id: str, body: ExecutionRequest,
     wf_dict: dict, creator_user_id: str, tenant_id: str,
+    *, workflow_version: str | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run a workflow execution through the workflow's resident sandbox session.
 
@@ -462,6 +463,7 @@ async def _produce_execution_sandbox(
         await create_execution(
             execution_id=exec_id, tenant_id=tenant_id, source_type="workflow", source_id=wf_id,
             user_id=creator_user_id, workflow_id=wf_id, workflow=wf_dict, inputs=body.input,
+            workflow_version=workflow_version,
         )
         workflow_run_id = wf_id
         stage_started = time.perf_counter()
@@ -829,6 +831,7 @@ async def _produce_execution_sandbox(
 async def _produce_execution(
     stop: asyncio.Event, wf_id: str, exec_id: str, body: ExecutionRequest,
     wf_dict: dict, creator_user_id: str, tenant_id: str,
+    *, workflow_version: str | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run a workflow execution; yield EXEC_UPDATE events as it progresses.
 
@@ -918,6 +921,7 @@ async def _produce_execution(
         async for ev in _produce_execution_sandbox(
             stop, wf_id, exec_id, body, wf_dict,
             creator_user_id, tenant_id,
+            workflow_version=workflow_version,
         ):
             yield ev
     finally:
@@ -958,11 +962,13 @@ async def start_execution(
         wf_id=wf_id,
         action=Action.EXECUTE,
     )
-    if not await repo.get_meta(wf_id):
+    meta = await repo.get_meta(wf_id)
+    if not meta:
         raise HTTPException(status_code=404, detail=f"workflow {wf_id} not found")
     # Resolve the snapshot now (request session); the producer outlives
     # the request and must not hold a request-scoped session.
-    wf_dict = await repo.get_current_workflow(wf_id)
+    wf_dict = await repo.get_workflow_at(wf_id, meta["active_v"], meta["active_sv"])
+    workflow_version = f"v{meta['active_v']}.sv{meta['active_sv']}"
 
     if body.resume_from is not None:
         async with session_scope(tenant_id=ctx.tenant_id) as session:
@@ -1015,6 +1021,7 @@ async def start_execution(
         async for ev in _produce_execution(
             stop_ev, wf_id, execution_record_id, body, wf_dict,
             ctx.user_id, ctx.tenant_id,
+            workflow_version=workflow_version,
         ):
             yield ev
 

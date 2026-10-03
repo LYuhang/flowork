@@ -20,6 +20,7 @@ async def create_execution(
     node_id=None,
     execution_id=None,
     input_index=None,
+    workflow_version=None,
 ) -> str:
     execution_id = execution_id or str(uuid4())
     async with short_session_scope(tenant_id=tenant_id) as session:
@@ -42,6 +43,7 @@ async def create_execution(
             approvers=approvers,
             node_id=node_id,
             input_index=input_index,
+            workflow_version=workflow_version,
         )
     return execution_id
 

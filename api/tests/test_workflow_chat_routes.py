@@ -151,3 +151,22 @@ async def test_history_spans_major_versions_but_not_other_workflows(client, web_
         assert binding["major_version"] == 1
         assert binding["initial_subversion"] == 0
         assert binding["target"]["node_id"] == "focus"
+
+
+@pytest.mark.asyncio
+async def test_canvas_execution_records_selected_version_not_editable_metadata(client, web_cookies, monkeypatch):
+    import vibecanvas_api.routes.executions as execution_routes
+    me, headers, wf_id, graph = await setup(client)
+    graph["__meta__"] = {"workflow_version": 99, "workflow_subversion": 99}
+    async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
+        await WorkflowRepo(session, me["user_id"]).commit(wf_id, graph, target_major=1)
+    observed = []
+
+    async def sandbox(*args, **kwargs):
+        observed.append((args[4], kwargs["workflow_version"]))
+        yield "EXEC_UPDATE", {"status": "completed", "wf_id": wf_id}
+
+    monkeypatch.setattr(execution_routes, "_produce_execution_sandbox", sandbox)
+    response = await client.post(f"/api/v1/workflows/{wf_id}/executions", headers=headers, json={"input": {}})
+    assert response.status_code == 200, response.text
+    assert observed == [(graph, "v1.sv1")]

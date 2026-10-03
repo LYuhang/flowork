@@ -218,8 +218,9 @@ async def test_route_flag_on_takes_sandbox_branch(monkeypatch):
                         raising=False)
 
     sandbox_called = {"n": 0}
-    async def _fake_sandbox(stop, wf_id, exec_id, body, wf_dict, uid, tid):
+    async def _fake_sandbox(stop, wf_id, exec_id, body, wf_dict, uid, tid, *, workflow_version=None):
         sandbox_called["n"] += 1
+        assert workflow_version == "v2.sv3"
         yield ("EXEC_UPDATE", {"exec_id": exec_id, "status": "completed",
                                "from": "sandbox"})
     monkeypatch.setattr(ex, "_produce_execution_sandbox", _fake_sandbox)
@@ -233,7 +234,8 @@ async def test_route_flag_on_takes_sandbox_branch(monkeypatch):
 
     body = SimpleNamespace(mode="single", input={})
     events = await _drain(ex._produce_execution(
-        asyncio.Event(), "wf1", "e_y", body, _build_minimal_wf(), "u1", "t1"))
+        asyncio.Event(), "wf1", "e_y", body, _build_minimal_wf(), "u1", "t1",
+        workflow_version="v2.sv3"))
 
     assert sandbox_called["n"] == 1
     assert any(p.get("from") == "sandbox" for _, p in events)

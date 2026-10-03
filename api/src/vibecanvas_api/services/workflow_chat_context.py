@@ -7,6 +7,7 @@ from the authorized Workflow repository, never from client-supplied prompts.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -59,6 +60,40 @@ class WorkflowReader(Protocol):
     async def get_meta(self, wf_id: str) -> dict: ...
     async def max_subversion(self, wf_id: str, major: int) -> int: ...
     async def get_workflow_at(self, wf_id: str, v: int, sv: int) -> dict: ...
+
+
+async def resolve_workflow_run_context(executions, history, *, workflow_id: str) -> dict:
+    """Describe the actual debug projection, after INSPECT_RUNS authorization.
+
+    Node debug can leave files from earlier runs in /run. Never describe that
+    shared directory as an immutable execution snapshot, or infer a historical
+    version from current HEAD or user-editable graph metadata.
+    """
+    state = await executions.latest_execution(workflow_id)
+    base = {"directory_is_snapshot": False, "files_may_include_earlier_node_runs": True}
+    if state is None:
+        return {**base, "status": "no_execution_record", "latest_execution": None}
+    execution_id = state.get("exec_id")
+    try:
+        uuid.UUID(str(execution_id))
+    except (ValueError, TypeError):
+        return {**base, "status": "execution_history_unavailable", "latest_execution": None}
+    detail = await history.detail(execution_id)
+    if (not detail or detail.get("wf_id") != workflow_id
+            or detail.get("source_id") != workflow_id or detail.get("source_type") != "workflow"):
+        return {**base, "status": "execution_history_unavailable", "latest_execution": None}
+    node_id = detail.get("node_id")
+    version = detail.get("workflow_version") if node_id is None else None
+    return {**base, "status": "available", "latest_execution": {
+        "execution_id": execution_id,
+        "status": detail["status"],
+        "workflow_version": version,
+        "version_recorded": version is not None,
+        "definition_source": "unsaved_node" if node_id is not None else "committed_workflow",
+        "node_id": node_id,
+        "started_at": detail.get("started_at"),
+        "finished_at": detail.get("finished_at"),
+    }}
 
 
 async def resolve_workflow_chat_context(

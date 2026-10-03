@@ -125,6 +125,7 @@ from ..services.agent_runtime.mcp_host_resolution import (
 from ..services.agent_runtime.instructions import command_instructions_for_modes
 from ..services.workflow_chat_context import (
     WorkflowChatBinding, WorkflowContextError, resolve_workflow_chat_context,
+    resolve_workflow_run_context,
 )
 from ..services.agent_runtime.history_recovery import (
     build_durable_history_snapshot,
@@ -3038,10 +3039,23 @@ async def post_message(
             request=http_request, auth=auth, service=authz_service, workflow_repo=wf_repo,
             scope_id=scope_id, action=Action.UPDATE,
         )
+        inspect_runs = await authz_service.check(
+            principal_for_auth(auth), Action.INSPECT_RUNS,
+            ResourceRef(ResourceType.WORKFLOW, scope_id, auth.active_organization_id),
+            context_for_auth(auth, http_request),
+        )
+        run_context = {"status": "not_authorized"}
+        if inspect_runs.allowed:
+            from ..storage.execution_repo import ExecutionRepo
+            from ..storage.workflow_history_repo import WorkflowHistoryRepo
+            run_context = await resolve_workflow_run_context(
+                ExecutionRepo(session, auth.user_id), WorkflowHistoryRepo(session), workflow_id=scope_id,
+            )
         try:
             workflow_context_snapshot, workflow_instruction = await resolve_workflow_chat_context(
                 wf_repo, workflow_binding, chat_id=chat_id,
                 creating=not any(item["chat_id"] == chat_id and item.get("last_message_at") for item in sessions),
+                run_context=run_context,
             )
         except WorkflowContextError as exc:
             raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc

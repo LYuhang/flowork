@@ -1,4 +1,7 @@
 from copy import deepcopy
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+import uuid
 
 import pytest
 from pydantic import ValidationError
@@ -8,6 +11,7 @@ from vibecanvas_api.services.agent_runtime.protocol import RuntimeInstruction, R
 from vibecanvas_api.services.workflow_chat_context import (
     WorkflowChatBinding, WorkflowChatTarget, WorkflowContextError,
     resolve_workflow_chat_context,
+    resolve_workflow_run_context,
 )
 
 
@@ -38,6 +42,45 @@ class Reader:
 def binding(**target):
     return WorkflowChatBinding(workflow_id="wf-one", major_version=2,
                                initial_subversion=3, target=WorkflowChatTarget(**target))
+
+
+@pytest.mark.asyncio
+async def test_run_context_keeps_recorded_version_separate_from_current_canvas():
+    execution_id = str(uuid.uuid4())
+    executions = SimpleNamespace(latest_execution=AsyncMock(return_value={"exec_id": execution_id}))
+    history = SimpleNamespace(detail=AsyncMock(return_value={
+        "wf_id": "wf-one", "source_id": "wf-one", "source_type": "workflow", "status": "failed",
+        "workflow_version": "v1.sv7", "node_id": None,
+        "workflow": {"__meta__": {"workflow_version": 99}}, "inputs": {"secret": "not context"},
+    }))
+    run = await resolve_workflow_run_context(executions, history, workflow_id="wf-one")
+    snapshot, _ = await resolve_workflow_chat_context(Reader(), binding(kind="workflow"), chat_id="chat-one", run_context=run)
+    assert snapshot["version"] == "v2.sv3"
+    assert snapshot["run"]["latest_execution"]["workflow_version"] == "v1.sv7"
+    assert snapshot["run"]["latest_execution"]["status"] == "failed"
+    assert snapshot["run"]["directory_is_snapshot"] is False
+    assert "not context" not in str(snapshot["run"])
+    history.detail.return_value["workflow_version"] = None
+    missing_version = await resolve_workflow_run_context(executions, history, workflow_id="wf-one")
+    assert missing_version["latest_execution"]["workflow_version"] is None
+    assert missing_version["latest_execution"]["version_recorded"] is False
+    assert snapshot["run"]["latest_execution"]["workflow_version"] == "v1.sv7"
+
+
+@pytest.mark.asyncio
+async def test_run_context_handles_no_history_node_debug_and_wrong_scope():
+    executions = SimpleNamespace(latest_execution=AsyncMock(return_value=None))
+    history = SimpleNamespace(detail=AsyncMock())
+    assert (await resolve_workflow_run_context(executions, history, workflow_id="wf-one"))["status"] == "no_execution_record"
+    history.detail.assert_not_awaited()
+    executions.latest_execution.return_value = {"exec_id": str(uuid.uuid4())}
+    history.detail.return_value = {"wf_id": "wf-one", "source_id": "wf-one", "source_type": "workflow",
+                                   "status": "succeeded", "node_id": "code", "workflow_version": "v8.sv2"}
+    run = await resolve_workflow_run_context(executions, history, workflow_id="wf-one")
+    assert run["latest_execution"]["definition_source"] == "unsaved_node"
+    assert run["latest_execution"]["workflow_version"] is None
+    history.detail.return_value["source_type"] = "deployment"
+    assert (await resolve_workflow_run_context(executions, history, workflow_id="wf-one"))["status"] == "execution_history_unavailable"
 
 
 @pytest.mark.asyncio

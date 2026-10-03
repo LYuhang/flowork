@@ -26,6 +26,22 @@ async def owner():
 
 
 @pytest.mark.asyncio
+async def test_execution_keeps_server_selected_version_in_private_snapshot(pg_engine):
+    tenant, actor, _ = await owner()
+    run_id = str(uuid.uuid4())
+    async with session_scope(tenant_id=tenant) as session:
+        repo = WorkflowHistoryRepo(session)
+        await repo.create(execution_id=run_id, tenant_id=tenant, wf_id="wf-version", source_type="workflow",
+                          source_id="wf-version", initiator_user_id=actor,
+                          workflow={"__meta__": {"workflow_version": 99}}, inputs={}, approvers={},
+                          workflow_version="v2.sv4")
+    async with session_scope(tenant_id=tenant) as session:
+        detail = await WorkflowHistoryRepo(session).detail(run_id)
+        assert detail["workflow_version"] == "v2.sv4"
+        assert detail["workflow"]["__meta__"]["workflow_version"] == 99
+
+
+@pytest.mark.asyncio
 async def test_cancelled_before_dispatch_never_starts_a_process(pg_engine, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import Mock

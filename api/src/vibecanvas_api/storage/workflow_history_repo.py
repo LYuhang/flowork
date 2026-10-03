@@ -93,13 +93,15 @@ class WorkflowHistoryRepo:
         revision_id: str | None = None,
         node_id: str | None = None,
         input_index: int | None = None,
+        workflow_version: str | None = None,
     ) -> None:
         run = {"id": uuid.UUID(execution_id), "tenant_id": uuid.UUID(tenant_id)}
         private = await self._encrypt(
             run,
             "execution_private",
             execution_id,
-            {"workflow": workflow, "inputs": inputs, "approvers": approvers, "node_id": node_id},
+            {"workflow": workflow, "inputs": inputs, "approvers": approvers, "node_id": node_id,
+             "workflow_version": workflow_version},
         )
         await self.session.execute(
             text("""INSERT INTO workflow_execution_runs
@@ -448,6 +450,7 @@ class WorkflowHistoryRepo:
         return {
             **_public(run),
             "workflow": private["workflow"],
+            "workflow_version": private.get("workflow_version"),
             "node_id": private.get("node_id"),
             "inputs": private["inputs"],
             "approvals": [_public(row) for row in approvals],

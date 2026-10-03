@@ -1,34 +1,11 @@
 /**
- * `/workflow/:wfId` route (and the pinned `/workflow/:wfId/version/:vKey`
- * variant). Owns:
- *   - the data-loading boundary for the canvas page,
- *   - seeding the workflow-edit store with the server snapshot,
- *   - mounting the canvas/toolbar/inspector triad,
- *   - branching to read-only mode when `:vKey` is present (T14).
- *
- * The route is intentionally split from `Canvas.tsx`: `CanvasPage` is
- * the Suspense/error/loading boundary and the data wirer; `Canvas` is
- * the pure xyflow host.
- *
- * Read-only mode (T14)
- * --------------------
- * When the URL carries `:vKey` matching `v{N}.sv{M}`, we treat the page
- * as a read-only window onto that pinned snapshot:
- *   - The latest-snapshot query is *disabled* (we pass `''` as `wfId` so
- *     `useWorkflow`'s `enabled: !!wfId` short-circuits) and the pinned
- *     query owns the data flow.
- *   - The `readOnly` flag is threaded down to the toolbar, canvas, and
- *     inspector so editing-affordances are visibly disabled.
- *   - The draft store is still seeded — the inspector reads from it for
- *     selection/preview, and the "Fork from this version" action needs
- *     the draft as the POST body.
- *
- * If `:vKey` is present but malformed (regex miss), we fall back to the
- * latest snapshot rather than crashing the route — a defensive choice;
- * the router could in principle let any string through.
+ * Workflow canvas: /workflow/:id resolves the active major once;
+ * /version/vN follows that major's tip, and historical /version/vN.svM
+ * snapshots stay fixed. A latest exact snapshot resolves to its major route.
+ * Remote updates preserve dirty drafts and offer explicit reconciliation.
  */
 import { useCallback, useEffect, useRef } from 'react';
-import { useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { ReactFlowProvider } from '@xyflow/react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -42,7 +19,7 @@ import { CanvasToolbar } from '@/pages/canvas/CanvasToolbar';
 import { ContextMenuLayer } from '@/pages/canvas/ContextMenuLayer';
 import { VersionBanner } from '@/pages/canvas/VersionBanner';
 import { RightInspector } from '@/pages/canvas/inspector/RightInspector';
-import { useWorkflow, useWorkflowAt } from '@/lib/api/queries/workflow';
+import { useWorkflow, useWorkflowAt, useWorkflowHead } from '@/lib/api/queries/workflow';
 import { useWorkflowEditStore, stripWorkflowMeta } from '@/stores/workflow-edit';
 import { useUIStore } from '@/stores/ui';
 import { useExecStreamStore } from '@/stores/exec-stream';
@@ -57,7 +34,8 @@ export function CanvasPage() {
   // Parse the optional `v{N}.sv{M}` pin. A malformed vKey degrades to
   // latest rather than blowing up the route.
   const match = vKey?.match(/^v(\d+)\.sv(\d+)$/) ?? null;
-  const v = match ? Number(match[1]) : null;
+  const followingMajor = vKey?.match(/^v([1-9]\d*)$/);
+  const v = match ? Number(match[1]) : followingMajor ? Number(followingMajor[1]) : null;
   const sv = match ? Number(match[2]) : null;
   // `pinned` here = the PINNED-version source only. The query/seed logic keys
   // off this (a run must not disable the latest-snapshot query nor skip the
@@ -66,6 +44,10 @@ export function CanvasPage() {
   // `target_major`). The remaining edit gate is the in-flight run freeze
   // (`effectiveReadOnly` below).
   const isPinned = match !== null;
+  const navigate = useNavigate();
+  const head = useWorkflowHead(wfId ?? '', v);
+  const followsMajor = !!followingMajor;
+  const resolvedRouteRef = useRef<string | null>(null);
   const readOnly = isPinned; // alias kept for the query/seed branches below
   // The historical major this route is pinned to (null when on the live
   // active workflow). Threaded to the toolbar so Save commits under it.
@@ -75,9 +57,23 @@ export function CanvasPage() {
   // one passes `''` for the wfId path-param so `enabled: !!wfId` gates it
   // off without us having to model `string | undefined` through the hook
   // signature.
-  const latest = useWorkflow(readOnly ? '' : (wfId ?? ''));
-  const pinned = useWorkflowAt(readOnly ? (wfId ?? '') : '', v, sv);
-  const query = readOnly ? pinned : latest;
+  const latest = useWorkflow(readOnly || followsMajor ? '' : (wfId ?? ''));
+  const snapshotSub = followsMajor ? (head.data?.sub ?? null) : sv;
+  const pinned = useWorkflowAt(readOnly || followsMajor ? (wfId ?? '') : '', v, snapshotSub, followsMajor);
+  const query = readOnly || followsMajor ? pinned : latest;
+
+  // Resolve an opened latest snapshot once into a stable major route. Polling
+  // that route never follows global HEAD when another major is edited.
+  useEffect(() => {
+    if (followsMajor) { resolvedRouteRef.current = null; return; }
+    if (!head.data || !head.isFetchedAfterMount) return;
+    const route = `${wfId}:${vKey ?? ""}`;
+    if (resolvedRouteRef.current === route) return;
+    resolvedRouteRef.current = route;
+    if (match && (head.data.major !== v || head.data.sub !== sv)) return;
+    if (useWorkflowEditStore.getState().isDirty()) return;
+    navigate(`/workflow/${wfId}/version/v${head.data.major}`, { replace: true });
+  }, [head.data, head.isFetchedAfterMount, followsMajor, v, sv, wfId, navigate]);
 
   const setDraft = useWorkflowEditStore((s) => s.setDraft);
   const applyServerMeta = useWorkflowEditStore((s) => s.applyServerMeta);
@@ -159,7 +155,7 @@ export function CanvasPage() {
   //         the draft and show an ACTIONABLE conflict toast.
   // We read the store imperatively so the guard runs at effect time.
   useEffect(() => {
-    if (!query.data) return;
+    if (!query.data || query.isPlaceholderData) return;
     const routeKey = `${wfId ?? ''}::${vKey ?? ''}`;
     const isNavigation = routeKeyRef.current !== routeKey;
     routeKeyRef.current = routeKey;
@@ -169,8 +165,8 @@ export function CanvasPage() {
     const serverWorkflow = query.data.workflow;
     // The graph may omit or contain historical __meta__; trust the selected
     // immutable route or the snapshot's server metadata, never editable JSON.
-    const loadedVersion = match
-      ? `v${Number(match[1])}.sv${Number(match[2])}`
+    const loadedVersion = v !== null && snapshotSub !== null
+      ? `v${v}.sv${snapshotSub}`
       : `v${query.data.meta.active_v}.sv${query.data.meta.active_sv}`;
 
     // Bug A discriminator: compare the server's committed GRAPH to the
@@ -241,7 +237,7 @@ export function CanvasPage() {
       },
       onKeepMine: dismiss,
     });
-  }, [query.data, setDraft, applyServerMeta, t, wfId, vKey]);
+  }, [query.data, query.isPlaceholderData, setDraft, applyServerMeta, t, wfId, vKey, v, snapshotSub]);
 
   // NOTE: no auto-seed of a StartNode (user decision). A brand-new workflow
   // arrives as `{}` and stays a BLANK canvas — the truly-0-nodes empty-state
@@ -298,7 +294,7 @@ export function CanvasPage() {
     return () => resetExecStream();
   }, [wfId, resetExecStream]);
 
-  if (query.isLoading) {
+  if (query.isLoading || (followsMajor && head.isLoading)) {
     return (
       <AsyncState
         kind="loading"
@@ -308,8 +304,9 @@ export function CanvasPage() {
     );
   }
 
-  if (query.isError) {
-    const unavailable = isAuthorizationChangedError(query.error);
+  if (query.isError || (followsMajor && head.isError)) {
+    const loadError = query.error ?? head.error;
+    const unavailable = isAuthorizationChangedError(loadError);
     return (
       <AsyncState
         kind="error"
@@ -323,10 +320,10 @@ export function CanvasPage() {
               'This workflow does not exist or you no longer have permission to view it.',
             )
           : t('canvas.loadErrorDescription', 'Check the connection and try loading this workflow again.')}
-        technicalDetails={!unavailable && query.error instanceof Error ? query.error.message : undefined}
+        technicalDetails={!unavailable && loadError instanceof Error ? loadError.message : undefined}
         technicalDetailsLabel={t('common.technicalDetails', 'Technical details')}
         actionLabel={t('retry', 'Retry')}
-        onAction={() => void query.refetch()}
+        onAction={() => { void head.refetch(); void query.refetch(); }}
       />
     );
   }
@@ -349,7 +346,7 @@ export function CanvasPage() {
         <CanvasToolbar wfId={wfId!} readOnly={effectiveReadOnly}
           canExecute={canExecute} canExport={canExport} canMount={canMount}
           canInspectRuns={canInspectRuns} canCancel={canCancel}
-          pinnedMajor={pinnedMajor}
+          pinnedMajor={isPinned ? pinnedMajor : null}
           onToggleExplorer={toggleExplorer} explorerOpen={explorerOpen} />
         <div className="flex flex-1 overflow-hidden">
           <div className="flex min-h-0 flex-1 flex-col">

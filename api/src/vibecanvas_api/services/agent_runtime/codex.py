@@ -302,8 +302,8 @@ def _latest_evidence(
 def _workflow_cli_events(operation: str, arguments: dict, result: dict) -> list[dict]:
     """Project confirmed writes to the explicitly targeted canvas."""
     if operation == "workflow.operation":
-        # A prefix can commit even though the command exits with a business error.
-        if type(result.get("applied")) is not int or result["applied"] <= 0 or result.get("error") == "result_unknown":
+        # Only a wholly successful group can publish a saved canvas.
+        if type(result.get("applied")) is not int or result["applied"] <= 0 or result.get("error"):
             return []
     elif operation not in {"workflow.upload", "workflow.layout", "workflow.version.create"} or result.get("error"):
         return []
@@ -358,7 +358,7 @@ def _record_workflow_cli_completion(
     if operation == "workflow.layout" and result.get("changed") is not True:
         return
     if operation == "workflow.operation":
-        if type(result.get("applied")) is not int or result["applied"] <= 0:
+        if type(result.get("applied")) is not int or result["applied"] <= 0 or result.get("error"):
             return
     elif result.get("error"):
         return

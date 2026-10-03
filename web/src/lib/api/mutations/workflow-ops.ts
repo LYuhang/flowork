@@ -62,7 +62,7 @@ export const useCommitWorkflow = (wfId: string, targetMajor?: number | null) => 
             workflow: normalizeForSend(workflow),
             expected_version: expectedVersion,
             note: '',
-            ...(targetMajor != null ? { target_major: targetMajor } : {}),
+            target_major: targetMajor ?? Number(expectedVersion.match(/^v(\d+)\.sv/)![1]),
           },
         },
       );
@@ -76,6 +76,7 @@ export const useCommitWorkflow = (wfId: string, targetMajor?: number | null) => 
       // server bytes) reconciles as clean, not as an agent conflict.
       useWorkflowEditStore.getState().markSaved(`v${data.active_v}.sv${data.active_sv}`, workflow);
       qc.invalidateQueries({ queryKey: ['workflow', wfId] });
+      qc.invalidateQueries({ queryKey: ['workflow-head', wfId] });
       qc.invalidateQueries({ queryKey: workflowVersionsQueryKey(wfId) });
       toast.success(i18n.t('workflow.save.success', 'Saved'));
     },
@@ -137,6 +138,7 @@ export const useNewMajorVersion = (wfId: string) => {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['workflow', wfId] });
+      qc.invalidateQueries({ queryKey: ['workflow-head', wfId] });
       qc.invalidateQueries({ queryKey: workflowVersionsQueryKey(wfId) });
       toast.success(i18n.t('workflow.version.majorCreated', 'New major version created'));
     },

@@ -23,7 +23,8 @@
  * `enabled` gates on all three values being present so callers can pass
  * `null` for `v`/`sv` while a route param is still being parsed.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 
 export const useWorkflow = (wfId: string) =>
@@ -87,11 +88,38 @@ export const useWorkflowAt = (
   wfId: string,
   v: number | null,
   sv: number | null,
+  keepPrevious = false,
 ) =>
   useQuery({
     // `enabled` guarantees v/sv are non-null when the queryFn runs; the `!`
     // is purely to satisfy TS narrowing across the closure boundary.
     ...workflowAtQuery(wfId, v!, sv!),
     queryKey: ['workflow-at', wfId, v, sv],
+    placeholderData: keepPrevious ? (previous) => previous : undefined,
     enabled: !!wfId && v !== null && sv !== null,
   });
+
+/** Poll only the branch pointer; unchanged pointers never reload graph content. */
+export const useWorkflowHead = (wfId: string, major: number | null, enabled = true) => {
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: ['workflow-head', wfId, major],
+    enabled: !!wfId && enabled,
+    queryFn: async () => {
+      const { data, error } = await apiClient.GET('/api/v1/workflows/{wf_id}/head', {
+        params: { path: { wf_id: wfId }, query: major == null ? {} : { major } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: 3000,
+    refetchIntervalInBackground: false,
+  });
+
+  useEffect(() => {
+    if (query.data) client.invalidateQueries({ queryKey: workflowVersionsQueryKey(wfId) });
+  }, [client, wfId, query.data]);
+  return query;
+};

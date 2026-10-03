@@ -1,4 +1,4 @@
-"""Ordered Chat-branch edits: atomic steps, one durable successful-prefix commit."""
+"""Ordered Chat-branch edits: all operations share one atomic commit."""
 import re
 from copy import deepcopy
 
@@ -173,14 +173,18 @@ async def operate_workflow(ctx, arguments: dict) -> dict:
             try:
                 graph = apply_operation(graph, operation)
             except ToolError as exc:
-                failure = {**error(str(exc), exc.message, "Inspect the saved workflow, fix the failed operation, and submit only the remaining operations. Do not replay the saved prefix."),
-                           "failed_index": index}
+                failure = {**error(str(exc), f"{exc.message} No operations were saved.", "Fix the failed operation and resubmit the entire group."),
+                           "failed_index": index, "failed_operation": operation["op"]}
                 results.append({"index": index, "op": operation["op"], "status": "failed",
                                 "error": str(exc), "message": exc.message})
                 break
             applied += 1
             results.append({"index": index, "op": operation["op"], "status": "saved"})
-        if applied:
+        if failure:
+            applied = 0
+            for item in results[:-1]:
+                item["status"] = "not_saved"
+        else:
             from vibecanvas_api.services.workflow_resources import canonicalize_resource_names
             graph = await canonicalize_resource_names(session=session, workflow=graph,
                 service=_service(ctx, session), principal=_principal(ctx),

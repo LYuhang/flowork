@@ -50,7 +50,7 @@ export function WorkflowVersionsSection({ wfId, activeMajor, viewedMajor }: Work
         return (
           <li key={vKey}>
             <Link
-              to={`/workflow/${wfId}/version/${vKey}`}
+              to={`/workflow/${wfId}/version/v${e.major}`}
               className="flex w-full items-center gap-2 rounded px-3 py-1 text-left text-xs hover:bg-muted"
             >
               <span className="font-mono">{vKey}</span>

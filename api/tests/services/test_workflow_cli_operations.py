@@ -1,4 +1,4 @@
-"""Atomic step/prefix persistence contracts; deferred with the workflow suite."""
+"""Atomic operation-group persistence contracts; deferred with the workflow suite."""
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from types import SimpleNamespace
@@ -81,19 +81,21 @@ def service(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_partial_success_commits_only_prefix_once_and_reports_saved_results(service):
+async def test_later_failure_discards_entire_group_without_new_version(service):
     ctx, selection, repo, pointer, events = service
     result = await ops.operate_workflow(ctx, {"workflow_id": "wf", "major": "v2", "operations": [
         {"op": "edge_remove", "source": "a", "target": "b"},
         {"op": "node_remove", "node_id": "missing"},
         {"op": "node_remove", "node_id": "a"},
     ]})
-    assert result["applied"] == 1 and result["skipped"] == 1 and result["failed_index"] == 1
-    assert result["error"] == "node_not_found" and result["version"] == "v2.sv8"
-    assert [item["status"] for item in result["results"]] == ["saved", "failed"]
-    assert events == ["committed"] and repo.commit.await_count == 1
-    assert repo.commit.await_args.kwargs["target_major"] == 2
-    assert repo.commit.await_args.args[1]["a"]["children"] == []
+    assert result["applied"] == 0 and result["skipped"] == 1 and result["failed_index"] == 1
+    assert result["error"] == "node_not_found" and result["version"] == "v2.sv7"
+    assert [item["status"] for item in result["results"]] == ["not_saved", "failed"]
+    assert events == ["committed"]
+    repo.commit.assert_not_awaited()
+    assert repo.get_workflow_at.return_value == graph()
+    assert result["failed_operation"] == "node_remove"
+    assert "No operations were saved" in result["message"]
     assert selection.await_args.kwargs["for_update"] is True
     repo.get_workflow_at.assert_awaited_once_with("wf", 2, 7)
     pointer.assert_not_awaited()
@@ -144,3 +146,26 @@ async def test_commit_failure_does_not_return_saved_feedback(service, monkeypatc
     monkeypatch.setattr(ops, "session_scope", fail_commit)
     with pytest.raises(RuntimeError, match="Commit outcome unknown"):
         await ops.operate_workflow(ctx, {"workflow_id": "wf", "major": "v2", "operations": [{"op": "edge_remove", "source": "a", "target": "b"}]})
+
+
+@pytest.mark.asyncio
+async def test_retry_whole_group_after_failure_saves_once_and_allows_incomplete_draft(service):
+    ctx, _, repo, _, _ = service
+    operations = [
+        {"op": "node_add", "node": {"node_id": "p", "node_type": "PromptNode"}},
+        {"op": "node_update", "path": "/p/node_description", "value": "Unfinished draft"},
+        {"op": "edge_add", "source": "p", "target": "missing"},
+    ]
+    result = await ops.operate_workflow(ctx, {"workflow_id": "wf", "major": "v2", "operations": operations})
+    assert result["applied"] == 0 and result["failed_index"] == 2
+    assert [item["status"] for item in result["results"]] == ["not_saved", "not_saved", "failed"]
+    repo.commit.assert_not_awaited()
+    operations[-1]["target"] = "b"
+    result = await ops.operate_workflow(ctx, {"workflow_id": "wf", "major": "v2", "operations": operations})
+    assert "error" not in result and result["applied"] == 3
+    assert [item["status"] for item in result["results"]] == ["saved"] * 3
+    repo.commit.assert_awaited_once()
+    saved = repo.commit.await_args.args[1]
+    assert saved["p"]["node_config"] == {}  # Missing required prompt config remains a valid draft edit.
+    assert saved["p"]["children"] == ["b"]
+    assert saved["p"]["node_description"] == "Unfinished draft"

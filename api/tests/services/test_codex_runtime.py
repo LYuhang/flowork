@@ -79,17 +79,20 @@ def test_layout_refresh_and_completion_follow_actual_saved_changes(changed):
         assert events == [] and evidence == {}
 
 
-def test_cli_operation_partial_success_refreshes_saved_prefix_only():
+def test_cli_operation_failure_never_refreshes_canvas():
     result = {"id": "wf", "version": "v1.sv8", "applied": 2, "error": "node_not_found"}
     events = _workflow_cli_events("workflow.operation", {}, result)
-    assert [event["event_type"] for event in events] == ["VIBE_ACTION", "META_SYNC"]
+    assert events == []
+    evidence = {}
+    _record_workflow_cli_completion(evidence, "workflow.operation", result)
+    assert evidence == {}
     assert _workflow_cli_events("workflow.operation", {}, {**result, "applied": 0}) == []
     assert _workflow_cli_events("workflow.operation", {}, {"error": "result_unknown"}) == []
 
 
-@pytest.mark.parametrize("operation", ["workflow.upload", "workflow.version.create"])
+@pytest.mark.parametrize("operation", ["workflow.upload", "workflow.version.create", "workflow.operation"])
 def test_cli_saved_graph_refreshes_canvas_and_chat(operation):
-    events = _workflow_cli_events(operation, {}, {"id": "wf", "version": "v4.sv0"})
+    events = _workflow_cli_events(operation, {}, {"id": "wf", "version": "v4.sv0", "applied": 2})
     assert [event["event_type"] for event in events] == ["VIBE_ACTION", "META_SYNC"]
     assert events[0]["payload"]["apply_auto_layout"] is (operation == "workflow.upload")
     assert events[1]["payload"]["meta"]["workflow_version"] == 4
@@ -320,8 +323,6 @@ def test_workflow_completion_forgets_deleted_probe_but_keeps_real_deliverable():
 def test_workflow_completion_tracks_only_confirmed_graph_changes(operation):
     evidence = {}
     result = {"id": "wf", "version": "v2.sv5", "applied": 1}
-    if operation == "workflow.operation":
-        result["error"] = "node_not_found"  # A committed successful prefix.
     _record_workflow_cli_completion(evidence, operation, result)
     assert evidence["workflow.saved"][0].tool_input == {"id": "wf", "version": "v2.sv5"}
     for action in ("workflow.connect", "workflow.disconnect", "workflow.version.set"):

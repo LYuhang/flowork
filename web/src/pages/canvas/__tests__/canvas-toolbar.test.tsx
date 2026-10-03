@@ -466,7 +466,7 @@ describe('Editable historical version Save (UX-5 Part B)', () => {
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     expect(commitMock.mutate).toHaveBeenCalled();
-    expect(navigateSpy).toHaveBeenCalledWith('/workflow/wf-1/version/v3.sv5');
+    expect(navigateSpy).toHaveBeenCalledWith('/workflow/wf-1/version/v3');
   });
 });
 

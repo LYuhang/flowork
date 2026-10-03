@@ -548,6 +548,33 @@ async def close_workflow_sandbox(
     )
 
 
+class WorkflowHeadOut(BaseModel):
+    major: int
+    sub: int
+
+
+@router.get("/{wf_id}/head", response_model=WorkflowHeadOut)
+async def get_workflow_head(
+    wf_id: str,
+    request: Request,
+    major: int | None = Query(default=None, ge=1),
+    repo: WorkflowRepo = Depends(get_workflow_repo),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    """Lightweight branch tip; never materializes graphs or version history."""
+    await _authorize_workflow(request=request, auth=auth, service=service,
+                              wf_id=wf_id, action=Action.VIEW)
+    meta = await repo.get_meta(wf_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    selected = major if major is not None else meta["active_v"]
+    sub = await repo.max_subversion(wf_id, selected)
+    if sub < 0:
+        raise HTTPException(status_code=404, detail="Major version not found")
+    return WorkflowHeadOut(major=selected, sub=sub)
+
+
 @router.get("/{wf_id}/at/v{v}.sv{sv}", response_model=WorkflowSnapshotOut)
 async def get_workflow_at(
     wf_id: str,

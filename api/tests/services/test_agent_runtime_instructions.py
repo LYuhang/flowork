@@ -18,7 +18,7 @@ def test_command_instructions_are_resolved_once_by_backend_policy() -> None:
     assert instructions[1].activated_this_turn is True
     assert "Browser mode" in instructions[0].content
     assert "WORKFLOW mode" in instructions[1].content
-    assert all(item.version == 29 for item in instructions)
+    assert all(item.version == 30 for item in instructions)
 
 
 def test_workflow_command_is_a_playbook_not_a_parameter_reference():
@@ -30,7 +30,7 @@ def test_workflow_command_is_a_playbook_not_a_parameter_reference():
     assert "Small saved changes" in content and "Large rewrites" in content
     assert "flowork-cli workflow check" in content
     assert 'render_preview(type="workflow"' in content
-    assert "never replay the saved prefix" in content
+    assert "resubmit the entire group" in content
     assert "do not upload again" in content
     assert 'flowork-cli config get --scope model_api' in content
     assert 'flowork-cli config get --scope workflow' in content

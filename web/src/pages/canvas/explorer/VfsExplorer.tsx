@@ -66,7 +66,7 @@ export function VfsExplorer({ wfId, readOnly, vKey }: VfsExplorerProps) {
   // its major is what should read "current" in the list (not the HEAD). Parse
   // the major out of the `v{N}.sv{M}` key; null on the live route → HEAD marks.
   const viewedMajor = (() => {
-    const m = vKey?.match(/^v(\d+)\.sv(\d+)$/);
+    const m = vKey?.match(/^v(\d+)(?:\.sv\d+)?$/);
     return m ? Number(m[1]) : null;
   })();
 

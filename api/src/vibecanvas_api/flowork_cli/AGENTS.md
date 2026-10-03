@@ -22,7 +22,7 @@ Use `flowork-cli workflow <command>`:
 - `create`: create a workflow and return its ID.
 - `get / update / delete`: read or edit metadata, or delete a workflow (approval policy applies).
 - `download / upload`: export or replace workflow JSON.
-- `operation`: apply incremental node and edge edits.
+- `operation`: apply a group of node and edge edits atomically. All steps must succeed to save one version; on a business error nothing is saved. Fix the failed step and resubmit the entire group. Incomplete drafts are allowed.
 - `layout`: arrange saved node positions; use named --workflow_id and --major.
 - `get-spec / check`: discover node definitions (`get-spec --list-types`, then --type) and validate workflows.
 - `version list / create`: inspect majors or fork a new major from an explicit source.

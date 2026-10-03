@@ -30,8 +30,8 @@ async def test_cli_rejects_valid_credentials_for_other_surfaces(monkeypatch, sco
 
 
 @pytest.mark.asyncio
-async def test_operation_dispatch_preserves_partial_success_and_rechecks_identity(authorized, monkeypatch):
-    reply = {"id": "wf", "version": "v2.sv8", "applied": 1, "error": "node_not_found"}
+async def test_operation_dispatch_preserves_atomic_failure_and_rechecks_identity(authorized, monkeypatch):
+    reply = {"id": "wf", "version": "v2.sv7", "applied": 0, "error": "node_not_found"}
     operation = AsyncMock(return_value=reply)
     monkeypatch.setattr(cli_host, "operate_workflow", operation)
     args = {"workflow_id": "wf", "major": "v1", "operations": [{"op": "node_remove", "node_id": "old"}]}
@@ -225,7 +225,7 @@ async def test_transfer_dispatches_through_live_host_identity(authorized, monkey
         result["workflow"] = {}
     transfer = AsyncMock(return_value=result)
     monkeypatch.setattr(cli_host, "download_workflow" if operation.endswith("download") else "upload_workflow", transfer)
-    arguments = {"workflow_id": "wf", "major": "v1", **({} if operation.endswith("download") else {"workflow": {}})}
+    arguments = {"workflow_id": "wf", "major": "v1", **({} if operation.endswith("download") else {"workflow": {}, "expected_version": "v1.sv2"})}
     assert await cli_host.invoke_workflow_command(operation=operation, identity_token="host-only", arguments=arguments) == result
     assert transfer.await_args.args[0] is authorized[0].return_value
     authorized[0].side_effect = PermissionError("revoked")
@@ -237,7 +237,7 @@ async def test_transfer_dispatches_through_live_host_identity(authorized, monkey
 @pytest.mark.asyncio
 async def test_upload_post_dispatch_failure_is_unknown(authorized, monkeypatch):
     monkeypatch.setattr(cli_host, "upload_workflow", AsyncMock(side_effect=RuntimeError("commit response lost")))
-    result = await cli_host.invoke_workflow_command(operation="workflow.upload", identity_token="host-only", arguments={"workflow_id": "wf", "major": "v1", "workflow": {}})
+    result = await cli_host.invoke_workflow_command(operation="workflow.upload", identity_token="host-only", arguments={"workflow_id": "wf", "major": "v1", "workflow": {}, "expected_version": "v1.sv2"})
     assert result["error"] == "result_unknown"
 
 

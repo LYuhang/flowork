@@ -15753,6 +15753,71 @@
           }
         }
       }
+    },
+    "/api/v1/workflows/{wf_id}/head": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Workflow Head",
+        "description": "Lightweight branch tip; never materializes graphs or version history.",
+        "operationId": "get_workflow_head_api_v1_workflows__wf_id__head_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "wf_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Wf Id"
+            }
+          },
+          {
+            "name": "major",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Major"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowHeadOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -25905,6 +25970,24 @@
           "expected_version"
         ],
         "title": "GuardedCommitRequest"
+      },
+      "WorkflowHeadOut": {
+        "properties": {
+          "major": {
+            "type": "integer",
+            "title": "Major"
+          },
+          "sub": {
+            "type": "integer",
+            "title": "Sub"
+          }
+        },
+        "type": "object",
+        "required": [
+          "major",
+          "sub"
+        ],
+        "title": "WorkflowHeadOut"
       }
     },
     "securitySchemes": {

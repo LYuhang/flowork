@@ -62,8 +62,9 @@ and graph validation alone do not prove a human approval run completed.
 ### 3. Choose one editing path
 
 - Small saved changes: use `flowork-cli workflow operation`. Add nodes before
-  wiring their edges. Read partial-success feedback and continue from the
-  failed step, never replay the saved prefix. Prefer file-valued edits for
+  wiring their edges. The entire group is atomic: on a business error nothing
+  is saved. Fix the failed operation and resubmit the entire group. Incomplete
+  drafts are allowed. Prefer file-valued edits for
   long code or prompts, avoiding fragile shell quoting.
 - Large rewrites: download to a working file, edit with a JSON-aware script,
   run `flowork-cli workflow check --file PATH`, repair, then upload the file.

@@ -125,7 +125,7 @@ export function AppLayout() {
     {},
   );
   const routeWfId = routeParams.wfId;
-  const routeReadOnly = !!routeParams.vKey;
+  const routeReadOnly = /^v\d+\.sv\d+$/.test(routeParams.vKey ?? '');
 
   return (
     <ErrorBoundary scope="page">

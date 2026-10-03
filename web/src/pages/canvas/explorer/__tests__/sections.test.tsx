@@ -225,7 +225,7 @@ describe('WorkflowVersionsSection', () => {
     // (sv1 > sv0), and exposes a native link to that latest subversion.
     expect(screen.getByText('v1.sv1').closest('a')).toHaveAttribute(
       'href',
-      '/workflow/wf1/version/v1.sv1',
+      '/workflow/wf1/version/v1',
     );
   });
 

@@ -4706,6 +4706,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/{wf_id}/head": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Workflow Head
+         * @description Lightweight branch tip; never materializes graphs or version history.
+         */
+        get: operations["get_workflow_head_api_v1_workflows__wf_id__head_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -8447,6 +8467,13 @@ export interface components {
             target_major?: number | null;
             /** Expected Version */
             expected_version: string;
+        };
+        /** WorkflowHeadOut */
+        WorkflowHeadOut: {
+            /** Major */
+            major: number;
+            /** Sub */
+            sub: number;
         };
     };
     responses: never;
@@ -17783,6 +17810,39 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    get_workflow_head_api_v1_workflows__wf_id__head_get: {
+        parameters: {
+            query?: {
+                major?: number | null;
+            };
+            header?: never;
+            path: {
+                wf_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowHeadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -94,7 +94,7 @@ def test_batch_help_requires_a_live_terminal_not_detached_shell_exit(capsys):
     (["workflow", "check", "--help"], ["top-level object", "reserved metadata"]),
     (["workflow", "get", "--help"], ["metadata", "global HEAD"]),
     (["workflow", "layout", "--help"], ["--workflow_id", "--major", "only if positions change", "moved_nodes", "render_preview"]),
-    (["workflow", "operation", "--help"], ["successful prefix", "json:PATH", "~1", "saved"]),
+    (["workflow", "operation", "--help"], ["All operations must succeed", "json:PATH", "~1", "saved"]),
     (["workflow", "run", "--help"], ["--node", "hard-kills", "durable", "result_unknown"]),
 ])
 def test_on_demand_help_owns_usage_and_recovery_details(command, expected, capsys):

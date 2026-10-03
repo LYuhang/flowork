@@ -259,7 +259,7 @@ export function CanvasToolbar({
       commit.mutate(draft, {
         onSuccess: (meta) => {
           if (meta && meta.active_v != null && meta.active_sv != null) {
-            navigate(`/workflow/${wfId}/version/v${meta.active_v}.sv${meta.active_sv}`);
+            navigate(`/workflow/${wfId}/version/v${meta.active_v}`);
           }
         },
       });
@@ -304,7 +304,7 @@ export function CanvasToolbar({
     a.href = url;
     const meta = wfSnapshot?.meta;
     const version =
-      meta && meta.active_v != null ? `v${meta.active_v}.sv${meta.active_sv ?? 0}` : null;
+      useWorkflowEditStore.getState().baseVersion;
     a.download = downloadFilename(meta?.workflow_name, version);
     document.body.appendChild(a);
     a.click();

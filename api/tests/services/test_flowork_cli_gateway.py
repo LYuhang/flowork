@@ -171,7 +171,8 @@ def test_platform_guidance_is_navigation_not_a_cli_manual():
     assert "flowork-cli workflow <command>" in text and "--help" in text
     assert "render_preview" in text and "run --node" in text
     assert "operation" in text and "version list / create" in text
-    assert "--node-update-file" not in text and "--clear-tags" not in text
+    assert "--clear-tags" not in text
+    assert "node_config/process_fn" in text and "node_config/code" not in text
     assert "config_schema" not in text and "current_workflow_subversion" not in text
 
 
@@ -190,7 +191,8 @@ def test_platform_guidance_explains_path_visibility_and_lifetime():
     assert "Visible in Chat CLI runs" in text
     assert "independent Task or" in text
     assert "User-scoped persistent files" in text
-    assert "Not mounted into the Agent runtime" in text
+    assert "Shared mount in Workflow canvas Chats" in text
+    assert "availability in other Chats depends on their entrypoint" in text
     assert "cross-sandbox synchronization" in text
     assert "platform-private runtime state" in text
 
@@ -218,3 +220,61 @@ def test_guidance_symlink_is_not_followed(tmp_path):
     with pytest.raises(RuntimeError, match="symlink"):
         prepare_platform_guidance(str(tmp_path))
     assert target.read_text() == "private"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure,failures,expected_polls", [
+    ("authorization_unavailable", 2, 4),
+    ("authorization_unavailable", 10, 4),
+    ("forbidden", 1, 2),
+])
+async def test_run_result_query_retries_only_transient_authorization_without_restarting(failure, failures, expected_polls):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    gateway = CliGateway()
+    reader = asyncio.StreamReader()
+    writer = SimpleNamespace(write=Mock(), drain=AsyncMock())
+    calls = []
+    polls = 0
+    async def invoke(operation, arguments):
+        nonlocal polls
+        calls.append((operation, dict(arguments)))
+        if operation == "workflow.run":return {"status": "running"}
+        if operation == "workflow.run.cancel":return {"cancelled": True}
+        assert operation == "workflow.run.poll"
+        polls += 1
+        if polls == 1:return {"sequence": 7, "event": {"status": "running"}}
+        if polls <= failures + 1:return {"error": failure}
+        return {"sequence": 8, "event": {"terminal": True, "status": "completed"}}
+    result = await gateway._stream_run(invoke, "workflow.run", {"run_id": "same-run"}, reader, writer)
+    assert polls == expected_polls
+    assert sum(op == "workflow.run" for op, _ in calls) == 1
+    retry_args = [args for op, args in calls if op == "workflow.run.poll"][1:]
+    assert all(args == {"run_id": "same-run", "ack": 7} for args in retry_args)
+    assert calls[-1][0] == "workflow.run.cancel"
+    if failure == "authorization_unavailable" and failures == 2:
+        assert result["status"] == "completed"
+    else:
+        assert result["error"] == failure
+        if failure == "authorization_unavailable":assert "do not automatically rerun" in result["hint"]
+
+
+@pytest.mark.asyncio
+async def test_run_disconnect_during_authorization_retry_cancels_original_execution():
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    gateway = CliGateway()
+    reader = asyncio.StreamReader()
+    writer = SimpleNamespace(write=Mock(), drain=AsyncMock())
+    calls = []
+    async def invoke(operation, arguments):
+        calls.append(operation)
+        if operation == "workflow.run":return {"status": "running"}
+        if operation == "workflow.run.cancel":return {"cancelled": True}
+        reader.feed_eof()
+        return {"error": "authorization_unavailable"}
+    with pytest.raises(ConnectionError, match="disconnected"):
+        await gateway._stream_run(invoke, "workflow.run", {"run_id": "same-run"}, reader, writer)
+    assert calls.count("workflow.run") == 1
+    assert calls.count("workflow.run.poll") == 1
+    assert calls[-1] == "workflow.run.cancel"

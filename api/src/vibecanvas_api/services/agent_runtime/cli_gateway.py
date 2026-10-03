@@ -401,11 +401,30 @@ class CliGateway:
                 return started
             await self._send_run_event(writer, started)
             ack = 0
+            unavailable_polls = 0
             last_output = asyncio.get_running_loop().time()
             while True:
                 reply = await call("workflow.run.poll", {"run_id": run_id, "ack": ack})
+                if reply.get("error") == "authorization_unavailable":
+                    # This is a read of the same execution/cursor, never a
+                    # retry of run/start. Every attempt still reauthorizes.
+                    # Do not discard an already delivered result because the
+                    # authorization datastore briefly failed during final drain.
+                    unavailable_polls += 1
+                    if unavailable_polls <= 2:
+                        await self._send_run_event(writer, {
+                            "status": "running", "run_id": run_id,
+                            "message": "Authorization is temporarily unavailable; retrying the same result query.",
+                        })
+                        done, _ = await asyncio.wait({disconnected}, timeout=0.25 * unavailable_polls)
+                        if done:
+                            raise ConnectionError("CLI disconnected")
+                        continue
+                    return {**reply, "hint": "The original execution was already accepted. "
+                            "Keep partial output and inspect its result/status before retrying; do not automatically rerun the workflow."}
                 if "error" in reply:
                     return reply
+                unavailable_polls = 0
                 event = reply["event"]
                 if event is not None:
                     if event.get("terminal"):

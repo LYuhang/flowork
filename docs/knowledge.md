@@ -76,8 +76,7 @@ Knowledge library. The Agent can:
 
 - list packages in the active organization;
 - materialize a package in the current Chat workspace;
-- read `README.md`, then progressively list and open relevant files, using
-  derived search only when it helps;
+- read `README.md`, then inspect and search local files using bash;
 - prepare a new package locally and publish it;
 - publish a complete replacement package as a new version; and
 - delete a package only after an explicit user request.
@@ -87,13 +86,27 @@ Chat sandbox. Ordinary filesystem tools handle reading, searching, editing,
 and reorganizing local files. This keeps file operations transparent and
 prevents the Knowledge integration from duplicating the Agent's file tools.
 
-CLI publication replaces the entire file tree and increments the current version;
-files absent from the submitted package are removed. The CLI upload has no
-expected-version guard: concurrent CLI publications serialize, and the last
-commit wins. Browser draft editing and publication require their captured hash. Fetch the
-latest package and reconcile changes before publishing to avoid overwriting
-someone else's work. Search indexing is asynchronous; a pending or failed index
-does not mean the saved files need to be uploaded again.
+The CLI commands are `list/get/download/check/create/publish/delete`. There is
+no `search`, `refresh`, `files`, `read`, `status`, `upload`, or `update` command.
+`list --search` filters names/descriptions only. Use `download` and bash for
+content searches. `create`, `check` and `publish` require `--source_dir`.
+
+Root `README.md` carries YAML frontmatter with `name` (1–200 characters) and
+`description` (up to 2000 characters; empty string allowed). `check` validates
+the full package without saving it. Metadata and files publish together.
+`publish --knowledge_id ID --source_dir DIR --expected_version N` rejects stale
+versions without changing the package or its draft. The version guard is
+optional; without it the last serialized commit wins. Publication replaces
+all files and the remote draft; absent files are removed. Indexing is
+asynchronous and is never a reason to republish.
+
+The web metadata editor writes to the same README draft, with a required
+`expected_hash`. New version → Publish applies the name, description and files
+atomically. Historical views use metadata from their own README; old versions
+without recorded metadata retain their original bytes. Existing plain README
+packages remain usable: downloads add the existing metadata to the local copy,
+and the next publication persists it. This is a lazy compatibility conversion,
+not a rewrite of retained history, and needs no schema migration.
 
 By default, each fetched version is materialized in its own versioned local
 directory. This prevents files removed in a newer package version from being

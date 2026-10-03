@@ -90,6 +90,7 @@ export type ImportKbSource =
   | { kind: 'archive'; file: File };
 
 export interface UpdateKbBody {
+  expected_hash: string;
   name?: string;
   description?: string;
 }
@@ -217,12 +218,12 @@ export async function getKb(id: string): Promise<KbDetail> {
   return jsonOrThrow<KbDetail>(resp, 'getKb');
 }
 
-export async function updateKb(id: string, body: UpdateKbBody): Promise<Kb> {
+export async function updateKb(id: string, body: UpdateKbBody): Promise<KnowledgeSnapshot> {
   const resp = await authedFetch(`/api/v1/kb/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
-  return jsonOrThrow<Kb>(resp, 'updateKb');
+  return jsonOrThrow<KnowledgeSnapshot>(resp, 'updateKb');
 }
 
 export async function deleteKb(id: string): Promise<void> {
@@ -269,6 +270,8 @@ export async function deleteKbFile(kbId: string, fileId: string): Promise<void> 
 }
 
 export interface KnowledgeSnapshot {
+  name: string | null;
+  description: string | null;
   version: number;
   base_version: number;
   latest_version: number;

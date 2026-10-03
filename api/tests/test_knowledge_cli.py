@@ -17,7 +17,7 @@ from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_kb import KbRepo
 
 
-def encoded(path="README.md", data=b"# Package"):
+def encoded(path="README.md", data=b'---\nname: Package\ndescription: ""\n---\n# Package'):
     return {"path": path, "data": base64.b64encode(data).decode()}
 
 
@@ -37,15 +37,15 @@ async def test_unexpected_host_failure_logs_locations_without_secret_values(monk
     assert secret not in json.dumps([result, logged])
 
 
-def test_list_and_search_named_contract(monkeypatch, capsys):
+def test_list_get_and_removed_commands(monkeypatch, capsys):
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append((args, kw)) or {"status": "succeeded"})
-    assert cli.main(["knowledge", "list"], socket_path="test") == 0
-    assert seen[-1] == ({"limit": 20, "offset": 0}, {"operation": "knowledge.list"})
-    a, b = str(uuid4()), str(uuid4())
-    assert cli.main(["knowledge", "search", "--knowledge_id", a, "--knowledge_id", b, "--query", "hello"], socket_path="test") == 0
-    assert seen[-1][0] == {"knowledge_id": [a, b], "query": "hello", "limit": 5}
-    assert cli.main(["knowledge", "status", a], socket_path="test") == 2
+    assert cli.main(["knowledge", "list", "--search", "资料"], socket_path="test") == 0
+    assert seen[-1] == ({"limit": 20, "offset": 0, "search": "资料"}, {"operation": "knowledge.list"})
+    identifier = str(uuid4())
+    assert cli.main(["knowledge", "get", "--knowledge_id", identifier], socket_path="test") == 0
+    for removed in ("search", "status", "upload", "update", "refresh", "files", "read"):
+        assert cli.main(["knowledge", removed], socket_path="test") == 2
     capsys.readouterr()
 
 
@@ -64,7 +64,7 @@ async def test_knowledge_http_error_hint_matches_the_actual_problem(
 
     monkeypatch.setattr(host.agent_context, "resolve_context", AsyncMock(side_effect=HTTPException(status, detail)))
     call = SimpleNamespace(capability=SimpleNamespace(), operation="knowledge.create")
-    result = await host.execute(call, {"name": "Existing name"})
+    result = await host.execute(call, {"files": [encoded()]})
     assert result["status"] == "failed"
     assert expected in result["hint"]
     assert forbidden not in result["hint"]
@@ -84,12 +84,13 @@ def test_reject_invalid_requests(action, args):
         cli.validate_arguments("knowledge." + action, args)
 
 
-def test_metadata_update_can_clear_description(monkeypatch):
+def test_check_and_create_require_source(tmp_path, monkeypatch):
+    (tmp_path / "README.md").write_bytes(base64.b64decode(encoded()["data"]))
     seen = []
-    monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append(args) or {})
-    identifier = str(uuid4())
-    assert cli.main(["knowledge", "update", "--knowledge_id", identifier, "--description", ""], socket_path="test") == 0
-    assert seen == [{"knowledge_id": identifier, "description": ""}]
+    monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append(kw["operation"]) or {})
+    for action in ("check", "create"):
+        assert cli.main(["knowledge", action, "--source_dir", str(tmp_path)], socket_path="test") == 0
+    assert seen == ["knowledge.check", "knowledge.create"]
 
 
 def test_upload_captures_complete_tree_without_expected_version(tmp_path, monkeypatch):
@@ -99,7 +100,7 @@ def test_upload_captures_complete_tree_without_expected_version(tmp_path, monkey
     (tmp_path / ".hidden").write_text("included")
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append(args) or {"package_version": 8})
-    assert cli.main(["knowledge", "upload", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
+    assert cli.main(["knowledge", "publish", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
     assert set(seen[0]) == {"knowledge_id", "files"}
     assert {f["path"] for f in seen[0]["files"]} == {"README.md", "nested/binary.bin", ".hidden"}
 
@@ -113,7 +114,7 @@ def test_unsafe_local_package_never_dispatches(tmp_path, monkeypatch, kind):
     if kind == "fifo":
         os.mkfifo(tmp_path / "pipe")
     monkeypatch.setattr(cli, "request", lambda *a, **kw: pytest.fail("must not dispatch"))
-    assert cli.main(["knowledge", "create", "--name", "x", "--source_dir", str(tmp_path)], socket_path="test") == 2
+    assert cli.main(["knowledge", "create", "--source_dir", str(tmp_path)], socket_path="test") == 2
 
 
 @pytest.mark.parametrize("files", [
@@ -168,11 +169,13 @@ async def test_download_retries_changed_version_not_mixed_snapshot(monkeypatch):
     monkeypatch.setattr(host, "resource_route_params", lambda *a: {})
     monkeypatch.setattr(host, "authorize", AsyncMock())
     monkeypatch.setattr(host, "version", AsyncMock(side_effect=[1, 2, 2, 2]))
+    monkeypatch.setattr(host, "KbRepo", lambda session: SimpleNamespace(get_active=AsyncMock(return_value=SimpleNamespace(name="Legacy", description=""))))
     snapshot = AsyncMock(side_effect=[[packages.PackageFile("README.md", b"old", "")], [packages.PackageFile("README.md", b"new", "")]])
     monkeypatch.setattr(host, "package_snapshot", snapshot)
     result = await host.read(SimpleNamespace(tenant_id="tenant"), "knowledge.download", {"knowledge_id": str(uuid4())})
     assert result["package_version"] == 2
-    assert base64.b64decode(result["files"][0]["data"]) == b"new"
+    assert base64.b64decode(result["files"][0]["data"]).endswith(b"new")
+    assert result["metadata_added_to_local_readme"] is True
     assert snapshot.await_count == 2
 
 
@@ -190,7 +193,7 @@ async def test_denial_never_publishes(monkeypatch):
     monkeypatch.setattr(cli_delete, "_approve", AsyncMock(side_effect=ToolError("approval_denied", "User declined. No changes were made.")))
     publish = AsyncMock()
     monkeypatch.setattr(host, "replace_package", publish)
-    call = SimpleNamespace(operation="knowledge.upload", call_id="call", emit=AsyncMock(),
+    call = SimpleNamespace(operation="knowledge.publish", call_id="call", emit=AsyncMock(),
         capability=SimpleNamespace(tenant_id="tenant", turn_id="turn", approval_mode="agent"))
     result = await host.execute(call, {"knowledge_id": str(uuid4()), "files": [encoded()]})
     assert result["error"] == "approval_denied"
@@ -204,13 +207,13 @@ def test_large_package_has_no_four_mib_cli_cap(tmp_path, monkeypatch):
         assert len(base64.b64decode(next(f["data"] for f in args["files"] if f["path"] == "large.bin"))) == 5 * 1024 * 1024
         return {"package_version": 2}
     monkeypatch.setattr(cli, "request", request)
-    assert cli.main(["knowledge", "upload", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
+    assert cli.main(["knowledge", "publish", "--knowledge_id", str(uuid4()), "--source_dir", str(tmp_path)], socket_path="test") == 0
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode,action,approval", [
-    ("agent", "create", True), ("agent", "upload", True), ("agent", "delete", True),
-    ("agent", "update", False), ("always_allow", "upload", False), ("always_ask", "update", True),
+    ("agent", "create", True), ("agent", "publish", True), ("agent", "delete", True),
+    ("always_allow", "publish", False), ("always_ask", "publish", True),
 ])
 async def test_host_approval_and_frozen_publication(monkeypatch, mode, action, approval):
     from vibecanvas_api.services.agent_runtime import cli_delete
@@ -231,23 +234,23 @@ async def test_host_approval_and_frozen_publication(monkeypatch, mode, action, a
     monkeypatch.setattr(host, "replace_package", replace)
     monkeypatch.setattr(host, "enqueue_package_indexing", AsyncMock())
     row = SimpleNamespace(id=str(uuid4()), package_version=1)
-    monkeypatch.setattr(host.routes, "create_kb", AsyncMock(return_value=row))
+    monkeypatch.setattr(host.routes, "_create_knowledge_package", AsyncMock(return_value=row))
     monkeypatch.setattr(host.routes, "update_kb", AsyncMock(return_value={"id": row.id}))
     monkeypatch.setattr(host.routes, "delete_kb", AsyncMock())
     call = SimpleNamespace(operation="knowledge." + action, call_id="call", emit=AsyncMock(),
         capability=SimpleNamespace(tenant_id=ctx.tenant_id, user_id=str(uuid4()), turn_id="run", approval_mode=mode))
-    args = {"name": "x"} if action == "create" else {"knowledge_id": row.id}
+    args = {"files": [encoded()]} if action == "create" else {"knowledge_id": row.id}
     if action == "update":
         args["description"] = ""
-    if action == "upload":
+    if action == "publish":
         args["files"] = [encoded()]
     result = await host.execute(call, args)
     assert result["status"] == "succeeded", result
     assert approve.await_count == int(approval)
     assert authorize.await_count == 2
-    if action == "upload":
+    if action == "publish":
         assert replace.await_args.kwargs["expected_version"] is None
-        assert replace.await_args.kwargs["files"][0].data == b"# Package"
+        assert replace.await_args.kwargs["files"][0].data == b'---\nname: Package\ndescription: ""\n---\n# Package'
         if approval:
             summary = approve.await_args.args[1]
             assert "files" not in summary and summary["file_count"] == 1
@@ -261,7 +264,7 @@ async def test_concurrent_uploads_increment_and_rollback_atomically(pg_engine, m
         await connection.execute(text("INSERT INTO users(user_id,tenant_id,email) VALUES (:u,:t,:e)"), {"u": user, "t": tenant, "e": str(user) + "@example.com"})
     blobs = {}
     def put(key, data, content_type):
-        if data == b"FAIL":
+        if data.endswith(b"FAIL"):
             raise OSError("simulated object write failure")
         blobs[key] = data
     monkeypatch.setattr(packages, "get_object_store", lambda: SimpleNamespace(put_bytes=put, fetch_bytes=blobs.__getitem__))

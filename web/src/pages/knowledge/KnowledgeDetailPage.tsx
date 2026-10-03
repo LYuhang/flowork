@@ -55,6 +55,7 @@ export function KnowledgeDetailPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editHash, setEditHash] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [deleteKbOpen, setDeleteKbOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -138,16 +139,15 @@ export function KnowledgeDetailPage() {
   });
   const editMetadata = useMutation({
     mutationFn: () => updateKb(kbId, {
+      expected_hash: editHash,
       name: editName.trim(),
       description: editDescription.trim(),
     }),
-    onSuccess: async () => {
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ['knowledge-base', kbId] }),
-        client.invalidateQueries({ queryKey: ['knowledge-bases'] }),
-      ]);
+    onSuccess: async (result) => {
+      client.setQueryData(['knowledge-draft', kbId], result);
+      await draft.refetch();
       setEditOpen(false);
-      toast.success(t('knowledge.updated', 'Knowledge details updated'));
+      toast.success(t('files.manage.draftSaved', 'Draft saved'));
     },
     onError: (reason) => toast.error(reason instanceof Error ? reason.message : String(reason)),
   });
@@ -185,8 +185,8 @@ export function KnowledgeDetailPage() {
         resourceKind="knowledge"
         backTo="/knowledge"
         backLabel={t('knowledge.back', 'Knowledge')}
-        title={detail.data.name}
-        description={detail.data.description || t('knowledge.noDescription', 'No description')}
+        title={shown.data?.name ?? detail.data.name}
+        description={(shown.data?.description ?? (selectedVersion === 'latest' ? detail.data.description : '')) || t('knowledge.noDescription', 'No description')}
         icon={BookOpen}
         metadata={(
           <>
@@ -234,13 +234,14 @@ export function KnowledgeDetailPage() {
             <TabsTrigger value="overview">{t('skills.detail.tab.overview', 'Overview')}</TabsTrigger>
           </TabsList>
           <TabsContent value="overview">
-            <SectionBlock title={t('skills.detail.packageDetails', 'Package details')} actions={<>            {canUpdate ? (
+            <SectionBlock title={t('skills.detail.packageDetails', 'Package details')} actions={<>            {canUpdate && editing ? (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setEditName(detail.data.name);
-                  setEditDescription(detail.data.description ?? '');
+                  setEditHash(draft.data!.content_hash);
+                  setEditName(draft.data?.name ?? detail.data.name);
+                  setEditDescription(draft.data?.description ?? detail.data.description ?? '');
                   setEditOpen(true);
                 }}
               >
@@ -302,7 +303,7 @@ export function KnowledgeDetailPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{t('knowledge.editTitle', 'Edit Knowledge details')}</DialogTitle>
-              <DialogDescription>{t('knowledge.editHint', 'Keep the title and description concise so people and Agents can recognize the package.')}</DialogDescription>
+              <DialogDescription>{t('knowledge.editDraftHint', 'Saved to the README draft. Publish a new version to apply these changes.')}</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-1.5">

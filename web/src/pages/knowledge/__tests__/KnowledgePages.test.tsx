@@ -1,3 +1,4 @@
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -12,7 +13,7 @@ import type { KbListItem } from '@/lib/api/kb';
 
 vi.mock('@/lib/api/kb', () => ({
   getKnowledgeDraft: vi.fn(), getKnowledgeVersions:vi.fn(), getKnowledgeVersion:vi.fn(), getKnowledgeVersionFile:vi.fn(), writeKnowledgeDraftFile:vi.fn(), publishKnowledgeDraft:vi.fn(),
-  createKb: vi.fn(),
+  createKb: vi.fn(), updateKb: vi.fn(),
   importKb: vi.fn(),
   deleteKb: vi.fn(),
   deleteKbFile: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock('@/lib/api/kb', () => ({
 
 import {
   getKnowledgeDraft, getKnowledgeVersions, getKnowledgeVersion, getKnowledgeVersionFile, writeKnowledgeDraftFile,
-  deleteKb,
+  deleteKb, updateKb,
   getKbFileRaw,
   getKb,
   listKbFiles,
@@ -51,9 +52,9 @@ function renderPage(ui: ReactElement, initialEntry = '/knowledge') {
   });
   return render(
     <QueryClientProvider client={client}>
-      <I18nextProvider i18n={testI18n}>
+      <I18nextProvider i18n={testI18n}><TooltipProvider>
         <RouterProvider router={createMemoryRouter([{path:'/knowledge',element:ui},{path:'/knowledge/:kbId',element:ui}],{initialEntries:[initialEntry]})} />
-      </I18nextProvider>
+      </TooltipProvider></I18nextProvider>
     </QueryClientProvider>,
   );
 }
@@ -97,12 +98,35 @@ describe('Knowledge pages', () => {
     vi.mocked(getKbFileRaw).mockResolvedValue(new Blob(['# Handbook\n\nRelease trains run every Tuesday.'], { type: 'text/markdown' }));
     vi.mocked(listKbFiles).mockReset();
     vi.mocked(deleteKb).mockReset();
-    const snapshot = {version:3,base_version:3,latest_version:3,content_hash:'original',has_changes:false,files:['README.md','broken.txt'],readme:'# Handbook',updated_at:''};
+    const snapshot = {name:'Product handbook',description:'Policies and release notes',version:3,base_version:3,latest_version:3,content_hash:'original',has_changes:false,files:['README.md','broken.txt'],readme:'# Handbook',updated_at:''};
     vi.mocked(getKnowledgeDraft).mockResolvedValue(snapshot);
     vi.mocked(getKnowledgeVersion).mockResolvedValue(snapshot);
     vi.mocked(getKnowledgeVersions).mockResolvedValue([{version:3,file_count:2,created_at:''}]);
     vi.mocked(getKnowledgeVersionFile).mockResolvedValue(new Blob(['# Handbook\n\nRelease trains run every Tuesday.'], {type:'text/markdown'}));
     vi.mocked(writeKnowledgeDraftFile).mockReset().mockResolvedValue({...snapshot,files:['README.md'],has_changes:true,content_hash:'changed'});
+  });
+
+  it('saves metadata only to the captured draft and keeps the published header after leaving edit mode', async () => {
+    vi.mocked(getKb).mockResolvedValue(detail);
+    vi.mocked(listKbFiles).mockResolvedValue([]);
+    const changed = {name:'Draft name',description:'Draft description',version:0,base_version:3,latest_version:3,content_hash:'new-hash',has_changes:true,files:['README.md'],readme:'# Draft',updated_at:''};
+    vi.mocked(updateKb).mockImplementation(async () => {
+      vi.mocked(getKnowledgeDraft).mockResolvedValue(changed);
+      return changed;
+    });
+    const user = userEvent.setup();
+    renderPage(<KnowledgeDetailPage />, '/knowledge/kb-1');
+    await user.click(await screen.findByRole('button', {name:'Edit'}));
+    await user.click(screen.getByRole('tab', {name:'Overview'}));
+    await user.click(screen.getByRole('button', {name:'Edit Knowledge details'}));
+    const name = screen.getByLabelText('Name');
+    await user.clear(name);
+    await user.type(name, 'Draft name');
+    await user.click(screen.getByRole('button', {name:'Save'}));
+    await waitFor(() => expect(updateKb).toHaveBeenCalledWith('kb-1', {name:'Draft name',description:'Policies and release notes',expected_hash:'original'}));
+    expect(await screen.findByRole('heading', {name:'Draft name'})).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name:'Finish editing'}));
+    expect(await screen.findByRole('heading', {name:'Product handbook'})).toBeInTheDocument();
   });
 
   it('renders searchable knowledge rows and the dedicated empty state', async () => {
@@ -198,7 +222,7 @@ describe('Knowledge pages', () => {
       provenance: detail.provenance,
     }]);
 
-    const fileSnapshot = {version:3,base_version:3,latest_version:3,content_hash:'original',has_changes:false,files:['README.md','handbook.pdf'],readme:'# Handbook',updated_at:''};
+    const fileSnapshot = {name:'Product handbook',description:'Policies and release notes',version:3,base_version:3,latest_version:3,content_hash:'original',has_changes:false,files:['README.md','handbook.pdf'],readme:'# Handbook',updated_at:''};
     vi.mocked(getKnowledgeDraft).mockResolvedValue(fileSnapshot);
     vi.mocked(getKnowledgeVersion).mockResolvedValue(fileSnapshot);
     const user = userEvent.setup();

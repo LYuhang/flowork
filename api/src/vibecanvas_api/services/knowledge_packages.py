@@ -218,6 +218,12 @@ async def replace_package(
     from vibecanvas_api.services.knowledge_versions import archive_current, save_snapshot, clear_draft
     await archive_current(session, kb)
     repo = KbRepo(session)
+    from vibecanvas_api.services.knowledge_metadata import with_metadata, package_metadata
+    # Hydrate encrypted metadata only after locking and checking the version.
+    current = await repo.get_active(kb_id)
+    package = validate_package(with_metadata(package, name=current.name,
+        description=current.description, only_if_missing=True))
+    await repo.update_kb(kb_id, **package_metadata(package))
     for previous in await repo.list_files(kb_id):
         await repo.soft_delete_file(previous.id)
     await session.flush()
@@ -256,6 +262,9 @@ async def replace_package(
     await save_snapshot(session, kb, package, version=next_version, base_version=next_version)
     await clear_draft(session, kb.id)
     await session.flush()
+    # Metadata writes expire the trigger-managed timestamp; load it explicitly
+    # before async route serializers access it.
+    await session.refresh(kb, attribute_names=["updated_at"])
     return next_version, pending
 
 

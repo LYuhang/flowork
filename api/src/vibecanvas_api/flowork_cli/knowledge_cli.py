@@ -6,43 +6,39 @@ import stat
 import tempfile
 from uuid import UUID
 
-READ_OPERATIONS = frozenset("knowledge." + name for name in ("list", "status", "download", "search"))
-WRITE_OPERATIONS = frozenset("knowledge." + name for name in ("create", "update", "upload", "delete"))
+READ_OPERATIONS = frozenset("knowledge." + name for name in ("list", "get", "download", "check"))
+WRITE_OPERATIONS = frozenset("knowledge." + name for name in ("create", "publish", "delete"))
 OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS
 
 
 def add_parser(groups):
     def command(parent, name, description):
         return parent.add_parser(name, help=description, description=description, allow_abbrev=False)
-    root = command(groups, "knowledge", "Manage authorized file-tree Knowledge packages. Stateless: use --knowledge_id. Read README.md after download. Saved files and asynchronous search indexing have separate states. Read leaf --help before writing.")
+    root = command(groups, "knowledge", "Manage versioned Knowledge packages. Download then use bash to inspect/search files. No mounted folder or refresh command. Read leaf --help before writing.")
     actions = root.add_subparsers(dest="action", required=True)
     descriptions = {
-        "list": "List discoverable Knowledge packages, not file contents. Defaults to 20 items; use next_offset. Discovery does not grant read/write permission.",
-        "status": "Read package metadata, current package_version, file paths/sizes/index states and failures. Does not download file contents. index_status describes derived text search, not file availability.",
-        "create": "Create a package, optionally from --source_dir. Without a source, generate README.md. With a source, publish ALL regular files recursively, including hidden files; root README.md is required. No ZIP input, symlinks or special files. Validate the whole package before creation. Returns knowledge_id and package_version; indexing is asynchronous. After an unknown outcome inspect list before retrying.",
-        "update": "Update ONLY supplied --name/--description; at least one is required. --description '' clears it. Does not change files, README.md or package_version.",
-        "download": "Download one consistent current package snapshot. --output_dir must NOT exist and its parent must exist; omission creates a unique directory under /data/knowledge. Never overwrites local edits. Returns local_directory/readme/package_version/file_count, not file contents on stdout. On local failure a partial directory may remain; use a new destination.",
-        "upload": "Replace the ENTIRE remote package with ALL files in --source_dir, including hidden files. Files absent locally are REMOVED remotely. Requires root README.md; no symlinks or special files. No expected_version or force flag: each successful commit increments the server's current package_version. Concurrent publications serialize; the last commit wins. Uploading an old download overwrites intervening changes. Validation/failure before commit leaves the current package unchanged. This is not historical version browsing or rollback. Approval freezes the submitted bytes. Indexing is asynchronous; pending/failed indexing is NOT a reason to upload again.",
-        "search": "Search the derived lexical text index, NOT the public web or all packages. Repeat --knowledge_id to search multiple explicit packages; --limit defaults to 5 (1..20, total across packages). Returns file paths and matching snippets. Incomplete indexing means missing matches do not prove absence; download and inspect raw files when necessary.",
-        "delete": "Delete the remote package and its files, not local downloads. No --yes/--confirm bypass. agent/always_ask require live user approval; always_allow auto-approves. Refresh preserves pending approval only while this command lives. Active indexing may block deletion: inspect status instead of repeated retries.",
+        "list": "List discoverable packages with pagination. --search filters names/descriptions, not file contents. Discovery does not grant read/write permission.",
+        "get": "Read published metadata, package_version, file paths/sizes and indexing states. Does not download file contents.",
+        "download": "Download the latest published package. --output_dir must NOT exist; omission creates a unique directory under /data/knowledge. Never overwrites local edits. Legacy README gets metadata frontmatter in the local copy only. Returns local_directory/readme/package_version/file_count; inspect files using bash.",
+        "check": "Validate ALL files in --source_dir without saving or publishing. Root README.md requires YAML frontmatter with name (1..200 characters) and description (up to 2000 characters, may be empty). Only regular files; no symlinks. No third-party CLI dependency needed.",
+        "create": "Create a new package from ALL files in --source_dir, including hidden files. Name/description come from root README.md YAML frontmatter. Run check first. Exclude private credentials. Returns knowledge_id and package_version. After an unknown outcome inspect list before retrying.",
+        "publish": "Publish ALL files in --source_dir as a new version, including README.md name/description. Replaces the whole package and any draft; absent files are removed. --expected_version rejects publication if the current version differs (recommended after download). Without it, last commit wins. Approval freezes submitted bytes. Indexing is asynchronous; never republish to wait for indexing.",
+        "delete": "Delete the remote package, preserving local downloads. Requires configured write approval; no bypass flag. Active indexing may block deletion; inspect get and wait before retrying.",
     }
     for action, description in descriptions.items():
         leaf = command(actions, action, description)
-        if action not in {"list", "create"}:
-            leaf.add_argument("--knowledge_id", required=True, action="append" if action == "search" else "store", help="Exact Knowledge package UUID from list/create; repeat only for search.")
+        if action in {"get", "download", "publish", "delete"}:
+            leaf.add_argument("--knowledge_id", required=True, help="Exact Knowledge UUID from list/create.")
         if action == "list":
             leaf.add_argument("--limit", type=int, default=20)
             leaf.add_argument("--offset", type=int, default=0)
-        if action in {"create", "update"}:
-            leaf.add_argument("--name", required=action == "create")
-            leaf.add_argument("--description")
-        if action in {"create", "upload"}:
-            leaf.add_argument("--source_dir", required=action == "upload", help="Sandbox directory; relative paths use the shell's working directory. All files are published, so exclude private credentials yourself. Uses existing platform package rules (256 files, 200 MiB total, 16 path levels); no extra CLI payload cap.")
+            leaf.add_argument("--search", help="Filter package names and descriptions.")
+        if action in {"create", "check", "publish"}:
+            leaf.add_argument("--source_dir", required=True, help="Directory of regular files; root README.md required. Limits: 256 files, 200 MiB total, 16 path levels.")
+        if action == "publish":
+            leaf.add_argument("--expected_version", type=int)
         if action == "download":
             leaf.add_argument("--output_dir")
-        if action == "search":
-            leaf.add_argument("--query", required=True)
-            leaf.add_argument("--limit", type=int, default=5)
 
 
 def safe_path(path):
@@ -79,51 +75,32 @@ def validate(operation, arguments):
         raise ValueError("Unsupported Knowledge operation or arguments.")
     action = operation.split(".")[1]
     allowed = {
-        "list": {"limit", "offset"}, "status": {"knowledge_id"},
+        "list": {"limit", "offset", "search"}, "get": {"knowledge_id"},
         "download": {"knowledge_id"}, "delete": {"knowledge_id"},
-        "create": {"name", "description", "files"},
-        "update": {"knowledge_id", "name", "description"},
-        "upload": {"knowledge_id", "files"},
-        "search": {"knowledge_id", "query", "limit"},
+        "create": {"files"}, "check": {"files"},
+        "publish": {"knowledge_id", "files", "expected_version"},
     }[action]
     if arguments.keys() - allowed:
         raise ValueError("Unsupported parameters: " + ", ".join(sorted(arguments.keys() - allowed)))
     value = dict(arguments)
-    if action not in {"list", "create"}:
-        ids = value.get("knowledge_id")
-        if action != "search":
-            ids = [ids]
-        if not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids):
+    if action in {"get", "download", "publish", "delete"}:
+        identifier = value.get("knowledge_id")
+        if not isinstance(identifier, str):
             raise ValueError("--knowledge_id is required and must be a UUID.")
-        ids = list(dict.fromkeys(str(UUID(i)) for i in ids))
-        if action == "search" and len(ids) > 50:
-            raise ValueError("Search supports at most 50 Knowledge packages.")
-        value["knowledge_id"] = ids if action == "search" else ids[0]
-    if action == "create" and "name" not in value:
-        raise ValueError("--name is required.")
-    if action == "update" and not ({"name", "description"} & value.keys()):
-        raise ValueError("update requires --name or --description.")
-    for key, maximum in (("name", 200), ("description", 2000), ("query", 2000)):
-        if key in value:
-            if not isinstance(value[key], str) or len(value[key]) > maximum or (key != "description" and not value[key].strip()):
-                raise ValueError(f"Invalid --{key}; maximum {maximum} characters.")
-    if "name" in value:
-        value["name"] = value["name"].strip()
-    if action == "search" and "query" not in value:
-        raise ValueError("--query is required.")
-    if action in {"list", "search"}:
-        value.setdefault("limit", 20 if action == "list" else 5)
-        maximum = 200 if action == "list" else 20
-        if type(value["limit"]) is not int or not 1 <= value["limit"] <= maximum:
-            raise ValueError(f"--limit must be between 1 and {maximum}.")
+        value["knowledge_id"] = str(UUID(identifier))
     if action == "list":
+        value.setdefault("limit", 20)
         value.setdefault("offset", 0)
+        if type(value["limit"]) is not int or not 1 <= value["limit"] <= 200:
+            raise ValueError("--limit must be between 1 and 200.")
         if type(value["offset"]) is not int or value["offset"] < 0:
             raise ValueError("--offset must be non-negative.")
-    if action == "upload" and "files" not in value:
-        raise ValueError("upload requires --source_dir.")
-    if "files" in value:
-        validate_files(value["files"])
+        if "search" in value and (not isinstance(value["search"], str) or len(value["search"]) > 2000):
+            raise ValueError("--search must be text up to 2000 characters.")
+    if "expected_version" in value and (type(value["expected_version"]) is not int or value["expected_version"] < 1):
+        raise ValueError("--expected_version must be a positive integer.")
+    if action in {"create", "check", "publish"}:
+        validate_files(value.get("files"))
     return value
 
 

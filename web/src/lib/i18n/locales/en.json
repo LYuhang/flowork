@@ -3012,6 +3012,8 @@
   ,"knowledge.version": "Version {{version}}"
   ,"knowledge.updated": "Knowledge details updated"
   ,"knowledge.editTitle": "Edit Knowledge details"
+  ,"files.manage.draftSaved": "Draft saved"
+  ,"knowledge.editDraftHint": "Saved to the README draft. Publish a new version to apply these changes."
   ,"knowledge.editHint": "Keep the title and description concise so people and Agents can recognize the package."
   ,"knowledge.preview.loading": "Loading preview…"
   ,"knowledge.preview.failed": "This file could not be previewed."

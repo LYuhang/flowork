@@ -3012,6 +3012,8 @@
   ,"knowledge.version": "版本 {{version}}"
   ,"knowledge.updated": "知识资料已更新"
   ,"knowledge.editTitle": "编辑知识资料"
+  ,"files.manage.draftSaved": "草稿已保存"
+  ,"knowledge.editDraftHint": "修改将保存到 README 草稿，发布新版本后生效。"
   ,"knowledge.editHint": "标题和描述应保持简洁，方便用户与 Agent 识别这个资料包。"
   ,"knowledge.preview.loading": "正在载入预览…"
   ,"knowledge.preview.failed": "无法预览此文件。"

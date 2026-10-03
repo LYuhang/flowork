@@ -102,16 +102,16 @@ async def test_knowledge_encrypted_history_and_draft_are_independent(pg_engine,m
         identifier=resource.id
         await replace_package(session,kb_id=identifier,actor_user_id=user,expected_version=1,files=published,increment_version=False,derive_index=False)
         await knowledge_versions.save_snapshot(session,resource,draft,version=0,base_version=1)
-        assert (await package_snapshot(session,identifier))[0].data == b'# Published content'
-        assert (await knowledge_versions.read_snapshot(session,identifier,0))[0].data == b'# Draft only'
+        assert (await package_snapshot(session,identifier))[0].data.endswith(b'# Published content')
+        assert (await knowledge_versions.read_snapshot(session,identifier,0))[0].data.endswith(b'# Draft only')
         stored=await knowledge_versions.snapshot_row(session,identifier,0)
         assert 'Draft only' not in stored['content_ciphertext']
         version,_=await replace_package(session,kb_id=identifier,actor_user_id=user,expected_version=1,files=draft,derive_index=False)
         assert version == 2
         assert await knowledge_versions.read_snapshot(session,identifier,0) is None
-        assert (await knowledge_versions.read_snapshot(session,identifier,1))[0].data == b'# Published content'
-        assert (await knowledge_versions.read_snapshot(session,identifier,2))[0].data == b'# Draft only'
-        assert (await package_snapshot(session,identifier))[0].data in {b'# Draft only',b'new'}
+        assert (await knowledge_versions.read_snapshot(session,identifier,1))[0].data.endswith(b'# Published content')
+        assert (await knowledge_versions.read_snapshot(session,identifier,2))[0].data.endswith(b'# Draft only')
+        assert (await package_snapshot(session,identifier))[0].data.endswith((b'# Draft only', b'new'))
     async with session_scope(tenant_id=str(uuid4())) as session:
         assert await knowledge_versions.snapshot_row(session,identifier,1) is None
 

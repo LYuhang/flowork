@@ -159,6 +159,7 @@ class KbUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    expected_hash: str
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
 
@@ -431,6 +432,11 @@ async def _create_knowledge_package(
     service: AuthzService,
 ) -> KbOut:
     """Persist one authoritative package and its authorization projection."""
+    from vibecanvas_api.services.knowledge_metadata import with_metadata
+    try:
+        package_files = with_metadata(package_files, name=body.name, description=body.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     repo = KbRepo(session)
     try:
         kb = await repo.create_kb(
@@ -721,7 +727,7 @@ async def get_kb(
     )
 
 
-@router.patch("/{kb_id}", response_model=KbOut)
+@router.patch("/{kb_id}")
 async def update_kb(
     kb_id: uuid.UUID,
     body: KbUpdate,
@@ -730,47 +736,19 @@ async def update_kb(
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
-    """Patch ``name`` / ``description``. 404 if missing; 409 on
-    duplicate name."""
-    await _authorize_knowledge_base(
-        request=request,
-        ctx=ctx,
-        service=service,
-        knowledge_base_id=kb_id,
-        action=Action.UPDATE,
-    )
-    repo = KbRepo(session)
-    kb = await repo.get_active(kb_id, for_update=True)
-    if not kb:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="kb_not_found",
-        )
-    authorized = await _authorize_knowledge_base(
-        request=request,
-        ctx=ctx,
-        service=service,
-        knowledge_base_id=kb_id,
-        action=Action.UPDATE,
-        consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
-    )
+    """Save metadata into the shared README draft; publication is explicit."""
+    from vibecanvas_api.services.knowledge_metadata import with_metadata, package_metadata
+    from vibecanvas_api.services.knowledge_versions import save_snapshot
+    kb = await _versioned_kb(kb_id, request, ctx, session, service, write=True)
+    _, files = await _knowledge_draft_state(session, kb, body.expected_hash)
     try:
-        await repo.update_kb(
-            kb_id, name=body.name, description=body.description,
-        )
-        await session.flush()
-    except IntegrityError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="kb_name_conflict",
-        )
-    # Re-read so we pick up the trigger-bumped ``updated_at``.
-    kb = await repo.get_active(kb_id)
-    return await _kb_to_out(
-        kb,
-        authorized.decision,
-        ResourceProvenanceBuilder(session),
-    )
+        info = package_metadata(files, required=False) or {'name': kb.name, 'description': kb.description or ''}
+        updated = with_metadata(files, name=body.name if body.name is not None else info['name'],
+            description=body.description if body.description is not None else info['description'])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row = await save_snapshot(session, kb, updated, version=0, base_version=kb.package_version)
+    return _knowledge_snapshot_out(row, updated, kb.package_version)
 
 
 @router.delete("/{kb_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1416,7 +1394,15 @@ async def _knowledge_draft_state(session, kb, expected_hash=None):
 
 
 def _knowledge_snapshot_out(row, files, latest_version):
+    from vibecanvas_api.services.knowledge_metadata import package_metadata
+    # Legacy history stays byte-for-byte intact; unknown metadata is not invented.
+    try:
+        info = package_metadata(files, required=False)
+    except ValueError:
+        info = None  # A draft can be temporarily invalid while its README is edited.
     return {
+        'name': info['name'] if info else None,
+        'description': info['description'] if info else None,
         'version': row['version'], 'base_version': row['base_version'],
         'content_hash': row['content_hash'], 'has_changes': row['version'] == 0,
         'latest_version': latest_version,
@@ -1532,8 +1518,13 @@ async def publish_knowledge_draft(kb_id: uuid.UUID, body: KnowledgeDraftPublish,
     row, files = await _knowledge_draft_state(session, kb, body.expected_hash)
     if row['version'] != 0:
         raise HTTPException(status_code=409, detail='knowledge_draft_required')
-    version, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(ctx.user_id),
-                                             expected_version=kb.package_version, files=files)
+    try:
+        version, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(ctx.user_id),
+                                                 expected_version=kb.package_version, files=files)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail='kb_name_conflict') from exc
     await session.commit()
     await enqueue_package_indexing(tenant_id=ctx.tenant_id, user_id=ctx.user_id, file_ids=pending)
     return {'version':version, 'indexing_files':len(pending)}

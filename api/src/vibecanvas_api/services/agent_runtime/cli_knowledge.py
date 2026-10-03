@@ -24,6 +24,9 @@ from vibecanvas_api.services.agent_resources.authorization import _require_activ
 from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_kb import KbRepo
+from vibecanvas_api.services.knowledge_metadata import package_metadata, with_metadata
+from vibecanvas_api.security.upload_scanner import require_clean_upload
+from sqlalchemy.exc import IntegrityError
 
 logger = structlog.get_logger(__name__)
 
@@ -52,25 +55,16 @@ async def read(ctx, operation, args):
         params = resource_route_params(ctx, session)
         if operation == "knowledge.list":
             rows = await routes.list_kbs(**params)
+            query = args.get("search", "").strip().casefold()
+            if query:
+                rows = [row for row in rows if query in (row.name + " " + (row.description or "")).casefold()]
             rows = sorted(rows, key=lambda row: (row.latest_updated_at, str(row.id)), reverse=True)
             start, limit = args["offset"], args["limit"]
             return {"status": "succeeded", "knowledge": [metadata(row) for row in rows[start:start + limit]],
                 "total": len(rows), "next_offset": start + limit if start + limit < len(rows) else None,
                 "message": "Discoverable Knowledge packages. Check capabilities before reading or writing."}
-        if operation == "knowledge.search":
-            found = await routes.search(routes.SearchRequest(kb_ids=args["knowledge_id"], query=args["query"], top_k=args["limit"]), **params)
-            indexes = []
-            for identifier in args["knowledge_id"]:
-                files = await KbRepo(session).list_files(uuid.UUID(identifier))
-                indexes.append({"knowledge_id": identifier, **index_summary(files)})
-            complete = all(item["search_complete"] for item in indexes)
-            results = [{"knowledge_id": item.get("kb_id"), "path": item.get("file_name"),
-                        **{k: v for k, v in item.items() if k not in {"kb_id", "file_name"}}} for item in found["results"]]
-            return {"status": "succeeded", "results": results, "indexes": indexes, "search_complete": complete,
-                "message": "Lexical index search completed." if complete else "Search coverage is incomplete. Missing matches do not prove absence in the raw files.",
-                "next_step": "Download the package and inspect README.md and raw files when complete evidence is required."}
         kb_id = uuid.UUID(args["knowledge_id"])
-        if operation == "knowledge.status":
+        if operation == "knowledge.get":
             row = await routes.get_kb(kb_id, **params)
             files = await routes.list_files(kb_id, file_status=None, **params)
             return {"status": "succeeded", **metadata(row), **index_summary(files),
@@ -85,9 +79,12 @@ async def read(ctx, operation, args):
             if before is None:
                 raise HTTPException(404, "kb_not_found")
             files = await package_snapshot(session, kb_id)
+            current = await KbRepo(session).get_active(kb_id)
+            legacy = package_metadata(files, required=False) is None
+            files = with_metadata(files, name=current.name, description=current.description, only_if_missing=True)
             if before == await version(session, kb_id):
                 return {"status": "succeeded", "knowledge_id": str(kb_id), "package_version": before,
-                    "file_count": len(files), "files": [{"path": f.path, "data": base64.b64encode(f.data).decode("ascii")} for f in files],
+                    "file_count": len(files), "metadata_added_to_local_readme": legacy, "files": [{"path": f.path, "data": base64.b64encode(f.data).decode("ascii")} for f in files],
                     "message": "Knowledge package downloaded. Read README.md first."}
         raise ToolError("package_changing", "The package changed repeatedly during download. Try downloading to a new directory after writes finish.")
 
@@ -105,7 +102,7 @@ def publication(kb_id, version_number, files, *, pending=True):
     return {"status": "succeeded", "knowledge_id": str(kb_id), "package_version": version_number,
         "file_count": len(files), "index_status": "pending" if pending else "not_indexed",
         "message": "Knowledge package published. Search indexing is asynchronous." if pending else "Knowledge package created with README.md.",
-        "next_step": f"flowork-cli knowledge status --knowledge_id {kb_id}. Do not publish again to wait for indexing."}
+        "next_step": f"flowork-cli knowledge get --knowledge_id {kb_id}. Do not publish again to wait for indexing."}
 
 
 async def execute(call, arguments):
@@ -116,11 +113,18 @@ async def execute(call, arguments):
     try:
         args = validate(operation, arguments)
         ctx = await agent_context.resolve_context(cap)
-        if operation not in WRITE_OPERATIONS:
-            return await read(ctx, operation, args)
         files = None
         if "files" in args:
             files = validate_package([PackageFile(f["path"], base64.b64decode(f["data"], validate=True), "") for f in args["files"]])
+            info = package_metadata(files)
+            for item in files:
+                await require_clean_upload(item.data)
+        if operation == "knowledge.check":
+            return {"status": "succeeded", **info, "file_count": len(files),
+                "size_bytes": sum(len(item.data) for item in files),
+                "message": "Knowledge package is valid. Nothing was saved or published."}
+        if operation not in WRITE_OPERATIONS:
+            return await read(ctx, operation, args)
         kb_id = uuid.UUID(args["knowledge_id"]) if "knowledge_id" in args else None
         action = Action.DELETE if operation == "knowledge.delete" else Action.UPDATE
         if cap.approval_mode not in {"agent", "always_ask", "always_allow"}:
@@ -131,14 +135,14 @@ async def execute(call, arguments):
                 VALUES (:id,CAST(:tenant AS uuid),:run,:operation,now()+interval '30 seconds')"""),
                 {"id": call.call_id, "tenant": cap.tenant_id, "run": cap.turn_id, "operation": operation})
         call.durable_lease = True
-        needs_approval = cap.approval_mode == "always_ask" or (cap.approval_mode == "agent" and operation != "knowledge.update")
+        needs_approval = cap.approval_mode in {"always_ask", "agent"}
         if needs_approval:
             from .cli_delete import _approve
             summary = {k: v for k, v in args.items() if k != "files"}
             if files is not None:
                 summary.update(file_count=len(files), size_bytes=sum(len(f.data) for f in files),
                     content_sha256=hashlib.sha256(json.dumps(args["files"], sort_keys=True).encode()).hexdigest())
-            warning = " Upload replaces the entire package, removes absent files and can overwrite intervening edits." if operation == "knowledge.upload" else ""
+            warning = " Publication replaces the entire package and draft, removing absent files. expected_version, when supplied, rejects intervening publications." if operation == "knowledge.publish" else ""
             await _approve(call, summary, prompt="Approve " + operation.replace(".", " ") + "? " + json.dumps(summary) + warning)
         await call.emit({"progress": {"status": "approved" if needs_approval else "auto_approved", "message": "Operation approved. Rechecking current permissions before publication."}})
         ctx = await agent_context.resolve_context(cap)
@@ -152,20 +156,14 @@ async def execute(call, arguments):
             await authorize(params, kb_id, action)
             started = True
             if operation == "knowledge.create":
-                body = routes.KbCreate(**{k: args[k] for k in ("name", "description") if k in args})
-                if files is None:
-                    result = await routes.create_kb(body, **params)
-                    return publication(result.id, result.package_version, [None], pending=False)
+                body = routes.KbCreate(**info)
                 result = await routes._create_knowledge_package(body=body, package_files=files, derive_index=True, **params)
                 return publication(result.id, result.package_version, files)
-            if operation == "knowledge.update":
-                result = await routes.update_kb(kb_id, routes.KbUpdate(**{k: args[k] for k in ("name", "description") if k in args}), **params)
-                return {"status": "succeeded", **metadata(result), "message": "Metadata updated. Files and package_version were not changed."}
             if operation == "knowledge.delete":
                 await routes.delete_kb(kb_id, **params)
                 return {"status": "succeeded", "knowledge_id": str(kb_id), "message": "Knowledge package deleted. Local downloads were not removed."}
             await call.emit({"progress": {"status": "publishing", "knowledge_id": str(kb_id), "message": "Publishing the complete package snapshot."}})
-            number, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(cap.user_id), expected_version=None, files=files)
+            number, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(cap.user_id), expected_version=args.get("expected_version"), files=files)
             await session.commit()
             committed = publication(kb_id, number, files, pending=bool(pending))
         await enqueue_package_indexing(tenant_id=cap.tenant_id, user_id=cap.user_id, file_ids=pending)
@@ -175,7 +173,12 @@ async def execute(call, arguments):
         if committed or receipt:
             return {**(committed or receipt), "warning": "post_commit_work_pending",
                 "message": "The package change committed, but authorization projection or search indexing follow-up failed.",
-                "next_step": "Inspect knowledge list/status. Do not repeat the mutation; contact support if follow-up remains pending."}
+                "next_step": "Inspect knowledge list/get. Do not repeat the mutation; contact support if follow-up remains pending."}
+        if isinstance(exc, RuntimeError) and str(exc).startswith("knowledge_version_conflict:"):
+            return {"status": "failed", **error("state_conflict", "The published version changed. Nothing was published.",
+                "Download the latest version, reconcile your edits, then publish with its package_version.")}
+        if isinstance(exc, IntegrityError):
+            return {"status": "failed", **error("state_conflict", "A package already uses this name. Nothing was published.", "Choose a distinct README.md name.")}
         if isinstance(exc, ToolError):
             return {"status": "failed", **error(str(exc), exc.message, "Respect approval decisions; inspect status and permissions before retrying.")}
         if isinstance(exc, HTTPException):
@@ -189,7 +192,7 @@ async def execute(call, arguments):
             hints = {
                 "kb_name_conflict": "Choose a distinct name, or inspect existing packages with flowork-cli knowledge list. Do not overwrite an existing package merely to resolve a naming conflict.",
                 "kb_not_found": "Use flowork-cli knowledge list to find an accessible knowledge_id, then check status with that exact ID.",
-                "kb_delete_in_progress": "Use flowork-cli knowledge status --knowledge_id ID to check indexing. Wait for indexing to finish before retrying deletion.",
+                "kb_delete_in_progress": "Use flowork-cli knowledge get --knowledge_id ID to check indexing. Wait for indexing to finish before retrying deletion.",
             }
             hint = hints.get(exc.detail) if isinstance(exc.detail, str) else None
             if not hint:
@@ -198,7 +201,7 @@ async def execute(call, arguments):
                     404: "Use flowork-cli knowledge list to find a currently accessible package.",
                     409: "Inspect the package's current status before retrying this operation.",
                     422: "Check this command's --help and correct the reported arguments.",
-                }.get(exc.status_code, "Inspect knowledge status and the reported error before retrying.")
+                }.get(exc.status_code, "Inspect knowledge get and the reported error before retrying.")
             return {"status": "failed", **error(code, message, hint)}
         if isinstance(exc, (ValueError, LookupError)):
             return {"status": "failed", **error("invalid_arguments", str(exc), "Check this command's --help. No package was published.")}

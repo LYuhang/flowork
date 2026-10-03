@@ -189,6 +189,9 @@ async def _join_active_organization(
 
 
 class _ObjectStore:
+    def fetch_bytes(self, key):
+        return self.objects[key]
+
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
 
@@ -210,9 +213,13 @@ async def test_knowledge_base_roles_children_share_and_revoke(
     async def _enqueue_background_job(*_args, **_kwargs):
         return None
 
+    monkeypatch.setattr("vibecanvas_api.routes.auth._consume_unauthenticated_rate_limit", _enqueue_background_job)
     monkeypatch.setattr(config, "resource_sharing_enabled", True)
+    # This authorization fixture intentionally uses bearer sessions.
+    monkeypatch.setattr(config, "web_session_cookie_enabled", False)
     store = _RelationshipStore()
     object_store = _ObjectStore()
+    monkeypatch.setattr("vibecanvas_api.services.knowledge_packages.get_object_store", lambda: object_store)
     monkeypatch.setattr(
         "vibecanvas_api.routes.kb.get_object_store",
         lambda: object_store,
@@ -393,22 +400,26 @@ async def test_knowledge_base_roles_children_share_and_revoke(
         assert "update" not in viewer_access["capabilities"]
         assert "use" not in viewer_access["capabilities"]
 
+        draft_response = await client.get(f"/api/v1/kb/{kb_id}/draft", headers=_headers(editor_token))
+        assert draft_response.status_code == 200, draft_response.text
+        draft_hash = draft_response.json()["content_hash"]
         viewer_update = await client.patch(
             f"/api/v1/kb/{kb_id}",
-            json={"name": "viewer cannot rename"},
+            json={"name": "viewer cannot rename", "expected_hash": draft_hash},
             headers=_headers(viewer_token),
         )
         assert viewer_update.status_code == 404
         editor_update = await client.patch(
             f"/api/v1/kb/{kb_id}",
-            json={"name": "Editor renamed"},
+            json={"name": "Editor renamed", "expected_hash": draft_hash},
             headers=_headers(editor_token),
         )
         assert editor_update.status_code == 200, editor_update.text
-        assert editor_update.json()["access"]["effective_role"] == "editor"
+        assert editor_update.json()["has_changes"] is True
+        assert editor_update.json()["name"] == "Editor renamed"
         operator_update = await client.patch(
             f"/api/v1/kb/{kb_id}",
-            json={"name": "operator cannot rename"},
+            json={"name": "operator cannot rename", "expected_hash": draft_hash},
             headers=_headers(operator_token),
         )
         assert operator_update.status_code == 404

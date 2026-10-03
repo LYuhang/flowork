@@ -181,7 +181,7 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
   const disabledReason = readOnly ? t('canvasChat.readOnly')
     : draft && !sameMajor ? t('canvasChat.contextChanged') : null;
   const openFile = (path: string) => {
-    const ref = fileRefFromAgentPath(path, { projectId: selected?.project_id ?? undefined });
+    const ref = fileRefFromAgentPath(path, { projectId: selected?.project_id ?? undefined, runId: wfId });
     if (ref) window.open(standalonePreviewHref(ref, 'auto', selectedId ? { chatId: selectedId } : null), '_blank', 'noopener,noreferrer');
   };
 

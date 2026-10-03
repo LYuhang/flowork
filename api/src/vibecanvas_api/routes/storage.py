@@ -162,7 +162,7 @@ async def _project_storage_scope(session: AsyncSession, project_id: str) -> str 
     )).one_or_none()
     if row is None:
         return None
-    return _project_workspace_scope_id(row.project_id, workflow_id=row.workflow_id)
+    return _project_workspace_scope_id(row.project_id)
 
 
 async def _resolve_path(

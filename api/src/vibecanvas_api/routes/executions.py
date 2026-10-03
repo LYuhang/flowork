@@ -472,7 +472,7 @@ async def _produce_execution_sandbox(
             workflow_run_id,
             user_id=creator_user_id,
             expose_run=True,
-            expose_runtime=True,
+            expose_runtime=False,
         )
         # The sandbox service deliberately keeps daemon host paths private.
         # Remote sessions therefore expose only the logical workflow run id;
@@ -1213,7 +1213,7 @@ async def _produce_node_execution(
             workflow_run_id,
             user_id=creator_user_id,
             expose_run=True,
-            expose_runtime=True,
+            expose_runtime=False,
         )
         if stop.is_set():
             yield "EXEC_UPDATE", await _record_cancelled()

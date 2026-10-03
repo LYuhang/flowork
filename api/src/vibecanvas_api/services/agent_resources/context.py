@@ -94,7 +94,7 @@ async def resolve_context(capability: AgentCapability) -> AgentContext:
             raise PermissionError(
                 "Agent resource capability Runtime binding is stale"
             )
-        expected_workspace_scope_id = project_workspace_scope_id(binding["project_id"], workflow_id=binding.get("workflow_id"))
+        expected_workspace_scope_id = project_workspace_scope_id(binding["project_id"])
         if expected_workspace_scope_id != capability.workspace_scope_id:
             raise PermissionError(
                 "Agent resource capability workspace does not match its Chat"

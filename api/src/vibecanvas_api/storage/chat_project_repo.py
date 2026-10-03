@@ -91,7 +91,7 @@ class ChatProjectRepo:
         self._session.add(project)
         await self._session.flush()
         files = VfsRepo(self._session, object_store=get_object_store())
-        scope_id = project_workspace_scope_id(project.project_id, workflow_id=project.workflow_id)
+        scope_id = project_workspace_scope_id(project.project_id)
         for folder in ("data", "logs", "chats"):
             await files.upsert_internal_artifact_bytes(
                 wf_id=scope_id, tenant=str(project.tenant_id),

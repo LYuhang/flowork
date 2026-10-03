@@ -217,7 +217,7 @@ async def _chat_workspace_scope(
     inventory = await chat_repo.get_authorized_inventory(chat_id)
     if inventory is None:
         raise HTTPException(status_code=404, detail="chat_not_found")
-    return _project_workspace_scope_id(inventory["project_id"], workflow_id=inventory.get("workflow_id")), inventory
+    return _project_workspace_scope_id(inventory["project_id"]), inventory
 
 
 async def _require_project(project_repo, project_id: str | None):
@@ -576,7 +576,7 @@ async def delete_chat_project(
     chat_ids = await project_repo.chat_ids(project_id)
     await _require_project_workspace_idle(session, auth, chat_ids)
 
-    workspace_scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
+    workspace_scope_id = _project_workspace_scope_id(project_id)
     await get_sandbox_manager().close_session(auth.tenant_id, workspace_scope_id)
     vfs_deleted = await VfsRepo(
         session,
@@ -661,7 +661,7 @@ async def get_project_sandbox_statuses(
         project = await project_repo.get(pid)
         if project is None:
             continue
-        scope_id = _project_workspace_scope_id(pid, workflow_id=project.workflow_id)
+        scope_id = _project_workspace_scope_id(pid)
         items.append({
             "project_id": pid,
             "scope_id": scope_id,
@@ -727,7 +727,7 @@ async def get_project_workspace(
         raise HTTPException(status_code=404, detail="project_not_found")
     return {
         "project_id": project_id,
-        "workspace_scope_id": _project_workspace_scope_id(project_id, workflow_id=project.workflow_id),
+        "workspace_scope_id": _project_workspace_scope_id(project_id),
         "mount_scope_id": _mount_scope_id(auth.user_id),
     }
 
@@ -739,7 +739,7 @@ async def start_project_sandbox(
     auth: AuthContext = Depends(current_user),
 ) -> dict:
     project = await _require_project(project_repo, project_id)
-    scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
+    scope_id = _project_workspace_scope_id(project_id)
     sandbox = await get_sandbox_manager().get_session(
         auth.tenant_id, scope_id, user_id=auth.user_id, expose_run=True,
         expose_runtime=True, lease="interactive",
@@ -760,7 +760,7 @@ async def close_project_sandbox(
     if project is None:
         raise HTTPException(status_code=404, detail="project_not_found")
     await _require_project_workspace_idle(session, auth, await project_repo.chat_ids(project_id))
-    scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
+    scope_id = _project_workspace_scope_id(project_id)
     return {"project_id": project_id, "scope_id": scope_id,
             **await get_sandbox_manager().close_session(auth.tenant_id, scope_id)}
 
@@ -1071,7 +1071,7 @@ async def delete_chat_session(
             },
         )
 
-    workspace_scope_id = _project_workspace_scope_id(selected["project_id"], workflow_id=selected.get("workflow_id"))
+    workspace_scope_id = _project_workspace_scope_id(selected["project_id"])
     # Thread deletion never tears down the Project's shared process or files.
     vfs_deleted = 0
     runtime_state_deleted = False

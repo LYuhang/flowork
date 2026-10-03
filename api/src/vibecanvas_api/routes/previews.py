@@ -185,7 +185,7 @@ async def _resolve_file(
         )).one_or_none()
         if project is None:
             raise HTTPException(status_code=404, detail="preview_file_not_found")
-        scope_id = project_workspace_scope_id(project.project_id, workflow_id=project.workflow_id)
+        scope_id = project_workspace_scope_id(project.project_id)
         query = select(VfsArtifact).where(
             VfsArtifact.scope_id == scope_id,
             VfsArtifact.path == file_ref.path,
@@ -576,7 +576,7 @@ async def _event_scope(
         )).one_or_none()
         if project is None:
             raise HTTPException(status_code=404, detail="preview_file_not_found")
-        return "artifact", project_workspace_scope_id(project.project_id, workflow_id=project.workflow_id)
+        return "artifact", project_workspace_scope_id(project.project_id)
     if isinstance(file_ref, MountFileRefV1):
         return "artifact", mount_scope_id(user_id)
     return "run", file_ref.run_id

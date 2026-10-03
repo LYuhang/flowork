@@ -41,16 +41,19 @@ export function WorkflowVersionsSection({ wfId, activeMajor, viewedMajor }: Work
               </button>
               <Link to={majorPath} aria-current={pathname === majorPath ? 'page' : undefined}
                 className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-3 text-xs">
-                <span className="font-mono">v{major}</span>
+                <span className="font-mono font-medium">v{major}</span>
                 {major === currentMajor && <span className="rounded bg-primary/10 px-1 text-xs text-primary">{t('vfs.current', 'current')}</span>}
               </Link>
             </div>
-            {open && <ul id={`versions-${wfId}-${major}`} className="ml-3.5 space-y-0.5 border-l border-border pl-3">
-              {versions.map(({ sub }) => {
+            {open && <ul id={`versions-${wfId}-${major}`} className="ml-3.5 pb-1">
+              {versions.map(({ sub }, index) => {
                 const version = `v${major}.sv${sub}`;
                 const path = `/workflow/${wfId}/version/${version}`;
-                return <li key={sub}><Link to={`${path}?snapshot=1`} aria-current={pathname === path ? 'page' : undefined}
-                  className="block rounded px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-muted aria-[current=page]:bg-primary/10 aria-[current=page]:text-primary">{version}</Link></li>;
+                return <li key={sub} className="relative pl-5">
+                  {index < versions.length - 1 && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 border-l border-muted-foreground/25" />}
+                  <span aria-hidden="true" className="pointer-events-none absolute left-0 top-0 h-3.5 w-3.5 rounded-bl-md border-b border-l border-muted-foreground/25" />
+                  <Link to={`${path}?snapshot=1`} aria-current={pathname === path ? 'page' : undefined}
+                  className="flex h-7 items-center rounded-md px-2 font-mono text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground aria-[current=page]:bg-primary/10 aria-[current=page]:text-primary">{version}</Link></li>;
               })}
             </ul>}
           </li>

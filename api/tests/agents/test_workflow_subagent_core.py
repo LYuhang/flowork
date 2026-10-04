@@ -294,3 +294,34 @@ async def test_real_bash_tool_uses_workflow_workspace(monkeypatch, tmp_path):
     assert result.status == "done", result.error
     assert any(str(tmp_path) in entry["text"] for entry in result.trace)
     assert not any("could not be run" in entry["text"] for entry in result.trace)
+
+
+@pytest.mark.asyncio
+async def test_plain_text_finish_fails_without_an_extra_conversation_turn():
+    from vibecanvas_api.agents.tools.subagent.core import run_bounded_agent
+    messages = iter([AIMessage(content="A plain answer is not completion"), _output_call("not consumed")])
+    result = await run_bounded_agent(
+        model=_ScriptedModel(messages=messages), tools=[], system_prompt="test", user_input="test",
+        output_fields={"answer": {"type": "string"}}, max_iterations=5,
+    )
+    assert result.status == "incomplete"
+    assert "set_output" in result.error
+    assert result.output == {"answer": ""}
+    assert next(messages).tool_calls[0]["args"]["answer"] == "not consumed"
+
+
+@pytest.mark.asyncio
+async def test_text_beside_output_call_is_trace_only_and_no_later_model_call_runs():
+    from vibecanvas_api.agents.tools.subagent.core import run_bounded_agent
+    output = _output_call("42")
+    output.content = "Accompanying explanation"
+    messages = iter([output, AIMessage(content="unwanted follow-up")])
+    result = await run_bounded_agent(
+        model=_ScriptedModel(messages=messages), tools=[], system_prompt="test", user_input="test",
+        output_fields={"answer": {"type": "string"}}, max_iterations=5,
+    )
+    assert result.status == "done"
+    assert result.output == {"answer": "42"}
+    assert any(entry["text"] == "Accompanying explanation" for entry in result.trace)
+    assert all("unwanted follow-up" not in entry["text"] for entry in result.trace)
+    assert next(messages).content == "unwanted follow-up"

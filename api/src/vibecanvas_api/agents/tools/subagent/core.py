@@ -108,7 +108,17 @@ def _system_message(prompt: str, output_fields: dict, tool_name: str) -> str:
             + (f": {description}" if description else "")
         )
     contract = (
-        f"## Output\nWhen complete, call `{tool_name}` exactly once with these fields:\n"
+        f"## Required workflow completion protocol\n"
+        "You are a workflow worker, not an interactive conversation. "
+        f"The only successful completion is a validated `{tool_name}` tool call. "
+        "A text answer, explanation, or JSON code block does not complete this node. "
+        "Do not finish with prose or wait for another user message.\n"
+        f"When the work is complete, call `{tool_name}` with every declared field, "
+        "using the exact field names and JSON types in its tool schema. "
+        "Put the final result in the tool arguments, not in surrounding text. "
+        "If the tool rejects the arguments, correct them within the remaining iteration budget. "
+        "After a successful call, stop immediately: do not add a summary, repeat the result, "
+        "or call another tool.\nDeclared output fields:\n"
         + "\n".join(fields)
     )
     return f"{prompt.rstrip()}\n\n{contract}" if prompt.strip() else contract

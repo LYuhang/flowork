@@ -418,3 +418,58 @@ async def test_real_durable_lease_loss_still_stops_execution(execution, monkeypa
         stop.assert_awaited_once_with(key)
     finally:
         runs._runs.pop(key, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapped", [False, True])
+async def test_transient_poll_authorization_preserves_job_and_cursor(execution, monkeypatch, wrapped):
+    from vibecanvas_api.authorization.openfga_client import OpenFgaUnavailableError
+    capability, _, _ = execution
+    run = runs.Run(capability, "transient-auth", "workflow.run", asyncio.Queue(8))
+    run.durable_lease = True
+    run.sequence = 3
+    run.pending = {"status": "running", "completed": 1}
+    key = (*runs._scope(capability), run.run_id)
+    runs._runs[key] = run
+    unavailable = OpenFgaUnavailableError("temporary test failure")
+    if wrapped:
+        failure = PermissionError("authorization unavailable")
+        failure.__cause__ = unavailable
+    else:
+        failure = unavailable
+    authorize = AsyncMock(side_effect=[failure, object()])
+    monkeypatch.setattr(runs, "_authorize", authorize)
+    stop = AsyncMock()
+    monkeypatch.setattr(runs, "_stop", stop)
+    previous_lease = run.lease
+    try:
+        with pytest.raises(type(failure)):
+            await runs.command(capability, "workflow.run.poll", {"run_id": run.run_id, "ack": 2})
+        assert runs._runs[key] is run
+        assert run.sequence == 3 and run.pending == {"status": "running", "completed": 1}
+        assert run.lease == previous_lease
+        runs.cli_run_lease.renew.assert_not_awaited()
+        stop.assert_not_awaited()
+        result = await runs.command(capability, "workflow.run.poll", {"run_id": run.run_id, "ack": 2})
+        assert result == {"sequence": 3, "event": run.pending}
+        assert authorize.await_count == 2
+        runs.cli_run_lease.renew.assert_awaited_once()
+    finally:
+        runs._runs.pop(key, None)
+
+
+@pytest.mark.asyncio
+async def test_actual_poll_permission_revocation_still_stops_job(execution, monkeypatch):
+    capability, _, _ = execution
+    run = runs.Run(capability, "revoked-auth", "workflow.run", asyncio.Queue(8))
+    key = (*runs._scope(capability), run.run_id)
+    runs._runs[key] = run
+    monkeypatch.setattr(runs, "_authorize", AsyncMock(side_effect=PermissionError("revoked")))
+    stop = AsyncMock()
+    monkeypatch.setattr(runs, "_stop", stop)
+    try:
+        with pytest.raises(PermissionError):
+            await runs.command(capability, "workflow.run.poll", {"run_id": run.run_id, "ack": 0})
+        stop.assert_awaited_once_with(key)
+    finally:
+        runs._runs.pop(key, None)

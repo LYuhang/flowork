@@ -18,6 +18,7 @@ import structlog
 
 from vibecanvas_api.agents.tools.decorator import ToolError
 from vibecanvas_api.agents.tools._session_fs import _require_session
+from vibecanvas_api.authorization.openfga_client import OpenFgaUnavailableError
 from vibecanvas_api.authorization.types import Action, ConsistencyPreference, ResourceType
 from vibecanvas_api.flowork_cli.cli import error
 from vibecanvas_api.services.agent_resources import context as agent_context
@@ -365,7 +366,15 @@ async def command(capability, operation: str, arguments: dict) -> dict:
         return error("result_unknown", "The execution is no longer attached to this turn.", "Inspect partial output and side effects; do not automatically rerun.")
     try:
         await _authorize(run)
-    except BaseException:
+    except BaseException as exc:
+        # An unavailable authorization backend is not a revoked permission.
+        # Withhold results and preserve the current cursor for the gateway's
+        # bounded retry. Do not renew either lease until authorization succeeds;
+        # a sustained outage still lets the existing watchdog stop the job.
+        if isinstance(exc, OpenFgaUnavailableError) or (
+            isinstance(exc, PermissionError) and isinstance(exc.__cause__, OpenFgaUnavailableError)
+        ):
+            raise
         await _stop(key)
         raise
     ack = arguments["ack"]

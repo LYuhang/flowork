@@ -8,6 +8,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
+from ..nodes.human_approval import ApprovalTimeout
+
 EventSink = Callable[[dict], Awaitable[None]]
 
 
@@ -42,7 +44,7 @@ class Approval:
 class ApprovalBroker:
     """Owned by a single asyncio loop, so resolution has no check/update race.
 
-    Only approved/rejected/timeout are graph decisions. Runtime cancellation
+    Only approved/rejected are graph decisions. Timeout and runtime cancellation
     interrupts the coroutine without manufacturing an approved=false output.
     The host must authenticate the actor BEFORE calling decide().
     """
@@ -56,11 +58,11 @@ class ApprovalBroker:
     @property
     def waiting(self) -> bool:
         return any(
-            item.reason is None or (self.require_resume and not item.resumed.is_set())
+            item.reason is None or (item.reason in {"approved", "rejected"} and self.require_resume and not item.resumed.is_set())
             for item in self.approvals.values()
         )
 
-    def _resolve(self, item: Approval, approved: bool, reason: str) -> None:
+    def _resolve(self, item: Approval, approved: bool | None, reason: str) -> None:
         if item.reason is not None:
             return
         item.decision = approved
@@ -77,7 +79,7 @@ class ApprovalBroker:
         if self._stop.is_set() or item.reason == "cancelled":
             raise ApprovalConflict("execution is no longer awaiting approval")
         if item.reason is None and asyncio.get_running_loop().time() >= item.monotonic_deadline:
-            self._resolve(item, False, "timeout")
+            self._resolve(item, None, "timeout")
         reason = "approved" if approved else "rejected"
         if item.reason is not None and item.reason != reason:
             raise ApprovalConflict("approval already resolved")
@@ -91,7 +93,7 @@ class ApprovalBroker:
             raise KeyError(approval_id)
         if self._stop.is_set() or item.reason == "cancelled":
             raise ApprovalConflict("execution is no longer awaiting approval")
-        if not self.require_resume or item.reason is None or not item.resolved.is_set():
+        if not self.require_resume or item.reason not in {"approved", "rejected"} or not item.resolved.is_set():
             raise ApprovalConflict("approval is not ready to resume")
         if not item.resumed.is_set():
             # No await between credential replacement and opening the gate.
@@ -123,7 +125,11 @@ class ApprovalBroker:
             if self._stop.is_set():
                 raise asyncio.CancelledError
             if item.reason is None:
-                self._resolve(item, False, "timeout")
+                self._resolve(item, None, "timeout")
+            if item.reason == "timeout":
+                # No downstream action remains to reauthorize or resume.
+                await self._emit({"type": "approval_resolved", **item.public()})
+                raise ApprovalTimeout("approval_timeout")
             if self.require_resume:
                 await self._emit({"type": "approval_ready", **item.public()})
                 item.resolved.set()  # decision RPC completes before host reauthorization

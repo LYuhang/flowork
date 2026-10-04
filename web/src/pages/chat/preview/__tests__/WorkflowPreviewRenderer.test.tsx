@@ -21,7 +21,7 @@ vi.mock('@/pages/canvas/inspector/NodeTab', () => ({ NodeTab: ({ readOnly }: { r
   return <div data-testid="shared-inspector">{String(readOnly)}:{JSON.stringify(graph)}</div>;
 } }));
 vi.mock('@/pages/canvas/WorkflowGraph', () => ({
-  workflowDictToNodesEdges: (graph: Record<string, unknown>) => ({ nodes: Object.entries(graph).map(([id, data]) => ({ id, data, type: 'custom' })), edges: [] }),
+  workflowDictToNodesEdges: (graph: Record<string, unknown>) => ({ nodes: Object.entries(graph).map(([id, data]) => ({ id, data, type: 'custom', position: { x: 0, y: 0 } })), edges: [] }),
   WorkflowGraph: (props: Record<string, unknown>) => {
     state.flow = props;
     return <button
@@ -88,4 +88,16 @@ describe('WorkflowPreviewRenderer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(state.result.refetch).toHaveBeenCalled();
   });
+});
+
+
+it('lays out overlapping snapshots without mutating the saved graph', () => {
+  const graph = { start: { node_type: 'StartNode', __attributes__: { x: 0, y: 0 } }, end: { node_type: 'EndNode', __attributes__: { x: 0, y: 0 } } };
+  state.result = { isFetching: false, isPending: false, isError: false, data: { workflow: graph } };
+  render(<WorkflowPreviewRenderer workflowId="wf" version="v1.sv1" />);
+  const nodes = state.flow.nodes as { position: { x: number; y: number } }[];
+  expect(nodes).toHaveLength(2);
+  expect(nodes[0].position).not.toEqual(nodes[1].position);
+  expect(graph.start.__attributes__).toEqual({ x: 0, y: 0 });
+  expect(graph.end.__attributes__).toEqual({ x: 0, y: 0 });
 });

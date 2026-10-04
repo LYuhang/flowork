@@ -34,7 +34,7 @@ import type { FieldsMap } from '@/pages/canvas/inspector/FieldsEditor';
 
 export const FIXED_OUTPUT_FIELDS: Record<string, FieldsMap> = {
   HumanApprovalNode: {
-    approved: { type: 'boolean', description: 'Approval decision; false for rejection or timeout' },
+    approved: { type: 'boolean', description: 'Human decision: true for approval, false for rejection; no output on timeout' },
   },
   HTTPRequestNode: {
     response_body: { type: 'object', description: 'API response body' },

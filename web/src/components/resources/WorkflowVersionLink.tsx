@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,10 @@ export function WorkflowVersionLink({ workflowId, version, kind = 'snapshot', in
   inline?: boolean;
 }) {
   const { t } = useTranslation();
-  const href = workflowVersionHref(workflowId, version);
+  const location = useLocation();
+  const target = workflowVersionHref(workflowId, version);
+  const returnTo = location.pathname + location.search + location.hash;
+  const href = target ? `${target}&returnTo=${encodeURIComponent(returnTo)}` : null;
   const label = {
     snapshot: t('workflowVersionLink.snapshot', 'View workflow version'),
     configured: t('workflowVersionLink.configured', 'View configured version'),

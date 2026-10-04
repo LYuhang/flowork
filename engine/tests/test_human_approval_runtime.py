@@ -73,11 +73,14 @@ async def test_standalone_approval_runs_without_upstream_or_downstream(decision)
         elif decision != "timeout":
             await rt.decide(run, state["approvals"][0]["approval_id"], decision)
         state = await wait_for(rt, run, lambda s: s["status"] in rt.TERMINAL)
-        assert state["status"] == ("cancelled" if decision == "cancel" else "succeeded")
+        assert state["status"] == ("cancelled" if decision == "cancel" else "timed_out" if decision == "timeout" else "succeeded")
         frames = state["events"]
         assert {e["node_id"] for e in frames if e["type"] == "node_event"} == {"node_2"}
         assert frames[0]["inputs"] == {"evidence": "only this input"}
-        if decision != "cancel":
+        if decision == "timeout":
+            assert frames[-1]["error_code"] == "approval_timeout"
+            assert frames[-1]["final_outputs"] == {}
+        elif decision != "cancel":
             assert frames[-1]["final_outputs"] == {"node_2": {"approved": decision is True}}
             assert not frames[-1]["error_dict"]
     finally:
@@ -177,15 +180,23 @@ async def test_decision_continues_without_repeating_start(decision):
 
 
 @pytest.mark.asyncio
-async def test_timeout_rejects_and_completes():
+@pytest.mark.parametrize("require_resume", [False, True])
+async def test_timeout_stops_without_a_decision_or_downstream(require_resume):
     rt = WorkflowRuntime(capacity=1)
     rt.install("v1", approval_workflow())
     run = str(uuid.uuid4())
     try:
-        rt.invoke(run, "v1", {})
-        state = await wait_for(rt, run, lambda s: s["status"] == "succeeded")
-        assert state["events"][-1]["final_outputs"]["__end__"]["approved"] is False
-        assert any(e.get("reason") == "timeout" for e in state["events"])
+        rt.invoke(run, "v1", {}, require_approval_resume=require_resume)
+        state = await wait_for(rt, run, lambda s: s["status"] in rt.TERMINAL)
+        assert state["status"] == "timed_out"
+        assert state["events"][-1]["error_code"] == "approval_timeout"
+        assert state["events"][-1]["final_outputs"] == {}
+        resolution = next(e for e in state["events"] if e["type"] == "approval_resolved")
+        assert resolution["reason"] == "timeout" and resolution["approved"] is None
+        assert not any(e["type"] == "approval_ready" or e.get("node_id") == "node_3" for e in state["events"])
+        from vibecanvas_engine.runtime.approvals import ApprovalConflict
+        with pytest.raises(ApprovalConflict):
+            await rt.executions[run].approvals.decide(resolution["approval_id"], True)
     finally:
         await rt.close()
 
@@ -202,8 +213,9 @@ async def test_approval_wait_does_not_consume_the_execution_budget():
         await wait_for(rt, run, lambda s: s["status"] == "waiting_approval")
         await asyncio.sleep(0.2)
         assert rt.status(run)["status"] == "waiting_approval"
-        state = await wait_for(rt, run, lambda s: s["status"] == "succeeded")
-        assert state["events"][-1]["final_outputs"]["__end__"]["approved"] is False
+        state = await wait_for(rt, run, lambda s: s["status"] in rt.TERMINAL)
+        assert state["status"] == "timed_out"
+        assert state["events"][-1]["error_code"] == "approval_timeout"
     finally:
         await rt.close()
 
@@ -325,7 +337,7 @@ async def test_rpc_authentication_generation_and_disconnected_request(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("decision", [True, False, "timeout"])
+@pytest.mark.parametrize("decision", [True, False])
 async def test_approval_gate_waits_for_host_refresh_before_downstream(decision, monkeypatch):
     import importlib
 
@@ -523,5 +535,52 @@ async def test_unlimited_runtime_has_no_hidden_default_or_backlog_concurrency_ca
         await runtime.cancel(runs[0])
         assert runtime.status(runs[0])['status'] == 'cancelled'
         assert runtime.status(runs[-1])['status'] == 'waiting_approval'
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_approval_timeout_stops_parallel_work_but_not_sibling_invocation(monkeypatch):
+    import importlib
+    target = importlib.import_module("vibecanvas_engine.nodes.trigger")
+    dispatch = target.dispatch_node_call
+    branch_started = asyncio.Event()
+    branch_stopped = asyncio.Event()
+    release_sibling = asyncio.Event()
+
+    async def blocked(node, inputs, previous_outputs, extra=None):
+        if node.node_id == "node_5":
+            if extra.get("run_id") == b:
+                await release_sibling.wait()
+            else:
+                branch_started.set()
+                try:
+                    await asyncio.sleep(20)
+                finally:
+                    branch_stopped.set()
+        return await dispatch(node, inputs, previous_outputs, extra)
+
+    monkeypatch.setattr(target, "dispatch_node_call", blocked)
+    runtime = WorkflowRuntime(capacity=2)
+    graph = parallel_review_workflow()
+    graph["node_2"]["node_config"]["timeout_seconds"] = 1
+    graph["__meta__"]["settings"]["timeouts"]["workflow"] = 30
+    runtime.install("parallel", graph)
+    a, b = str(uuid.uuid4()), str(uuid.uuid4())
+    try:
+        runtime.invoke(a, "parallel", {}, require_approval_resume=True)
+        runtime.invoke(b, "parallel", {})
+        waiting = await wait_for(runtime, b, lambda s: s["status"] == "waiting_approval")
+        await runtime.decide(b, waiting["approvals"][0]["approval_id"], True)
+        await asyncio.wait_for(branch_started.wait(), 2)
+        failed = await wait_for(runtime, a, lambda s: s["status"] in runtime.TERMINAL)
+        assert failed["status"] == "timed_out" and branch_stopped.is_set()
+        assert failed["events"][-1]["error_code"] == "approval_timeout"
+        assert not any(e.get("node_id") == "node_3" for e in failed["events"])
+        assert runtime.status(b)["status"] == "running"
+        assert not runtime.executions[b].stop.is_set()
+        release_sibling.set()
+        succeeded = await wait_for(runtime, b, lambda s: s["status"] in runtime.TERMINAL)
+        assert succeeded["status"] == "succeeded"
     finally:
         await runtime.close()

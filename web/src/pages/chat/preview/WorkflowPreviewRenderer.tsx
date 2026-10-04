@@ -4,7 +4,7 @@ import { PreviewReferenceButton } from './PreviewReferenceButton';
 import { usePreviewOrigin } from '@/lib/preview/context-origin';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { applyEdgeChanges, applyNodeChanges, ReactFlowProvider, useNodesInitialized, useReactFlow, useStore } from '@xyflow/react';
+import { applyEdgeChanges, applyNodeChanges, ReactFlowProvider, useNodesInitialized, useReactFlow, useStore, type Node } from '@xyflow/react';
 import { Download, Maximize2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '@xyflow/react/dist/style.css';
@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { getBasePath } from '@/lib/base-path';
 import { standaloneWorkflowPreviewHref } from '@/lib/preview/standalone-preview';
 import { WorkflowGraph, workflowDictToNodesEdges } from '@/pages/canvas/WorkflowGraph';
+import { autoLayout } from '@/pages/canvas/auto-layout';
 import { WorkflowSnapshotContext } from '@/pages/canvas/WorkflowSnapshotContext';
 import { ReadOnlyNodeDetails } from '@/pages/canvas/inspector/ReadOnlyNodeDetails';
 
@@ -36,8 +37,11 @@ function SnapshotCanvas({ graph, workflowId, version, focus, inspectorPlacement 
   const { t } = useTranslation();
   const [selected, setSelected] = useState<string | null>(focus?.nodeIds[0] ?? null);
   const [inspectorOpen, setInspectorOpen] = useState(!!focus?.nodeIds.length);
-  const projection = useMemo(() => workflowDictToNodesEdges(graph), [graph]);
-  const [measuredNodes, setMeasuredNodes] = useState(() => projection.nodes.map(node => ({ ...node, selected: focus?.nodeIds.includes(node.id) ?? false })));
+  const projection = useMemo(() => {
+    const projected = workflowDictToNodesEdges(graph);
+    return { ...projected, nodes: autoLayout(projected.nodes, projected.edges) };
+  }, [graph]);
+  const [measuredNodes, setMeasuredNodes] = useState<Node[]>(() => projection.nodes.map(node => ({ ...node, selected: focus?.nodeIds.includes(node.id) ?? false })));
   const nodes = measuredNodes;
   const [edges, setEdges] = useState(() => projection.edges.map(edge => ({ ...edge, selected: edge.selectable !== false && !!focus?.edges.some(item => item.source === edge.source && item.target === edge.target) })));
   const [menu, setMenu] = useState<{ x: number; y: number; nodes: string[]; edges: { source: string; target: string }[] } | null>(null);
@@ -79,7 +83,11 @@ function SnapshotCanvas({ graph, workflowId, version, focus, inspectorPlacement 
                 // Measurements are presentation state, not graph edits. Keep
                 // them so xyflow can initialize and fit the resized viewport.
                 const dimensions = changes.filter((change) => change.type === 'dimensions' || change.type === 'select');
-                if (dimensions.length) setMeasuredNodes((current) => applyNodeChanges(dimensions, current));
+                if (dimensions.length) setMeasuredNodes((current) => {
+                  const measured = applyNodeChanges(dimensions, current);
+                  return dimensions.some(change => change.type === 'dimensions')
+                    ? autoLayout(measured, projection.edges) : measured;
+                });
                 const selection = changes.find((change) => change.type === 'select' && change.selected);
                 if (selection?.type === 'select') setSelected(selection.id);
               }}

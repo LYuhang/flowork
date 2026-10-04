@@ -460,3 +460,33 @@ async def test_lost_approval_process_is_not_resumed_and_capacity_is_reusable(pg_
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
             await pool.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("decision", [None, False])
+async def test_approval_timeout_is_not_a_rejection(pg_engine, decision):
+    tenant, actor, _ = await owner()
+    run, approval, _ = await waiting_run(tenant, actor)
+    events = [
+        {"type": "approval_resolved", "seq": 2, "generation": "generation-a",
+         "invocation_id": run, "approval_id": approval, "reason": "timeout",
+         "approved": decision, "decided_at": time.time()},
+        {"type": "result", "seq": 3, "generation": "generation-a", "invocation_id": run,
+         "status": "timed_out", "error_code": "approval_timeout", "final_outputs": {},
+         "error_dict": {"__engine__": "approval_timeout"}, "execution_time": 1},
+    ]
+    if decision is False:
+        with pytest.raises(HistoryConflict, match="invalid_approval_resolution"):
+            async with session_scope(tenant_id=tenant) as session:
+                await WorkflowHistoryRepo(session).persist_events(run, "generation-a", events)
+        return
+    async with session_scope(tenant_id=tenant) as session:
+        await WorkflowHistoryRepo(session).persist_events(run, "generation-a", events)
+    async with session_scope(tenant_id=tenant) as session:
+        detail = await WorkflowHistoryRepo(session).detail(run)
+        assert detail["status"] == "timed_out" and detail["error_code"] == "approval_timeout"
+        assert detail["approvals"][0]["status"] == "timeout"
+        assert detail["approvals"][0]["approved"] is None
+        assert detail["result"]["final_outputs"] == {}
+        with pytest.raises(HistoryConflict):
+            await WorkflowHistoryRepo(session).request_decision(run, approval, actor_user_id=actor, approved=True)

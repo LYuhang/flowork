@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { StandalonePreviewPage } from '@/pages/preview/StandalonePreviewPage';
@@ -66,4 +66,28 @@ describe('StandalonePreviewPage', () => {
     expect(screen.getByText('Unable to open Preview')).toBeInTheDocument();
     expect(screen.queryByTestId('shared-preview')).not.toBeInTheDocument();
   });
+});
+
+
+function Destination() {
+  const location = useLocation();
+  return <p data-testid="destination">{location.pathname}{location.search}{location.hash}</p>;
+}
+
+it.each(['Back', 'Close Preview'])('returns to the source after direct entry using %s', async (button) => {
+  const destination = '/deployments/dep-1?tab=settings#limits';
+  render(<MemoryRouter initialEntries={[`/preview?type=workflow&workflowId=wf&version=v1.sv1&returnTo=${encodeURIComponent(destination)}`]}>
+    <Routes><Route path="/preview" element={<StandalonePreviewPage />} /><Route path="/deployments/:id" element={<Destination />} /></Routes>
+  </MemoryRouter>);
+  fireEvent.click(screen.getByRole('button', { name: button }));
+  expect(await screen.findByTestId('destination')).toHaveTextContent(destination);
+});
+
+it('exits an old direct preview link even without a closeable tab or history', async () => {
+  window.history.replaceState(null, '');
+  render(<MemoryRouter initialEntries={['/preview?type=workflow&workflowId=wf&version=v1.sv1']}>
+    <Routes><Route path="/preview" element={<StandalonePreviewPage />} /><Route path="/" element={<Destination />} /></Routes>
+  </MemoryRouter>);
+  fireEvent.click(screen.getByRole('button', { name: 'Close Preview' }));
+  expect(await screen.findByTestId('destination')).toHaveTextContent('/');
 });

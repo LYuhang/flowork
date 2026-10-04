@@ -263,6 +263,7 @@ class WorkflowRuntime:
         watchdog = asyncio.create_task(self._enforce_budget(e, started, workflow._execution_timeout))
         result = {"final_outputs": {}, "error_dict": {}, "execution_time": 0.0}
         observed_errors = {}
+        approval_timed_out = False
         terminal_status = "failed"
         stream = None
         try:
@@ -280,6 +281,9 @@ class WorkflowRuntime:
                             "error_message", "execution_failed"
                         )
                     await self._emit(e, {**event, "type": "node_event"})
+                    if event.get("error_code") == "approval_timeout":
+                        approval_timed_out = True
+                        e.stop.set()  # Stop this invocation, including parallel branches.
             result["error_dict"] = {**observed_errors, **(result["error_dict"] or {})}
             terminal_status = (
                 "timed_out"
@@ -300,7 +304,11 @@ class WorkflowRuntime:
                 await stream.aclose()
             watchdog.cancel()
             await asyncio.gather(watchdog, return_exceptions=True)
-            if e.timed_out:
+            if approval_timed_out:
+                terminal_status = "timed_out"
+                result["final_outputs"] = {}
+                result["error_dict"] = {**observed_errors, "__engine__": "approval_timeout"}
+            elif e.timed_out:
                 result["error_dict"]["__engine__"] = "execution_timed_out"
             result["error_dict"] = {
                 key: _error_message(value, e.private_tokens) for key, value in (result["error_dict"] or {}).items()
@@ -316,7 +324,8 @@ class WorkflowRuntime:
                     "execution_time": time.monotonic() - started,
                 }
             e.result = result
-            await self._emit(e, {"type": "result", "status": terminal_status, **result})
+            await self._emit(e, {"type": "result", "status": terminal_status, **result,
+                                 **({"error_code": "approval_timeout"} if approval_timed_out else {})})
 
     async def events(self, invocation_id: str, *, after: int = 0, wait_seconds: float = 0, limit: int = 100) -> dict:
         e = self.executions[invocation_id]

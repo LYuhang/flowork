@@ -293,7 +293,7 @@
 | ConditionNode | 两个独立结束分支；60／59、80／79 两组边界结果正确 |
 | LoopBeginNode／LoopEndNode | 成对建立并绑定；修正循环快照取值后得到 [2,4,6]；重新从空白样例构建后，空数组得到 [] |
 | ParallelStartNode／ParallelEndNode | 成对创建，两条分支汇合，n=3 得到 plus=4、doubled=6 |
-| HumanApprovalNode | 2 秒超时自动驳回，`approved=false`，后续结束节点继续执行 |
+| HumanApprovalNode | 审批超时后终止本次执行，记录 `timed_out` / `approval_timeout`；不输出 `approved`，不执行后续节点 |
 | TransformNode | 不使用 CodeNode，去首尾空格并大写，得到 HELLO |
 | HTTPRequestNode | 使用 HTTP 节点请求 example.com，实际返回状态和正文 |
 | TableReadNode／TableWriteNode | 两行 CSV 实际读写并比对内容；首次错误地使用不存在的执行目录文件，读取原始错误后自行修正为持久文件路径 |

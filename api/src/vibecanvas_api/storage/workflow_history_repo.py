@@ -206,7 +206,7 @@ class WorkflowHistoryRepo:
                 # The decision is durable, but execution remains blocked until
                 # the host reauthorizes its original principal and resumes it.
                 if (
-                    event.get("reason") not in {"approved", "rejected", "timeout"}
+                    event.get("reason") not in {"approved", "rejected"}
                     or type(event.get("approved")) is not bool
                     or event["approved"] != (event["reason"] == "approved")
                 ):
@@ -223,9 +223,11 @@ class WorkflowHistoryRepo:
             elif kind == "approval_resolved":
                 reason = event["reason"]
                 approved = event["approved"]
-                if reason not in {"approved", "rejected", "timeout"} or type(approved) is not bool:
-                    raise HistoryConflict("invalid_approval_resolution")
-                if approved != (reason == "approved"):
+                if reason == "timeout":
+                    valid = approved is None
+                else:
+                    valid = reason in {"approved", "rejected"} and type(approved) is bool and approved == (reason == "approved")
+                if not valid:
                     raise HistoryConflict("invalid_approval_resolution")
                 resolved = (
                     await self.session.execute(
@@ -257,7 +259,10 @@ class WorkflowHistoryRepo:
                     raise HistoryConflict("invalid_execution_terminal_status")
                 result = {k: event.get(k) for k in ("final_outputs", "error_dict", "execution_time")}
                 await self._finish(
-                    run, status=status, result=result, error_code="execution_failed" if status == "failed" else None
+                    run, status=status, result=result,
+                    error_code=("approval_timeout" if status == "timed_out" and event.get("error_code") == "approval_timeout"
+                                else "execution_timeout" if status == "timed_out"
+                                else "execution_failed" if status == "failed" else None)
                 )
             elif kind != "node_event":
                 raise HistoryConflict("unknown_execution_event")

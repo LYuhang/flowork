@@ -135,8 +135,19 @@ upgrade from an older executor that does not renew leases.
 `HumanApprovalNode` requires `instruction`, `timeout_seconds` (a positive
 integer) and, for deployments, an explicit `approver_email`. Admission resolves
 the email to an active member of the deployment's organization. Its only output
-is `approved: boolean`. Rejection and approval timeout both produce `false` and
-continue the graph; use a ConditionNode to route downstream work.
+is `approved: boolean`: true for a human approval and false for a human rejection.
+Both decisions continue the graph; use a ConditionNode to route downstream work.
+An approval timeout produces no business output and terminates that execution,
+including active parallel branches. Its approval record has status `timeout`
+and `approved=null`; its execution has status `timed_out` and error code
+`approval_timeout`, distinct from ordinary `execution_timeout`. Timeout skips
+credential refresh/resume, rejects late decisions, and releases capacity only
+after the invocation has stopped. Other invocations and the shared worker remain
+available. Cancelled/interrupted approvals also produce no decision.
+
+A Deployment call that reached approval retains its asynchronous ticket. Result
+queries return HTTP 200 for a successful query and expose `timed_out` with
+`approval_timeout` in the payload; they do not restart the invocation.
 
 Every visit creates an independent approval, including loop iterations. Waiting
 retains execution capacity. A deployment call that reaches an approval returns
@@ -446,7 +457,7 @@ A synchronous call returns HTTP 202 only after its actual path encounters Human 
 
 Timeout cancels the affected invocation and stops its owned Code/Bash children. The shared RPC worker, resident Deployment session and sibling invocations remain available. Capacity is released only after that invocation has stopped. If a worker actually crashes, the pool replaces it for new calls; missing workers alone do not release the sandbox or replay lost calls.
 
-Native-service acceptance (2026-10-04) verified HTTP 504 on an ordinary call timeout followed by HTTP 200 on the next call with unchanged resident worker PIDs, including unlimited-concurrency mode. A sibling Human approval call survived another call's timeout and completed after its own approval deadline. A 32-second ordinary call remained synchronous with a 45-second budget. Explicit asynchronous execution timed out durably and the next call succeeded. The Settings control rejected zero and persisted a changed timeout across reload without changing the active revision. Private credentials and test evidence remain outside the repository.
+Native-service acceptance (2026-10-04) verified HTTP 504 on an ordinary call timeout followed by HTTP 200 on the next call with unchanged resident worker PIDs, including unlimited-concurrency mode. A sibling Human approval call remained isolated from another call's timeout. Approval deadlines now terminate their own invocation with approval_timeout, as verified below. A 32-second ordinary call remained synchronous with a 45-second budget. Explicit asynchronous execution timed out durably and the next call succeeded. The Settings control rejected zero and persisted a changed timeout across reload without changing the active revision. Private credentials and test evidence remain outside the repository.
 
 
 ## Shared worker and persistent directory acceptance (2026-10-04)
@@ -524,3 +535,36 @@ four. These are short samples, include a cold first call and model latency, and
 do not establish a maximum sustainable QPS. The earlier capacity-release failure
 and model completion failure remain recorded as findings, not erased by the
 successful final run.
+
+
+## Approval deadline and read-only preview acceptance (2026-10-04)
+
+The real service verified approval timeout through canvas execution, two batch
+rows with one execution slot, a one-time scheduled task, and an API Deployment.
+Each timed-out execution retained its node inputs and error, had no downstream
+EndNode event or business output, and stored approval status `timeout` with
+`approved=null`, execution status `timed_out` and error `approval_timeout`. Late
+approval attempts returned HTTP 409. Batch processing advanced to the next row.
+
+Two calls shared one resident Deployment worker: one reached approval timeout
+while the other was explicitly approved and succeeded. A later explicit rejection
+continued with `approved=false`; cancellation produced no decision. Worker PIDs
+were unchanged. The original asynchronous ticket remained queryable with HTTP
+200 and its terminal `approval_timeout` payload. The QA Deployment was disabled
+and the one-time schedule paused after verification.
+
+Version previews now apply presentation-only auto layout before display and
+again when measured node sizes arrive. They do not persist positions or change
+the selected Workflow version. Task and Deployment version links carry their
+source route (including the selected tab); preview Back and Close navigate to
+that source without depending on browser permission to close a tab. Old links
+use in-app browser history when available, otherwise a conversation/home exit.
+Execution trace pages also provide an explicit link back to their owning task,
+deployment or workflow.
+
+Eight real Chromium browser cases at 390px and 1440px widths covered the
+reported overlapping Workflow, batch and scheduled task version previews,
+non-overlapping node bounds, read-only Node/Run info inspectors, reload/direct
+entry followed by Back/Close, and approval-timeout trace messages with no active
+approval buttons. All passed without page errors; the stored snapshot remained
+unchanged. This is mobile-viewport coverage, not a physical Safari-device test.

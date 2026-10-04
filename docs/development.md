@@ -179,8 +179,10 @@ executes it. Review these dependencies together:
   cancellation, result queries, history filters and CLI exit/result handling.
 
 For `HumanApprovalNode`, verify that waiting retains its worker, each admitted
-input has its own `execution_id` and `execution_url`, and rejection or timeout
-returns `approved=false` and continues. CLI progress must expose
+input has its own `execution_id` and `execution_url`. Human approval/rejection
+returns `approved=true/false` and continues. Approval timeout produces no output,
+terminates that invocation and its parallel branches, and records `timed_out`
+with `approval_timeout`; the approval record has `approved=null`. CLI progress must expose
 `row_status=waiting_approval`; unfinished CLI executions remain scoped to the
 original Agent turn. Deployment HTTP 202 is acceptance, not execution success.
 

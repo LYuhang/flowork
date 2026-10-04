@@ -154,7 +154,7 @@ describe("<TaskDetailPage>", () => {
     vi.mocked(getTask).mockResolvedValue(task);
     renderAt(TASK_ID);
     expect(await screen.findByRole('link', { name: 'v2.sv3' }))
-      .toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3');
+      .toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3&returnTo=' + encodeURIComponent(`/tasks/${TASK_ID}`));
   });
 
   it("renders the workflow id, status badge, and progress for a running task", async () => {
@@ -470,7 +470,7 @@ describe("<TaskDetailPage>", () => {
     await user.click(screen.getByRole("button", { name: /^调度记录/ }));
     expect(await screen.findByText(/手动触发/)).toBeInTheDocument();
     for (const link of await screen.findAllByRole('link', { name: '查看所选执行版本 v2.sv3' })) {
-      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3');
+      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3&returnTo=' + encodeURIComponent(`/tasks/${TASK_ID}?tab=logs`));
     }
     expect(screen.getAllByText("成功").length).toBeGreaterThan(0);
     expect(screen.getByText(/未发送/)).toBeInTheDocument();

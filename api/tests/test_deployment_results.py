@@ -273,3 +273,13 @@ async def test_pre_dispatch_failure_has_durable_safe_result(pg_engine, app_engin
         authorization=f"Bearer {key}",
     )
     assert polled == payload
+
+
+def test_approval_timeout_has_its_own_external_error_code():
+    detail = {"id": str(uuid.uuid4()), "status": "timed_out", "error_code": "approval_timeout",
+              "result": {"final_outputs": {}, "error_dict": {"node_2": "private details"}}}
+    response = sync_result_response(detail)
+    assert response.status_code == 504
+    payload = json.loads(response.body)
+    assert payload["status"] == "timed_out" and payload["error_code"] == "approval_timeout"
+    assert "private details" not in response.body.decode()

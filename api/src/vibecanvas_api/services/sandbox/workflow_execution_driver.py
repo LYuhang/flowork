@@ -195,7 +195,7 @@ class WorkflowExecutionDriver:
                     if frame["type"] == "approval_requested" and self._timeout.when() is not None:
                         self._remaining_timeout = max(0, self._timeout.when() - asyncio.get_running_loop().time())
                         self._timeout.reschedule(None)
-                    elif frame["type"] == "approval_resolved" and self._remaining_timeout is not None:
+                    elif frame["type"] == "approval_resolved" and frame.get("reason") != "timeout" and self._remaining_timeout is not None:
                         self._timeout.reschedule(asyncio.get_running_loop().time() + self._remaining_timeout)
                         self._remaining_timeout = None
                 if frame["type"] == "approval_ready":

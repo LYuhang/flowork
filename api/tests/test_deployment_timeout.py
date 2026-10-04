@@ -35,8 +35,11 @@ async def test_worker_stop_and_approval_budget(pg_engine, monkeypatch, mode):
             result=await asyncio.wait_for(driver.run(inputs={},context={},timeout_seconds=1),15)
             async with session_scope(tenant_id=tenant) as db: detail=await WorkflowHistoryRepo(db).detail(execution)
             if mode == 'approval':
-                assert detail['status']=='succeeded'
-                assert result['final_outputs']['__end__']['approved'] is False
+                assert detail['status']=='timed_out' and detail['error_code']=='approval_timeout'
+                assert result['final_outputs']=={}
+                assert detail['approvals'][0]['status']=='timeout'
+                assert detail['approvals'][0]['approved'] is None
+                assert slot.alive and slot.invocation_id is None
             else:
                 assert detail['status']=='timed_out' and detail['error_code']=='execution_timeout'
                 assert slot.alive and slot.invocation_id is None

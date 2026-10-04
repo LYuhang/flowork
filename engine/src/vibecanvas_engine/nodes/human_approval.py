@@ -14,6 +14,10 @@ from ..utils import safe_call_with_args
 from .base import BaseNode
 
 
+class ApprovalTimeout(TimeoutError):
+    """The review deadline expired without a human decision."""
+
+
 @node_registry.register()
 class HumanApprovalNode(BaseNode):
     CONFIG_SCHEMA = {
@@ -33,14 +37,14 @@ class HumanApprovalNode(BaseNode):
         "constraints": [
             "output_fields must contain only approved of type boolean; at most one child.",
             "Both approval and rejection continue to the child. Use ConditionNode to branch on approved.",
-            "Timeout automatically rejects. Configure a positive timeout_seconds.",
+            "Approval timeout stops this execution with approval_timeout and no business output. Configure a positive timeout_seconds.",
             "approver_email selects a registered user. Omit for the workflow/task initiator; deployments require an explicit email.",
             "Every visit creates a separate approval, including visits inside loops and parallel branches.",
         ],
         "config_guide": {
             "instruction": "Plain text describing what the reviewer must confirm.",
             "approver_email": "Email of the designated reviewer; authorization uses the resolved account identity.",
-            "timeout_seconds": "Positive integer seconds to wait before automatic rejection.",
+            "timeout_seconds": "Positive integer seconds to wait before terminating this execution with approval_timeout.",
         },
         "examples": [
             {
@@ -59,7 +63,7 @@ class HumanApprovalNode(BaseNode):
         ],
         "display": {
             "name": {"en": "Human approval", "zh": "人工确认"},
-            "description": {"en": "Wait for approval or rejection", "zh": "等待人工通过或驳回，超时自动驳回"},
+            "description": {"en": "Wait for approval or rejection", "zh": "等待人工通过或驳回，超时终止本次执行"},
             "icon": "condition",
             "category": {"en": "Flow Control", "zh": "流程控制"},
         },
@@ -91,5 +95,8 @@ class HumanApprovalNode(BaseNode):
             if type(approved) is not bool:
                 raise TypeError("Approval broker must return a boolean")
             return {"status": "success", "output": {"approved": approved}, "error_message": "", "execution_time": 0.0}
+        except ApprovalTimeout:
+            return {"status": "error", "output": None, "traceback": "",
+                    "error_code": "approval_timeout", "error_message": "approval_timeout"}
         except Exception as exc:
             return {"status": "error", "output": None, "traceback": "", "error_message": str(exc)}

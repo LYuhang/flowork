@@ -35,6 +35,7 @@ def external_result(detail: dict) -> dict:
             "cancelled": "execution_cancelled",
         }.get(state, "execution_failed")
         if detail.get("error_code") in {
+            "approval_timeout",
             "execution_lost",
             "execution_dispatch_failed",
             "execution_unavailable",

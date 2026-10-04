@@ -96,3 +96,9 @@ export function standalonePreviewTarget(
   }
   return null;
 }
+
+/** Only in-app resource routes may be used as a preview return destination. */
+export function previewReturnPath(value: string | null): string | null {
+  if (!value || /[\\\r\n]/.test(value)) return null;
+  return value === '/' || /^\/(tasks|deployments|workflow|workflow-executions|chat)(?:\/|\?|#|$)/.test(value) ? value : null;
+}

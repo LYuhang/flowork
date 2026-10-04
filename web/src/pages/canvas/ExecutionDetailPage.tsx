@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ReactFlowProvider, useNodes, useNodesInitialized, useNodesState, useReactFlow, type Node, type Edge } from '@xyflow/react';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ export function ExecutionDetailPage() {
 
 function ExecutionDetail({ executionId }: { executionId: string }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const detailQuery = useExecutionDetail(executionId);
   const eventsQuery = useExecutionEvents(executionId);
   const [selected, setSelected] = useState<string | null>(null);
@@ -44,7 +45,10 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
           {detail.error_code && <p role="alert" className="text-sm text-state-danger">{t(`execution.failure.${detail.error_code}`, { defaultValue: t('execution.failure.generic') })}</p>}
           <p className="break-all font-mono text-xs text-content-tertiary">{detail.id}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { void detailQuery.refetch(); void eventsQuery.refetch(); }}>{t('execution.refresh')}</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => navigate(detail.source_type === 'task' ? `/tasks/${encodeURIComponent(detail.source_id)}` : detail.source_type === 'deployment' ? `/deployments/${encodeURIComponent(detail.source_id)}` : `/workflow/${encodeURIComponent(detail.wf_id)}`)}>{t('preview.standalone.back', 'Back')}</Button>
+          <Button variant="outline" size="sm" onClick={() => { void detailQuery.refetch(); void eventsQuery.refetch(); }}>{t('execution.refresh')}</Button>
+        </div>
       </header>
       <WorkflowSnapshotContext.Provider value={detail.workflow}>
       <ExecutionHistoryContext.Provider value={{ detail, latestNodeEvents }}>

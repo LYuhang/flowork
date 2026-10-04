@@ -2,6 +2,7 @@ import { previewOriginFromSearch } from './context-origin';
 import { describe, expect, it } from 'vitest';
 
 import {
+  previewReturnPath,
   standalonePreviewHref,
   standalonePreviewTarget,
   standaloneWorkflowPreviewHref,
@@ -82,4 +83,12 @@ describe('standalone Preview links', () => {
       path: '/data/../memory/private.txt',
     }))).toBeNull();
   });
+});
+
+
+it.each(['https://elsewhere.test/tasks/1', '//elsewhere.test/tasks/1', '/preview?x=1', '/tasks\\elsewhere', 'javascript:alert(1)'])('rejects invalid preview return destination %s', value => {
+  expect(previewReturnPath(value)).toBeNull();
+});
+it('preserves the source details tab in a preview return destination', () => {
+  expect(previewReturnPath('/tasks/1?tab=logs')).toBe('/tasks/1?tab=logs');
 });

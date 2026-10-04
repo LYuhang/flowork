@@ -499,3 +499,20 @@ v1.sv21 已通过真实部署调用：同步入口遇到 Human 返回 HTTP 202�
 尝试在部署设置中调到 512 MiB，配置保存成功，但新实例在现有部署资源配额下持续 waiting_capacity，150 秒内未就绪，未开展 512 MiB 请求测试。不能宣称增加内存后已经解决。本轮创建的测试部署均已停用，保留配置、历史、trace 与原始失败证据，不停用其它部署。
 
 这是一轮小规模、有界的真实依赖测试，不是吞吐容量承诺。单次、批量、定时、Human 部署异步结果链路均通过；默认资源下 4 并发未通过，不能将整个压力验收标记为全部通过。后续提高并发前，需要在可用资源配额内确定实例内存和并发上限，再复测。本次不修改服务器全局资源配额。
+
+
+### SubAgent 资源生命周期复测（2026-10-04）
+
+继续保留 LangChain/LangGraph、现有工具和 MCP broker，不维护自研 Agent 框架。当前修复范围是 OpenAI/Azure 适配路径中由 Flowork 显式创建的同步与异步 HTTP 客户端：使用异步上下文管理器，在节点成功、异常、取消和模型初始化失败时释放；连接在使用它的事件循环结束前关闭。MCP broker 客户端原本已有上下文管理器，保持不变。其它供应商 SDK 的内部连接生命周期尚未据此宣称全部完成审计。
+
+相关回归 42 项通过，追加真实 OpenAI 模型适配器的传输所有权测试后，生命周期专项 10 项通过（其中 9 项与前一组重叠，合计 43 项独立测试）。没有修改 set_output 终止协议，也没有增加纠正对话。
+
+在真实部署 v2.sv1、256 MiB 配额中执行 8 次连续调用及 2 次并发调用，10/10 返回 HTTP 200、succeeded；核对算术结果、循环和并行字段、HTTP 状态、分支及独立文件路径。单路峰值约 147–153 MiB，执行后约 136–143 MiB；双路峰值约 252 MiB，结束后约 243 MiB。这组观察没有证明内存降低，也不足以确认长期无泄漏。与此前单路约 132–135 MiB、双路约 240 MiB 的短测试相比，仍需控制缓存、共享页记账、执行次数等因素后定位差异，不将释放修复表述为容量提升。测试部署结束后停用，保留结果。
+
+框架替代仅进行官方资料调研，尚未安装或替换生产依赖，也未给候选框架宣称内存降幅：
+
+- Pydantic AI 的 slim 包可以按模型和 MCP 能力选择依赖；Tool Output 支持命名输出工具，适合验证 set_output 协议。优先作为对比候选，仍需验证输出重试、取消、图片与 trace。参考：https://pydantic.dev/docs/ai/overview/install/ 、https://pydantic.dev/docs/ai/mcp/client/ 、https://pydantic.dev/docs/ai/core-concepts/output/ 。
+- OpenAI Agents SDK 提供工具、MCP、追踪及模型适配入口；需要验证现有供应商兼容性和依赖成本。参考：https://developers.openai.com/api/docs/guides/agents/sdk 、https://developers.openai.com/api/docs/guides/agents/models 。
+- smolagents 提供工具与 MCP 集成，作为次要候选；尚未验证它对现有异步 worker、取消与消息格式的匹配度。参考：https://github.com/huggingface/smolagents/blob/main/docs/source/en/installation.md 。
+
+框架替换不应绕过现有宿主机 MCP broker 鉴权。下一阶段以相同模型、工具、输入和并发测量常驻/峰值内存、成功率与延迟，再决定是否迁移。单 worker 多异步执行仍未实现；必须先明确每条调用的运行目录和取消边界，不能直接提高 runtime capacity 并沿用超时杀 worker。

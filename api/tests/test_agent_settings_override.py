@@ -8,6 +8,8 @@ here we lock the provider-shaped descriptor builder.
 """
 from __future__ import annotations
 
+import asyncio
+
 from unittest.mock import patch
 
 import httpx
@@ -99,6 +101,13 @@ def test_canonical_provider_passthrough():
         assert cfg["model"] == f"{provider}:m"
 
 
+def _use_model(cfg):
+    async def use():
+        async with workflow_subagent.workflow_chat_model(cfg) as model:
+            return model
+    return asyncio.run(use())
+
+
 def test_build_chat_model_forwards_max_tokens():
     captured = {}
 
@@ -115,7 +124,7 @@ def test_build_chat_model_forwards_max_tokens():
         "timeout": 30,
     }
     with patch("langchain.chat_models.init_chat_model", _fake_init):
-        out = workflow_subagent.build_workflow_chat_model(cfg)
+        out = _use_model(cfg)
     assert out == "FAKE_MODEL"
     assert captured["model_str"] == "openai:gpt-4o"
     assert captured["kwargs"]["max_tokens"] == 1234
@@ -148,7 +157,7 @@ def test_build_chat_model_threads_proxy_into_httpx_clients():
     with patch("langchain.chat_models.init_chat_model", lambda m, **kw: kw), \
          patch.object(workflow_subagent.httpx, "Client", _spy_client), \
          patch.object(workflow_subagent.httpx, "AsyncClient", _spy_async):
-        workflow_subagent.build_workflow_chat_model(cfg)
+        _use_model(cfg)
     assert seen["sync"] and seen["sync"][0].get("proxy") == "http://proxy:8080"
     assert seen["async"] and seen["async"][0].get("proxy") == "http://proxy:8080"
 
@@ -156,6 +165,7 @@ def test_build_chat_model_threads_proxy_into_httpx_clients():
 def test_build_chat_model_no_proxy_omits_proxy_kwarg():
     seen = []
     real_client = httpx.Client
+    real_async = httpx.AsyncClient
 
     def _spy_client(**kw):
         seen.append(kw)
@@ -164,6 +174,6 @@ def test_build_chat_model_no_proxy_omits_proxy_kwarg():
     cfg = {"model": "openai:gpt-4o", "api_key": "k", "timeout": 30}
     with patch("langchain.chat_models.init_chat_model", lambda m, **kw: kw), \
          patch.object(workflow_subagent.httpx, "Client", _spy_client), \
-         patch.object(workflow_subagent.httpx, "AsyncClient", lambda **kw: real_client(**kw)):
-        workflow_subagent.build_workflow_chat_model(cfg)
+         patch.object(workflow_subagent.httpx, "AsyncClient", lambda **kw: real_async(**kw)):
+        _use_model(cfg)
     assert seen and "proxy" not in seen[0]

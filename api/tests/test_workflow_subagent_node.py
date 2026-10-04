@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 
 from vibecanvas_api.agents.tools.subagent.core import SubAgentResult
 from vibecanvas_api.services.sandbox.workflow_guard import (
@@ -41,8 +41,9 @@ def test_subagent_node_populates_declared_output_fields(tmp_path):
 
     with (
         patch(
-            "vibecanvas_api.services.workflow_subagent.build_workflow_chat_model",
-            return_value=object(),
+            "vibecanvas_api.services.workflow_subagent.workflow_chat_model",
+            return_value=MagicMock(__aenter__=AsyncMock(return_value=object()),
+                                   __aexit__=AsyncMock(return_value=False)),
         ) as model_mock,
         patch(
             "vibecanvas_api.agents.tools.subagent.toolset.build_agent_subagent_tools",

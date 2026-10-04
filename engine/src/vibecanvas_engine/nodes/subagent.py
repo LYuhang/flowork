@@ -218,7 +218,7 @@ class SubAgentNode(BaseNode):
 
     async def _call_async(self, inputs: dict, extra: dict | None) -> dict:
         from vibecanvas_api.agents.tool_runtime import AgentContext
-        from vibecanvas_api.services.workflow_subagent import build_workflow_chat_model
+        from vibecanvas_api.services.workflow_subagent import workflow_chat_model
         from vibecanvas_api.agents.tools.subagent.core import run_bounded_agent
         from vibecanvas_api.agents.tools.subagent.toolset import build_agent_subagent_tools
 
@@ -232,7 +232,6 @@ class SubAgentNode(BaseNode):
             cfg["task_template"], inputs, unpack_multimodal=False
         )
         agent_cfg = self._agent_cfg(cfg["model_name"], extra)
-        model = build_workflow_chat_model(agent_cfg)
         ctx = AgentContext(
             wf_id=(extra or {}).get("run_id") or "",
             run_id=(extra or {}).get("run_id") or "",
@@ -243,7 +242,10 @@ class SubAgentNode(BaseNode):
         audit = ResourceAudit(resource_snapshot)
         if extra is not None:
             extra['_subagent_resource_audit'] = audit.payload
-        async with resource_tools(resource_snapshot) as selected_tools:
+        async with (
+            workflow_chat_model(agent_cfg) as model,
+            resource_tools(resource_snapshot) as selected_tools,
+        ):
             result = await run_bounded_agent(
                 model=model,
                 tools=build_agent_subagent_tools(working_dir=(extra or {}).get("run_dir")) + selected_tools,

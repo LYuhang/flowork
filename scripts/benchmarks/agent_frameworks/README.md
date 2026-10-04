@@ -67,6 +67,9 @@ For a smoke test add `--repetitions 1 --phases 1:1,4:4 --warmup 1`.
 - Warm memory is sampled after warmup; phase-end, post-GC, post-close and lifetime
   peak are separate. Do not interpret allocator high-water marks as proof of a
   leak, or compare these process RSS numbers directly to sandbox cgroup memory.
+- Initialization time starts after the harness's standard-library imports and
+  ends after framework/model/tool setup. It excludes interpreter bootstrap and
+  the first agent invocation; it is not end-to-end cold request latency.
 - Cancellation interrupts the first model wait, then observes tools for 700 ms.
   A cancelled Python await is not proof that a wrapped synchronous runner stopped.
   This does not test every cancellation point or hard-kill behavior.

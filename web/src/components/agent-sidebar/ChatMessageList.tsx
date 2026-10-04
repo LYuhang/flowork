@@ -533,6 +533,8 @@ export function ChatMessageList({
   );
   const historyIsLoading = historyLoadingProp ?? history.isLoading;
 
+  const preparingMessage = useChatStreamStore(state => activeChatId ? state.preparingMessages[activeChatId] : undefined);
+  const preparingMessages = useMemo(() => preparingMessage ? mergeChunks([{ ...preparingMessage, id: `preparing:${activeChatId}` }]) : [], [preparingMessage, activeChatId]);
   const historyMessages = useMemo(
     () => coalesceRenderableMessages(mergeChunks(historyItems)),
     [historyItems],
@@ -552,8 +554,8 @@ export function ChatMessageList({
   const persistedMessageIds = useMemo(() => new Set(historyMessages.map((message) => message.id)), [historyMessages]);
 
   const merged = useMemo(() => {
-    return showStream ? liveMessages : historyMessages;
-  }, [historyMessages, liveMessages, showStream]);
+    return [...(showStream ? liveMessages : historyMessages), ...preparingMessages];
+  }, [historyMessages, liveMessages, showStream, preparingMessages]);
 
   const renderItems = useMemo(() => groupToolActivity(merged), [merged]);
   const [groupIdentity, setGroupIdentity] = useState(() => ({
@@ -831,7 +833,7 @@ export function ChatMessageList({
               </button>
             </div>
           ) : null}
-          {shouldLoadHistory && historyIsLoading && historyItems.length === 0 && !showStream ? (
+          {shouldLoadHistory && historyIsLoading && historyItems.length === 0 && !showStream && !preparingMessage ? (
             <div className="space-y-2" data-role="agent-history-loading">
               <Skeleton className="h-10 w-3/4" />
               <Skeleton className="h-10 w-2/3" />
@@ -919,6 +921,12 @@ export function ChatMessageList({
                   </div>
                 );
               })}
+              {preparingMessage ? (
+                <div role="status" data-role="agent-message-preparing" className="flex items-center gap-2 px-1 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" aria-hidden />
+                  {t('agent.preparing_message', 'Preparing message…')}
+                </div>
+              ) : null}
               {isActivelyWorking ? (
                 <AgentRunningIndicator
                   compact={compact}

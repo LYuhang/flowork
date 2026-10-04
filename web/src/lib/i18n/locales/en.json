@@ -1,4 +1,5 @@
 {
+  "agent.preparing_message": "Preparing message…",
   "evaluation.not_started": "Not started",
   "evaluation.previousVersion": "Earlier result version",
   "evaluation.afterInference": "Evaluate after inference",

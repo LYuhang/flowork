@@ -122,7 +122,11 @@ describe('ChatComposer Stop', () => {
     await userEvent.type(input, 'First request');
     await userEvent.click(screen.getByRole('button', { name: /send|发送/i }));
     await waitFor(() => expect(prepare).toHaveBeenCalledOnce());
-    await userEvent.type(input, ' revised');
+    expect(input).toHaveValue('');
+    expect(input).toBeDisabled();
+    expect(useChatStreamStore.getState().preparingMessages['context-change']?.content).toBe('First request');
+    // A remote/store update during preparation must still invalidate the send.
+    act(() => useChatStreamStore.getState().setComposerInput(composerKey('context-change'), 'First request revised'));
     await act(async () => { resolve('project_test'); });
     expect(input).toHaveValue('First request revised');
     expect(send).not.toHaveBeenCalled();

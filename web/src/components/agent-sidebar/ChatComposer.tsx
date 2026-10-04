@@ -734,6 +734,20 @@ export function ChatComposer({
     }
     preparationRef.current = true;
     setDraftPreparing(true);
+    // Show the submission before any save/upload request. Keep the underlying
+    // draft intact until preparation succeeds, so conflicts and upload errors
+    // cannot lose text or references. This is not yet a server-accepted Turn.
+    const preparingChatId = chatId!;
+    const clearPreparation = () => useChatStreamStore.setState(state => {
+      const preparingMessages = { ...state.preparingMessages };
+      delete preparingMessages[preparingChatId];
+      return { preparingMessages };
+    });
+    useChatStreamStore.setState(state => ({ preparingMessages: {
+      ...state.preparingMessages,
+      [preparingChatId]: { role: 'user', content,
+        attachments: composerStateKey ? state.pendingAttachments[composerStateKey] : undefined },
+    } }));
     try {
       if (prepareConversation && chatId) {
         const preparedProjectId = await prepareConversation();
@@ -770,6 +784,7 @@ export function ChatComposer({
     } finally {
       preparationRef.current = false;
       setDraftPreparing(false);
+      clearPreparation();
     }
     contextDraft?.beginSend();
 
@@ -1015,7 +1030,7 @@ export function ChatComposer({
       ? 'px-0 py-1.5 text-readable leading-6'
       : 'px-3 py-2 text-readable leading-6';
   const attachmentPickerDisabled =
-    !chatId || isStreaming || readOnly || !historyReady || externallyDisabled;
+    !chatId || isStreaming || readOnly || !historyReady || externallyDisabled || draftPreparing;
   const openAttachmentPicker = (type: ChatFileAttachmentType) => {
     const input = type === 'image'
       ? imageInputRef.current
@@ -1146,7 +1161,7 @@ export function ChatComposer({
               )}
               data-role="agent-composer-attachments"
             >
-              {pendingAttachments.map((attachment, index) => (
+              {(!draftPreparing ? pendingAttachments : []).map((attachment, index) => (
                 <ContextAttachmentCard key={contextAttachmentKey(attachment)} attachment={attachment} originChatId={chatId}
                   onRemove={() => {
                     if (!composerStateKey) return;
@@ -1180,7 +1195,7 @@ export function ChatComposer({
           <Textarea
             ref={textareaRef}
             rows={embedded ? 3 : quietFrame ? 2 : 3}
-            value={value}
+            value={draftPreparing ? '' : value}
             onChange={(event) => {
               setValue(event.target.value);
               setCaretPosition(event.target.selectionStart ?? event.target.value.length);
@@ -1209,7 +1224,7 @@ export function ChatComposer({
                       )
                     : t('composer.select_chat', 'Select or start a chat')
             }
-            disabled={!chatId || readOnly || !historyReady || externallyDisabled}
+            disabled={!chatId || readOnly || !historyReady || externallyDisabled || draftPreparing}
             aria-label={t('composer.input_label', 'Message the agent')}
             className={cn(
               'resize-none rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:!bg-transparent disabled:!opacity-100 read-only:!bg-transparent',

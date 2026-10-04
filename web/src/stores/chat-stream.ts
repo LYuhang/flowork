@@ -188,6 +188,8 @@ export interface LastInput {
  */
 export interface ChatStreamState {
   runtimes: Record<string, ChatRuntime>;
+  /** Local preparation only: never a claimed or accepted server Turn. */
+  preparingMessages: Record<string, StreamChunk>;
   turnId: string | null;
   chatId: string | null;
   state: StreamState;
@@ -601,6 +603,7 @@ function appendLegacyBuffer(buffer: StreamChunk[], chunks: StreamChunk[]): Strea
 export const useChatStreamStore = create<ChatStreamState>()(
   subscribeWithSelector((set) => ({
     runtimes: {},
+    preparingMessages: {},
     turnId: null,
     chatId: null,
     state: 'idle',
@@ -898,6 +901,7 @@ export const useChatStreamStore = create<ChatStreamState>()(
     reset: () =>
       set({
         runtimes: {},
+        preparingMessages: {},
         turnId: null,
         chatId: null,
         state: 'idle',

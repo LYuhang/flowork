@@ -114,6 +114,28 @@ describe('ChatMessageList', () => {
     );
   });
 
+  it('renders only the selected chat preparation and hands off without a duplicate bubble', () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: true });
+    useChatStreamStore.setState({ preparingMessages: {
+      c1: { role: 'user', content: 'First pending message' },
+      c2: { role: 'user', content: 'Other chat message' },
+    } });
+    const { rerender } = render(<ChatMessageList wfId="wf" activeChatId="c1" historyItems={[]} historyLoading />);
+    expect(screen.getByText('First pending message')).toBeVisible();
+    expect(screen.queryByText('Other chat message')).not.toBeInTheDocument();
+    expect(screen.getByText('Preparing message…')).toBeVisible();
+    act(() => {
+      useChatStreamStore.getState().beginTurn('c1', '');
+      useChatStreamStore.getState().appendChunk({ role: 'user', content: 'First pending message' }, 'c1');
+      useChatStreamStore.setState({ preparingMessages: { c2: { role: 'user', content: 'Other chat message' } } });
+    });
+    expect(screen.getAllByText('First pending message')).toHaveLength(1);
+    expect(screen.queryByText('Preparing message…')).not.toBeInTheDocument();
+    rerender(<ChatMessageList wfId="wf" activeChatId="c2" historyItems={[]} historyLoading />);
+    expect(screen.getByText('Other chat message')).toBeVisible();
+    expect(screen.queryByText('First pending message')).not.toBeInTheDocument();
+  });
+
   it('no active chat → shows the concise empty-state invitation', () => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     render(<ChatMessageList wfId="wf" activeChatId={null} />);

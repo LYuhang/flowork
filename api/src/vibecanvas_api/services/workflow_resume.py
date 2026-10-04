@@ -82,7 +82,15 @@ async def refresh_execution_context(*, tenant_id, execution_id, workflow, contex
 
         delegated = None
         if claims["principal_type"] == "service_account":
-            delegated = set(await ServiceAccountsRepo(session).resource_refs(UUID(claims["principal_id"])))
+            accounts = ServiceAccountsRepo(session)
+            account_id = UUID(claims["principal_id"])
+            delegated = set(await accounts.resource_refs(account_id))
+            # Model credentials have their own delegation table; the generic
+            # resource table contains only Skill and MCP installations.
+            delegated.update(
+                (str(ResourceType.LLM_CREDENTIAL), str(identifier))
+                for identifier in await accounts.credential_ids(account_id)
+            )
 
         async def allowed(kind, identifier):
             if (

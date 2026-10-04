@@ -80,6 +80,7 @@ async def test_waiting_row_holds_worker_and_each_input_has_its_own_history(pg_en
             user_id=actor,
             workflow_id="wf-batch-human",
             workflow=graph,
+            workflow_version="v2.sv7",
             rows=[{}, {}],
             column_mapping={},
             concurrency=1,
@@ -114,6 +115,7 @@ async def test_waiting_row_holds_worker_and_each_input_has_its_own_history(pg_en
 
     try:
         first = await waiting(1)
+        assert first["workflow_version"] == "v2.sv7"
         assert first["input_index"] == 0
         # Only one input is admitted while the sole worker is awaiting review.
         await asyncio.sleep(0.3)
@@ -130,6 +132,7 @@ async def test_waiting_row_holds_worker_and_each_input_has_its_own_history(pg_en
                     approved=True,
                 )
             second = await waiting(2)
+            assert second["workflow_version"] == "v2.sv7"
             assert first["id"] != second["id"]
             assert second["input_index"] == 1
             assert first["generation"] == second["generation"]

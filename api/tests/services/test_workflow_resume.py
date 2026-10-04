@@ -166,3 +166,61 @@ async def test_resume_keeps_original_service_account_generation(pg_engine, app_e
     else:
         assert await resume.refresh_execution_context(**args) == {"llm_credentials": {}, "workflow_resources": {}}
         assert all(call.args[0].id == str(account_id) for call in service.check.await_args_list)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bound,allowed", [(True, True), (False, True), (True, False)])
+async def test_resume_model_credentials_use_their_own_delegation_table(monkeypatch, bound, allowed):
+    from contextlib import asynccontextmanager
+    from vibecanvas_api.services import llm_credentials_inject as credentials
+    from vibecanvas_api.storage.repo_llm_credentials import LlmCredentialsRepo
+    from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
+
+    tenant, actor, account, credential, execution = map(str, (uuid4() for _ in range(5)))
+    identity = resume.execution_identity(
+        tenant_id=tenant, user_id=actor, workflow_id="workflow", execution_id=execution,
+        execution_resource_type="task", principal_type="service_account", principal_id=account,
+    )
+
+    @asynccontextmanager
+    async def session_scope(**kwargs):
+        yield object()
+
+    monkeypatch.setattr(resume, "short_session_scope", session_scope)
+    monkeypatch.setattr(WorkflowHistoryRepo, "get", AsyncMock(return_value={
+        "initiator_user_id": actor, "wf_id": "workflow",
+    }))
+    monkeypatch.setattr(resume, "openfga_client_from_config", lambda: SimpleNamespace(close=AsyncMock()))
+    # Generic resource delegations intentionally contain no model credentials.
+    monkeypatch.setattr(ServiceAccountsRepo, "resource_refs", AsyncMock(return_value=()))
+    monkeypatch.setattr(ServiceAccountsRepo, "credential_ids", AsyncMock(
+        return_value=(UUID(credential),) if bound else (),
+    ))
+    monkeypatch.setattr(LlmCredentialsRepo, "list_for_user", AsyncMock(return_value=[{
+        "id": credential, "name": "saved-model",
+    }]))
+    monkeypatch.setattr(credentials, "collect_referenced_credential_names", lambda workflow: {"saved-model"})
+    build = AsyncMock(return_value={"saved-model": {"model": "test"}})
+    monkeypatch.setattr(credentials, "build_llm_credentials_extra", build)
+    service = SimpleNamespace(check=AsyncMock(return_value=SimpleNamespace(allowed=allowed)))
+
+    async def authorize(request, claims, *, resolve):
+        return await resolve(session=object(), service=service, principal=account,
+                             authz_context=object(), capability=claims)
+
+    monkeypatch.setattr(resume, "authorize_workflow_execution", authorize)
+    args = dict(tenant_id=tenant, execution_id=execution, workflow={},
+                context={resume.IDENTITY_KEY: identity})
+    if bound and allowed:
+        result = await resume.refresh_execution_context(**args)
+        assert result["llm_credentials"] == {"saved-model": {"model": "test"}}
+        build.assert_awaited_once()
+    else:
+        with pytest.raises(PermissionError, match="execution_model_access_revoked"):
+            await resume.refresh_execution_context(**args)
+        build.assert_not_awaited()
+    if bound:
+        service.check.assert_awaited_once()
+        assert service.check.await_args.args[2].id == credential
+    else:
+        service.check.assert_not_awaited()

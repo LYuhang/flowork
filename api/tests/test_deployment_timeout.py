@@ -53,6 +53,8 @@ async def test_timeout_snapshot_and_unclaimed_fence(pg_engine, app_engine):
         await db.execute(text('UPDATE deployments SET timeout_seconds=1 WHERE id=:id'),{'id':dep['id']})
         await DeploymentInvocationsRepo(db).create(invocation_id=invocation,tenant_id=dep['tenant_id'],deployment_id=dep['id'],wf_id=dep['wf_id'],trigger_type='api',source='sync_api',status='running',revision_id=dep['active_revision_id'])
         await create_deployment_history(db,invocation_id=invocation,deployment=dep,revision={'id':dep['active_revision_id']},workflow=await controller.graph(spec),inputs={'x':1})
+        history = await WorkflowHistoryRepo(db).detail(str(invocation))
+        assert history['workflow_version'] == f"v{spec['pinned_major']}.sv{spec['pinned_sub']}"
         await db.execute(text("UPDATE deployment_invocations SET submitted_at=now()-interval '2 seconds' WHERE id=:id"),{'id':invocation})
         await db.execute(text('UPDATE deployments SET timeout_seconds=120 WHERE id=:id'),{'id':dep['id']})
     response=await observe_invocation(tenant_id=tenant,slug='test',invocation_id=str(invocation))

@@ -388,6 +388,7 @@ def _batch_exec_owned(
                     user_id=effective_user_id,
                     workflow_id=workflow_id,
                     workflow=workflow_dict,
+                    workflow_version=(workflow_snapshot or {}).get("version"),
                     rows=rows,
                     column_mapping=column_mapping or {},
                     output=output,

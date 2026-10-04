@@ -357,9 +357,10 @@ async def _execute_owned_scheduled_run(
             schedule = await TasksRepo(session).get_schedule(schedule_id)
             return ((ex.input_snapshot if ex is not None else {}) or {},
                     frozen.get("workflow"),
+                    frozen.get("version"),
                     frozen.get("mount_enabled", bool(schedule and schedule.mount_enabled)))
 
-        input_snapshot, workflow, mount_enabled = run_in_short_session(_input_snapshot)
+        input_snapshot, workflow, workflow_version, mount_enabled = run_in_short_session(_input_snapshot)
         if workflow is None:  # Legacy execution queued before snapshot support.
             workflow = SyncWorkflowRepo(username=user_id).get_current_workflow(workflow_id)
         from vibecanvas_api.services.service_account_resources import refresh_scheduled_resources
@@ -405,6 +406,7 @@ async def _execute_owned_scheduled_run(
         history_id = await create_execution(
             execution_id=str(execution_id), tenant_id=tenant_id, source_type="task", source_id=str(task_id),
             user_id=user_id, workflow_id=workflow_id, workflow=workflow, inputs=input_snapshot,
+            workflow_version=workflow_version,
         )
         node_events = 0
         resource_audits = {}

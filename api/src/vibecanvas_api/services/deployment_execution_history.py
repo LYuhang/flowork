@@ -43,4 +43,7 @@ async def create_deployment_history(
         inputs=inputs,
         approvers=approvers,
         revision_id=str(revision["id"]),
+        workflow_version=(
+            f"v{workflow['__meta__']['workflow_version']}.sv{workflow['__meta__']['workflow_subversion']}"
+        ),
     )

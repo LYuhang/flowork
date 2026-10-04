@@ -299,6 +299,7 @@ async def run_batch_workflow(
     workflow: dict,
     rows: list[dict],
     column_mapping: dict,
+    workflow_version: str | None = None,
     output: dict | None = None,
     output_columns: list | None = None,
     concurrency: int = 1,
@@ -459,6 +460,7 @@ async def run_batch_workflow(
                         execution_id = await create_row_execution(
                             tenant_id=tenant_id, source_type="task", source_id=task_id, user_id=user_id,
                             workflow_id=workflow_id, workflow=workflow, inputs=mapped, input_index=row_index,
+                            workflow_version=workflow_version,
                         )
                         pool_used = True
                         outcome = await observe_row_execution(

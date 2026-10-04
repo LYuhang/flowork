@@ -150,6 +150,7 @@ async def test_scheduled_review_allows_overlap_and_persists_isolated_result(pg_e
         assert manager.get_session.call_args.kwargs["lease"] == "resident"
         assert detail["source_type"] == "task" and detail["source_id"] == str(task_id)
         assert detail["initiator_user_id"] == str(actor)
+        assert detail["workflow_version"] == "v1.sv1"
         async with session_scope(tenant_id=str(tenant)) as db:
             assert (await TasksRepo(db).get_scheduled_execution(execution_id)).status == "running"
         await worker._dispatch_due_scheduled_runs()

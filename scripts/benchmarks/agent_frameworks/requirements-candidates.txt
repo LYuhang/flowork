@@ -1,0 +1,8 @@
+# Independent benchmark environment only; do not install in the Flowork venv.
+pydantic-ai-slim[openai]==2.54.0
+openai-agents==0.23.1
+smolagents[openai]==1.26.0
+openai==3.24.0
+pydantic==2.13.4
+httpx==0.28.1
+httpx2==2.13.1

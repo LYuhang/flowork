@@ -30,6 +30,7 @@ export function DeploymentInstances({ dep }: { dep: Deployment }) {
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-4">
           <div><dt className="text-xs text-content-tertiary">{t('tasks.version.label', 'Workflow version')}</dt><dd className="mt-1 font-mono"><WorkflowVersionLink workflowId={dep.wf_id} version={instance.version} inline /></dd></div>
+          <div><dt className="text-xs text-content-tertiary">{t('deployments.workers.runtime', 'Workers × concurrency')}</dt><dd className="mt-1 tabular-nums">{instance.worker_count ?? 1} × {(instance.worker_concurrency ?? -1) === -1 ? t('deployments.workers.unlimited', 'Unlimited') : (instance.worker_concurrency ?? -1)}</dd></div>
           <div><dt className="text-xs text-content-tertiary">/mount</dt><dd className="mt-1">{instance.mount_enabled ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off')}</dd></div>
           <div><dt className="text-xs text-content-tertiary">{t('deployments.runtime.pendingRequests', 'Unfinished requests')}</dt><dd className="mt-1 tabular-nums">{instance.pending_requests}</dd></div>
           <div><dt className="text-xs text-content-tertiary">{t('deployments.runtime.activatedAt', 'Serving since')}</dt><dd className="mt-1 break-words tabular-nums">{instance.activated_at ? formatTime(instance.activated_at) : '—'}</dd></div>

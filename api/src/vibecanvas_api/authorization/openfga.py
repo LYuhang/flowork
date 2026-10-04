@@ -568,6 +568,17 @@ class OpenFgaAuthzService:
         denial = self._validate_context(principal, resource, context)
         if denial is not None:
             return denial
+        if resource.id.startswith("deployment-run-"):
+            try:
+                deployment_id = str(uuid.UUID(resource.id.removeprefix("deployment-run-")))
+            except ValueError:
+                return Decision(False, reason_code="invalid_deployment_workspace")
+            if action is not Action.VIEW:
+                return Decision(False, reason_code="deployment_workspace_read_only")
+            source = ResourceRef(ResourceType.DEPLOYMENT, deployment_id, resource.organization_id)
+            allowed = (await self.check(principal, Action.INSPECT_RUNS, source, context)).allowed
+            return Decision(allowed, capabilities=frozenset({Action.VIEW}) if allowed else frozenset(),
+                            reason_code="deployment_workspace_read" if allowed else "deployment_workspace_denied")
         try:
             execution_id = str(uuid.UUID(resource.id))
         except ValueError:

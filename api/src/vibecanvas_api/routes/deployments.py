@@ -235,6 +235,12 @@ def _require_sharing_enabled() -> None:
         raise HTTPException(status_code=404, detail="resource_not_found")
 
 
+def _validate_worker_concurrency(value):
+    if value is not None and (type(value) is not int or (value != -1 and not 1 <= value <= 64)):
+        raise ValueError("worker_concurrency must be -1 (unlimited) or an integer from 1 to 64")
+    return value
+
+
 class CreateDeploymentBody(BaseModel):
     """Body schema for ``POST /api/v1/deployments``.
 
@@ -259,6 +265,9 @@ class CreateDeploymentBody(BaseModel):
     mount_enabled: bool = False
     cpu_millis: int = Field(default=500, ge=100, le=256000, strict=True)
     memory_mb: int = Field(default=256, ge=128, le=1048576, strict=True)
+    worker_count: Optional[int] = Field(default=None, ge=1, le=256, strict=True)
+    worker_concurrency: Literal[-1] | Annotated[int, Field(ge=1, le=64, strict=True)] = -1
+    _validate_concurrency = field_validator("worker_concurrency", mode="before")(_validate_worker_concurrency)
     enabled: bool = True
 
     @field_validator("slug")
@@ -363,6 +372,8 @@ async def create_deployment(
         pinned_major=pinned_major,
         pinned_sub=pinned_sub,
         timeout_seconds=body.timeout_seconds,
+        worker_count=body.worker_count if body.worker_count is not None else max(1, body.cpu_millis // 1000),
+        worker_concurrency=body.worker_concurrency,
         rate_limit_qps=body.rate_limit_qps,
         mount_enabled=body.mount_enabled,
         cpu_millis=body.cpu_millis,
@@ -539,6 +550,9 @@ class PatchDeploymentBody(BaseModel):
     mount_enabled: Optional[bool] = None
     cpu_millis: Optional[int] = Field(default=None, ge=100, le=256000, strict=True)
     memory_mb: Optional[int] = Field(default=None, ge=128, le=1048576, strict=True)
+    worker_count: Optional[int] = Field(default=None, ge=1, le=256, strict=True)
+    worker_concurrency: Literal[-1] | Annotated[int, Field(ge=1, le=64, strict=True)] | None = None
+    _validate_concurrency = field_validator("worker_concurrency", mode="before")(_validate_worker_concurrency)
 
 
 async def _scrub_secret_fields(
@@ -724,7 +738,7 @@ async def patch_deployment(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="rate_limit_qps must be >= 0",
             )
-    if any(fields.get(key, False) is None for key in ("name", "enabled", "mount_enabled", "rate_limit_qps", "version_pin", "cpu_millis", "memory_mb", "timeout_seconds")):
+    if any(fields.get(key, False) is None for key in ("name", "enabled", "mount_enabled", "rate_limit_qps", "version_pin", "cpu_millis", "memory_mb", "timeout_seconds", "worker_count", "worker_concurrency")):
         raise HTTPException(422, "Deployment settings cannot be null.")
     if "name" in fields and (not fields["name"].strip() or len(fields["name"]) > 200):
         raise HTTPException(422, "name must contain 1 to 200 characters.")

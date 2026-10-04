@@ -30,21 +30,34 @@ async def dispatch_node_call(node: BaseNode, inputs: dict, previous_outputs: dic
     - everything else → inline sync ``__call__``.
     Returns the node's ``{status, output, ...}`` result dict.
     """
+    local_extra = dict(extra or {}) if node.node_type == "SubAgentNode" else (extra if extra is not None else {})
     if hasattr(node, "call_async"):
-        return await node.call_async(inputs, previous_outputs, extra or {})
-    if getattr(node, "REQUIRES_THREAD_BRIDGE", False):
-        if getattr(node, 'node_type', None) == 'SubAgentNode':
-            local_extra = dict(extra or {})
-            result = await asyncio.to_thread(node, inputs, previous_outputs, extra=local_extra)
-            if '_subagent_resource_audit' in local_extra:
-                result['resource_audit'] = local_extra['_subagent_resource_audit']
-            if '_subagent_traces' in local_extra:
-                if not isinstance(result.get('output'), dict):
-                    result['output'] = {}
-                result['output']['__traces__'] = local_extra['_subagent_traces']
-            return result
-        return await asyncio.to_thread(node, inputs, previous_outputs, extra=extra)
-    return node(inputs, previous_outputs)
+        result = await node.call_async(inputs, previous_outputs, local_extra)
+    elif getattr(node, "REQUIRES_THREAD_BRIDGE", False):
+        # Establish Code pool ownership before starting its thread. A cancelled
+        # await must not race a late pool creation and leave user code alive.
+        pool = node._get_run_pool(local_extra) if node.node_type == "CodeNode" else None
+        operation = asyncio.create_task(asyncio.to_thread(node, inputs, previous_outputs, extra=local_extra))
+        try:
+            result = await asyncio.shield(operation)
+        except asyncio.CancelledError:
+            if pool is not None:
+                pool.close()
+            # Thread-backed file operations must actually finish before the
+            # invocation is declared stopped. Cancelling an await alone is not
+            # sufficient evidence that side effects stopped.
+            await asyncio.shield(operation)
+            raise
+    else:
+        return node(inputs, previous_outputs)
+    if node.node_type == "SubAgentNode":
+        if '_subagent_resource_audit' in local_extra:
+            result['resource_audit'] = local_extra['_subagent_resource_audit']
+        if '_subagent_traces' in local_extra:
+            if not isinstance(result.get('output'), dict):
+                result['output'] = {}
+            result['output']['__traces__'] = local_extra['_subagent_traces']
+    return result
 
 
 async def run_node(node_dict: dict, inputs: dict | None = None, extra: dict | None = None) -> dict:

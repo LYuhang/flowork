@@ -3917,5 +3917,12 @@
   "canvasChat.readOnly": "This canvas is read-only. Open an editable version to continue.",
   "canvasChat.unavailable": "This conversation is unavailable. Choose an accessible conversation from History.",
   "canvasChat.contextChanged": "The canvas context changed. Return to the selected major version before starting this conversation.",
-  "canvasChat.empty": "Right-click the canvas, a node or an edge to start a conversation, or choose one from History."
+  "canvasChat.empty": "Right-click the canvas, a node or an edge to start a conversation, or choose one from History.",
+  "deployments.workers.count": "Worker processes",
+  "deployments.workers.concurrency": "Concurrent executions per worker",
+  "deployments.workers.help": "Default: one worker per whole CPU core, minimum 1; per-worker concurrency is -1 (unlimited). Set a positive number to cap it. All workers share the instance CPU, memory and storage. Changes require a new instance.",
+  "deployments.workers.total": "Total concurrent executions: {{total}}",
+  "deployments.workers.invalid": "Enter whole numbers: 1–256 workers and 1–6per-worker concurrency is -1 (unlimited). Set a positive number to cap it.",
+  "deployments.workers.runtime": "Workers × concurrency",
+  "deployments.workers.unlimited": "Unlimited"
 }

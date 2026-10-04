@@ -42,11 +42,16 @@ async def observe_invocation(*, tenant_id: str, slug: str, invocation_id: str, d
             )
             if encountered_approval:
                 return accepted_response(slug=slug, invocation_id=invocation_id, state=run["status"], async_reason="human_approval")
-            if run["status"] in TERMINAL_STATUSES:
-                return sync_result_response(await history.result_detail(invocation_id))
             invocation = (await session.execute(text("SELECT * FROM deployment_invocations WHERE id=:id FOR UPDATE"),
                 {"id": uuid.UUID(invocation_id)})).mappings().one_or_none()
-            if invocation and invocation["timeout_seconds"] is not None:
+            if run["status"] in TERMINAL_STATUSES:
+                # History is committed before RPC ACK/slot release. Do not tell
+                # a synchronous caller to start its next request while the old
+                # call still owns capacity. The runtime publishes its terminal
+                # invocation summary only after release and workspace writeback.
+                if invocation is None or invocation["status"] in TERMINAL_STATUSES:
+                    return sync_result_response(await history.result_detail(invocation_id))
+            elif invocation and invocation["timeout_seconds"] is not None:
                 elapsed = (datetime.now(timezone.utc) - invocation["submitted_at"]).total_seconds()
                 if elapsed >= invocation["timeout_seconds"]:
                     await session.execute(text("UPDATE workflow_execution_runs SET timeout_requested_at=COALESCE(timeout_requested_at,now()) WHERE id=:id"), {"id": uuid.UUID(invocation_id)})

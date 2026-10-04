@@ -5,6 +5,7 @@ import time
 import functools
 import traceback
 import ast
+import inspect
 import json
 from typing import Any, Mapping
 
@@ -176,40 +177,53 @@ def _safe_repr(obj, depth=0):
 
 
 def safe_call_with_args(prefix: str = ""):
+    """The same result envelope for sync and native async nodes.
+
+    CancelledError deliberately propagates instead of becoming a node failure.
+    """
     def safe_call(func):
+        def result_for(args, kwargs):
+            return {"status": "success", "output": None, "error_message": "",
+                    "traceback": "", "args": _safe_repr(args),
+                    "kwargs": _safe_repr(kwargs), "execution_time": -1}
+
+        def failed(result, exc):
+            result["status"] = "error"
+            if isinstance(exc, _validation_error_types()):
+                message = "jsonschema checked invalid, message: {}, error_path: {}, schema_path: {}".format(
+                    exc.message, "->".join(map(str, exc.path)), "->".join(map(str, exc.schema_path)))
+            else:
+                message = str(exc)
+            result["error_message"] = prefix + message if message else ""
+            result["traceback"] = traceback.format_exc()
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            start_time = time.perf_counter()
-            result = {
-                "status": "success",
-                "output": None,
-                "error_message": "",
-                "traceback": "",
-                "args": _safe_repr(args),
-                "kwargs": _safe_repr(kwargs),
-                "execution_time": -1,
-            }
+            started = time.perf_counter()
+            result = result_for(args, kwargs)
             try:
                 result["output"] = func(*args, **kwargs)
-            except _validation_error_types() as ve:
-                result["status"] = "error"
-                result["error_message"] = "jsonschema checked invalid, message: {}, error_path: {}, schema_path: {}".format(
-                    ve.message, "->".join(map(str, ve.path)), "->".join(map(str, ve.schema_path))
-                )
-                result["traceback"] = traceback.format_exc()
-            except Exception as e:
-                result["status"] = "error"
-                result["error_message"] = str(e)
-                result["traceback"] = traceback.format_exc()
+            except Exception as exc:
+                failed(result, exc)
             finally:
-                result["execution_time"] = time.perf_counter() - start_time
-
-            if result["error_message"]:
-                result["error_message"] = prefix + result["error_message"]
-
+                result["execution_time"] = time.perf_counter() - started
             return result
-        return wrapper
+
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            started = time.perf_counter()
+            result = result_for(args, kwargs)
+            try:
+                result["output"] = await func(*args, **kwargs)
+            except Exception as exc:
+                failed(result, exc)
+            finally:
+                result["execution_time"] = time.perf_counter() - started
+            return result
+
+        return async_wrapper if inspect.iscoroutinefunction(func) else wrapper
     return safe_call
+
 
 def walk_to_scope(previous_outputs: dict, loop_stack: list) -> dict:
     """Return the output dictionary for the innermost active loop scope.

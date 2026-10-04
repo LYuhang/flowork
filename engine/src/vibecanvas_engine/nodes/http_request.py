@@ -2,6 +2,7 @@
 """HTTPRequestNode — send HTTP requests to external REST APIs."""
 
 import re
+import asyncio
 import base64
 import jsonschema
 from copy import deepcopy
@@ -22,9 +23,8 @@ _HTTP_TIMEOUT = DEFAULT_HTTP_TIMEOUT
 class HTTPRequestNode(BaseNode):
     """Send HTTP requests to external REST APIs with configurable method, headers, body, and auth."""
 
-    # Sync body issues blocking HTTP via ``asyncio.run`` internally → run off
-    # the engine's event loop through the thread bridge (nodes/exec.py).
-    REQUIRES_THREAD_BRIDGE = True
+    # Engine dispatch uses call_async; the sync entry is for direct callers.
+
 
     # Class-level fallback so ``__new__``-constructed instances still resolve a
     # timeout; ``__init__`` shadows it per-instance, ``Workflow.__init__`` may
@@ -239,7 +239,7 @@ class HTTPRequestNode(BaseNode):
         return {}
 
     @safe_call_with_args(prefix="[HTTPRequestNode Call]: ")
-    def __call__(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
+    async def call_async(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
         stop_event = (extra or {}).get("stop_event")
         if stop_event is not None and stop_event.is_set():
             raise RuntimeError("HTTPRequestNode cancelled.")
@@ -273,10 +273,11 @@ class HTTPRequestNode(BaseNode):
         if stop_event is not None and stop_event.is_set():
             raise RuntimeError("HTTPRequestNode cancelled before sending.")
 
-        # lazy: keep requests (~0.5s) out of cold-import; only needed when this node runs (task #483)
-        import requests as http_lib
+        import httpx
 
-        resp = http_lib.request(method, url, **kwargs)
+        # A scoped client closes its transport on success, failure and cancel.
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.request(method, url, **kwargs)
 
         # Parse response
         try:
@@ -289,3 +290,6 @@ class HTTPRequestNode(BaseNode):
             "status_code": resp.status_code,
             "response_headers": dict(resp.headers),
         }
+
+    def __call__(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
+        return asyncio.run(self.call_async(inputs, previous_outputs, extra))

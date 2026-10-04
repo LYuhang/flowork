@@ -52,6 +52,11 @@ async def test_running_emitted_before_each_success():
     assert first_running["node_type"]
     assert first_running["output"] is None
     assert first_running["error_message"] == ""
+    assert first_running["inputs"] == {"text": "hi", "count": 2}
+    started = {e["span_id"]: e for e in events if e.get("status") == "running"}
+    for event in events:
+        if event.get("status") == "success":
+            assert started[event["span_id"]]["inputs"] == event["inputs"]
 
 
 @pytest.mark.asyncio
@@ -75,8 +80,8 @@ async def test_running_does_not_corrupt_accumulation():
 def _loop_wf() -> dict:
     """Start → LoopBegin → CodeNode → LoopEnd → End. Exercises the
     LoopBegin/LoopEnd branches that SKIP ``dispatch_node_call`` — they
-    must still emit ``running`` because emission occurs at the top of the
-    while-body, not before dispatch)."""
+    must still emit ``running`` because emission occurs before the node-type
+    branches)."""
     return {
         "__meta__": {
             "workflow_id": "wf_loop",
@@ -148,8 +153,7 @@ def _loop_wf() -> dict:
 @pytest.mark.asyncio
 async def test_running_emitted_for_loop_begin_and_end():
     """LoopBegin (node_2) and LoopEnd (node_4) skip ``dispatch_node_call``
-    yet must still surface a ``running`` frame (placement is at the top of
-    the while-body)."""
+    yet must still surface a ``running`` frame before the node-type branches."""
     wf = Workflow(_loop_wf(), max_workers=4)
 
     events = []
@@ -163,3 +167,30 @@ async def test_running_emitted_for_loop_begin_and_end():
     running_ids = {e.get("node_id") for e in events if e.get("status") == "running"}
     assert "node_2" in running_ids, "LoopBeginNode never emitted a running frame"
     assert "node_4" in running_ids, "LoopEndNode never emitted a running frame"
+
+
+@pytest.mark.asyncio
+async def test_interrupted_node_keeps_resolved_input_snapshot(monkeypatch):
+    import asyncio
+    import importlib
+    trigger = importlib.import_module("vibecanvas_engine.nodes.trigger")
+    original = trigger.dispatch_node_call
+
+    async def blocked(node, inputs, previous_outputs, extra):
+        if node.node_type == "CodeNode":
+            await asyncio.Event().wait()
+        return await original(node, inputs, previous_outputs, extra=extra)
+
+    monkeypatch.setattr(trigger, "dispatch_node_call", blocked)
+    stream = Workflow(_example_wf()).astream({"text": "interrupted", "count": 7})
+    events = []
+    async with asyncio.timeout(5):
+        try:
+            async for event in stream:
+                events.append(event)
+                if event.get("node_type") == "CodeNode" and event["status"] == "running":
+                    assert event["inputs"] == {"text": "interrupted", "count": 7}
+                    break
+        finally:
+            await stream.aclose()
+    assert not any(e.get("node_type") == "CodeNode" and e["status"] == "success" for e in events)

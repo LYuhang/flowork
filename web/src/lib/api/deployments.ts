@@ -57,6 +57,8 @@ export interface Deployment {
   timeout_seconds?: number;
   cpu_millis?: number;
   memory_mb?: number;
+  worker_count?: number;
+  worker_concurrency?: number;
   rate_limit_qps: number;
   invoke_count: number;
   last_invoked_at: string | null;
@@ -77,6 +79,8 @@ export interface DeploymentInstance {
   observed_at?: string | null;
   id: string;
   state: 'preparing' | 'active' | 'draining';
+  worker_count?: number;
+  worker_concurrency?: number;
   version: string;
   mount_enabled: boolean;
   pending_requests: number;
@@ -110,6 +114,8 @@ export interface CreateDeploymentBody {
   timeout_seconds?: number;
   cpu_millis?: number;
   memory_mb?: number;
+  worker_count?: number;
+  worker_concurrency?: number;
   wf_id: string;
   name: string;
   slug: string;
@@ -139,6 +145,8 @@ export interface PatchDeploymentBody {
   timeout_seconds?: number;
   cpu_millis?: number;
   memory_mb?: number;
+  worker_count?: number;
+  worker_concurrency?: number;
   name?: string;
   enabled?: boolean;
   rate_limit_qps?: number;

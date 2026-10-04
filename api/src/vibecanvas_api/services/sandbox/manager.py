@@ -2358,6 +2358,13 @@ class SandboxSession:
                            wf_id=self.wf_id,
                            run_id=self.workflow_run_id,
                            tenant_id=self.tenant_id, exc_info=True)
+        deployment_workspace = getattr(self, "_deployment_workspace", None)
+        if deployment_workspace is not None:
+            try:
+                await deployment_workspace.sync()
+            except Exception as exc:
+                failures.append(exc)
+                logger.warning("deployment_run_writeback_failed", wf_id=self.wf_id, exc_info=True)
         if strict and failures:
             raise RuntimeError("sandbox_workspace_persistence_failed") from failures[0]
 
@@ -2872,6 +2879,11 @@ class SandboxSession:
             await asyncio.to_thread(fileop_pool.stop)
             self._fileop_pool = None
         await self.writeback_vfs(strict=True)
+        release_workspace = getattr(self, "_release_deployment_workspace", None)
+        if release_workspace is not None:
+            await release_workspace()
+            self._release_deployment_workspace = None
+            self._deployment_workspace = None
         runtime_volume = getattr(self, "runtime_volume", None)
         if runtime_volume is not None:
             await asyncio.to_thread(

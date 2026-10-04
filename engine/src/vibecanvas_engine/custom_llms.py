@@ -10,6 +10,7 @@ credentials and user endpoints do not enter the workflow sandbox.
 from __future__ import annotations
 
 import json
+import asyncio
 import mimetypes
 from typing import Any, Dict, Optional
 
@@ -65,6 +66,11 @@ def _openai_completion_text(response: Any) -> str:
     return content if isinstance(content, str) else ""
 
 
+def _check_stop(stop_event):
+    if stop_event is not None and stop_event.is_set():
+        raise RuntimeError("LLM call cancelled")
+
+
 class OpenAIModel(BaseLLM):
     """OpenAI-compatible API model.
 
@@ -84,17 +90,7 @@ class OpenAIModel(BaseLLM):
         # client is built exactly as before).
         self.proxy = proxy
 
-    def __call__(
-        self,
-        conversation_dict: Dict[str, Any],
-        inference_config: Optional[Dict[str, Any]] = None,
-        stop_event: Optional[Any] = None,
-    ) -> str:
-        from openai import OpenAI
-
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("LLM call cancelled")
-
+    def _prepare(self, conversation_dict, inference_config=None):
         config = inference_config or {}
 
         # ShareGPT conversation_dict → OpenAI messages. convert_input splits the
@@ -111,11 +107,6 @@ class OpenAIModel(BaseLLM):
             base_url=self.api_url,
             timeout=self.timeout,
         )
-        if self.proxy:
-            client_kwargs["http_client"] = httpx.Client(
-                proxy=self.proxy, timeout=self.timeout)
-        client = OpenAI(**client_kwargs)
-
         create_kwargs: Dict[str, Any] = dict(
             model=self.model_name,
             messages=messages,
@@ -126,12 +117,40 @@ class OpenAIModel(BaseLLM):
         extra_body = _parse_extra_body(config)
         if extra_body is not None:
             create_kwargs["extra_body"] = extra_body
-        response = client.chat.completions.create(**create_kwargs)
+        return client_kwargs, create_kwargs
 
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("LLM call cancelled after completion")
-
+    @staticmethod
+    def _text(response):
         return _openai_completion_text(response)
+
+    def __call__(self, conversation_dict, inference_config=None, stop_event=None):
+        from openai import OpenAI
+        _check_stop(stop_event)
+        client_kwargs, create_kwargs = self._prepare(conversation_dict, inference_config)
+        if self.proxy:
+            client_kwargs["http_client"] = httpx.Client(proxy=self.proxy, timeout=self.timeout)
+        client = OpenAI(**client_kwargs)
+        try:
+            response = client.chat.completions.create(**create_kwargs)
+            _check_stop(stop_event)
+            return self._text(response)
+        finally:
+            close = getattr(client, "close", None)
+            if close:
+                close()
+
+    async def acall(self, conversation_dict, inference_config=None, stop_event=None):
+        from openai import AsyncOpenAI
+        _check_stop(stop_event)
+        # File/image conversion is blocking; model I/O remains native async.
+        client_kwargs, create_kwargs = await asyncio.to_thread(
+            self._prepare, conversation_dict, inference_config)
+        if self.proxy:
+            client_kwargs["http_client"] = httpx.AsyncClient(proxy=self.proxy, timeout=self.timeout)
+        async with AsyncOpenAI(**client_kwargs) as client:
+            response = await client.chat.completions.create(**create_kwargs)
+            _check_stop(stop_event)
+            return self._text(response)
 
 
 class AzureOpenAIModel(BaseLLM):
@@ -166,17 +185,7 @@ class AzureOpenAIModel(BaseLLM):
         # Optional HTTP/HTTPS proxy for outbound calls (None → no proxy).
         self.proxy = proxy
 
-    def __call__(
-        self,
-        conversation_dict: Dict[str, Any],
-        inference_config: Optional[Dict[str, Any]] = None,
-        stop_event: Optional[Any] = None,
-    ) -> str:
-        from openai import AzureOpenAI
-
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("LLM call cancelled")
-
+    def _prepare(self, conversation_dict, inference_config=None):
         config = inference_config or {}
 
         min_pixels = config.get("min_pixels", 1 * 1)
@@ -189,11 +198,6 @@ class AzureOpenAIModel(BaseLLM):
             api_version=config.get("api_version", self.DEFAULT_API_VERSION),
             timeout=self.timeout,
         )
-        if self.proxy:
-            client_kwargs["http_client"] = httpx.Client(
-                proxy=self.proxy, timeout=self.timeout)
-        client = AzureOpenAI(**client_kwargs)
-
         create_kwargs: Dict[str, Any] = dict(
             model=self.model_name,  # the Azure deployment name
             messages=messages,
@@ -204,12 +208,40 @@ class AzureOpenAIModel(BaseLLM):
         extra_body = _parse_extra_body(config)
         if extra_body is not None:
             create_kwargs["extra_body"] = extra_body
-        response = client.chat.completions.create(**create_kwargs)
+        return client_kwargs, create_kwargs
 
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("LLM call cancelled after completion")
+    @staticmethod
+    def _text(response):
+        return _openai_completion_text(response)
 
-        return response.choices[0].message.content or ""
+    def __call__(self, conversation_dict, inference_config=None, stop_event=None):
+        from openai import AzureOpenAI
+        _check_stop(stop_event)
+        client_kwargs, create_kwargs = self._prepare(conversation_dict, inference_config)
+        if self.proxy:
+            client_kwargs["http_client"] = httpx.Client(proxy=self.proxy, timeout=self.timeout)
+        client = AzureOpenAI(**client_kwargs)
+        try:
+            response = client.chat.completions.create(**create_kwargs)
+            _check_stop(stop_event)
+            return self._text(response)
+        finally:
+            close = getattr(client, "close", None)
+            if close:
+                close()
+
+    async def acall(self, conversation_dict, inference_config=None, stop_event=None):
+        from openai import AsyncAzureOpenAI
+        _check_stop(stop_event)
+        # File/image conversion is blocking; model I/O remains native async.
+        client_kwargs, create_kwargs = await asyncio.to_thread(
+            self._prepare, conversation_dict, inference_config)
+        if self.proxy:
+            client_kwargs["http_client"] = httpx.AsyncClient(proxy=self.proxy, timeout=self.timeout)
+        async with AsyncAzureOpenAI(**client_kwargs) as client:
+            response = await client.chat.completions.create(**create_kwargs)
+            _check_stop(stop_event)
+            return self._text(response)
 
 
 class AnthropicModel(BaseLLM):
@@ -240,23 +272,12 @@ class AnthropicModel(BaseLLM):
         self.api_url = (api_url or "").rstrip("/")
         self.timeout = timeout
 
-    def __call__(
-        self,
-        conversation_dict: Dict[str, Any],
-        inference_config: Optional[Dict[str, Any]] = None,
-        stop_event: Optional[Any] = None,
-    ) -> str:
-        import anthropic
-
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("LLM call cancelled")
-
+    def _prepare(self, conversation_dict, inference_config=None):
         config = inference_config or {}
 
         client_kwargs: Dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout}
         if self.api_url:
             client_kwargs["base_url"] = self.api_url
-        client = anthropic.Anthropic(**client_kwargs)
 
         system_prompt = ""
         messages = []
@@ -310,15 +331,36 @@ class AnthropicModel(BaseLLM):
         if "top_p" in config:
             create_kwargs["top_p"] = config["top_p"]
 
-        response = client.messages.create(**create_kwargs)
+        return client_kwargs, create_kwargs
 
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("LLM call cancelled after completion")
+    @staticmethod
+    def _text(response):
+        return "".join(block.text for block in (response.content or []) if getattr(block, "type", None) == "text")
 
-        return "".join(
-            block.text for block in (response.content or [])
-            if getattr(block, "type", None) == "text"
-        )
+    def __call__(self, conversation_dict, inference_config=None, stop_event=None):
+        import anthropic
+        _check_stop(stop_event)
+        client_kwargs, create_kwargs = self._prepare(conversation_dict, inference_config)
+        client = anthropic.Anthropic(**client_kwargs)
+        try:
+            response = client.messages.create(**create_kwargs)
+            _check_stop(stop_event)
+            return self._text(response)
+        finally:
+            close = getattr(client, "close", None)
+            if close:
+                close()
+
+    async def acall(self, conversation_dict, inference_config=None, stop_event=None):
+        import anthropic
+        _check_stop(stop_event)
+        # File/image conversion is blocking; model I/O remains native async.
+        client_kwargs, create_kwargs = await asyncio.to_thread(
+            self._prepare, conversation_dict, inference_config)
+        async with anthropic.AsyncAnthropic(**client_kwargs) as client:
+            response = await client.messages.create(**create_kwargs)
+            _check_stop(stop_event)
+            return self._text(response)
 
 
 class GeminiModel(BaseLLM):
@@ -333,16 +375,8 @@ class GeminiModel(BaseLLM):
         self.api_url = (api_url or "").rstrip("/")
         self.timeout = timeout
 
-    def __call__(
-        self,
-        conversation_dict: Dict[str, Any],
-        inference_config: Optional[Dict[str, Any]] = None,
-        stop_event: Optional[Any] = None,
-    ) -> str:
+    def _prepare(self, conversation_dict, inference_config=None):
         from google import genai
-
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("LLM call cancelled")
 
         config = inference_config or {}
 
@@ -356,7 +390,7 @@ class GeminiModel(BaseLLM):
                 base_url=self.api_url,
                 timeout=self.timeout * 1000,
             )
-        client = genai.Client(api_key=self.api_key, http_options=http_options)
+        client_kwargs = dict(api_key=self.api_key, http_options=http_options)
 
         contents = []
         last_user_content = None
@@ -394,7 +428,7 @@ class GeminiModel(BaseLLM):
                 else:
                     contents.append(genai.types.Content(role="user", parts=image_parts))
 
-        response = client.models.generate_content(
+        create_kwargs = dict(
             model=self.model_name,
             contents=contents,
             config=genai.types.GenerateContentConfig(
@@ -404,11 +438,40 @@ class GeminiModel(BaseLLM):
                 top_k=config.get("top_k", -1) if config.get("top_k", -1) > 0 else None,
             ),
         )
+        return client_kwargs, create_kwargs
 
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("LLM call cancelled after completion")
-
+    @staticmethod
+    def _text(response):
         return response.text or ""
+
+    def __call__(self, conversation_dict, inference_config=None, stop_event=None):
+        from google import genai
+        _check_stop(stop_event)
+        client_kwargs, create_kwargs = self._prepare(conversation_dict, inference_config)
+        client = genai.Client(**client_kwargs)
+        try:
+            response = client.models.generate_content(**create_kwargs)
+            _check_stop(stop_event)
+            return self._text(response)
+        finally:
+            close = getattr(client, "close", None)
+            if close:
+                close()
+
+    async def acall(self, conversation_dict, inference_config=None, stop_event=None):
+        from google import genai
+        _check_stop(stop_event)
+        # File/image conversion is blocking; model I/O remains native async.
+        client_kwargs, create_kwargs = await asyncio.to_thread(
+            self._prepare, conversation_dict, inference_config)
+        client = genai.Client(**client_kwargs)
+        try:
+            async with client.aio as aio:
+                response = await aio.models.generate_content(**create_kwargs)
+                _check_stop(stop_event)
+                return self._text(response)
+        finally:
+            client.close()
 
 
 class GoogleGenaiModel(GeminiModel):

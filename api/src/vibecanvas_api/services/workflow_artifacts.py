@@ -24,6 +24,8 @@ def _files(root: str):
             # pins the already-open directory across rename/link races.
             try:
                 fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+            except FileNotFoundError:
+                continue  # Shared workspaces may remove a file during enumeration.
             except OSError:
                 if stat.S_ISLNK(os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode):
                     continue

@@ -214,6 +214,8 @@ def mock_runner(monkeypatch):
                 "type": "result", "status": "succeeded", "final_outputs": outputs,
                 "error_dict": errors, "execution_time": elapsed,
             }])
+            from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+            await DeploymentInvocationsRepo(session).mark_terminal(uuid.UUID(invocation_id), status="succeeded", latency_ms=elapsed*1000)
     monkeypatch.setattr("vibecanvas_api.routes.deployment_invoke._dispatch_invocation", dispatch)
     yield
 

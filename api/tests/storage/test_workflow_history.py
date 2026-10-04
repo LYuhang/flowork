@@ -265,7 +265,7 @@ async def test_sandbox_rpc_driver_continues_the_original_execution(pg_engine, tm
     from vibecanvas_api.storage.vfs_run_repo import VfsRunRepo
     from vibecanvas_api.services.sandbox.bubblewrap import BubblewrapProvider
     from vibecanvas_api.services.sandbox.workflow_execution_driver import WorkflowExecutionDriver
-    from vibecanvas_api.services.sandbox.workflow_rpc_slot import WorkflowRpcSlot
+    from vibecanvas_api.services.sandbox.workflow_rpc_slot import WorkflowRpcWorker, WorkflowInvocationSlot
 
     if not shutil.which("bwrap"):
         pytest.skip("bubblewrap is required for sandbox integration")
@@ -285,26 +285,27 @@ async def test_sandbox_rpc_driver_continues_the_original_execution(pg_engine, tm
             approvers={"node_2": actor},
         )
     with TemporaryDirectory(prefix="fw-rpc-") as root:
-        slot = WorkflowRpcSlot(
+        worker = WorkflowRpcWorker(
             provider=BubblewrapProvider(shutil.which("bwrap")), root=root, revision="v1", workflow=graph
         )
+        slot = WorkflowInvocationSlot(worker)
         saved_artifacts = []
         store = FilesystemObjectStore(root=str(tmp_path / "objects"))
         monkeypatch.setattr(workflow_artifacts, "get_object_store", lambda: store)
 
         async def save_artifacts():
             await workflow_artifacts.persist_workflow_artifacts(
-                root=str(slot.root / "artifacts"), tenant_id=tenant, execution_id=run_id, wf_id="wf-driver"
+                root=str(slot.artifacts), tenant_id=tenant, execution_id=run_id, wf_id="wf-driver"
             )
             saved_artifacts.append(run_id)
 
         task = None
         try:
             await slot.start()
-            (slot.root / "artifacts" / "report.txt").write_text("retained report")
+            (slot.artifacts / "report.txt").write_text("retained report")
             private_file = tmp_path / "host-private.txt"
             private_file.write_text("must never be exported")
-            (slot.root / "artifacts" / "unsafe-link.txt").symlink_to(private_file)
+            (slot.artifacts / "unsafe-link.txt").symlink_to(private_file)
             pid = slot.handle.proc.pid
             driver = WorkflowExecutionDriver(
                 tenant_id=tenant, execution_id=run_id, slot=slot, persist_artifacts=save_artifacts
@@ -350,7 +351,7 @@ async def test_sandbox_rpc_driver_continues_the_original_execution(pg_engine, tm
             if task is not None and not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
-            await slot.close()
+            await worker.close()
 
 
 @pytest.mark.asyncio
@@ -366,7 +367,7 @@ async def test_lost_approval_process_is_not_resumed_and_capacity_is_reusable(pg_
     from vibecanvas_api.services.sandbox.bubblewrap import BubblewrapProvider
     from vibecanvas_api.services.sandbox.workflow_execution_driver import WorkflowExecutionDriver
     from vibecanvas_api.services.sandbox.workflow_rpc_pool import WorkflowRpcPool, WorkflowPoolFull
-    from vibecanvas_api.services.sandbox.workflow_rpc_slot import WorkflowRpcSlot
+    from vibecanvas_api.services.sandbox.workflow_rpc_slot import WorkflowRpcWorker, WorkflowInvocationSlot
 
     if not shutil.which("bwrap"):
         pytest.skip("bubblewrap is required")
@@ -379,7 +380,7 @@ async def test_lost_approval_process_is_not_resumed_and_capacity_is_reusable(pg_
     with TemporaryDirectory(prefix="fw-loss-") as root:
         pool = WorkflowRpcPool(
             capacity=1,
-            factory=lambda index: WorkflowRpcSlot(
+            factory=lambda index: WorkflowRpcWorker(
                 provider=BubblewrapProvider(shutil.which("bwrap")),
                 root=f"{root}/{index}",
                 revision="v1",
@@ -430,7 +431,7 @@ async def test_lost_approval_process_is_not_resumed_and_capacity_is_reusable(pg_
                     async with pool.acquire(str(uuid.uuid4())):
                         pytest.fail("approval must retain its worker slot")
                 if kill:
-                    await pool._slots[0].close()
+                    await pool._workers[0].close()
                 else:
                     async with session_scope(tenant_id=tenant) as session:
                         await WorkflowHistoryRepo(session).request_decision(

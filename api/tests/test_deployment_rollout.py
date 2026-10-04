@@ -45,7 +45,7 @@ async def test_admission_reserves_capacity_atomically_including_human_wait(pg_en
     tenant = str(dep["tenant_id"])
     async with short_session_scope(tenant_id=tenant) as db:
         await db.execute(text("""UPDATE deployment_runtime_revisions
-            SET spec=jsonb_set(spec,'{max_concurrency}','1') WHERE id=:id"""), {"id": dep["active_revision_id"]})
+            SET spec=jsonb_set(spec,'{worker_concurrency}','1') WHERE id=:id"""), {"id": dep["active_revision_id"]})
 
     async def admit():
         async with short_session_scope(tenant_id=tenant) as db:
@@ -265,3 +265,18 @@ async def test_active_recovery_backs_off_and_preserves_revision(pg_engine, app_e
     assert str(dep['active_revision_id']) not in controller.retry_after
     async with short_session_scope(tenant_id=str(dep['tenant_id'])) as db:
         assert (await db.execute(text('SELECT rollout_status FROM deployments WHERE id=:id'), {'id': dep['id']})).scalar_one() == 'ready'
+
+
+@pytest.mark.asyncio
+async def test_unlimited_admission_does_not_apply_a_default_worker_cap(pg_engine, app_engine):
+    from vibecanvas_api.services.deployment_revisions import admit_revision
+    from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+    _, dep, _ = await setup_rollout(pg_engine, app_engine)
+    tenant = str(dep['tenant_id'])
+    async with short_session_scope(tenant_id=tenant) as db:
+        await db.execute(text("UPDATE deployment_runtime_revisions SET spec=jsonb_set(spec,'{worker_concurrency}','-1') WHERE id=:id"), {'id':dep['active_revision_id']})
+    for _ in range(6):
+        async with short_session_scope(tenant_id=tenant) as db:
+            _, revision = await admit_revision(db, dep['id'])
+            await DeploymentInvocationsRepo(db).create(tenant_id=dep['tenant_id'], deployment_id=dep['id'],
+                wf_id=dep['wf_id'], trigger_type='api', source='async_api', status='queued', revision_id=revision['id'])

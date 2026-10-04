@@ -95,22 +95,6 @@ async def trigger(self, previous_outputs: dict, extra: dict, workflow_inputs: di
             q.put_nowait(enriched)
 
         # =================================================================
-        # Emit the node-started event before input resolution.
-        # =================================================================
-        # Emitted at the TOP of the while-body — AFTER the stop/error
-        # circuit-breaker (so a cancelled / already-errored run does NOT
-        # light up a node) but BEFORE input resolution. Placing it here
-        # (rather than just before dispatch_node_call) is load-bearing:
-        #   * LoopBeginNode / LoopEndNode skip dispatch_node_call entirely,
-        #   * an input-resolution error returns before dispatch,
-        # and BOTH must still surface a "running" frame so every node lights
-        # up in the live stream. The event is non-terminal: ``_trigger_inner``
-        # (workflow.py) and ``sandbox_entry._drive`` only branch on
-        # ``finished`` / ``error``, so a ``running`` frame is IGNORED by the
-        # accumulators and cannot corrupt the final outputs / error_dict.
-        _emit({"status": "running", "output": None, "error_message": ""})
-
-        # =================================================================
         # Step 1: resolve the current node's inputs.
         # =================================================================
         inputs = {}
@@ -126,6 +110,7 @@ async def trigger(self, previous_outputs: dict, extra: dict, workflow_inputs: di
                         else:
                             inputs[field_name] = field_config.get("value")
             except Exception as e:
+                _emit({"status": "running", "inputs": deepcopy(inputs), "output": None, "error_message": ""})
                 err_info = {
                     "status": "error",
                     "output": None,
@@ -142,6 +127,10 @@ async def trigger(self, previous_outputs: dict, extra: dict, workflow_inputs: di
                     extra["error_dict"][current.node_id] = err_info
                 _emit(err_info)
                 return
+
+        # Persist resolved inputs before dispatch, including loop control nodes.
+        # Interrupted calls have no success/error node event to carry them later.
+        _emit({"status": "running", "inputs": deepcopy(inputs), "output": None, "error_message": ""})
 
         # =================================================================
         # Step 2: execute the current node.

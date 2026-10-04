@@ -17949,6 +17949,34 @@
             "type": "boolean",
             "title": "Enabled",
             "default": true
+          },
+          "worker_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 256.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Count"
+          },
+          "worker_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "const": -1
+              },
+              {
+                "type": "integer",
+                "maximum": 64.0,
+                "minimum": 1.0
+              }
+            ],
+            "title": "Worker Concurrency",
+            "default": -1
           }
         },
         "type": "object",
@@ -21983,6 +22011,36 @@
               }
             ],
             "title": "Memory Mb"
+          },
+          "worker_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 256.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Count"
+          },
+          "worker_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "const": -1
+              },
+              {
+                "type": "integer",
+                "maximum": 64.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Concurrency"
           }
         },
         "type": "object",

@@ -63,6 +63,8 @@ def add_parser(groups):
             leaf.add_argument("--name", required=action == "create")
             version = leaf.add_mutually_exclusive_group(required=action == "create")
             version.add_argument("--version", help="Fixed saved version, e.g. v2.sv3. Never infers a target from Chat state.")
+            leaf.add_argument("--worker-count", type=int, help="Resident worker processes, 1–256. Default: whole Deployment CPU cores, minimum 1. Workers share the instance CPU, memory and storage; changes create a replacement instance.")
+            leaf.add_argument("--worker-concurrency", type=int, help="Concurrent Workflow executions per worker: -1 (default) is unlimited, or 1–64 to enforce a limit. With a limit, total capacity = workers × this value; approval waits occupy capacity.")
             leaf.add_argument("--timeout-seconds", type=int, help="Invocation execution budget in seconds, 1–3600; default 30. Approval waiting pauses this budget. Changes affect only new calls. Expiry stops execution; it does not switch a synchronous call to asynchronous.")
             leaf.add_argument("--rate-limit-qps", type=int, help="Non-negative soft QPS cap, default 10 on create. 0 disables this rate limit, not a capacity guarantee.")
             leaf.add_argument("--mount", choices=("true", "false"), help="Expose deployment owner's authorized /mount. Default false on create; omission preserves on update. Never shares Chat /data or /memory.")
@@ -95,7 +97,7 @@ def validate(operation, arguments):
     if operation not in OPERATIONS or not isinstance(arguments, dict):
         raise ValueError("Unsupported Deployment operation or arguments.")
     target = {"deployment_id"}
-    settings = {"name", "major", "version", "rate_limit_qps", "mount", "timeout_seconds"}
+    settings = {"name", "major", "version", "rate_limit_qps", "mount", "timeout_seconds", "worker_count", "worker_concurrency"}
     allowed = {
         "list": {"workflow_id", "limit", "offset"}, "info": target, "status": target | {"execution_id"}, "result": target | {"execution_id"},
         "logs": target | {"execution_id", "after", "limit"},
@@ -136,6 +138,9 @@ def validate(operation, arguments):
     for key in ("enabled", "mount", "export"):
         if key in value and type(value[key]) is not bool:
             raise ValueError(f"--{key.replace('_', '-')} must be true or false.")
+    for field, maximum in (("worker_count", 256), ("worker_concurrency", 64)):
+        if field in value and (type(value[field]) is not int or not (1 <= value[field] <= maximum or (field == "worker_concurrency" and value[field] == -1))):
+            raise ValueError(f"--{field.replace('_', '-')} must be an integer from 1 to {maximum}" + (" or -1 for unlimited." if field == "worker_concurrency" else "."))
     if "timeout_seconds" in value and (type(value["timeout_seconds"]) is not int or not 1 <= value["timeout_seconds"] <= 3600):
         raise ValueError("--timeout-seconds must be an integer from 1 to 3600.")
     if "major" in value:

@@ -127,3 +127,24 @@ async def test_assignee_can_read_sign_and_preview_only_this_executions_artifacts
                 "/api/v1/previews/resource-session", json={"fileRef": {**file_ref, "runId": denied_run}}
             )
             assert denied.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deployment_workspace_requires_deployment_inspect_permission(pg_engine):
+    tenant, actor, _ = await owner()
+    deployment_id = str(uuid4())
+    resource = ResourceRef(ResourceType.VFS_RUN, 'deployment-run-' + UUID(deployment_id).hex, tenant)
+    principal = PrincipalRef(PrincipalType.USER, actor)
+    context = AuthzRequestContext(active_organization_id=tenant, membership_status='active')
+    client = _FakeClient()
+    async with session_scope(tenant_id=tenant) as session:
+        service = OpenFgaAuthzService(session, client)
+        assert not (await service.check(principal, Action.VIEW, resource, context)).allowed
+        client.allowed_relations = {'can_view'}
+        assert not (await service.check(principal, Action.VIEW, resource, context)).allowed
+        client.allowed_relations = {'can_inspect_runs'}
+        assert (await service.check(principal, Action.VIEW, resource, context)).allowed
+        assert not (await service.check(principal, Action.DELETE, resource, context)).allowed
+        assert not (await service.check(principal, Action.VIEW, resource,
+                    replace(context, active_organization_id=str(uuid4())))).allowed
+        assert all(check[2] == f'deployment:{deployment_id}' for calls, _ in client.batch_calls for check in calls)

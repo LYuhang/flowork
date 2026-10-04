@@ -19,9 +19,8 @@ class PromptNode(BaseNode):
 
     Authoring constraints (template/model/inference_config, the multimodal + interpolation syntax) live in ``AGENT_SPEC``.
     """
-    # Sync body calls the LLM via ``asyncio.run`` internally → run off the
-    # engine's event loop through the thread bridge (nodes/exec.py).
-    REQUIRES_THREAD_BRIDGE = True
+    # Engine dispatch uses call_async; the sync entry is for direct callers.
+
 
     CONFIG_SCHEMA = {
         "type": "object",
@@ -354,8 +353,7 @@ class PromptNode(BaseNode):
                 pass
         return klass(**kwargs)
 
-    @safe_call_with_args(prefix="[PromptNode Call]: ")
-    def __call__(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
+    def _prepare_call(self, inputs, extra):
         stop_event = (extra or {}).get("stop_event")
         if stop_event is not None and stop_event.is_set():
             raise RuntimeError("PromptNode cancelled before model call.")
@@ -400,18 +398,9 @@ class PromptNode(BaseNode):
         except Exception as e:
             raise RuntimeError(f"Failed to initialize model '{model_name}': {str(e)}")
 
-        try:
-            raw_output = model(
-                conversation_dict,
-                inference_config,
-                stop_event=stop_event,
-            )
-        except Exception as e:
-            raise RuntimeError(f"LLM generation failed: {str(e)}")
+        return model, conversation_dict, inference_config, stop_event
 
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("PromptNode cancelled after model call; output discarded.")
-
+    def _parse_output(self, raw_output):
         if not isinstance(raw_output, str) or not raw_output.strip():
             raise ValueError(
                 "The model returned no text. Increase the node's max_tokens "
@@ -438,3 +427,25 @@ class PromptNode(BaseNode):
                 + "."
             )
         return parsed_output
+
+    @safe_call_with_args(prefix="[PromptNode Call]: ")
+    def __call__(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
+        model, conversation, config, stop = self._prepare_call(inputs, extra)
+        try:
+            raw = model(conversation, config, stop_event=stop)
+        except Exception as exc:
+            raise RuntimeError(f"LLM generation failed: {exc}") from exc
+        if stop is not None and stop.is_set():
+            raise RuntimeError("PromptNode cancelled after model call; output discarded.")
+        return self._parse_output(raw)
+
+    @safe_call_with_args(prefix="[PromptNode Call]: ")
+    async def call_async(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
+        model, conversation, config, stop = self._prepare_call(inputs, extra)
+        try:
+            raw = await model.acall(conversation, config, stop_event=stop)
+        except Exception as exc:
+            raise RuntimeError(f"LLM generation failed: {exc}") from exc
+        if stop is not None and stop.is_set():
+            raise RuntimeError("PromptNode cancelled after model call; output discarded.")
+        return self._parse_output(raw)

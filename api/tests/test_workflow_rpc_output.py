@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from vibecanvas_api.services.sandbox.workflow_rpc_slot import WorkflowRpcSlot
+from vibecanvas_api.services.sandbox.workflow_rpc_slot import WorkflowRpcWorker
 
 
 @pytest.mark.asyncio
@@ -15,7 +15,7 @@ async def test_silent_output_readers_leave_executor_available_and_bound_diagnost
     previous = loop._default_executor
     executor = ThreadPoolExecutor(max_workers=1)
     loop.set_default_executor(executor)
-    slot = object.__new__(WorkflowRpcSlot)
+    slot = object.__new__(WorkflowRpcWorker)
     slot._booting = True
     slot._startup_output = ""
     writers, readers = [], []

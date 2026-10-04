@@ -60,6 +60,8 @@ class Deployment(Base):
     pinned_sub: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     cpu_millis: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("500"))
     memory_mb: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("256"))
+    worker_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    worker_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("-1"))
     api_key_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     hmac_secret_ref: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),

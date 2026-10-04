@@ -64,7 +64,11 @@ async def replay_response(session, *, slug: str, invocation_id, asynchronous: bo
     )
     if not asynchronous and not encountered_approval:
         if run["status"] in TERMINAL_STATUSES:
-            return sync_result_response(await history.result_detail(str(invocation_id)))
+            invocation_status = await session.scalar(text(
+                "SELECT status FROM deployment_invocations WHERE id=:id"
+            ), {"id": invocation_id})
+            if invocation_status is None or invocation_status in TERMINAL_STATUSES:
+                return sync_result_response(await history.result_detail(str(invocation_id)))
         return None  # Caller observes after the admission transaction closes.
     return accepted_response(slug=slug, invocation_id=str(invocation_id), state=run["status"],
                              async_reason="explicit_async" if asynchronous else "human_approval")

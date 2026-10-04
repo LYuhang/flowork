@@ -97,8 +97,8 @@ class WorkflowRuntime:
     CONTEXT_KEYS = frozenset({"llm_credentials", "workflow_resources", "code_pythonpath", "run_dir", "workflow_resume_visits"})
 
     def __init__(self, *, capacity: int, max_pending_results: int = 32, max_buffer_bytes: int = 16 * 1024 * 1024):
-        if capacity < 1:
-            raise ValueError("capacity must be positive")
+        if type(capacity) is not int or (capacity != -1 and capacity < 1):
+            raise ValueError("capacity must be -1 or positive")
         self.generation = uuid.uuid4().hex
         self.capacity = capacity
         self.max_pending_results = max_pending_results
@@ -150,9 +150,9 @@ class WorkflowRuntime:
                 raise ExecutionConflict("invocation already completed with different input")
             return self.status(invocation_id)
         active = sum(e.status not in self.TERMINAL for e in self.executions.values())
-        if active >= self.capacity:
+        if self.capacity != -1 and active >= self.capacity:
             raise ExecutionCapacityError("concurrency_limit_exceeded")
-        if len(self.executions) >= self.capacity + self.max_pending_results:
+        if self.capacity != -1 and len(self.executions) >= self.capacity + self.max_pending_results:
             raise ExecutionCapacityError("result_delivery_backlog")
         template = self.workflows[revision][1]
         node_id = self.workflows[revision][2]

@@ -5518,6 +5518,13 @@ export interface components {
              * @default true
              */
             enabled: boolean;
+            /** Worker Count */
+            worker_count?: number | null;
+            /**
+             * Worker Concurrency
+             * @default -1
+             */
+            worker_concurrency: -1 | number;
         };
         /** CreateGroupBody */
         CreateGroupBody: {
@@ -7026,6 +7033,10 @@ export interface components {
             cpu_millis?: number | null;
             /** Memory Mb */
             memory_mb?: number | null;
+            /** Worker Count */
+            worker_count?: number | null;
+            /** Worker Concurrency */
+            worker_concurrency?: -1 | number | null;
         };
         /** PlatformEligibilityIn */
         PlatformEligibilityIn: {

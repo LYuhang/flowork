@@ -253,6 +253,10 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [cpuMillis, setCpuMillis] = useState(dep.cpu_millis ?? 500);
   const [memoryMb, setMemoryMb] = useState(dep.memory_mb ?? 256);
+  const [workerCount, setWorkerCount] = useState(dep.worker_count ?? 1);
+  const [workerConcurrency, setWorkerConcurrency] = useState(dep.worker_concurrency ?? -1);
+  const [workersEdited, setWorkersEdited] = useState(false);
+  const workersChanged = workerCount !== (dep.worker_count ?? 1) || workerConcurrency !== (dep.worker_concurrency ?? -1);
   const originalVersion = dep.version_pin === 'head' ? 'head' : dep.version_pin === 'major' ? `v${dep.pinned_major}` : `v${dep.pinned_major}.sv${dep.pinned_sub}`;
   const [version, setVersion] = useState(originalVersion);
   const versionsQuery = useWorkflowVersions(dep.wf_id);
@@ -260,14 +264,17 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   const versionOptions = [...new Set([originalVersion, ...versions.map(v => `v${v.major}.sv${v.sub}`)])];
 
   const resourcesChanged = cpuMillis !== (dep.cpu_millis ?? 500) || memoryMb !== (dep.memory_mb ?? 256);
-  const dirty = timeoutSeconds !== (dep.timeout_seconds ?? 30) || rateQps !== dep.rate_limit_qps || enabled !== dep.enabled || mountEnabled !== (dep.mount_enabled ?? true) || version !== originalVersion || resourcesChanged;
+  const dirty = timeoutSeconds !== (dep.timeout_seconds ?? 30) || rateQps !== dep.rate_limit_qps || enabled !== dep.enabled || mountEnabled !== (dep.mount_enabled ?? true) || version !== originalVersion || resourcesChanged || workersChanged;
   const validQps = Number.isSafeInteger(rateQps) && rateQps >= 0;
   const validResources = Number.isInteger(cpuMillis) && cpuMillis >= 100 && cpuMillis <= 256000 && Number.isInteger(memoryMb) && memoryMb >= 128 && memoryMb <= 1048576;
   const validTimeout = Number.isInteger(timeoutSeconds) && timeoutSeconds >= 1 && timeoutSeconds <= 3600;
-  const validForm = validQps && validResources && validTimeout;
-  const needsReplacement = version !== originalVersion || mountEnabled !== (dep.mount_enabled ?? true) || resourcesChanged;
+  const validWorkers = Number.isInteger(workerCount) && workerCount >= 1 && workerCount <= 256 && Number.isInteger(workerConcurrency) && (workerConcurrency === -1 || (workerConcurrency >= 1 && workerConcurrency <= 64));
+  const validForm = validQps && validResources && validTimeout && validWorkers;
+  const needsReplacement = version !== originalVersion || mountEnabled !== (dep.mount_enabled ?? true) || resourcesChanged || workersChanged;
   const booleanLabel = (value: boolean) => value ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off');
   const changes = [
+    ...(workerCount !== (dep.worker_count ?? 1) ? [{ label: t('deployments.workers.count', 'Worker processes'), before: String(dep.worker_count ?? 1), after: String(workerCount) }] : []),
+    ...(workerConcurrency !== (dep.worker_concurrency ?? -1) ? [{ label: t('deployments.workers.concurrency', 'Concurrent executions per worker'), before: String(dep.worker_concurrency ?? -1), after: String(workerConcurrency) }] : []),
     ...(timeoutSeconds !== (dep.timeout_seconds ?? 30) ? [{ label: t("deployments.settings.timeout", "Call timeout (seconds)"), before: String(dep.timeout_seconds ?? 30), after: String(timeoutSeconds) }] : []),
     ...(cpuMillis !== (dep.cpu_millis ?? 500) ? [{ label: t('deployments.resources.cpu', 'CPU cores'), before: String((dep.cpu_millis ?? 500) / 1000), after: String(cpuMillis / 1000) }] : []),
     ...(memoryMb !== (dep.memory_mb ?? 256) ? [{ label: t('deployments.resources.memory', 'Memory (MiB)'), before: String(dep.memory_mb ?? 256), after: String(memoryMb) }] : []),
@@ -280,6 +287,8 @@ function ConfigTab({ dep }: { dep: Deployment }) {
     mutationFn: () => {
       const match = /^v(\d+)(?:\.sv(\d+))?$/.exec(version);
       return patchDeployment(dep.id, {
+        ...(workerCount !== (dep.worker_count ?? 1) ? { worker_count: workerCount } : {}),
+        ...(workerConcurrency !== (dep.worker_concurrency ?? -1) ? { worker_concurrency: workerConcurrency } : {}),
         ...(timeoutSeconds !== (dep.timeout_seconds ?? 30) ? { timeout_seconds: timeoutSeconds } : {}),
         ...(cpuMillis !== (dep.cpu_millis ?? 500) ? { cpu_millis: cpuMillis } : {}),
         ...(memoryMb !== (dep.memory_mb ?? 256) ? { memory_mb: memoryMb } : {}),
@@ -303,6 +312,9 @@ function ConfigTab({ dep }: { dep: Deployment }) {
     setTimeoutSeconds(dep.timeout_seconds ?? 30);
     setCpuMillis(dep.cpu_millis ?? 500);
     setMemoryMb(dep.memory_mb ?? 256);
+    setWorkerCount(dep.worker_count ?? 1);
+    setWorkerConcurrency(dep.worker_concurrency ?? -1);
+    setWorkersEdited(false);
     setRateQps(dep.rate_limit_qps);
     setEnabled(dep.enabled);
     setMountEnabled(dep.mount_enabled ?? true);
@@ -372,12 +384,27 @@ function ConfigTab({ dep }: { dep: Deployment }) {
         <p className="mt-3 text-xs leading-5 text-content-tertiary">{t('deployments.resources.help', 'Limits apply to the whole instance. Changes require a new instance; both old and new limits must fit available capacity during a rollout.')}</p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="dep-cpu">{t('deployments.resources.cpu', 'CPU cores')}</Label>
-            <Input id="dep-cpu" type="number" min={0.1} max={256} step={0.1} value={cpuMillis / 1000} disabled={patchMutation.isPending} onChange={event => setCpuMillis(Math.round(Number(event.target.value) * 1000))} />
+            <Input id="dep-cpu" type="number" min={0.1} max={256} step={0.1} value={cpuMillis / 1000} disabled={patchMutation.isPending} onChange={event => {
+              const next = Math.round(Number(event.target.value) * 1000);
+              if (!workersEdited && workerCount === Math.max(1, Math.floor(cpuMillis / 1000))) setWorkerCount(Math.max(1, Math.floor(next / 1000)));
+              setCpuMillis(next);
+            }} />
           </div>
           <div className="space-y-2"><Label htmlFor="dep-memory">{t('deployments.resources.memory', 'Memory (MiB)')}</Label>
             <Input id="dep-memory" type="number" min={128} max={1048576} step={128} value={memoryMb} disabled={patchMutation.isPending} onChange={event => setMemoryMb(Number(event.target.value))} />
           </div>
         </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2"><Label htmlFor="dep-worker-count">{t('deployments.workers.count', 'Worker processes')}</Label>
+            <Input id="dep-worker-count" type="number" min={1} max={256} step={1} value={workerCount} aria-describedby="dep-workers-help" aria-invalid={!validWorkers} disabled={patchMutation.isPending} onChange={event => { setWorkersEdited(true); setWorkerCount(Number(event.target.value)); }} />
+          </div>
+          <div className="space-y-2"><Label htmlFor="dep-worker-concurrency">{t('deployments.workers.concurrency', 'Concurrent executions per worker')}</Label>
+            <Input id="dep-worker-concurrency" type="number" min={-1} max={64} step={1} value={workerConcurrency} aria-describedby="dep-workers-help" aria-invalid={!validWorkers} disabled={patchMutation.isPending} onChange={event => setWorkerConcurrency(Number(event.target.value))} />
+          </div>
+        </div>
+        <p id="dep-workers-help" className="mt-3 text-xs leading-5 text-content-tertiary">{t('deployments.workers.help', 'Default: one worker per whole CPU core, minimum 1; per-worker concurrency is -1 (unlimited). Set a positive number to cap it. All workers share the instance CPU, memory and storage. Changes require a new instance.')}</p>
+        <p className="mt-2 text-sm tabular-nums">{t('deployments.workers.total', 'Total concurrent executions: {{total}}', { total: validWorkers ? (workerConcurrency === -1 ? t('deployments.workers.unlimited', 'Unlimited') : workerCount * workerConcurrency) : '—' })}</p>
+        {!validWorkers && <p role="alert" className="mt-2 text-xs text-destructive">{t('deployments.workers.invalid', 'Enter whole numbers: 1–256 workers and 1–6per-worker concurrency is -1 (unlimited). Set a positive number to cap it.')}</p>}
         {!validResources && <p role="alert" className="mt-2 text-xs text-destructive">{t('deployments.resources.invalid', 'CPU must be 0.1–256 cores; memory must be a whole number from 128 to 1048576 MiB.')}</p>}
       </details>
       <footer className="flex flex-col gap-3 border-t border-edge-subtle bg-surface-sunken/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">

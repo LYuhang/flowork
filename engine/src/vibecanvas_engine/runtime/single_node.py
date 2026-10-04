@@ -63,9 +63,10 @@ async def node_events(workflow, node_id: str, inputs: dict, *, stop_event, run_c
         stop_event.set()
         if code_pool is not None:
             code_pool.close()
-        # Cancelling to_thread does not stop its thread. Await cooperative
-        # shutdown (or the node's own timeout) before publishing a final result.
-        # The host can still forcibly stop this isolated process when needed.
+        # Native async I/O stops immediately; dispatch waits for thread-backed
+        # file operations and owned Code workers to stop before returning.
+        if operation is not None and not operation.done():
+            operation.cancel()
         if stopped is not None:
             stopped.cancel()
         await asyncio.gather(*(task for task in (operation, stopped) if task is not None), return_exceptions=True)

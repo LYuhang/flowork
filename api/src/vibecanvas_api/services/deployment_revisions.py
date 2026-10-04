@@ -9,9 +9,8 @@ import json
 import uuid
 from fastapi import HTTPException
 from sqlalchemy import text
-from vibecanvas_api.config import config
 
-EXECUTION_FIELDS = ("wf_id", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "service_account_id", "cpu_millis", "memory_mb")
+EXECUTION_FIELDS = ("wf_id", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "service_account_id", "cpu_millis", "memory_mb", "worker_count", "worker_concurrency")
 
 
 def desired_key(dep: dict) -> str:
@@ -29,7 +28,8 @@ def execution_spec(dep: dict, workflow: dict, user_id: str) -> dict:
             "pinned_major": meta["workflow_version"], "pinned_sub": meta["workflow_subversion"],
             "mount_enabled": bool(dep["mount_enabled"]), "user_id": str(user_id),
             "cpu_millis": dep.get("cpu_millis", 500), "memory_mb": dep.get("memory_mb", 256),
-            "max_concurrency": max(1, config.sandbox_fileop_workers),
+            "worker_count": dep.get("worker_count", 1),
+            "worker_concurrency": dep.get("worker_concurrency", -1),
             "service_account_id": str(dep["service_account_id"]), "desired_key": desired_key(dep)}
 
 
@@ -62,8 +62,8 @@ async def admit_revision(session, deployment_id) -> tuple[dict, dict]:
         FROM deployment_invocations WHERE tenant_id=:tenant
         AND status IN ('queued','running','waiting_approval')"""),
         {"id": deployment_id, "tenant": tenant_id})).mappings().one()
-    limit = int(rev["spec"].get("max_concurrency", max(1, config.sandbox_fileop_workers)))
-    if counts["deployment_count"] >= limit:
+    limit = int(rev["spec"].get("worker_count", 1)) * int(rev["spec"].get("worker_concurrency", -1))
+    if rev["spec"].get("worker_concurrency", -1) != -1 and counts["deployment_count"] >= limit:
         raise HTTPException(429, "concurrency_limit_exceeded", headers={"Retry-After": "1"})
     if tenant["max_concurrent_deployments"] is not None and counts["tenant_count"] >= tenant["max_concurrent_deployments"]:
         raise HTTPException(429, "tenant_concurrency_limit_exceeded", headers={"Retry-After": "1"})
@@ -82,6 +82,8 @@ async def runtime_summary(session, deployment_id) -> dict:
     return {"instances": [{"id": str(r["id"]), "state": r["state"],
                             "version": f"v{r['spec']['pinned_major']}.sv{r['spec']['pinned_sub']}",
                             "mount_enabled": r["spec"]["mount_enabled"],
+                            "worker_count": r["spec"].get("worker_count", 1),
+                            "worker_concurrency": r["spec"].get("worker_concurrency", -1),
                             "created_at": r["created_at"].isoformat(),
                             "activated_at": r["activated_at"].isoformat() if r["activated_at"] else None,
                             "metrics": r["metrics"],

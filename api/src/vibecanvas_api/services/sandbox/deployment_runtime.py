@@ -17,6 +17,8 @@ LEASE_HEARTBEAT_SECONDS = 10
 class DeploymentRuntime:
     def __init__(self, manager):
         self.manager = manager
+        from vibecanvas_api.services.deployment_workspace import DeploymentWorkspaces
+        self._workspaces = DeploymentWorkspaces()
         self._locks: dict[str, asyncio.Lock] = {}
         self._ready: dict[str, object] = {}
         self._active_requests: dict[str, int] = {}
@@ -105,13 +107,29 @@ class DeploymentRuntime:
                 from vibecanvas_api.services.deployment_resource_preflight import validate_deployment_resources
                 await validate_deployment_resources(tenant_id=tenant_id, revision_id=revision_id,
                                                     spec=spec, workflow=workflow, sandbox_session=session)
+                # Resolve ownership from the durable revision, never from an RPC path.
+                from sqlalchemy import text
+                from vibecanvas_api.storage.db import short_session_scope
+                async with short_session_scope(tenant_id=tenant_id) as db:
+                    deployment_id = str(await db.scalar(text(
+                        "SELECT deployment_id FROM deployment_runtime_revisions WHERE id=:id"
+                    ), {"id": uuid.UUID(revision_id)}))
+                workspace = await self._workspaces.acquire(tenant_id, deployment_id, revision_id)
+                session._deployment_workspace = workspace
+                session.workflow_run_dir = str(workspace.root)
+                session.workflow_run_id = workspace.run_id
+
+                async def release_workspace():
+                    await self._workspaces.release(tenant_id, deployment_id, revision_id)
+                session._release_deployment_workspace = release_workspace
                 await prepare_code_pythonpath(workflow, session=session)
                 await session.prewarm_fileops()
-                from vibecanvas_api.config import config
                 from .workflow_rpc_pool import WorkflowRpcPool
                 session._workflow_rpc_pool = WorkflowRpcPool.for_session(
                     session=session, revision=revision_id, workflow=workflow,
-                    capacity=int(spec.get("max_concurrency", config.sandbox_fileop_workers)),
+                    capacity=(-1 if spec.get("worker_concurrency", -1) == -1 else int(spec.get("worker_count", 1)) * int(spec["worker_concurrency"])),
+                    worker_count=int(spec.get("worker_count", 1)),
+                    artifacts_root=str(workspace.root),
                 )
                 await session._workflow_rpc_pool.prewarm()
             except BaseException:
@@ -167,7 +185,7 @@ class DeploymentRuntime:
                 for slot in pool._slots.values():
                     if slot.invocation_id == invocation_id and slot.alive:
                         await slot.close()
-                        if slot.alive:
+                        if slot.invocation_id is not None:
                             return False
                 # New pools are created only after any previous revision
                 # cgroup is empty. No matching owner/process means this old
@@ -321,7 +339,6 @@ class DeploymentRuntime:
 
     async def _execute_request(self, session, *, workflow, inputs, extra, tenant_id, run_id, wf_id):
         from .workflow_execution_driver import WorkflowExecutionDriver
-        from vibecanvas_api.services.workflow_artifacts import persist_workflow_artifacts
 
         if session._workflow_rpc_pool.workflow is not None and session._workflow_rpc_pool.workflow != workflow:
             raise RuntimeError("deployment_revision_workflow_mismatch")
@@ -329,10 +346,7 @@ class DeploymentRuntime:
         try:
             async with session._workflow_rpc_pool.acquire(run_id) as slot:
                 async def persist_artifacts():
-                    await persist_workflow_artifacts(
-                        root=str(slot.root / "artifacts"), tenant_id=tenant_id,
-                        execution_id=run_id, wf_id=wf_id,
-                    )
+                    await session._deployment_workspace.sync()
                     await session._sync_mount_folder()
 
                 async def on_event(frame):
@@ -357,7 +371,11 @@ class DeploymentRuntime:
                 timeout = None if deadline is None else max(0, deadline - time.monotonic())
                 return await driver.run(inputs=inputs, context=context, timeout_seconds=timeout)
         finally:
-            session._end_activity()
+            try:
+                # Timeout/cancellation also preserves files already written.
+                await session._deployment_workspace.sync()
+            finally:
+                session._end_activity()
 
     async def retire(self, tenant_id: str, revision_id: str):
         key = f"{tenant_id}:{revision_id}"

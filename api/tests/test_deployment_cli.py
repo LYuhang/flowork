@@ -273,3 +273,31 @@ def test_result_cli_is_read_only_and_separates_query_outcome(monkeypatch, capsys
     assert request.call_args.kwargs['operation'] == 'deployment.result'
     assert 'deployment.result' in cli.READ_OPERATIONS
     assert 'deployment.result' not in cli.WRITE_OPERATIONS
+
+
+def test_worker_configuration_flags_and_settings(monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(cli, 'request', lambda endpoint, args, **kw: seen.append(args) or {'status': 'updated'})
+    dep_id = str(uuid4())
+    assert cli.main(['deployment', 'update', '--deployment-id', dep_id,
+                     '--worker-count', '2', '--worker-concurrency', '3'], socket_path='test') == 0
+    assert seen[-1]['worker_count'] == 2 and seen[-1]['worker_concurrency'] == 3
+    assert settings({'worker_count': 2, 'worker_concurrency': 3}) == {'worker_count': 2, 'worker_concurrency': 3}
+
+
+def test_unlimited_worker_setting_is_explicit_and_strict(monkeypatch, capsys):
+    from pydantic import ValidationError
+    from vibecanvas_api.routes.deployments import CreateDeploymentBody, PatchDeploymentBody
+    assert CreateDeploymentBody.model_fields['worker_concurrency'].default == -1
+    assert PatchDeploymentBody(worker_concurrency=-1).worker_concurrency == -1
+    for value in (0, -2, -1.0, '4', True):
+        with pytest.raises(ValidationError):
+            PatchDeploymentBody(worker_concurrency=value)
+    seen = []
+    monkeypatch.setattr(cli, 'request', lambda endpoint, args, **kw: seen.append(args) or {})
+    assert cli.main(['deployment', 'update', '--deployment-id', str(uuid4()),
+                     '--worker-concurrency', '-1'], socket_path='test') == 0
+    assert seen[-1]['worker_concurrency'] == -1
+    from vibecanvas_api.services.agent_runtime.cli_deployments import needs_approval
+    assert needs_approval('deployment.update', {'worker_concurrency': -1}, {'worker_count':1,'worker_concurrency':4,'rate_limit_qps':0})
+    assert not needs_approval('deployment.update', {'worker_concurrency': 4}, {'worker_count':1,'worker_concurrency':-1,'rate_limit_qps':0})

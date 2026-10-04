@@ -121,13 +121,13 @@ class SessionExecutions:
                 source_id = context.pop("_workflow_resume_from", None)
                 if source_id is not None:
                     await restore_workflow_artifacts(
-                        root=slot.root / "artifacts", tenant_id=self.session.tenant_id,
+                        root=slot.artifacts, tenant_id=self.session.tenant_id,
                         execution_id=source_id,
                     )
 
                 async def artifacts():
                     await persist_workflow_artifacts(
-                        root=str(slot.root / "artifacts"),
+                        root=str(slot.artifacts),
                         tenant_id=self.session.tenant_id,
                         execution_id=execution_id,
                         wf_id=wf_id,

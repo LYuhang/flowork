@@ -506,3 +506,22 @@ async def test_parallel_work_consumes_budget_while_another_branch_waits(slow_sec
             assert state["status"] == "succeeded"
     finally:
         await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_unlimited_runtime_has_no_hidden_default_or_backlog_concurrency_cap():
+    runtime = WorkflowRuntime(capacity=-1)
+    graph = approval_workflow()
+    graph['node_2']['node_config']['timeout_seconds'] = 60
+    runtime.install('unlimited', graph)
+    runs = [str(uuid.uuid4()) for _ in range(40)]
+    try:
+        for run in runs:
+            runtime.invoke(run, 'unlimited', {}, {})
+        assert len(runtime.executions) == 40
+        await wait_for(runtime, runs[-1], lambda state: state['status'] == 'waiting_approval')
+        await runtime.cancel(runs[0])
+        assert runtime.status(runs[0])['status'] == 'cancelled'
+        assert runtime.status(runs[-1])['status'] == 'waiting_approval'
+    finally:
+        await runtime.close()

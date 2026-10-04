@@ -63,6 +63,9 @@ async def test_retry_reuses_live_and_finished_invocation_and_rejects_changed_inp
                         }
                     ],
                 )
+                import uuid
+                from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+                await DeploymentInvocationsRepo(session).mark_terminal(uuid.UUID(invocation), status="succeeded", latency_ms=100)
         finally:
             finished.set()
 

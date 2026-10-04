@@ -32,7 +32,7 @@ _running_tests: set[asyncio.Task] = set()
 
 
 def settings(arguments):
-    result = {key: arguments[key] for key in ("name", "slug", "trigger_type", "enabled", "rate_limit_qps", "timeout_seconds") if key in arguments}
+    result = {key: arguments[key] for key in ("name", "slug", "trigger_type", "enabled", "rate_limit_qps", "timeout_seconds", "worker_count", "worker_concurrency") if key in arguments}
     if "workflow_id" in arguments:
         result["wf_id"] = arguments["workflow_id"]
     if "mount" in arguments:
@@ -49,6 +49,8 @@ def deployment_status(dep):
     result = {"deployment_id": str(dep["id"]), "name": dep["name"], "workflow_id": dep["wf_id"],
         "trigger_type": dep["trigger_type"], "status": "enabled" if dep["enabled"] else "disabled",
         "slug": dep["slug"], "rate_limit_qps": dep["rate_limit_qps"], "mount": dep.get("mount_enabled", True), "timeout_seconds": dep.get("timeout_seconds", 30)}
+    result.update(worker_count=dep.get("worker_count", 1), worker_concurrency=dep.get("worker_concurrency", -1))
+    result["max_concurrent_executions"] = -1 if result["worker_concurrency"] == -1 else result["worker_count"] * result["worker_concurrency"]
     if dep["version_pin"] == "major":
         result["major"] = f"v{dep['pinned_major']}"
     elif dep["version_pin"] == "specific":
@@ -127,7 +129,11 @@ def needs_approval(operation, args, current):
     if operation == "deployment.update":
         previous = current["rate_limit_qps"]
         rate = args.get("rate_limit_qps", previous)
-        return args.get("timeout_seconds", current.get("timeout_seconds", 30)) > current.get("timeout_seconds", 30) or bool({"major", "version"} & args.keys()) or (args.get("mount") is True and not current.get("mount_enabled", True)) or (previous > 0 and (rate == 0 or rate > previous))
+        new_capacity = args.get("worker_count", current.get("worker_count", 1)) * args.get("worker_concurrency", current.get("worker_concurrency", -1))
+        current_capacity = current.get("worker_count", 1) * current.get("worker_concurrency", -1)
+        new_capacity = float("inf") if args.get("worker_concurrency", current.get("worker_concurrency", -1)) == -1 else new_capacity
+        current_capacity = float("inf") if current.get("worker_concurrency", -1) == -1 else current_capacity
+        return new_capacity > current_capacity or args.get("timeout_seconds", current.get("timeout_seconds", 30)) > current.get("timeout_seconds", 30) or bool({"major", "version"} & args.keys()) or (args.get("mount") is True and not current.get("mount_enabled", True)) or (previous > 0 and (rate == 0 or rate > previous))
     return True
 
 
@@ -265,7 +271,7 @@ async def execute(call, args):
             if dep_id:
                 await session.execute(text("SELECT id FROM deployments WHERE id=:id FOR UPDATE"), {"id": dep_id})
                 fresh = await DeploymentsRepo(session).get(dep_id)
-                keys = ("updated_at", "enabled", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "rate_limit_qps", "timeout_seconds")
+                keys = ("updated_at", "enabled", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "rate_limit_qps", "timeout_seconds", "worker_count", "worker_concurrency")
                 if fresh is None or any(fresh.get(key) != current.get(key) for key in keys):
                     raise ToolError("state_conflict", "Deployment settings changed while waiting. Inspect info before requesting a new operation.")
             if operation in {"deployment.create", "deployment.rotate_key"}:

@@ -16,8 +16,6 @@ from .prompt import PromptNode
 class SubAgentNode(BaseNode):
     """SubAgentNode — delegate a bounded, tool-using subtask inside a workflow."""
 
-    REQUIRES_THREAD_BRIDGE: bool = True
-
     CONFIG_SCHEMA = {
         "type": "object",
         "required": ["task_template", "model_name"],
@@ -275,3 +273,10 @@ class SubAgentNode(BaseNode):
         # ``{status, output: {analysis_summary: ...}}`` as the node output and
         # break downstream references such as ``worker.analysis_summary``.
         return asyncio.run(self._call_async(inputs, extra if extra is not None else {}))
+
+    @safe_call_with_args(prefix="[SubAgentNode Call]: ")
+    async def call_async(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
+        stop_event = (extra or {}).get("stop_event")
+        if stop_event is not None and stop_event.is_set():
+            raise RuntimeError("SubAgentNode cancelled before agent call.")
+        return await self._call_async(inputs, extra if extra is not None else {})

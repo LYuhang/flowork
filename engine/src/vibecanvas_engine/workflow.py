@@ -507,6 +507,11 @@ class Workflow:
                 if spawned_tasks:
                     await asyncio.gather(*spawned_tasks, return_exceptions=True)
         finally:
+            for task in spawned_tasks:
+                if not task.done():
+                    task.cancel()
+            if spawned_tasks:
+                await asyncio.gather(*spawned_tasks, return_exceptions=True)
             # Always tear down the run's CodeNode worker pool
             # (lazily created by CodeNode.__call__ in ``extra["_code_pool"]``).
             # Runs in ``finally`` so it fires on success, node error, engine
@@ -545,8 +550,8 @@ class Workflow:
         and signals end-of-stream via a sentinel.
 
         Cancelling the consumer (breaking out of the ``async for``) sets
-        the ``stop_event`` so the producer voluntarily stops at the next
-        node boundary, then awaits the producer's exit before returning.
+        the ``stop_event`` and cancels this execution's producer/branches.
+        Owned Code workers and asynchronous I/O stop before the stream exits.
         """
         info_queue: asyncio.Queue = asyncio.Queue()
         stop_event = stop_event or asyncio.Event()
@@ -582,6 +587,9 @@ class Workflow:
                     except Exception:
                         pass
 
+            if not exec_task.done():
+                exec_task.cancel()
+
         exec_task = asyncio.create_task(_producer())
         watcher_task = asyncio.create_task(_cancel_watcher())
         try:
@@ -591,23 +599,13 @@ class Workflow:
                     break
                 yield ev
         finally:
-            if not exec_task.done():
-                stop_event.set()
-                try:
-                    await exec_task
-                except Exception:
-                    pass
-            # The watcher is one-shot; ensure it can't outlive the stream.
-            if not watcher_task.done():
-                stop_event.set()  # unblock its wait() so it exits cleanly
-                try:
-                    await watcher_task
-                except Exception:
-                    pass
+            stop_event.set()
+            await asyncio.gather(watcher_task, return_exceptions=True)
+            await asyncio.gather(exec_task, return_exceptions=True)
 
-        # Surface a producer-side crash to the caller (matches asyncio task
-        # semantics — silently swallowing it would hide real bugs).
-        if exec_task.done() and exec_task.exception() is not None:
+        # Cooperative cancellation is an ordinary end of this stream; a real
+        # producer error still propagates to the owning runtime invocation.
+        if not exec_task.cancelled() and exec_task.exception() is not None:
             raise exec_task.exception()
 
     async def _trigger_inner(self, workflow_inputs: dict, stop_event=None, run_context: dict | None = None) -> tuple[dict, dict, float]:

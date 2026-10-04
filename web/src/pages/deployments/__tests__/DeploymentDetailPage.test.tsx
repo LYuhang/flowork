@@ -476,6 +476,30 @@ describe('<DeploymentDetailPage>', () => {
     expect(screen.getByText('Starting')).toBeInTheDocument();
   });
 
+  it('recommends CPU-based workers until manually overridden', async () => {
+    const user = userEvent.setup();
+    renderAt(DEP_ID);
+    await screen.findByRole('heading', { name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
+    await user.click(screen.getByText('Advanced · instance resources'));
+    const cpu = screen.getByRole('spinbutton', { name: 'CPU cores' });
+    const workers = screen.getByRole('spinbutton', { name: 'Worker processes' });
+    const concurrency = screen.getByRole('spinbutton', { name: 'Concurrent executions per worker' });
+    expect(workers).toHaveValue(1);
+    expect(concurrency).toHaveValue(-1);
+    fireEvent.change(cpu, { target: { value: '2.5' } });
+    expect(workers).toHaveValue(2);
+    fireEvent.change(workers, { target: { value: '3' } });
+    fireEvent.change(cpu, { target: { value: '4' } });
+    expect(workers).toHaveValue(3);
+    fireEvent.change(concurrency, { target: { value: '2' } });
+    expect(screen.getByText('Total concurrent executions: 6')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm and save' }));
+    await waitFor(() => expect(patchDeployment).toHaveBeenCalledExactlyOnceWith(DEP_ID,
+      { cpu_millis: 4000, worker_count: 3, worker_concurrency: 2 }));
+  });
+
   it('confirms resource changes as an instance replacement', async () => {
     const user = userEvent.setup();
     renderAt(DEP_ID);

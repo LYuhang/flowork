@@ -3917,5 +3917,12 @@
   "canvasChat.readOnly": "当前画布只读，请打开可编辑版本后继续对话。",
   "canvasChat.unavailable": "此对话暂不可用，请从历史中选择可访问的对话。",
   "canvasChat.contextChanged": "画布上下文已变化，请返回选定的大版本后开始此对话。",
-  "canvasChat.empty": "在画布、节点或连线上右键开始对话，或从历史中选择已有对话。"
+  "canvasChat.empty": "在画布、节点或连线上右键开始对话，或从历史中选择已有对话。",
+  "deployments.workers.count": "Worker 进程数",
+  "deployments.workers.concurrency": "每个 Worker 并发执行数",
+  "deployments.workers.help": "默认按 CPU 整数核数设置 worker，最少 1 个；每个 worker 并发默认为 -1（不限），填写正整数可限制并发。所有 worker 共享实例的 CPU、内存和存储。修改后会启动新实例。",
+  "deployments.workers.total": "总并发执行上限：{{total}}",
+  "deployments.workers.invalid": "请输入整数：worker 数为 1–256；每个 worker 的并发数为 -1（不限）或 1–64。",
+  "deployments.workers.runtime": "Worker 数量 × 单 Worker 并发",
+  "deployments.workers.unlimited": "不限"
 }

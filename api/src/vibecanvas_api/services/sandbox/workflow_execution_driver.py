@@ -92,8 +92,9 @@ class WorkflowExecutionDriver:
 
     @complete_before_cancelling
     async def _lost(self, error_code="execution_lost") -> dict:
-        # Kill confirmation precedes terminal history and slot release. An RPC
-        # timeout alone is never evidence that an execution stopped.
+        # Invocation-stop confirmation precedes terminal history and capacity
+        # release. The worker is shared and remains resident for sibling calls.
+        # An RPC timeout alone is never evidence that an execution stopped.
         await self.slot.close()
         async with self._session() as session:
             repo = WorkflowHistoryRepo(session)
@@ -144,8 +145,8 @@ class WorkflowExecutionDriver:
                         break
                     raise
                 except TRANSPORT_ERRORS:
-                    # Unreachable, still-running control process: stop this
-                    # isolated slot before recording execution_lost.
+                    # Unreachable control process: require confirmed execution
+                    # stop before recording loss; never kill sibling calls.
                     return await self._lost()
             else:
                 return await self._lost()

@@ -27,6 +27,7 @@ async def test_resident_rpc_calls_reuse_process_and_persist_history(pg_engine, a
     session = SimpleNamespace(
         provider=BubblewrapProvider(shutil.which("bwrap")), workspace_folders=(), _rw_binds=[],
         skills_dir=None, _begin_activity=Mock(), _end_activity=Mock(), _sync_mount_folder=AsyncMock(),
+        _deployment_workspace=SimpleNamespace(sync=AsyncMock()),
     )
     pool = WorkflowRpcPool.for_session(session=session, revision=revision, workflow=graph, capacity=1)
     session._workflow_rpc_pool = pool
@@ -51,7 +52,7 @@ async def test_resident_rpc_calls_reuse_process_and_persist_history(pg_engine, a
             assert not result["error_dict"], result
             assert result["final_outputs"]["__end__"]["y"] == value
             assert slot.handle.proc.pid == pid and slot.alive
-            assert list((slot.root / "artifacts").iterdir()) == []
+            assert list((slot.artifacts).iterdir()) == []
             assert {path.name for path in (slot.root / "control").iterdir()} == {"rpc.sock"}
             async with short_session_scope(tenant_id=tenant) as db:
                 detail = await WorkflowHistoryRepo(db).detail(str(invocation))
@@ -75,16 +76,28 @@ async def test_cancel_waits_for_rpc_worker_without_interrupting_sibling(monkeypa
     stop_requested, stop_confirmed = asyncio.Event(), asyncio.Event()
 
     class Slot:
-        invocation_id = None
         alive = False
+        root = None
+        artifacts = None
+        handle = None
+        workflow = {}
+        revision = "v1"
+        _egress_broker = None
+        client = None
 
         async def start(self):
-            self.alive = True
+            if not self.alive:
+                self.alive = True
+                self.client = SimpleNamespace(call=self.call)
 
-        @complete_before_cancelling
+        async def call(self, method, **kwargs):
+            if method == "cancel":
+                stop_requested.set()
+                await stop_confirmed.wait()
+                return {"status": "cancelled", "seq": 0}
+            return {"ok": True}
+
         async def close(self):
-            stop_requested.set()
-            await stop_confirmed.wait()
             self.alive = False
 
     class Driver:
@@ -100,7 +113,8 @@ async def test_cancel_waits_for_rpc_worker_without_interrupting_sibling(monkeypa
 
     monkeypatch.setattr(workflow_execution_driver, "WorkflowExecutionDriver", Driver)
     pool = WorkflowRpcPool(capacity=2, factory=lambda _: Slot())
-    session = SimpleNamespace(_workflow_rpc_pool=pool, _begin_activity=Mock(), _end_activity=Mock())
+    session = SimpleNamespace(_workflow_rpc_pool=pool, _begin_activity=Mock(), _end_activity=Mock(),
+                              _deployment_workspace=SimpleNamespace(sync=AsyncMock()))
     tasks = {key: asyncio.create_task(runtime._execute_request(session,
         workflow={}, inputs={}, extra={}, tenant_id="tenant", run_id=key,
         wf_id="wf")) for key in entered}
@@ -298,21 +312,28 @@ async def test_detached_start_owns_one_execution_after_caller_disconnect(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('sibling_running', [False, True])
-async def test_dead_worker_replaced_without_rebuilding_deployment(sibling_running):
+async def test_dead_worker_replaced_without_rebuilding_deployment():
     from vibecanvas_api.services.sandbox.workflow_rpc_pool import WorkflowRpcPool
 
-    class Slot:
-        invocation_id = None
+    class Worker:
         alive = False
+        root = None
+        artifacts = None
+        handle = None
+        workflow = {}
+        revision = "v1"
+        _egress_broker = None
+        client = None
 
         async def start(self):
-            self.alive = True
+            if not self.alive:
+                self.alive = True
+                self.client = SimpleNamespace()
 
         async def close(self):
             self.alive = False
 
-    pool = WorkflowRpcPool(capacity=2, factory=lambda _: Slot())
+    pool = WorkflowRpcPool(capacity=2, factory=lambda _: Worker())
     manager = SimpleNamespace(close_session=AsyncMock(), get_session=AsyncMock())
     runtime = DeploymentRuntime(manager)
     session = SimpleNamespace(
@@ -324,26 +345,16 @@ async def test_dead_worker_replaced_without_rebuilding_deployment(sibling_runnin
     try:
         await pool.prewarm()
         dead = pool._slots[0]
-        async with pool.acquire('timed-out') as worker:
-            assert worker is dead
-            await worker.close()
+        await pool._workers[0].close()
         assert not pool.ready and pool.accepting
-
-        async def check_recovery(sibling=None):
-            prepared = await runtime.prepare(tenant_id='tenant', revision_id='revision', spec={}, workflow={})
-            assert prepared is session
-            async with pool.acquire('next-request') as replacement:
-                assert replacement.alive and replacement is not dead
-                if sibling is not None:
-                    assert sibling.alive
-            manager.close_session.assert_not_awaited()
-            manager.get_session.assert_not_awaited()
-
-        if sibling_running:
+        prepared = await runtime.prepare(tenant_id='tenant', revision_id='revision', spec={}, workflow={})
+        assert prepared is session
+        async with pool.acquire('next-request') as replacement:
+            assert replacement.alive and replacement is not dead
+            assert not dead.alive
             async with pool.acquire('sibling') as sibling:
-                await check_recovery(sibling)
-        else:
-            await check_recovery()
+                assert sibling.worker is replacement.worker
+        manager.close_session.assert_not_awaited()
+        manager.get_session.assert_not_awaited()
     finally:
         await pool.close()
-    assert not pool.accepting

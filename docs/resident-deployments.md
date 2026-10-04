@@ -6,15 +6,26 @@ and terminal processes. A limit is not a reservation of physical RAM.
 The 256 MiB starting size leaves room for rolling overlap on small hosts;
 increase it for workflows with larger in-memory datasets.
 
-Deployment terminals start in `/run`, an instance-local scratch directory.
+Deployment terminals start in `/run`, a Deployment-owned persistent directory.
+All workers and overlapping revisions of the same Deployment mount the same
+host projection. File creation, modification and deletion are immediately shared;
+individual invocation start/end never clears the directory. Each Deployment has
+its own object-store namespace keyed by Deployment ID, not revision or invocation.
+Completion (including timeout), approval waits and orderly shutdown synchronize
+changed files and deletions. A rebuilt sandbox hydrates the same namespace.
+Unexpected daemon/host loss can lose changes not yet synchronized; execution
+history is not a checkpoint and lost invocations are never resumed.
 Deployment instances use an execution workspace profile: they do not initialize,
 hydrate, mount or write back the Chat-specific `/chats`, `/data`, `/logs` and
-`/memory` roots. Each invocation has isolated in-memory execution state and
-artifact space. The host installs a frozen workflow revision over authenticated
+`/memory` roots. Each invocation has independent in-memory execution state,
+inputs, results, events and cancellation. File paths remain shared: workflows
+are responsible for file naming and concurrent writes. The host installs a frozen workflow revision over authenticated
 local RPC; inputs, execution events and results travel over RPC as well. Request
 and result JSON files are not the execution transport.
-Use `/mount` for durable user files when explicitly enabled; files placed in
-`/run` are temporary and disappear when the instance is replaced or restarted.
+Use `/mount` for durable files shared at user scope when explicitly enabled.
+Deployment `/run` requires no mount opt-in. Files are synchronized once at
+Deployment scope, not copied into every invocation's artifact namespace.
+Workspace previews require that Deployment's inspect-runs permission.
 
 ## Configuration changes and rollout
 
@@ -25,7 +36,7 @@ before every save. Cancelling leaves the draft available for editing.
 | --- | --- |
 | QPS | Updates admission limits without replacing the instance |
 | Workflow version, its dependencies, or `/mount` | Prepares a replacement instance |
-| CPU or memory | Prepares a replacement with the new limits |
+| CPU, memory, worker count or per-worker concurrency | Prepares a replacement with the new limits |
 | Disable | Stops accepting new calls; previously accepted calls drain |
 | Enable | Prepares the deployment before accepting calls |
 
@@ -54,6 +65,21 @@ The deployment API accepts `cpu_millis` (1000 = one CPU) and `memory_mb` (MiB).
 Defaults are 500 millicores and 256 MiB. Both create and patch validate integer
 limits; the settings page exposes CPU cores and memory under Advanced.
 
+`worker_count` defaults to `max(1, floor(cpu_millis / 1000))` on creation;
+`worker_concurrency` defaults to -1, meaning unlimited. Both are configurable in Settings and via
+CLI `--worker-count` / `--worker-concurrency`. Limits are 1–256 workers and either -1 (unlimited) or 1–64
+simultaneous invocations per worker. These are scheduling limits, not additional
+CPU/memory reservations. CLI/API changes specify each field explicitly; the UI
+follows CPU-based recommendations until the user manually edits worker count.
+
+A worker is one resident engine process. Native asynchronous model, SubAgent and
+HTTP calls share that process; Code/Bash retain cancellable lightweight children.
+The pool routes each new invocation to the least occupied worker, rotates ties,
+and starts invocations directly without queuing. Only an explicitly configured
+positive concurrency limit rejects excess invocations with HTTP 429; QPS and
+tenant limits are independent. Approval waits and persistence keep
+slots reserved. Cancelling one invocation never kills its siblings' worker.
+
 Changing resource limits creates a replacement revision. Admission counts the
 old, candidate and draining instances together. If their configured limits do
 not fit the deployment pool, the candidate waits and the old instance remains
@@ -77,7 +103,7 @@ The runtime retains events until the host commits them and acknowledges their
 sequence. Transient database errors while storing an event batch retry that
 same batch for up to 10 seconds; an uncertain commit is safe to retry because
 event sequences are deduplicated. No success or runtime acknowledgement is
-reported before the commit. A persistent failure stops the isolated executor
+reported before the commit. A persistent failure cancels the affected invocation
 before releasing its capacity; it does not replay the workflow.
 These records have no automatic TTL deletion. Temporary process files and
 short-lived credentials can be removed without deleting execution history.
@@ -91,7 +117,7 @@ The delivery task does not mark the invocation successful or clean its files.
 
 Execution ownership is claimed atomically in PostgreSQL. The executor renews a
 60-second lease every 10 seconds; failure to renew cancels only that request's
-worker. The controller marks expired executions as failed, and local worker
+execution. The controller marks expired executions as failed, and local worker
 leases plus cgroup emptiness checks still prevent premature instance removal.
 This also releases durable drain blockers after a daemon is killed without
 running its finalizers. Expired or completed calls are not automatically
@@ -416,8 +442,85 @@ outside the repository.
 
 Deployment Settings and CLI create/update expose `timeout_seconds` (integer 1–3600, default 30). Each invocation snapshots this value at admission; editing the setting affects new calls without restarting the instance. Ordinary execution consumes the budget; Human approval waiting pauses it and uses the node timeout. The budget resumes after approval resolves. Explicit asynchronous calls use the same execution budget.
 
-A synchronous call returns HTTP 202 only after its actual path encounters Human approval. Without approval, expiry stops that invocation’s isolated worker before recording `timed_out` and returning HTTP 504 with `execution_timeout`. A queued, unclaimed call is fenced from late dispatch before timeout is recorded. Existing side effects are not rolled back. Result queries retain the same execution ID and terminal status; an HTTP disconnect alone is not an execution timeout.
+A synchronous call returns HTTP 202 only after its actual path encounters Human approval. Without approval, expiry cancels that invocation without terminating its shared worker before recording `timed_out` and returning HTTP 504 with `execution_timeout`. A queued, unclaimed call is fenced from late dispatch before timeout is recorded. Existing side effects are not rolled back. Result queries retain the same execution ID and terminal status; an HTTP disconnect alone is not an execution timeout.
 
-The timeout closes only the invocation’s RPC worker and its descendants. The resident Deployment session and sibling workers remain available. An open execution pool can replace a dead worker on the next acquisition even when no warm worker remains; absence of a warm worker alone must not trigger instance teardown. Capacity is released only after the worker has stopped.
+Timeout cancels the affected invocation and stops its owned Code/Bash children. The shared RPC worker, resident Deployment session and sibling invocations remain available. Capacity is released only after that invocation has stopped. If a worker actually crashes, the pool replaces it for new calls; missing workers alone do not release the sandbox or replay lost calls.
 
-Native-service acceptance (2026-10-03) verified HTTP 504 on an ordinary call timeout, OS-level disappearance of the worker process group, HTTP 200 on the next call using a replacement worker, and no resident-session rebuild. A sibling Human approval call survived another call's timeout and completed after its own approval deadline. A 32-second ordinary call remained synchronous with a 45-second budget. Explicit asynchronous execution timed out durably and the next call succeeded. The Settings control rejected zero and persisted a changed timeout across reload without changing the active revision. Private credentials and test evidence remain outside the repository.
+Native-service acceptance (2026-10-04) verified HTTP 504 on an ordinary call timeout followed by HTTP 200 on the next call with unchanged resident worker PIDs, including unlimited-concurrency mode. A sibling Human approval call survived another call's timeout and completed after its own approval deadline. A 32-second ordinary call remained synchronous with a 45-second budget. Explicit asynchronous execution timed out durably and the next call succeeded. The Settings control rejected zero and persisted a changed timeout across reload without changing the active revision. Private credentials and test evidence remain outside the repository.
+
+
+## Shared worker and persistent directory acceptance (2026-10-04)
+
+Real-service checks covered CPU-based worker defaults, two resident workers,
+explicit 2 × 2 admission (four accepted, overflow HTTP 429), changing to unlimited
+concurrency (six overlapping successful calls), timeout HTTP 504 followed by a
+successful call without changing worker PIDs, file visibility during revision
+replacement, durable file restoration after disable/enable, and durable deletion.
+The same invocation's inputs and node events remained available from history;
+the Deployment directory was readable through authorized VFS access. QA
+Deployments were disabled after acceptance.
+
+Regression coverage also verifies least-occupied routing after reservations
+are released, 40 simultaneous asynchronous approval waits in a single unlimited
+worker, independent cancellation, and file writeback failure retaining its local
+source for retry. Shared storage is intentionally not an invocation snapshot.
+
+
+## Durable invocation trace verification (2026-10-04)
+
+`deployment_invocations` stores the operational call summary. Full, encrypted
+execution evidence lives in `workflow_execution_runs` (frozen graph and exact
+version, invocation inputs, status and final result), `workflow_execution_events`
+(ordered node events), and `workflow_execution_approvals` (approval decisions).
+Trace storage is separate from the shared Deployment `/run`; deleting or
+rebuilding a sandbox does not remove those database records.
+
+Node-start events now include a snapshot of resolved inputs, so an interrupted
+node still has inspectable inputs even though it never produced an output.
+Successful and failed node events retain their output or error. An execution
+timeout remains an execution-level terminal status; unfinished nodes are not
+invented as successful or given fabricated outputs.
+
+Live verification read 19 earlier calls after an API restart, checked 18 successful
+calls for exact node-input/result correspondence and distinct trace identities,
+and identified the missing interrupted-node inputs. After the fix, separate
+real calls verified success (HTTP 200), a Code exception (HTTP 502), and timeout
+(HTTP 504), including resolved inputs and errors. All three complete event
+streams remained identical after disabling the Deployment and releasing its
+sandbox. The all-node workload additionally exercises loop visits and parallel
+spans; each event is bound to its own invocation and ordered sequence.
+
+A synchronous response now waits for the invocation's operational completion,
+including worker capacity release and file writeback. Previously, committed
+terminal history could return before capacity was released, causing a client's
+next in-limit call to receive an unexpected HTTP 429. Idempotent synchronous
+replays observe the same completion boundary.
+
+A load-test SubAgent failed because its delegated task prohibited all tools and
+the model omitted `set_output`. Its input, error and actual model messages were
+retained in the database. The system completion contract now explicitly says
+that this prohibition covers optional business tools, while `set_output` remains
+mandatory. No extra corrective conversation turn or automatic business replay
+was added; prompt clarification cannot guarantee model compliance.
+
+
+Final bounded comparison reused the existing 25-node, 15-type Workflow with
+Human approval removed, on 500 millicores / 256 MiB and one worker with an
+explicit four-invocation limit:
+
+| Client concurrency | Verified calls | Instance peak MiB | Observed calls/s |
+| --- | --- | --- | --- |
+| 1 | 2/2 | 141.7 | 0.125 |
+| 2 | 4/4 | 156.3 | 0.397 |
+| 4 | 8/8 | 186.6 | 0.664 |
+
+All final calls returned HTTP 200 with validated business outputs; no OOM,
+worker replacement or unexpected HTTP 429 occurred. All 798 persisted events,
+392 node visits and 15 node types were checked for exact version, invocation
+identity, ordered sequence, resolved inputs, outputs, loop visits and parallel
+parent spans after the test Deployment was disabled. Earlier separate-process
+measurements reached about 252 MiB at concurrency two and OOM at concurrency
+four. These are short samples, include a cold first call and model latency, and
+do not establish a maximum sustainable QPS. The earlier capacity-release failure
+and model completion failure remain recorded as findings, not erased by the
+successful final run.

@@ -38,6 +38,9 @@ test when requested or needed for agreed acceptance; side effects are possible.
 Observe terminal status/errors before claiming success. External credentials,
 webhook signatures and network access are not validated by this test. Long calls
 return an accepted execution ID only upon actually entering human approval.
+Deployment /run is persistent and shared by all calls, workers and replacement instances of that Deployment. Calls do not clear it. File naming and concurrent writes are the workflow's responsibility. Use /mount only for user-scoped shared files when enabled.
+Worker count defaults to max(1, whole Deployment CPU cores), with -1 (unlimited) concurrent executions per worker by default. Configure with --worker-count and --worker-concurrency; workers share the instance resource budget and storage. Changes require a replacement revision; wait for info to report ready.
+
 Other calls remain synchronous: expiry of timeout_seconds stops execution and
 returns HTTP 504. Settings and create/update support --timeout-seconds (1–3600,
 default 30); the budget excludes approval waiting and applies to new calls. Use result with that ID to retrieve outputs later, or status/logs to

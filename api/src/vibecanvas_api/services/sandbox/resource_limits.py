@@ -74,6 +74,7 @@ class ResourceAllocator:
         self.memory_capacity_mb = memory_capacity_mb
         self._lock = threading.Lock()
         self._groups: dict[str, ResourceGroup] = {}
+        self._pending_releases: dict[str, ResourceGroup] = {}
 
     @classmethod
     def from_environment(cls):
@@ -111,6 +112,15 @@ class ResourceAllocator:
         with self._lock:
             if not {'cpu', 'memory', 'pids'}.issubset(set((self.root / 'cgroup.subtree_control').read_text().split())):
                 raise RuntimeError('deployment_resource_delegation_unavailable')
+            # A confirmed stop can lag a failed preparation/retirement. Reap
+            # only groups whose owner explicitly requested release; an empty
+            # active reservation may still be about to launch its first child.
+            for pending_name, pending in list(self._pending_releases.items()):
+                if pending.release():
+                    self._pending_releases.pop(pending_name, None)
+                    self._groups.pop(pending_name, None)
+            if name in self._pending_releases:
+                raise RuntimeError('deployment_resource_instance_still_running')
             if name in self._groups:
                 group = self._groups[name]
                 if group.budget != budget:
@@ -151,10 +161,10 @@ class ResourceAllocator:
     def release(self, revision_id: str) -> bool:
         name = 'deployment-' + uuid.UUID(str(revision_id)).hex
         with self._lock:
-            group = self._groups.get(name)
-            if group is None:
-                return ResourceGroup(self.root / name, ResourceBudget()).release()
+            group = self._groups.get(name) or ResourceGroup(self.root / name, ResourceBudget())
             if not group.release():
+                self._pending_releases[name] = group
                 return False
+            self._pending_releases.pop(name, None)
             self._groups.pop(name, None)
             return True

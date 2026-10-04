@@ -179,6 +179,7 @@ export function RightInspector({ wfId, readOnly = false, canExecute = false, can
             ? `pane-enter-from-right relative flex shrink-0 select-text flex-col bg-surface-work max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-modal max-lg:!w-full max-lg:rounded-t-2xl max-lg:border max-lg:border-b-0 max-lg:shadow-modal ${mobileExpanded ? 'max-lg:h-[min(92dvh,50rem)]' : 'max-lg:h-[min(56dvh,34rem)]'}`
             : `pane-enter-from-right surface-sidepanel relative flex shrink-0 select-text flex-col border-y-0 border-r-0 max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-modal max-lg:!w-full max-lg:rounded-t-2xl max-lg:border max-lg:border-b-0 max-lg:shadow-modal ${mobileExpanded ? 'max-lg:h-[min(92dvh,50rem)]' : 'max-lg:h-[min(56dvh,34rem)]'}`}
           style={{ width }}
+          data-workflow-inspector
           role="dialog"
           aria-modal={false}
           aria-label={t('inspector.title', 'Inspector')}

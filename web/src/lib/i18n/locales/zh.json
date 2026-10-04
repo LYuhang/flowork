@@ -3926,5 +3926,15 @@
   "deployments.workers.total": "总并发执行上限：{{total}}",
   "deployments.workers.invalid": "请输入整数：worker 数为 1–256；每个 worker 的并发数为 -1（不限）或 1–64。",
   "deployments.workers.runtime": "Worker 数量 × 单 Worker 并发",
-  "deployments.workers.unlimited": "不限"
+  "deployments.workers.unlimited": "不限",
+  "canvasNavigation": {
+    "find": "定位节点",
+    "placeholder": "搜索节点名称、ID 或类型…",
+    "status": "执行状态",
+    "all": "全部",
+    "error": "失败",
+    "running": "运行中",
+    "waiting_approval": "等待审批",
+    "empty": "没有匹配的节点"
+  }
 }

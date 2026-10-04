@@ -352,7 +352,7 @@ export function CanvasPage() {
             <WorkflowCanvasChat wfId={wfId!} readOnly={effectiveReadOnly}>
             <CanvasNodePicker readOnly={effectiveReadOnly}>
               <ContextMenuLayer readOnly={effectiveReadOnly}>
-                <Canvas readOnly={effectiveReadOnly} />
+                <Canvas readOnly={effectiveReadOnly} viewKey={`${wfId}:${vKey ?? "latest"}`} />
               </ContextMenuLayer>
             </CanvasNodePicker>
             </WorkflowCanvasChat>

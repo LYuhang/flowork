@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Controls, useNodes, useReactFlow } from '@xyflow/react';
+import { CanvasNodeSearch } from './CanvasNodeSearch';
 import { Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -83,6 +84,7 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
           <Controls orientation="horizontal" showInteractive={!readOnly}
             fitViewOptions={{ padding: 0.16, minZoom: 0.1, maxZoom: 1, duration: 200 }}
             className="!static !m-0 !translate-x-0 !gap-0.5 !border-0 !bg-transparent !shadow-none [&>button]:!h-8 [&>button]:!w-8 [&>button]:!rounded-full [&>button]:!border-0 [&>button]:!bg-transparent [&>button:hover]:!bg-accent" />
+          <CanvasNodeSearch />
           {!readOnly && <><div aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
           <PopoverTrigger asChild><Button ref={button} variant="ghost" className="h-8 gap-2 rounded-full px-3" data-action="add-node"
             onClick={() => { setPoint(null); flowPoint.current = null; setQuery(''); }}>

@@ -3926,5 +3926,15 @@
   "deployments.workers.total": "Total concurrent executions: {{total}}",
   "deployments.workers.invalid": "Enter whole numbers: 1–256 workers and 1–6per-worker concurrency is -1 (unlimited). Set a positive number to cap it.",
   "deployments.workers.runtime": "Workers × concurrency",
-  "deployments.workers.unlimited": "Unlimited"
+  "deployments.workers.unlimited": "Unlimited",
+  "canvasNavigation": {
+    "find": "Find node",
+    "placeholder": "Find by name, ID or type…",
+    "status": "Execution status",
+    "all": "All",
+    "error": "Failed",
+    "running": "Running",
+    "waiting_approval": "Awaiting approval",
+    "empty": "No matching nodes"
+  }
 }

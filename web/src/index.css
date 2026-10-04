@@ -1212,3 +1212,9 @@
 /* Long formulas scroll inside the message instead of widening the transcript. */
 .chat-markdown .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-block: 0.2em; }
 .chat-markdown .katex { font-size: 1.05em; }
+
+/* Keep card/handle geometry stable while simplifying the overview. */
+[data-canvas-compact] [data-node-io],
+[data-canvas-compact] [data-node-output-preview],
+[data-canvas-compact] [data-node-id] { visibility: hidden; }
+[data-canvas-compact] [data-node-header] .text-\[13px\] { font-size: 17px; }

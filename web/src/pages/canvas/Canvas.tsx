@@ -56,6 +56,7 @@ import {
 import { useUIStore } from '@/stores/ui';
 import { useRegisterViewportCenter } from '@/pages/canvas/CanvasViewportContext';
 import { Button } from '@/components/ui/button';
+import { CanvasReadingView } from './CanvasReadingView';
 import { layoutOverlappingNodes } from './auto-layout';
 
 /**
@@ -98,9 +99,10 @@ export interface CanvasProps {
    * stay unchanged.
    */
   readOnly?: boolean;
+  viewKey?: string;
 }
 
-export function Canvas({ readOnly = false }: CanvasProps = {}) {
+export function Canvas({ readOnly = false, viewKey }: CanvasProps = {}) {
   const { t } = useTranslation();
   const draft = useWorkflowEditStore((s) => s.draft);
   const applyEdit = useWorkflowEditStore((s) => s.applyEdit);
@@ -355,7 +357,7 @@ export function Canvas({ readOnly = false }: CanvasProps = {}) {
         onNodesDelete={onNodesDelete}
         onNodeDoubleClick={() => setInspectorOpen(true)}
         zoomOnDoubleClick={false}
-        fitView
+        fitView={!viewKey}
         fitViewOptions={{ padding: 0.16, minZoom: 0.1, maxZoom: 1 }}
         // Large agent-built workflows need a genuine overview scale. Users can
         // zoom back in or use Fit View; 10% keeps even long graphs navigable.
@@ -370,7 +372,9 @@ export function Canvas({ readOnly = false }: CanvasProps = {}) {
         }}
         nodesConnectable={!readOnly}
         elementsSelectable
-      />
+      >
+        {viewKey && <CanvasReadingView key={viewKey} storageKey={`flowork:canvas-view:${viewKey}`} />}
+      </WorkflowGraph>
 
       {nodes.length === 0 && (
         <div

@@ -17,7 +17,20 @@ import type { Edge, Node } from '@xyflow/react';
 import { workflowDictToNodesEdges } from './WorkflowGraph';
 
 const NODE_WIDTH = 224;
-const NODE_HEIGHT = 100;
+const NODE_HEIGHT = 140;
+
+/** Repair overlapping saved coordinates without rewriting the persisted graph. */
+export function layoutOverlappingNodes(nodes: Node[], edges: Edge[]): Node[] {
+  const overlaps = nodes.some((a, i) => nodes.slice(i + 1).some((b) => {
+    const aw = a.measured?.width ?? a.width ?? NODE_WIDTH;
+    const ah = a.measured?.height ?? a.height ?? NODE_HEIGHT;
+    const bw = b.measured?.width ?? b.width ?? NODE_WIDTH;
+    const bh = b.measured?.height ?? b.height ?? NODE_HEIGHT;
+    return a.position.x < b.position.x + bw && b.position.x < a.position.x + aw
+      && a.position.y < b.position.y + bh && b.position.y < a.position.y + ah;
+  }));
+  return overlaps ? autoLayout(nodes, edges) : nodes;
+}
 
 export function autoLayout(nodes: Node[], edges: Edge[]): Node[] {
   const g = new dagre.graphlib.Graph();

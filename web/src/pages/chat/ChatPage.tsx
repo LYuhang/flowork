@@ -1527,7 +1527,7 @@ export function ChatPage() {
                       <VfsFilesSection
                         wfId={workspaceScopeId}
                         open={explorerOpen}
-                        roots={['data', 'memory', 'logs', 'chats']}
+                        roots={['data', 'memory', 'logs']}
                         selectionKey={sandboxSelectionKey}
                         onSelectionKeyChange={setSandboxSelectionKey}
                         onOpenFile={(path) => {

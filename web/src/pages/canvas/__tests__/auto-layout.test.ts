@@ -1,6 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Node } from '@xyflow/react';
-import { autoLayout } from '@/pages/canvas/auto-layout';
+import { autoLayout, layoutOverlappingNodes } from '@/pages/canvas/auto-layout';
+
+describe('incoming saved graph coordinates', () => {
+  it('repairs an inserted node inside an existing card, preserving identity and selection', () => {
+    const nodes: Node[] = [0, 130, 280].map((x, i) => ({
+      id: String(i), position: { x, y: 0 }, data: {}, selected: i === 0,
+      measured: { width: 224, height: 136 },
+    }));
+    const before = structuredClone(nodes);
+    const out = layoutOverlappingNodes(nodes, [
+      { id: 'a', source: '0', target: '1' }, { id: 'b', source: '1', target: '2' },
+    ]);
+    expect(out[1].position.x).toBeGreaterThanOrEqual(out[0].position.x + 224);
+    expect(out[2].position.x).toBeGreaterThanOrEqual(out[1].position.x + 224);
+    expect(out[0].selected).toBe(true);
+    expect(nodes).toEqual(before);
+  });
+
+  it('keeps non-overlapping manual positions intact', () => {
+    const nodes: Node[] = [0, 500].map((x, i) => ({ id: String(i), position: { x, y: 80 }, data: {} }));
+    expect(layoutOverlappingNodes(nodes, [])).toBe(nodes);
+  });
+});
 
 describe('autoLayout (left-to-right)', () => {
   it('lays a 2-node chain A->B horizontally (B to the right of A)', () => {

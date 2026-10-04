@@ -153,31 +153,9 @@ class _RelationshipStore:
         return False
 
 
-def _headers(token: str, **extra: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", **extra}
-
-
-async def _register(
-    client: AsyncClient,
-    label: str,
-) -> tuple[str, dict]:
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": f"{label}_{uuid.uuid4().hex[:12]}@example.com",
-            "username": label,
-            "password": "pw12345678",
-        },
-    )
-    assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
-    me = (
-        await client.get(
-            "/api/v1/auth/me",
-            headers=_headers(token),
-        )
-    ).json()
-    return token, me
+from tests.test_workflow_authorization_integration import (
+    _browser_sessions, _headers, _register,
+)
 
 
 async def _join_active_organization(
@@ -227,8 +205,8 @@ async def _seed_workflow_file(
     *,
     organization_id: str,
     workflow_id: str,
+    path: str = "/data/shared.txt",
 ) -> None:
-    path = "/data/shared.txt"
     data = b"shared workflow file"
     key = f"artifacts/{organization_id}/{workflow_id}{path}"
     get_object_store().put_bytes(key, data, "text/plain")
@@ -456,6 +434,13 @@ async def test_storage_root_and_workflow_vfs_authorization(
         )
         assert guest_read.status_code == 200, guest_read.text
         assert guest_read.json()["content"] == "shared workflow file"
+
+        await _seed_workflow_file(pg_engine, organization_id=owner['tenant_id'],
+                                  workflow_id=workflow_id, path='/chats/private-chat/notes.txt')
+        for endpoint in ('/api/v1/vfs/content', '/api/v1/vfs/sign'):
+            payload = {'wf_id': workflow_id, 'path': '/chats/private-chat/notes.txt'}
+            response = await client.get(endpoint, params=payload, headers=_headers(viewer_token)) if endpoint.endswith('content') else await client.post(endpoint, json=payload, headers=_headers(viewer_token))
+            assert response.status_code == 404, response.text
 
         vfs_list = await client.get(
             "/api/v1/vfs",

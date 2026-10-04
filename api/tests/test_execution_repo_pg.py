@@ -229,3 +229,49 @@ async def test_concurrent_node_updates_no_lost_update(pg_session, pg_engine):
     assert rec["per_node"]["node_a"]["execution_result"] in ("r1", "r2")
     # The other node's entry survived both same-key updates.
     assert rec["per_node"]["node_b"]["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_shared_workflow_keeps_each_users_state_and_events(pg_session):
+    await _seed_and_bind(pg_session)
+    second_user = uuid.uuid4()
+    await pg_session.execute(text('INSERT INTO users(user_id,tenant_id,email) VALUES (:u,:t,:e)'),
+                             {'u':second_user, 't':TENANT, 'e':f'{second_user}@example.com'})
+    workflow = await WorkflowRepo(pg_session, str(USER)).create_workflow(name='Private interactive state')
+    first = ExecutionRepo(pg_session, str(USER))
+    second = ExecutionRepo(pg_session, str(second_user))
+    await first.start_execution(workflow['wf_id'], (1,0), 'first-user-run')
+    await first.update_node_execution('first-user-run', 'node_1', status='success', result_overwrite='first-private')
+    await second.start_execution(workflow['wf_id'], (1,0), 'second-user-run')
+    assert await second.get_execution('first-user-run') is None
+    assert await first.get_execution('second-user-run') is None
+    assert (await first.latest_execution(workflow['wf_id']))['exec_id'] == 'first-user-run'
+    assert (await second.latest_execution(workflow['wf_id']))['exec_id'] == 'second-user-run'
+    before = await pg_session.scalar(text('SELECT count(*) FROM workflow_run_events WHERE wf_id=:w AND creator_user_id=:u'),
+                                     {'w':workflow['wf_id'], 'u':USER})
+    await second.finish_execution('second-user-run', status='success')
+    await second.start_execution(workflow['wf_id'], (1,0), 'second-user-retry')
+    after = await pg_session.scalar(text('SELECT count(*) FROM workflow_run_events WHERE wf_id=:w AND creator_user_id=:u'),
+                                    {'w':workflow['wf_id'], 'u':USER})
+    assert after == before and before > 0
+    assert (await first.get_execution('first-user-run'))['per_node']['node_1']['status'] == 'success'
+    await first.finish_execution('first-user-run', status='success')
+    await second.finish_execution('second-user-retry', status='success')
+
+
+@pytest.mark.asyncio
+async def test_execution_of_foreign_workflow_keeps_callers_tenant(pg_session):
+    await _seed_and_bind(pg_session)
+    workflow = await WorkflowRepo(pg_session, str(USER)).create_workflow(name='Shared source')
+    recipient_tenant, recipient = uuid.uuid4(), uuid.uuid4()
+    await pg_session.execute(text("INSERT INTO tenants(tenant_id,name) VALUES (:t,'recipient')"), {'t':recipient_tenant})
+    await pg_session.execute(text('INSERT INTO users(user_id,tenant_id,email) VALUES (:u,:t,:e)'),
+                             {'u':recipient, 't':recipient_tenant, 'e':f'{recipient}@example.com'})
+    await pg_session.execute(text("SELECT set_config('app.tenant_id', :t, false)"), {'t':str(recipient_tenant)})
+    repo = ExecutionRepo(pg_session, str(recipient))
+    await repo.start_execution(workflow['wf_id'], (1,0), 'foreign-source-run', workflow_tenant_id=str(TENANT))
+    row = (await pg_session.execute(text('SELECT tenant_id,workflow_tenant_id,creator_user_id FROM workflow_run_state WHERE turn_id=:id'),
+                                    {'id':'foreign-source-run'})).one()
+    assert row == (recipient_tenant, TENANT, recipient)
+    assert await pg_session.scalar(text("SELECT current_setting('app.tenant_id')")) == str(recipient_tenant)
+    await repo.finish_execution('foreign-source-run', status='success')

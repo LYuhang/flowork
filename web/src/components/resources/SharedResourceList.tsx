@@ -26,6 +26,7 @@ const PRESENTATION: Record<
   workflow: { kind: 'workflow', path: (id) => `/workflow/${encodeURIComponent(id)}` },
   task: { kind: 'task', path: (id) => `/tasks/${encodeURIComponent(id)}` },
   deployment: { kind: 'deployment', path: (id) => `/deployments/${encodeURIComponent(id)}` },
+  skill_installation: { kind: 'skill', path: (id) => `/skills/${encodeURIComponent(id)}` },
   knowledge_base: { kind: 'knowledge', path: (id) => `/knowledge/${encodeURIComponent(id)}` },
 };
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime
 import json
 from typing import TYPE_CHECKING
@@ -257,7 +258,7 @@ class OpenFgaAuthzService:
         resource_type: ResourceType,
         context: AuthzRequestContext,
     ) -> tuple[str, ...]:
-        denial = self._validate_context(
+        denial = await self._validate_context(
             principal,
             ResourceRef(resource_type, "list", context.active_organization_id),
             context,
@@ -302,7 +303,9 @@ class OpenFgaAuthzService:
         *,
         continuation_token: str = "",
     ) -> BindingPage:
-        root = await self.resolve_parent(resource)
+        root, denial = await self._resolve_and_validate(principal, resource, context)
+        if denial is not None:
+            raise AuthorizationDeniedError(denial)
         if root is None:
             raise AuthorizationDeniedError(
                 Decision(False, reason_code="resource_not_found")
@@ -435,11 +438,14 @@ class OpenFgaAuthzService:
         desired_present: bool,
     ) -> RelationshipBinding:
         validate_share_binding(binding)
-        root = await self.resolve_parent(binding.resource)
-        if root is None or root != binding.resource:
-            raise AuthorizationDeniedError(
-                Decision(False, reason_code="resource_not_found")
-            )
+        root, denial = await self._resolve_and_validate(principal, binding.resource, context)
+        if denial is not None:
+            raise AuthorizationDeniedError(denial)
+        if root is None or (root.type, root.id) != (binding.resource.type, binding.resource.id):
+            raise AuthorizationDeniedError(Decision(False, reason_code="resource_not_found"))
+        # Persist in the resource's organization; the acting principal remains
+        # the recipient. Admission never grants access to another root.
+        binding = replace(binding, resource=root)
         await self.require(
             principal,
             Action.MANAGE_ACCESS,
@@ -447,6 +453,13 @@ class OpenFgaAuthzService:
             context,
         )
         if desired_present:
+            if root.type == ResourceType.SKILL_INSTALLATION:
+                from vibecanvas_api.storage.models_skills import Skill
+                source = (await self._session.execute(
+                    select(Skill.source).where(Skill.skill_id == uuid.UUID(root.id))
+                )).scalar_one_or_none()
+                if source != "custom":
+                    raise ValueError("only custom Skills can be shared")
             await self._validate_binding_subject(binding)
         if self._mutations is None:
             # Never bypass the durable-intent ledger by writing OpenFGA
@@ -481,10 +494,6 @@ class OpenFgaAuthzService:
             if organization is None:
                 raise ValueError("share organization does not exist")
             if organization.kind == "personal":
-                if binding.relation == "manager":
-                    raise ValueError(
-                        "personal guest cannot receive manager access"
-                    )
                 user = await self._session.get(User, subject_id)
                 if user is None or user.status != "active":
                     raise ValueError("share subject is not eligible")
@@ -565,7 +574,7 @@ class OpenFgaAuthzService:
         """
         if resource.type is not ResourceType.VFS_RUN:
             return None
-        denial = self._validate_context(principal, resource, context)
+        denial = await self._validate_context(principal, resource, context)
         if denial is not None:
             return denial
         if resource.id.startswith("deployment-run-"):
@@ -626,7 +635,7 @@ class OpenFgaAuthzService:
         root = await self.resolve_parent(scoped_resource)
         if root is None:
             return None, Decision(False, reason_code="resource_not_found")
-        denial = self._validate_context(principal, root, context)
+        denial = await self._validate_context(principal, root, context)
         if denial is not None:
             return None, denial
         return root, None
@@ -646,18 +655,26 @@ class OpenFgaAuthzService:
             return Decision(False, reason_code="unsupported_principal")
         return None
 
-    @classmethod
-    def _validate_context(
-        cls,
+    async def _validate_context(
+        self,
         principal: PrincipalRef,
         resource: ResourceRef,
         context: AuthzRequestContext,
     ) -> Decision | None:
-        denial = cls._validate_principal_context(principal, context)
+        denial = self._validate_principal_context(principal, context)
         if denial is not None:
             return denial
         if resource.organization_id == context.active_organization_id:
             return None
+        if principal.type is PrincipalType.USER:
+            from vibecanvas_api.storage.shared_resource_locator import allows_personal_cross_workspace_share
+
+            if not await allows_personal_cross_workspace_share(
+                user_id=principal.id,
+                active_organization_id=context.active_organization_id,
+                owner_organization_id=resource.organization_id,
+            ):
+                return Decision(False, reason_code="workspace_boundary")
         if (
             resource.organization_id
             == context.admitted_resource_organization_id

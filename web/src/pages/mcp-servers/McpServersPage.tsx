@@ -379,24 +379,26 @@ export function McpServersPage() {
           </TabsList>
 
           <TabsContent value="installed" className="mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
-            <ManagementToolbar>
+            <ManagementToolbar className="flex-col items-stretch">
               <div className="relative min-w-[16rem] flex-1 max-w-md">
                 <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input data-testid="mcp-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('mcp.search_ph', 'Search Installed Servers')} className="pl-9" />
               </div>
-              <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-                <SelectTrigger data-testid="mcp-filter" className="w-44" aria-label={t('mcp.filter_status', 'Filter by server status')}><SelectValue /></SelectTrigger>
-                <SelectContent className="max-h-72">
-                  <SelectItem value="all">{t('mcp.filter_all', 'All Statuses')}</SelectItem>
-                  <SelectItem value="enabled">{t('mcp.filter_enabled', 'Enabled')}</SelectItem>
-                  <SelectItem value="failed">{t('mcp.filter_failed', 'Probe Failed')}</SelectItem>
-                </SelectContent>
-              </Select>
-              {failedCount > 0 ? (
-                <button type="button" onClick={() => setStatusFilter('failed')} className="text-xs font-medium text-destructive hover:underline">
-                  {t('mcp.needs_attention', { count: failedCount, defaultValue: '{{count}} Need Attention' })}
-                </button>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+                  <SelectTrigger data-testid="mcp-filter" className="w-44" aria-label={t('mcp.filter_status', 'Filter by server status')}><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value="all">{t('mcp.filter_all', 'All Statuses')}</SelectItem>
+                    <SelectItem value="enabled">{t('mcp.filter_enabled', 'Enabled')}</SelectItem>
+                    <SelectItem value="failed">{t('mcp.filter_failed', 'Probe Failed')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                {failedCount > 0 ? (
+                  <button type="button" onClick={() => setStatusFilter('failed')} className="text-xs font-medium text-destructive hover:underline">
+                    {t('mcp.needs_attention', { count: failedCount, defaultValue: '{{count}} Need Attention' })}
+                  </button>
+                ) : null}
+              </div>
             </ManagementToolbar>
 
             <div className="page-scroll-region flex-1 pr-1">
@@ -451,13 +453,7 @@ export function McpServersPage() {
                   submitDiscoverSearch();
                 }}
               >
-                <Select value={source} onValueChange={changeSource}>
-                  <SelectTrigger className="w-56" aria-label={t('mcp.catalog.source', 'Select MCP catalog')}><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    <SelectItem value="official">{t('mcp.source.official.name', 'Official MCP Registry')}</SelectItem>
-                    <SelectItem value="smithery">{t('mcp.source.smithery.name', 'Smithery')}</SelectItem>
-                  </SelectContent>
-                </Select>
+
                 <div className="relative min-w-[16rem] flex-1">
                   <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -489,6 +485,15 @@ export function McpServersPage() {
                   )}
                 </Button>
               </form>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={source} onValueChange={changeSource}>
+                  <SelectTrigger className="w-56" aria-label={t('mcp.catalog.source', 'Select MCP catalog')}><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value="official">{t('mcp.source.official.name', 'Official MCP Registry')}</SelectItem>
+                    <SelectItem value="smithery">{t('mcp.source.smithery.name', 'Smithery')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <p className="mt-2 text-xs text-muted-foreground">{sourceMeta[source].description}</p>
               <div className="mt-3 rounded-lg border border-edge-subtle bg-surface-work p-4">
                 <div className="flex items-start gap-3">

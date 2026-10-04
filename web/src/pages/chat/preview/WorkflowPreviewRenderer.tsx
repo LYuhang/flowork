@@ -1,3 +1,4 @@
+import { loadInstanceWorkflow, type InstanceWorkflowSource } from '@/lib/preview/instance-workflow';
 import { downloadFilename, serializeWorkflow } from '@/lib/workflow/io';
 import { workflowReference, type WorkflowFocus } from '@/lib/preview/workflow-reference';
 import { PreviewReferenceButton } from './PreviewReferenceButton';
@@ -127,13 +128,14 @@ function SnapshotCanvas({ graph, workflowId, version, focus, inspectorPlacement 
 }
 
 /** Opening-time authorization is separate from the editor's cached draft. */
-export function WorkflowPreviewRenderer({ workflowId, version, focus, allowOpenInNewPage = true, inspectorPlacement = 'bottom' }: { workflowId: string; version: string; focus?: WorkflowFocus | null; allowOpenInNewPage?: boolean; inspectorPlacement?: 'bottom' | 'right' }) {
+export function WorkflowPreviewRenderer({ workflowId, version, source, focus, allowOpenInNewPage = true, inspectorPlacement = 'bottom' }: { workflowId: string; version: string; source?: InstanceWorkflowSource; focus?: WorkflowFocus | null; allowOpenInNewPage?: boolean; inspectorPlacement?: 'bottom' | 'right' }) {
   const { t } = useTranslation();
   const origin = usePreviewOrigin();
   const match = /^v([1-9]\d*)\.sv(\d+)$/.exec(version);
   const query = useQuery({
     ...workflowAtQuery(workflowId, Number(match?.[1]), Number(match?.[2])),
-    queryKey: ['workflow-preview', workflowId, version],
+    ...(source ? { queryFn: () => loadInstanceWorkflow(source, workflowId, version) } : {}),
+    queryKey: ['workflow-preview', workflowId, version, source?.type, source?.id],
     enabled: !!workflowId && !!match,
     staleTime: 0,
     gcTime: 0,
@@ -169,16 +171,16 @@ export function WorkflowPreviewRenderer({ workflowId, version, focus, allowOpenI
           }}><Download className="h-4 w-4" /></Button>
         {allowOpenInNewPage ? (
           <Button asChild variant="ghost" size="icon">
-            <a href={standaloneWorkflowPreviewHref(workflowId, version, origin)} target="_blank" rel="noopener noreferrer"
+            <a href={standaloneWorkflowPreviewHref(workflowId, version, origin, source)} target="_blank" rel="noopener noreferrer"
               aria-label={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')} title={t('tool.interactive.open_preview_tab', 'Open in a new Preview tab')}>
               <Maximize2 className="h-4 w-4" />
             </a>
           </Button>
         ) : null}
-        <a className="shrink-0 rounded text-sm underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        {!source && <a className="shrink-0 rounded text-sm underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           href={getBasePath() + '/workflow/' + encodeURIComponent(workflowId)} target="_blank" rel="noopener noreferrer">
           {t('preview.workflow.openLatest', 'Open latest canvas')}
-        </a>
+        </a>}
       </div>
       {missingFocus ? <p role="alert" className="px-3 py-2 text-sm text-destructive">{t('preview.reference.missingObjects', 'Some referenced objects are unavailable in this version.')}</p> : null}
       <SnapshotCanvas key={workflowId + ':' + version + ':' + JSON.stringify(focus ?? null)} graph={graph} workflowId={workflowId} version={version} focus={focus} inspectorPlacement={inspectorPlacement} />

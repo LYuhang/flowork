@@ -578,6 +578,8 @@ class AgentRuntimeOrchestrator:
             # one Chat finishing must not alter a sibling's lifecycle policy,
             # and an API worker crash must not leave a permanent resident pin.
             lease="interactive",
+            **({"workflow_run_source": turn_request.workflow_run_source}
+               if turn_request.workflow_run_source is not None else {}),
         )
         logger.info(
             "agent_runtime_timing",

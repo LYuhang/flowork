@@ -91,7 +91,7 @@ class _RelationshipStore:
             roles = {"viewer", "editor", "operator", "manager"}
             if relation == "can_view_metadata":
                 return self._role(user, object_, roles)
-            if relation == "can_deploy":
+            if relation in {"can_deploy", "can_manage_access"}:
                 return self._role(user, object_, {"manager"})
             return False
         if not object_.startswith("deployment:"):
@@ -105,11 +105,11 @@ class _RelationshipStore:
                     {"owner", "admin", "auditor"},
                 )
             )
-        if relation == "can_view":
+        if relation in {"can_view", "can_inspect_runs"}:
             return self._role(user, object_, content_roles)
         if relation == "can_update":
             return self._role(user, object_, {"editor", "manager"})
-        if relation in {"can_execute", "can_cancel", "can_inspect_runs"}:
+        if relation in {"can_execute", "can_cancel"}:
             return self._role(user, object_, {"operator", "manager"})
         if relation == "can_manage_secret":
             return self._role(user, object_, {"manager"}) or (
@@ -130,28 +130,9 @@ class _RelationshipStore:
         return False
 
 
-def _headers(token: str, **extra: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", **extra}
-
-
-async def _register(client: AsyncClient, label: str) -> tuple[str, dict]:
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": f"{label}_{uuid.uuid4().hex[:12]}@example.com",
-            "username": label,
-            "password": "pw12345678",
-        },
-    )
-    assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
-    me = (
-        await client.get(
-            "/api/v1/auth/me",
-            headers=_headers(token),
-        )
-    ).json()
-    return token, me
+from tests.test_workflow_authorization_integration import (
+    _browser_sessions, _headers, _register,
+)
 
 
 async def _join_active_organization(
@@ -381,6 +362,19 @@ async def test_deployment_roles_secret_action_and_revoke(
         await grant("editor", editor)
         await grant("operator", operator)
 
+        for token, expected_source in [(owner_token, 'created'), (viewer_token, 'shared')]:
+            for source in ('all', 'created', 'shared'):
+                listed = await client.get(f'/api/v1/deployments?source={source}&limit=1', headers=_headers(token))
+                assert listed.status_code == 200, listed.text
+                expected = source in ('all', expected_source)
+                assert listed.json()['total'] == int(expected)
+                assert [item['id'] for item in listed.json()['items']] == ([deployment_id] if expected else [])
+                summary = listed.json()['summary']
+                assert summary['active'] + summary['disabled'] == int(expected)
+            beyond = await client.get('/api/v1/deployments?source=all&limit=1&offset=1', headers=_headers(token))
+            assert beyond.json()['items'] == []
+            assert beyond.json()['total'] == 1
+
         shared = await client.get(
             "/api/v1/resource-access/shared?resource_type=deployment",
             headers=_headers(viewer_token),
@@ -407,6 +401,21 @@ async def test_deployment_roles_secret_action_and_revoke(
         assert "update" not in access["capabilities"]
         assert "manage_secret" not in access["capabilities"]
         assert "api_key_hash" not in visible.json()["items"][0]
+
+        for reader_token in (viewer_token, editor_token):
+            history = await client.get(
+                f"/api/v1/deployments/{deployment_id}/history",
+                headers=_headers(reader_token),
+            )
+            assert history.status_code == 200, history.text
+            detail = await client.get(
+                f"/api/v1/deployments/{deployment_id}",
+                headers=_headers(reader_token),
+            )
+            capabilities = set(detail.json()["access"]["capabilities"])
+            assert "inspect_runs" in capabilities
+            assert "execute" not in capabilities
+            assert "manage_secret" not in capabilities
 
         updated = await client.patch(
             f"/api/v1/deployments/{deployment_id}",

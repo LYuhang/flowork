@@ -16,18 +16,12 @@ def chat_working_directory(chat_id: str) -> str:
     return f"/chats/{chat_id}"
 
 
-def project_workspace_scope_id(project_id: str, *, workflow_id: str | None = None) -> str:
+def project_workspace_scope_id(project_id: str) -> str:
     """Return the deterministic VFS/sandbox scope for one Project.
 
     A separate namespace prevents Project IDs from being resolved as Chat IDs.
     Ownership is always checked against the durable resource row.
     """
-    # workflow_id must come from an authorized persisted Project binding.
-    # It joins canvas Chat and run to the same VFS and sandbox identity.
-    if workflow_id is not None:
-        if not workflow_id or workflow_id.startswith("__"):
-            raise ValueError("invalid workflow workspace identity")
-        return workflow_id
     if not project_id:
         raise ValueError("project_id must not be empty")
     encoded = base64.urlsafe_b64encode(project_id.encode("utf-8")).rstrip(b"=").decode("ascii")

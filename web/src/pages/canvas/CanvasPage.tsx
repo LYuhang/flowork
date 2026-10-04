@@ -340,7 +340,10 @@ export function CanvasPage() {
         data-page-archetype="editor-workspace"
         data-edit-state={effectiveReadOnly ? 'view' : dirty ? 'dirty' : 'saved'}
       >
-        <WorkflowWorkbenchHeader workflowId={wfId!} readOnlyName={isPinned} />
+        <WorkflowWorkbenchHeader workflowId={wfId!} readOnlyName={effectiveReadOnly}
+          access={{capabilities: [...workflowCapabilities],
+            effective_role: head.data?.access?.effective_role ?? query.data?.meta.access?.effective_role ?? null,
+            source: head.data?.access?.source ?? query.data?.meta.access?.source ?? 'computed'}} />
         {isPinned && vKey && <VersionBanner wfId={wfId!} vKey={vKey} />}
         <CanvasToolbar wfId={wfId!} readOnly={effectiveReadOnly}
           canExecute={canExecute} canDeploy={canDeploy} canExport={canExport} canMount={canMount}

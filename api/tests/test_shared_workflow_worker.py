@@ -51,7 +51,7 @@ async def test_shared_worker_cancel_capacity_files_and_recovery():
     if not shutil.which("bwrap"):
         pytest.skip("requires bubblewrap")
     session = SimpleNamespace(provider=BubblewrapProvider(shutil.which("bwrap")),
-                              workspace_folders=(), _rw_binds=[], skills_dir=None)
+                              workspace_folders=(), _rw_binds=[], workflow_run_source=None, skills_dir=None)
     pool = WorkflowRpcPool.for_session(session=session, revision="v1", workflow=code_graph(), capacity=2)
     first, second, third = (str(uuid.uuid4()) for _ in range(3))
     try:
@@ -104,7 +104,7 @@ async def test_multiworker_balances_reservations_and_shares_run(tmp_path):
     if not shutil.which('bwrap'):
         pytest.skip('requires bubblewrap')
     session = SimpleNamespace(provider=BubblewrapProvider(shutil.which('bwrap')),
-                              workspace_folders=(), _rw_binds=[], skills_dir=None)
+                              workspace_folders=(), _rw_binds=[], workflow_run_source=None, skills_dir=None)
     pool = WorkflowRpcPool.for_session(session=session, revision='v1', workflow=code_graph(),
                                        capacity=4, worker_count=2, artifacts_root=str(tmp_path))
     try:
@@ -133,7 +133,7 @@ async def test_unlimited_pool_reserves_more_than_default_four_slots(tmp_path):
     if not shutil.which('bwrap'):
         pytest.skip('requires bubblewrap')
     session = SimpleNamespace(provider=BubblewrapProvider(shutil.which('bwrap')),
-                              workspace_folders=(), _rw_binds=[], skills_dir=None)
+                              workspace_folders=(), _rw_binds=[], workflow_run_source=None, skills_dir=None)
     pool = WorkflowRpcPool.for_session(session=session, revision='unlimited', workflow=code_graph(),
                                        capacity=-1, worker_count=2, artifacts_root=str(tmp_path))
     try:

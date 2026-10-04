@@ -6,6 +6,17 @@ from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 
 async def resolve_workflow(session, user_id, deployment):
+    """Read a host-authorized selector or a persisted instance's fixed reference.
+
+    workflow_tenant_id is host-owned metadata, never a user-supplied selector.
+    Restore the instance scope before accessing its credentials or writing runs.
+    """
+    from vibecanvas_api.storage.db import temporary_tenant_scope
+    async with temporary_tenant_scope(session, deployment.get("workflow_tenant_id")):
+        return await _read_workflow(session, user_id, deployment)
+
+
+async def _read_workflow(session, user_id, deployment):
     repo = WorkflowRepo(session, str(user_id))
     wf_id = deployment["wf_id"]
     policy = deployment["version_pin"]

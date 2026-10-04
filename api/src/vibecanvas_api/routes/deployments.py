@@ -170,30 +170,6 @@ async def _authorize_organization_create(
         raise HTTPException(status_code=404, detail="resource_not_found")
 
 
-async def _authorize_workflow_deploy(
-    *,
-    request: Request,
-    ctx: AuthContext,
-    service: AuthzService,
-    workflow_id: str,
-    consistency: ConsistencyPreference = (
-        ConsistencyPreference.MINIMIZE_LATENCY
-    ),
-) -> None:
-    decision = await service.check(
-        principal_for_auth(ctx),
-        Action.DEPLOY,
-        ResourceRef(
-            ResourceType.WORKFLOW,
-            workflow_id,
-            ctx.active_organization_id,
-        ),
-        context_for_auth(ctx, request, consistency=consistency),
-    )
-    if not decision.allowed:
-        raise HTTPException(status_code=404, detail="resource_not_found")
-
-
 async def _rebind_request_organization(
     session: AsyncSession,
     ctx: AuthContext,
@@ -322,20 +298,15 @@ async def create_deployment(
         ctx=ctx,
         service=service,
     )
-    await _authorize_workflow_deploy(
-        request=request,
-        ctx=ctx,
-        service=service,
-        workflow_id=body.wf_id,
-    )
+    from vibecanvas_api.authorization.dependencies import authorized_resource_scope
     repo = DeploymentsRepo(session)
-
-    # Legacy HEAD/major selectors resolve once at submission, never at invocation.
-    # An incomplete explicit pin must not silently select a different version.
     if body.version_pin == "specific" and (body.pinned_major is None or body.pinned_sub is None):
         raise HTTPException(422, "A complete pinned version is required.")
-    selected_graph = await resolve_workflow(session, ctx.user_id, {"wf_id": body.wf_id,
-        "version_pin": body.version_pin, "pinned_major": body.pinned_major, "pinned_sub": body.pinned_sub})
+    async with authorized_resource_scope(request=request, auth=ctx, session=session,
+            resource_type=ResourceType.WORKFLOW, resource_id=body.wf_id, action=Action.DEPLOY):
+        workflow_tenant_id = await session.scalar(text("SELECT current_setting('app.tenant_id', true)"))
+        selected_graph = await resolve_workflow(session, ctx.user_id, {"wf_id": body.wf_id,
+            "version_pin": body.version_pin, "pinned_major": body.pinned_major, "pinned_sub": body.pinned_sub})
     pinned_major = selected_graph["__meta__"]["workflow_version"]
     pinned_sub = selected_graph["__meta__"]["workflow_subversion"]
 
@@ -364,6 +335,7 @@ async def create_deployment(
         user_id=uuid.UUID(ctx.user_id),
         owner_id=uuid.UUID(ctx.user_id),
         service_account_id=service_account_id,
+        workflow_tenant_id=uuid.UUID(workflow_tenant_id),
         wf_id=body.wf_id,
         name=body.name,
         slug=body.slug,
@@ -385,13 +357,9 @@ async def create_deployment(
 
     # Close the permission-revocation race immediately before generating a
     # one-shot secret and introducing the durable Deployment.
-    await _authorize_workflow_deploy(
-        request=request,
-        ctx=ctx,
-        service=service,
-        workflow_id=body.wf_id,
-        consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
-    )
+    async with authorized_resource_scope(request=request, auth=ctx, session=session,
+            resource_type=ResourceType.WORKFLOW, resource_id=body.wf_id, action=Action.DEPLOY):
+        pass
     response_extras: dict = {}
     if body.trigger_type == "api":
         plaintext, hashed = generate_api_key()
@@ -475,8 +443,9 @@ async def create_deployment(
                 owner_resource_type="deployment",
                 owner_resource_id=str(dep_id),
                 workflow_id=body.wf_id,
+                workflow_organization_id=workflow_tenant_id,
                 credential_ids=credential_ids,
-                resource_refs=await ServiceAccountsRepo(session).resource_refs(service_account_id),
+                resource_owners=await ServiceAccountsRepo(session).resource_owners(service_account_id),
             )
         ),
         operation_id=uuid.uuid4().hex,
@@ -596,6 +565,7 @@ async def list_deployments(
     request: Request,
     trigger_type: Literal["api", "webhook"] | None = Query(default=None),
     enabled: Optional[bool] = Query(default=None),
+    source: Literal["all", "created", "shared"] = "all",
     workflow_id: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=200),
@@ -621,47 +591,63 @@ async def list_deployments(
         ResourceType.DEPLOYMENT,
         context,
     )
+    from vibecanvas_api.services.shared_inventory import inventory_groups, inventory_context
+    groups = await inventory_groups(service=service, principal=principal, context=context,
+        resource_type=ResourceType.DEPLOYMENT, local_ids=authorized_ids)
+    original = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one()
     repo = DeploymentsRepo(session)
-    items = await repo.list_for_tenant(
-        deployment_ids=authorized_ids,
-        trigger_type=trigger_type,
-        enabled=enabled,
-        wf_id=workflow_id,
-        query=q,
-        limit=limit,
-        offset=offset,
-    )
-    total = await repo.count_for_tenant(
-        deployment_ids=authorized_ids,
-        trigger_type=trigger_type,
-        enabled=enabled,
-        wf_id=workflow_id,
-        query=q,
-    )
-    summary = await repo.summary_for_tenant(deployment_ids=authorized_ids, wf_id=workflow_id)
-    if summary.get("last_invoked_at") is not None:
+    output_items = []
+    total = 0
+    summary = {"active": 0, "disabled": 0, "invocations": 0, "last_invoked_at": None}
+    try:
+        for owner, identifiers in groups.items():
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": owner})
+            shared_filters = dict(deployment_ids=identifiers, wf_id=workflow_id,
+                creator_user_id=ctx.user_id if source != "all" else None, exclude_creator=source == "shared")
+            filters = dict(**shared_filters, trigger_type=trigger_type, enabled=enabled, query=q)
+            items = await repo.list_for_tenant(**filters, limit=offset + limit, offset=0)
+            total += await repo.count_for_tenant(**filters)
+            counts = await repo.summary_for_tenant(**shared_filters)
+            for key in ("active", "disabled", "invocations"):
+                summary[key] += counts[key]
+            stamp = counts.get("last_invoked_at")
+            if stamp is not None and (summary["last_invoked_at"] is None or stamp > summary["last_invoked_at"]):
+                summary["last_invoked_at"] = stamp
+            provenance = ResourceProvenanceBuilder(session)
+            for item in items:
+                decision = await service.check(principal, Action.VIEW_METADATA,
+                    ResourceRef(ResourceType.DEPLOYMENT, str(item["id"]), owner),
+                    inventory_context(context, owner, "deployment", str(item["id"])))
+                if not decision.allowed:
+                    total -= 1
+                    continue
+                output = await _scrub_secret_fields(item, decision, provenance)
+                output["created_by_me"] = str(item.get("user_id")) == str(ctx.user_id)
+                output_items.append(output)
+    finally:
+        await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
+    if summary["last_invoked_at"] is not None:
         summary["last_invoked_at"] = summary["last_invoked_at"].isoformat()
-    resources = [
-        _deployment_resource(ctx, item["id"]) for item in items
-    ]
-    decisions = await batch_resource_decisions(
-        service,
-        principal=principal,
-        resources=resources,
-        context=context,
-    )
-    provenance = ResourceProvenanceBuilder(session)
-    output_items = [
-        await _scrub_secret_fields(item, decisions[resource], provenance)
-        for item, resource in zip(items, resources, strict=True)
-    ]
-    return {
-        "items": output_items,
-        "limit": limit,
-        "offset": offset,
-        "total": total,
-        "summary": summary,
-    }
+    output_items.sort(key=lambda item: str(item["id"]))
+    output_items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    return {"items": output_items[offset:offset + limit], "limit": limit, "offset": offset,
+            "total": total, "summary": summary}
+
+
+@router.get("/{dep_id}/workflow-preview")
+async def preview_deployment_workflow(
+    dep_id: uuid.UUID, workflow_id: str, version: str, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_deployment(request=request, ctx=ctx, service=service,
+                                deployment_id=dep_id, action=Action.VIEW)
+    deployment = await DeploymentsRepo(session).get(dep_id)
+    if deployment is None:
+        raise HTTPException(404, "deployment_not_found")
+    from vibecanvas_api.services.instance_workflow_preview import deployment_workflow_preview
+    return await deployment_workflow_preview(session, ctx.user_id, deployment,
+        workflow_id=workflow_id, version=version)
 
 
 @router.get("/{dep_id}")
@@ -752,9 +738,13 @@ async def patch_deployment(
             fields["pinned_sub"] = None
         elif selected.get("pinned_major") is None or selected.get("pinned_sub") is None:
             raise HTTPException(422, "A complete pinned version is required.")
-        await _authorize_workflow_deploy(request=request, ctx=ctx, service=service, workflow_id=dep["wf_id"],
-                                        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
-        graph = await resolve_workflow(session, ctx.user_id, {**dep, **fields})
+        from vibecanvas_api.authorization.dependencies import authorized_resource_scope
+        async with authorized_resource_scope(
+            request=request, auth=ctx, session=session,
+            resource_type=ResourceType.WORKFLOW, resource_id=dep["wf_id"],
+            action=Action.DEPLOY,
+        ):
+            graph = await resolve_workflow(session, ctx.user_id, {**dep, **fields})
         fields.update(version_pin="specific", pinned_major=graph["__meta__"]["workflow_version"],
                       pinned_sub=graph["__meta__"]["workflow_subversion"])
     authorized = await _authorize_deployment(
@@ -830,14 +820,15 @@ async def delete_deployment(
             for value in await account_repo.credential_ids(account_id)
         )
         account_before = service_account_edges(
-            organization_id=ctx.active_organization_id,
+            organization_id=str(dep["tenant_id"]),
             service_account_id=str(account_id),
             created_by=str(dep["user_id"]),
             owner_resource_type="deployment",
             owner_resource_id=str(dep_id),
             workflow_id=str(dep["wf_id"]),
+            workflow_organization_id=str(dep["workflow_tenant_id"]),
             credential_ids=credential_ids,
-            resource_refs=await account_repo.resource_refs(account_id),
+            resource_owners=await account_repo.resource_owners(account_id),
         )
         await account_repo.set_status(account_id, status="deleted")
     await repo.soft_delete(dep_id)
@@ -845,7 +836,7 @@ async def delete_deployment(
         await secret_service().destroy(
             session,
             secret_ref=dep["hmac_secret_ref"],
-            tenant_id=ctx.active_organization_id,
+            tenant_id=str(dep["tenant_id"]),
         )
     await record_audit(
         session,
@@ -861,7 +852,7 @@ async def delete_deployment(
     )
     coordinator = mutation_coordinator_for_request(
         request,
-        ctx.active_organization_id,
+        str(dep["tenant_id"]),
     )
     mutation_ids = await enqueue_structural_delta(
         session=session,
@@ -870,7 +861,7 @@ async def delete_deployment(
         actor_id=ctx.user_id,
         before=(
             resource_root_edges(
-                organization_id=ctx.active_organization_id,
+                organization_id=str(dep["tenant_id"]),
                 object_type="deployment",
                 object_id=str(dep_id),
                 owner_relation="manager",

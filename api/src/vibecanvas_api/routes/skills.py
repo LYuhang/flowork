@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 import re
 from typing import Literal
 
@@ -11,6 +12,7 @@ from fastapi import (
     Depends,
     File,
     Form,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -25,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from vibecanvas_api.auth.deps import (
     AuthContext,
     current_user,
+    require_recent_step_up,
     tenant_db,
 )
 from vibecanvas_api.authorization.dependencies import (
@@ -54,6 +57,7 @@ from vibecanvas_api.authorization.types import (
 from vibecanvas_api.security.upload_scanner import require_clean_upload
 from vibecanvas_api.schemas.access import (
     access_from_decision,
+    DirectBindingIn, DirectBindingGrantIn, DirectBindingOut, DirectBindingListOut,
 )
 from vibecanvas_api.schemas.skills import (
     SkillCatalogInstall,
@@ -100,9 +104,9 @@ async def _row_to_out(
     user_id: str,
 ) -> SkillOut:
     access = access_from_decision(decision)
-    if row.get("source") != "custom" or str(row.get("user_id")) != str(user_id):
+    if row.get("source") != "custom":
         access = access.model_copy(update={"capabilities": [
-            action for action in access.capabilities if action not in {Action.UPDATE, Action.PUBLISH}
+            action for action in access.capabilities if action not in {Action.UPDATE, Action.PUBLISH, Action.MANAGE_ACCESS}
         ]})
     return SkillOut(
         id=str(row["skill_id"]),
@@ -110,6 +114,8 @@ async def _row_to_out(
         description=row.get("description") or "",
         allowed_tools=list(row.get("allowed_tools") or []),
         version=row["version"],
+        installed=bool(row.get("installed")),
+        created_by_me=str(row.get("user_id")) == str(user_id),
         source=row.get("source"),
         source_id=row.get("source_id"),
         source_url=row.get("source_url"),
@@ -128,8 +134,8 @@ async def _row_to_out(
     )
 
 
-def _require_owned_custom_skill(row: dict | None, user_id: str) -> None:
-    """Editing is limited to the creator's custom package, even for admins."""
+def _require_custom_skill(row: dict | None) -> None:
+    """Enforce package source after the action-level authorization check."""
     if row is None:
         raise HTTPException(status_code=404, detail="skill not found")
     if row.get("source") != "custom":
@@ -137,11 +143,12 @@ def _require_owned_custom_skill(row: dict | None, user_id: str) -> None:
             "code": "skill_read_only_source",
             "message": "Only custom Skills can be edited; installed catalog Skills are read-only.",
         })
-    if str(row.get("user_id")) != str(user_id):
-        raise HTTPException(status_code=403, detail={
-            "code": "skill_not_creator",
-            "message": "You can only edit custom Skills that you created.",
-        })
+
+
+def _skill_write_tenant(request: Request, ctx: AuthContext) -> uuid.UUID:
+    """Use only the host-admitted root scope after authorizing the Skill."""
+    owner = getattr(getattr(request, "state", None), "admitted_resource_organization_id", None)
+    return uuid.UUID(owner or ctx.tenant_id)
 
 
 def _bundle_paths(row: dict) -> list[str]:
@@ -403,12 +410,34 @@ async def list_skills(
         context=context,
     )
     provenance = ResourceProvenanceBuilder(session)
-    return {
-        "items": [
-            await _row_to_out(row, decisions[resource], provenance, user_id=ctx.user_id)
-            for row, resource in zip(rows, resources, strict=True)
-        ]
-    }
+    items = [await _row_to_out(row, decisions[resource], provenance, user_id=ctx.user_id)
+             for row, resource in zip(rows, resources, strict=True)]
+    seen = {item.id for item in items}
+    from vibecanvas_api.storage.shared_resource_locator import shared_resource_roots
+    roots = await shared_resource_roots(ctx.user_id, active_organization_id=ctx.active_organization_id, resource_type="skill_installation")
+    original = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one()
+    try:
+        for root in roots:
+            if root.resource_id in seen:
+                continue
+            owner = str(root.owner_tenant_id)
+            scoped = replace(context, admitted_resource_organization_id=owner,
+                admitted_resource_type="skill_installation", admitted_resource_id=root.resource_id,
+                consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+            resource = ResourceRef(ResourceType.SKILL_INSTALLATION, root.resource_id, owner)
+            decision = await service.check(principal, Action.VIEW_METADATA, resource, scoped)
+            if not decision.allowed:
+                continue
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": owner})
+            row = await SkillsRepo(session).get(root.resource_id)
+            if row is None or row.get("source") != "custom":
+                continue
+            items.append(await _row_to_out(row, decision, ResourceProvenanceBuilder(session), user_id=ctx.user_id))
+            seen.add(root.resource_id)
+    finally:
+        await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
+    items.sort(key=lambda item: (item.name.casefold(), item.id))
+    return {"items": items}
 
 
 @router.get("/catalog")
@@ -577,6 +606,40 @@ async def create_custom_skill(
     )
 
 
+@router.put("/{skill_id}/installation", status_code=status.HTTP_204_NO_CONTENT)
+async def install_skill_for_user(
+    skill_id: str,
+    request: Request,
+    ctx: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    sid = _parse_uuid(skill_id)
+    await _authorize_skill(request=request, ctx=ctx, service=service,
+        skill_id=sid, action=Action.USE,
+        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    if await SkillsRepo(session).get(sid) is None:
+        raise HTTPException(404, "skill_not_found")
+    from vibecanvas_api.storage.repo_skill_installations import SkillInstallationsRepo
+    await SkillInstallationsRepo(session).install(uuid.UUID(ctx.user_id), sid)
+
+
+@router.delete("/{skill_id}/installation", status_code=status.HTTP_204_NO_CONTENT)
+async def uninstall_skill_for_user(
+    skill_id: str,
+    request: Request,
+    ctx: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    sid = _parse_uuid(skill_id)
+    await _authorize_skill(request=request, ctx=ctx, service=service,
+        skill_id=sid, action=Action.VIEW,
+        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    from vibecanvas_api.storage.repo_skill_installations import SkillInstallationsRepo
+    await SkillInstallationsRepo(session).uninstall(uuid.UUID(ctx.user_id), sid)
+
+
 @router.get("/{skill_id}/draft", response_model=SkillDraftOut)
 async def get_custom_skill_draft(
     skill_id: str,
@@ -632,7 +695,7 @@ async def _editable_skill_files(skill_id, expected_hash, request, ctx, session, 
     # All draft and publication writers acquire this same identity lock.
     await repo._lock_custom_skill(sid)
     current = await repo.get(sid)
-    _require_owned_custom_skill(current, ctx.user_id)
+    _require_custom_skill(current)
     draft = await repo.get_draft(sid)
     token = draft["draft_hash"] if draft else current["revision_hash"]
     if expected_hash != token:
@@ -696,7 +759,7 @@ async def put_skill_draft_file(
         _, updated = validate_skill_files(updated)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    await repo.save_draft(skill_id=sid, tenant_id=uuid.UUID(ctx.tenant_id), files=updated)
+    await repo.save_draft(skill_id=sid, tenant_id=_skill_write_tenant(request, ctx), files=updated)
     return await get_custom_skill_draft(skill_id, request, ctx, session, service)
 
 
@@ -711,7 +774,7 @@ async def delete_skill_draft_file(
         raise HTTPException(status_code=409, detail="skill_root_required")
     if not any(item[0] == path for item in files):
         raise HTTPException(status_code=409, detail="package_file_changed")
-    await repo.save_draft(skill_id=sid, tenant_id=uuid.UUID(ctx.tenant_id),
+    await repo.save_draft(skill_id=sid, tenant_id=_skill_write_tenant(request, ctx),
                           files=[item for item in files if item[0] != path])
     return await get_custom_skill_draft(skill_id, request, ctx, session, service)
 
@@ -735,7 +798,7 @@ async def save_custom_skill_draft(
     )
     repo = SkillsRepo(session)
     current = await repo.get(sid)
-    _require_owned_custom_skill(current, ctx.user_id)
+    _require_custom_skill(current)
     await _editable_skill_files(skill_id, body.expected_hash, request, ctx, session, service)
     existing = await repo.read_draft_files(sid)
     if existing is None:
@@ -756,7 +819,7 @@ async def save_custom_skill_draft(
     )
     row = await repo.save_draft(
         skill_id=sid,
-        tenant_id=uuid.UUID(ctx.tenant_id),
+        tenant_id=_skill_write_tenant(request, ctx),
         files=files,
     )
     if row is None:
@@ -794,7 +857,7 @@ async def publish_custom_skill_version(
     )
     repo = SkillsRepo(session)
     current = await repo._lock_custom_skill(sid)
-    _require_owned_custom_skill(current, ctx.user_id)
+    _require_custom_skill(current)
     draft = await repo.get_draft(sid)
     files = await repo.read_draft_files(sid)
     if draft is None or files is None:
@@ -820,7 +883,7 @@ async def publish_custom_skill_version(
     try:
         row = await repo.publish_draft(
             skill_id=sid,
-            tenant_id=uuid.UUID(ctx.tenant_id),
+            tenant_id=_skill_write_tenant(request, ctx),
             name=str(frontmatter["name"]).strip(),
             description=str(frontmatter["description"]).strip(),
             version=body.version,
@@ -858,7 +921,7 @@ async def update_custom_skill_bundle(
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
-    """Replace an owned custom package and publish its next version atomically."""
+    """Replace an authorized custom package and publish its next version atomically."""
     sid = _parse_uuid(skill_id)
     for action in (Action.UPDATE, Action.PUBLISH):
         authorized = await _authorize_skill(
@@ -866,11 +929,11 @@ async def update_custom_skill_bundle(
             action=action, consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
         )
     repo = SkillsRepo(session)
-    _require_owned_custom_skill(await repo.get(sid), ctx.user_id)
+    _require_custom_skill(await repo.get(sid))
     _frontmatter, files = await _read_custom_bundle(bundle)
     # Serialize with UI publications before assigning the next version.
     current = await repo._lock_custom_skill(sid)
-    _require_owned_custom_skill(current, ctx.user_id)
+    _require_custom_skill(current)
     from vibecanvas_api.services.write_conflicts import WriteConflict
     if type(expected_version) is not int or expected_version < 1:
         raise HTTPException(422, 'expected_version is required')
@@ -885,12 +948,12 @@ async def update_custom_skill_bundle(
             files, _with_version(raw.decode("utf-8"), version),
         ))
         draft = await repo.save_draft(
-            skill_id=sid, tenant_id=uuid.UUID(ctx.tenant_id), files=files,
+            skill_id=sid, tenant_id=_skill_write_tenant(request, ctx), files=files,
         )
         if draft is None:
             raise HTTPException(404, "custom skill not found")
         row = await repo.publish_draft(
-            skill_id=sid, tenant_id=uuid.UUID(ctx.tenant_id), version=version,
+            skill_id=sid, tenant_id=_skill_write_tenant(request, ctx), version=version,
             name=str(frontmatter["name"]).strip(),
             description=str(frontmatter["description"]).strip(),
             allowed_tools=list(frontmatter.get("allowed_tools") or []),
@@ -1152,7 +1215,7 @@ async def delete_skill(
     await repo.soft_delete(sid)
     coordinator = mutation_coordinator_for_request(
         request,
-        ctx.active_organization_id,
+        str(row["tenant_id"]),
     )
     mutation_ids = await enqueue_structural_delta(
         session=session,
@@ -1160,7 +1223,7 @@ async def delete_skill(
         actor_type="user",
         actor_id=ctx.user_id,
         before=resource_root_edges(
-            organization_id=ctx.active_organization_id,
+            organization_id=str(row["tenant_id"]),
             object_type="skill_installation",
             object_id=str(sid),
             owner_relation="manager",
@@ -1189,3 +1252,46 @@ def _parse_revision_uuid(revision_id: str) -> uuid.UUID:
         return uuid.UUID(revision_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="skill version not found") from exc
+
+
+@router.get("/{skill_id}/access", response_model=DirectBindingListOut)
+async def list_skill_access(
+    skill_id: str, request: Request, continuation_token: str = "",
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from .resource_sharing import list_resource_access
+    return await list_resource_access(
+        request=request, auth=ctx, service=service, session=session,
+        resource=_skill_resource(ctx, _parse_uuid(skill_id)), continuation_token=continuation_token,
+    )
+
+
+@router.post("/{skill_id}/access", response_model=DirectBindingOut, status_code=201)
+async def grant_skill_access(
+    skill_id: str, body: DirectBindingGrantIn, request: Request,
+    idempotency_key: str = Header(min_length=1, max_length=200, alias="Idempotency-Key"),
+    ctx: AuthContext = Depends(current_user),
+    _step_up: AuthContext = Depends(require_recent_step_up),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from .resource_sharing import change_resource_access
+    return await change_resource_access(
+        request=request, auth=ctx, service=service, resource=_skill_resource(ctx, _parse_uuid(skill_id)),
+        body=body, idempotency_key=idempotency_key, grant=True,
+    )
+
+
+@router.delete("/{skill_id}/access", response_model=DirectBindingOut)
+async def revoke_skill_access(
+    skill_id: str, body: DirectBindingIn, request: Request,
+    idempotency_key: str = Header(min_length=1, max_length=200, alias="Idempotency-Key"),
+    ctx: AuthContext = Depends(current_user),
+    _step_up: AuthContext = Depends(require_recent_step_up),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from .resource_sharing import change_resource_access
+    return await change_resource_access(
+        request=request, auth=ctx, service=service, resource=_skill_resource(ctx, _parse_uuid(skill_id)),
+        body=body, idempotency_key=idempotency_key, grant=False,
+    )

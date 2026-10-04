@@ -77,46 +77,55 @@ async def reconcile_skill_cache(*, session, root: str, snapshot: dict | None = N
         path.unlink(missing_ok=True)
 
 
-async def authorized_lease_skills(request, claims: dict, skills: list) -> list:
+async def authorized_lease_skills(request, claims: dict, skills: list, *, include_files: bool = False) -> list:
     """Recheck identity, execution, delegation and immutable revision access.
 
     Explicit denials remove files. Infrastructure errors propagate so a failed
     authorization lookup cannot be mistaken for a successful revocation check.
     """
     from fastapi import HTTPException
-    from vibecanvas_api.authorization.types import Action, PrincipalType, ResourceRef, ResourceType
+    from vibecanvas_api.authorization.types import Action, ConsistencyPreference, PrincipalType, ResourceRef, ResourceType
     from vibecanvas_api.services.workflow_execution_authorization import authorize_workflow_execution
-    from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
     from vibecanvas_api.storage.repo_skills import SkillsRepo
 
     async def resolve(*, session, service, principal, authz_context, capability):
-        delegated = None
-        if principal.type == PrincipalType.SERVICE_ACCOUNT:
-            delegated = set(await ServiceAccountsRepo(session).resource_refs(UUID(principal.id)))
-        repo = SkillsRepo(session)
-        allowed = []
-        for item in skills:
-            identifier = item["id"]
-            if delegated is not None and ("skill_installation", identifier) not in delegated:
-                continue
-            row = await repo.get(identifier)
-            if row is None:
-                continue
-            revision_id = item.get("revision_id")
-            if not revision_id:
-                # Older private leases recorded only the content hash.
-                revisions = await repo.list_revisions(identifier)
-                revision_id = next((str(r["revision_id"]) for r in revisions
-                                    if r["revision_hash"] == item["revision_hash"]), None)
-            if not revision_id or await repo.get_revision(identifier, revision_id) is None:
-                continue
-            decisions = [await service.check(principal, Action.USE,
-                ResourceRef(kind, resource_id, capability.organization_id), authz_context)
-                for kind, resource_id in ((ResourceType.SKILL_INSTALLATION, identifier),
-                                           (ResourceType.SKILL_REVISION, revision_id))]
-            if all(decision.allowed for decision in decisions):
-                allowed.append(item)
-        return allowed
+        if principal.type in {PrincipalType.USER, PrincipalType.SERVICE_ACCOUNT}:
+            from dataclasses import replace
+            from sqlalchemy import text
+            from vibecanvas_api.services.runtime_skills import authorized_skill_rows
+            rows = await authorized_skill_rows(session=session, service=service, principal=principal, context=authz_context)
+            by_id = {str(row["skill_id"]): row for row in rows}
+            original = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one()
+            allowed = []
+            try:
+                for item in skills:
+                    row = by_id.get(item["id"])
+                    if row is None or not item.get("revision_id"):
+                        continue
+                    owner = str(row["tenant_id"])
+                    await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": owner})
+                    scoped = replace(authz_context, consistency=ConsistencyPreference.HIGHER_CONSISTENCY, admitted_resource_organization_id=owner,
+                        admitted_resource_type="skill_installation", admitted_resource_id=item["id"])
+                    decisions = [await service.check(principal, Action.USE, ResourceRef(kind, identifier, owner), scoped)
+                        for kind, identifier in ((ResourceType.SKILL_INSTALLATION, item["id"]),
+                                                 (ResourceType.SKILL_REVISION, item["revision_id"]))]
+                    if not all(decision.allowed for decision in decisions):
+                        continue
+                    repo = SkillsRepo(session)
+                    revision = await repo.get_revision(item["id"], item["revision_id"])
+                    if revision is None or revision["revision_hash"] != item["revision_hash"]:
+                        continue
+                    if include_files:
+                        files = await repo.read_revision_files(UUID(item["id"]), UUID(item["revision_id"]))
+                        if files is None:
+                            continue
+                        allowed.append({**item, "files": files})
+                    else:
+                        allowed.append(item)
+            finally:
+                await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
+            return allowed
+        return []
 
     try:
         if claims.get('execution_resource_type') == 'deployment_preparation':

@@ -55,16 +55,19 @@ async def test_create_retry_history_metadata_and_hidden_project(client, web_cook
     assert item["created_at"] and item["updated_at"]
     workspace = await client.get("/api/v1/chats/workspace", params={"chat_id": "canvas-history"})
     assert workspace.status_code == 200, workspace.text
-    assert workspace.json()["workspace_scope_id"] == wf_id
+    from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
+    private_scope = project_workspace_scope_id(item["project_id"])
+    assert private_scope != wf_id
+    assert workspace.json()["workspace_scope_id"] == private_scope
     project_workspace = await client.get(f"/api/v1/projects/{item['project_id']}/workspace")
     assert project_workspace.status_code == 200, project_workspace.text
-    assert project_workspace.json()["workspace_scope_id"] == wf_id
+    assert project_workspace.json()["workspace_scope_id"] == private_scope
     from sqlalchemy import text
     async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         rows = (await session.execute(text(
             "SELECT scope_id, path FROM vfs_artifacts WHERE path = '/chats/canvas-history/.keep'"
         ))).all()
-        assert rows == [(wf_id, "/chats/canvas-history/.keep")]
+        assert rows == [(private_scope, "/chats/canvas-history/.keep")]
 
     async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         await WorkflowRepo(session, me["user_id"]).commit(wf_id, graph, target_major=1)
@@ -214,3 +217,94 @@ async def test_active_canvas_conversation_blocks_workflow_delete(client, web_coo
     async with session_scope(tenant_id=me["tenant_id"], user_id=me["user_id"]) as session:
         assert (await session.get(Workflow, wf_id)).deleted_at is None
         assert (await session.get(Chat, cid)).deleted_at is None
+
+
+@pytest.mark.asyncio
+async def test_canvas_run_uses_the_same_private_project_as_chat(client, web_cookies, monkeypatch):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    from vibecanvas_api.routes import executions
+    from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
+    from vibecanvas_api.services.workflow_run_source import WorkflowRunSource
+    me, headers, wf_id, _ = await setup(client)
+    made = await client.put(f'/api/v1/chat-scopes/{wf_id}/chats/run-chat-shared', headers=headers, json=payload(wf_id))
+    assert made.status_code == 200, made.text
+    acquire = AsyncMock(return_value=object())
+    monkeypatch.setattr(executions, 'get_sandbox_manager', lambda: SimpleNamespace(get_session=acquire))
+    await executions._acquire_canvas_execution_session(me['tenant_id'], me['user_id'], wf_id, me['tenant_id'])
+    acquire.assert_awaited_once_with(
+        me['tenant_id'], project_workspace_scope_id(made.json()['project_id']), user_id=me['user_id'],
+        expose_run=True, expose_runtime=True,
+        workflow_run_source=WorkflowRunSource(tenant_id=me['tenant_id'], workflow_id=wf_id),
+    )
+
+@pytest.mark.asyncio
+async def test_workflow_sandbox_lifecycle_targets_private_chat_workspace(client, web_cookies, monkeypatch):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    from vibecanvas_api.routes import workflows
+    from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
+    from vibecanvas_api.services.workflow_run_source import WorkflowRunSource
+    me, headers, wf_id, _ = await setup(client)
+    runtime = SimpleNamespace(prewarm_fileops=AsyncMock())
+    manager = SimpleNamespace(get_session=AsyncMock(return_value=runtime),
+        status=AsyncMock(return_value={'status': 'running'}), close_session=AsyncMock())
+    monkeypatch.setattr(workflows, 'get_sandbox_manager', lambda: manager)
+    response = await client.get(f'/api/v1/workflows/{wf_id}/sandbox', headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()['status'] == 'idle'
+    manager.status.assert_not_awaited()
+    listed = await client.get('/api/v1/workflows/sandboxes', headers=headers, params={'wf_id': wf_id})
+    assert listed.status_code == 200, listed.text
+    assert [(item['wf_id'], item['status']) for item in listed.json()['items']] == [(wf_id, 'idle')]
+    manager.status.assert_not_awaited()
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        assert await ChatProjectRepo(db, me['user_id']).find_for_workflow(wf_id) is None
+    response = await client.post(f'/api/v1/workflows/{wf_id}/sandbox', headers=headers)
+    assert response.status_code == 200, response.text
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        project = await ChatProjectRepo(db, me['user_id']).find_for_workflow(wf_id)
+        scope = project_workspace_scope_id(project.project_id)
+    manager.get_session.assert_awaited_once_with(me['tenant_id'], scope, user_id=me['user_id'],
+        expose_run=True, expose_runtime=True,
+        workflow_run_source=WorkflowRunSource(tenant_id=me['tenant_id'], workflow_id=wf_id))
+    assert response.json()['workspace_scope_id'] == scope
+    manager.status.assert_awaited_with(me['tenant_id'], scope)
+    response = await client.delete(f'/api/v1/workflows/{wf_id}/sandbox', headers=headers)
+    assert response.status_code == 200, response.text
+    manager.close_session.assert_awaited_once_with(me['tenant_id'], scope)
+
+@pytest.mark.asyncio
+async def test_sandbox_status_keeps_shared_workflow_actors_separate(client, web_cookies, monkeypatch):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    from vibecanvas_api.routes import workflows
+    from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
+    from vibecanvas_api.storage.execution_repo import ExecutionRepo
+    from vibecanvas_api.storage import stop_registry
+    owner, _, wf_id, _ = await setup(client)
+    other, _, _, _ = await setup(client)
+    states = []
+    for actor in (owner, other):
+        execution = str(uuid.uuid4())
+        async with session_scope(tenant_id=actor['tenant_id'], user_id=actor['user_id']) as db:
+            project = await ChatProjectRepo(db, actor['user_id']).for_workflow(wf_id)
+            await ExecutionRepo(db, actor['user_id']).start_execution(wf_id, 'v1.sv0', execution,
+                workflow_tenant_id=owner['tenant_id'])
+            states.append((actor, execution, project_workspace_scope_id(project.project_id)))
+    status = AsyncMock(return_value={'status': 'running'})
+    monkeypatch.setattr(workflows, 'get_sandbox_manager', lambda: SimpleNamespace(status=status))
+    try:
+        # Even with the outer DB admitted to the owner, state resolution uses
+        # the caller's private organization and identity.
+        async with session_scope(tenant_id=owner['tenant_id']) as source_db:
+            for actor, execution, scope in states:
+                observed = await workflows._workflow_sandbox_status_payload(session=source_db,
+                    tenant_id=actor['tenant_id'], user_id=actor['user_id'], wf_id=wf_id)
+                assert observed['active_execution_ids'] == [execution]
+                assert observed['workspace_scope_id'] == scope
+                status.assert_awaited_with(actor['tenant_id'], scope)
+        assert states[0][2] != states[1][2]
+    finally:
+        for _, execution, _ in states:
+            stop_registry.discard(execution)

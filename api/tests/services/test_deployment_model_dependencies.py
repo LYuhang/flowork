@@ -13,8 +13,16 @@ def setup(monkeypatch):
     ids = {name: str(uuid.uuid4()) for name in (
         "tenant_id", "user_id", "execution_id", "service_account_id", "credential_id",
     )}
+    from vibecanvas_api.services import workflow_execution_authorization as gate
+    from vibecanvas_api.authorization import parent_resolvers
+    @asynccontextmanager
+    async def scope(session, owner):
+        yield
+    monkeypatch.setattr(gate, 'temporary_tenant_scope', scope)
+    monkeypatch.setattr(parent_resolvers, 'collaboration_root_exists', AsyncMock(return_value=True))
+    workflow_owner = str(uuid.uuid4())
     session = Mock(execute=AsyncMock(side_effect=[
-        Mock(first=Mock(return_value=(ids["service_account_id"],))),
+        Mock(first=Mock(return_value=(ids["service_account_id"], workflow_owner))),
         Mock(scalar_one_or_none=Mock(return_value=SimpleNamespace(
             membership_id=uuid.uuid4(), org_role="owner", status="active",
         ))),
@@ -33,7 +41,7 @@ def setup(monkeypatch):
     args = {key: value for key, value in ids.items() if key != "credential_id"}
     args.update(session=session, client=object(), coordinator=object(),
         workflow_id="wf", generation=3, names={"manual"})
-    return SimpleNamespace(ids=ids, args=args, session=session, row=row,
+    return SimpleNamespace(ids=ids, workflow_owner=workflow_owner, args=args, session=session, row=row,
         accounts=accounts, credentials=credentials, service=service, enqueue=enqueue)
 
 
@@ -47,6 +55,10 @@ async def test_new_version_dependencies_are_limited_and_authorized(setup):
     assert str(s.accounts.bind_credential.call_args.kwargs["credential_id"]) == s.ids["credential_id"]
     calls = s.service.check.call_args_list
     assert [call.args[1] for call in calls] == [Action.EXECUTE, Action.EXECUTE, Action.USE]
+    assert calls[0].args[2].organization_id == s.workflow_owner
+    assert calls[0].args[3].admitted_resource_organization_id == s.workflow_owner
+    assert calls[-1].args[2].organization_id == s.ids["tenant_id"]
+    assert not calls[-1].args[3].admitted_resource_organization_id
     assert calls[-1].args[0].type is PrincipalType.USER
     assert calls[0].args[0].type is PrincipalType.SERVICE_ACCOUNT
     assert {edge.object_id for edge in s.enqueue.call_args.kwargs["after"]} == {s.ids["credential_id"]}
@@ -87,7 +99,7 @@ async def test_inactive_or_foreign_execution_never_reads_credentials(setup):
 @pytest.mark.asyncio
 async def test_inactive_creator_cannot_expand_delegation(setup):
     s = setup
-    s.session.execute.side_effect = [Mock(first=Mock(return_value=(1,))),
+    s.session.execute.side_effect = [Mock(first=Mock(return_value=(s.ids["service_account_id"], s.workflow_owner))),
         Mock(scalar_one_or_none=Mock(return_value=None))]
     with pytest.raises(PermissionError, match="delegation_denied"):
         await deps._refresh(**s.args)
@@ -218,20 +230,25 @@ async def test_execution_identity_query_and_membership_with_real_database(pg_eng
 
 
 @pytest.mark.asyncio
-async def test_resource_only_change_grants_selected_dependencies_after_execution_check(setup, monkeypatch):
+@pytest.mark.parametrize("kind", ["mcp_installation", "skill_installation"])
+async def test_resource_only_change_grants_selected_dependencies_after_execution_check(setup, monkeypatch, kind):
     s = setup
     from vibecanvas_api.services import service_account_resources
     identifier = str(uuid.uuid4())
     s.args['names'] = set()
     s.args['workflow'] = {'worker': {'node_type': 'SubAgentNode', 'node_config': {
-        'mcp_servers': [{'id': identifier, 'name': 'Selected MCP'}]}}}
+        ('mcp_servers' if kind == 'mcp_installation' else 'skills'): [{'id': identifier, 'name': 'Selected resource'}]}}}
     s.accounts.resource_refs = AsyncMock(return_value=())
-    bind = AsyncMock(return_value=(('mcp_installation', identifier),))
+    resource_owner = s.ids['tenant_id'] if kind == 'mcp_installation' else str(uuid.uuid4())
+    s.accounts.resource_owners = AsyncMock(return_value={(kind, identifier): resource_owner})
+    bind = AsyncMock(return_value=((kind, identifier),))
     monkeypatch.setattr(service_account_resources, 'bind_workflow_resources', bind)
     assert await deps._refresh(**s.args) == s.enqueue.return_value
     assert [call.args[1] for call in s.service.check.call_args_list] == [Action.EXECUTE, Action.EXECUTE]
     assert {edge.object_id for edge in s.enqueue.call_args.kwargs['after']} == {identifier}
-    s.accounts.resource_refs.return_value = (('mcp_installation', identifier),)
+    assert {edge.organization_id for edge in s.enqueue.call_args.kwargs['after']} == {resource_owner}
+    s.accounts.resource_refs.return_value = ((kind, identifier),)
+    s.session.execute.side_effect = [Mock(first=Mock(return_value=(s.ids['service_account_id'], s.workflow_owner)))]
     bind.reset_mock()
     s.enqueue.reset_mock()
     assert await deps._refresh(**s.args) == ()

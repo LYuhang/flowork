@@ -47,16 +47,15 @@ async def validate_deployment_resources(*, tenant_id: str, revision_id: str,
                 tenant_id=tenant_id, revision_id=revision_id, spec=spec)
             snapshot = await resolve_workflow_resources(session=session, workflow=workflow,
                 service=service, principal=principal, context=context)
+            snapshot['execution'] = {
+                'execution_resource_type': 'deployment_preparation',
+                'organization_id': tenant_id, 'revision_id': revision_id, 'spec': spec,
+                'principal_generation': context.authz_generation,
+            }
+            snapshot['lease_id'] = 'deployment-preparation'
             if sandbox_session is None:
                 with tempfile.TemporaryDirectory(prefix='flowork-deployment-skills-') as root:
-                    await materialize_workflow_skills(session=session, root=root, snapshot=snapshot)
-            else:
-                snapshot['execution'] = {
-                    'execution_resource_type': 'deployment_preparation',
-                    'organization_id': tenant_id, 'revision_id': revision_id, 'spec': spec,
-                    'principal_generation': context.authz_generation,
-                }
-                snapshot['lease_id'] = 'deployment-preparation'
+                    await materialize_workflow_skills(root=root, snapshot=snapshot)
         if sandbox_session is not None:
             await sandbox_session.prepare_workflow_skills(snapshot)
     finally:

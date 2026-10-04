@@ -87,6 +87,7 @@ async def test_scheduled_review_allows_overlap_and_persists_isolated_result(pg_e
         user_id=str(actor),
         provider=BubblewrapProvider(shutil.which("bwrap")),
         workspace_folders=(),
+        workflow_run_source=None,
         _rw_binds=[],
         skills_dir=None,
         _sync_mount_folder=AsyncMock(),

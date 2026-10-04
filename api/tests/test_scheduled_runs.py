@@ -31,7 +31,7 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
     monkeypatch.setattr(worker, "_scheduled_execution_lease", lambda **kw: SimpleNamespace(
         created_by=user, service_account_id=uuid.uuid4(), generation=1))
     graph = {"__meta__": {"workflow_id": "wf-original"}}
-    monkeypatch.setattr(worker, "run_in_short_session", lambda fn: ({"value": 0}, graph, mount_enabled))
+    monkeypatch.setattr(worker, "run_in_short_session", lambda fn: ({"value": 0}, graph, "v1.sv0", mount_enabled))
     monkeypatch.setattr(worker, "inject_into_run_context_async", AsyncMock(return_value={}))
     monkeypatch.setattr(service_account_resources, "refresh_scheduled_resources", AsyncMock())
     monkeypatch.setattr(workflow_resources, "prepare_execution_resources", AsyncMock(return_value=None))

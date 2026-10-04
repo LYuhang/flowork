@@ -181,13 +181,9 @@ export function AppSidebar({
   const activeOrganization = organizations.data?.items.find(
     (item) => item.organization_id === activeOrganizationId,
   );
-  const organizationCapabilities = new Set(activeOrganization?.access.capabilities ?? []);
   const canManageOrganization = activeOrganization?.kind === 'business'
-    && (
-      organizationCapabilities.has('manage_members')
-      || organizationCapabilities.has('manage_policy')
-      || organizationCapabilities.has('view_audit')
-    );
+    && activeOrganization.status === 'active'
+    && ['owner', 'admin'].includes(activeOrganization.role);
   const platformManagementRole = useAuthStore(
     (state) => state.user?.platformManagementRole ?? null,
   );
@@ -203,10 +199,10 @@ export function AppSidebar({
     }
     if (canManageOrganization) {
       items.push({
-        to: '/settings?tab=organization',
+        to: '/permissions',
         kind: 'organization',
-        labelKey: 'nav.organizationManagement',
-        fallback: 'Organization',
+        labelKey: 'nav.permissions',
+        fallback: 'Permissions',
       });
     }
     return items;

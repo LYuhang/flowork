@@ -44,7 +44,7 @@ async def test_produce_execution_prepare_raise_yields_error_and_discards(monkeyp
         async def get_session(self, *_args, **_kwargs):
             return _SessionWithoutOwnedClear()
 
-    monkeypatch.setattr(exec_mod, "get_sandbox_manager", lambda: _Manager())
+    monkeypatch.setattr(exec_mod, "_acquire_canvas_execution_session", _Manager().get_session)
 
     def _spy_discard(*a, **k):
         discarded["n"] += 1

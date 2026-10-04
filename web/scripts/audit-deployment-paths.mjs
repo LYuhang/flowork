@@ -70,6 +70,8 @@ if (!bootstrapSource) {
     ['/opaque/proxy/knowledge', '/opaque/proxy/'],
     ['/preview', '/'],
     ['/opaque/proxy/preview', '/opaque/proxy/'],
+    ['/permissions', '/'],
+    ['/opaque/proxy/permissions', '/opaque/proxy/'],
     ['/management', '/'],
     ['/opaque/proxy/management', '/opaque/proxy/'],
     ['/mcp-servers/discover/official', '/'],

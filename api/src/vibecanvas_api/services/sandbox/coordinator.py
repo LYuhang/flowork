@@ -19,6 +19,7 @@ from vibecanvas_api.services.sandbox.contracts import (
     SandboxScope,
     SandboxScopeKind,
     SandboxSpec,
+    WorkflowRunSource,
     SandboxStatus,
 )
 from vibecanvas_api.services.sandbox.manager import (
@@ -81,6 +82,7 @@ class EmbeddedSandboxClient:
             expose_run=spec.expose_run,
             expose_runtime=spec.expose_runtime,
             expose_mount=spec.expose_mount,
+            workflow_run_source=spec.workflow_run_source,
             lease=(
                 "resident"
                 if spec.lifecycle_policy == "resident"
@@ -179,6 +181,7 @@ class SandboxCoordinator:
         expose_runtime: bool = False,
         lease: str = "interactive",
         expose_mount: bool = True,
+        workflow_run_source: WorkflowRunSource | None = None,
     ):
         """Acquire the shared Project workspace used by Agent Runtime turns."""
         spec = SandboxSpec(
@@ -192,6 +195,7 @@ class SandboxCoordinator:
             expose_run=expose_run,
             expose_runtime=expose_runtime,
             expose_mount=expose_mount,
+            workflow_run_source=workflow_run_source,
         )
         ref = await self.acquire(spec)
         session_resolver = getattr(self.client, "session", None)

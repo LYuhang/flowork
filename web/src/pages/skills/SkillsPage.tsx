@@ -10,17 +10,18 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useDeleteSkill, useSaveCustomSkill, useSkillCatalog, useSkills } from '@/lib/api/queries/skills';
+import { useSetSkillInstalled, useDeleteSkill, useSaveCustomSkill, useSkillCatalog, useSkills } from '@/lib/api/queries/skills';
 import type { Skill, SkillCatalogItem, SkillCatalogSource } from '@/lib/api/skills';
 import { ManagementPageShell, ManagementToolbar } from '@/components/layout/management-page-shell';
 import { ActionableError } from '@/components/presentation/ActionableError';
 import { CompactEmptyState } from '@/components/presentation/CompactEmptyState';
 import { AsyncState } from '@/components/ui/async-state';
 import { ResourceIcon } from '@/components/presentation/ResourceIcon';
+import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 import { ResourceProvenanceLine } from '@/components/resources/ResourceProvenanceLine';
 
-type PageTab = 'installed' | 'discover' | 'custom';
-type InstalledSource = 'all' | SkillCatalogSource;
+type PageTab = 'all' | 'discover';
+type InstalledSource = 'all' | SkillCatalogSource | 'custom';
 
 function sourceLabel(source: string | null | undefined, t: (key: string, fallback: string) => string) {
   if (source === 'openai') return t('skills.source.openai', 'OpenAI Curated');
@@ -32,6 +33,11 @@ function sourceLabel(source: string | null | undefined, t: (key: string, fallbac
 function SkillCard({ skill, onDelete }: { skill: Skill; onDelete: (skill: Skill) => void }) {
   const { t } = useTranslation();
   const capabilities = new Set(skill.access?.capabilities ?? []);
+  const installation = useSetSkillInstalled();
+  const toggleInstalled = async () => {
+    try { await installation.mutateAsync({ id: skill.id, installed: !skill.installed }); }
+    catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+  };
   return (
     <article
       data-testid="skill-card"
@@ -55,7 +61,7 @@ function SkillCard({ skill, onDelete }: { skill: Skill; onDelete: (skill: Skill)
             </div>
           </div>
         </div>
-        <div>
+        {(capabilities.has('delete') || (skill.source === 'custom' && capabilities.has('update'))) && <div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -86,17 +92,26 @@ function SkillCard({ skill, onDelete }: { skill: Skill; onDelete: (skill: Skill)
                   className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                 >
                   <Trash2 />
-                  {t('skills.delete', 'Uninstall')}
+                  {t('skills.deleteResource', 'Delete Skill')}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
+        </div>}
       </div>
       <p className="[overflow-wrap:anywhere] line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-muted-foreground">
         {skill.description || t('skills.no_description', 'No Description')}
       </p>
-      <ResourceProvenanceLine provenance={skill.provenance} />
+      <div className="flex flex-wrap items-center gap-2">
+        <ResourceAccessBadge access={skill.access} />
+        <ResourceProvenanceLine provenance={skill.provenance} />
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">{skill.installed ? t('skills.installState.installed', 'Installed') : t('skills.installState.uninstalled', 'Not installed')}</span>
+        {capabilities.has('use') && <Button size="sm" variant="outline" disabled={installation.isPending} onClick={() => void toggleInstalled()}>
+          {skill.installed ? t('skills.uninstall', 'Uninstall') : t('skills.install', 'Install')}
+        </Button>}
+      </div>
       <div className="mt-auto flex flex-wrap gap-1 border-t pt-3">
         {skill.allowed_tools.slice(0, 4).map((tool) => (
           <span key={tool} className="max-w-full truncate rounded bg-secondary px-1.5 py-0.5 font-mono text-xs text-secondary-foreground">{tool}</span>
@@ -138,7 +153,7 @@ function CatalogCard({ item, installed }: { item: SkillCatalogItem; installed?: 
         </span>
         <Button size="sm" variant={installed ? 'outline' : 'default'} asChild>
           <Link to={detailHref}>
-            {installed ? t('skills.installed_button', 'Installed') : t('skills.view_details', 'View Details')}
+            {installed?.installed ? t('skills.installed_button', 'Installed') : t('skills.view_details', 'View Details')}
           </Link>
         </Button>
       </div>
@@ -152,11 +167,11 @@ export function SkillsPage() {
   const skillsQuery = useSkills();
   const deleteMutation = useDeleteSkill();
   const saveCustomMutation = useSaveCustomSkill();
-  const tab: PageTab = params.get('tab') === 'discover'
-    ? 'discover'
-    : params.get('tab') === 'custom' ? 'custom' : 'installed';
+  const tab: PageTab = params.get('tab') === 'discover' ? 'discover' : 'all';
   const source: SkillCatalogSource = params.get('source') === 'anthropic' ? 'anthropic' : 'openai';
   const [installedSource, setInstalledSource] = useState<InstalledSource>('all');
+  const [relationship, setRelationship] = useState('all');
+  const [installationState, setInstallationState] = useState('all');
   const [search, setSearch] = useState('');
   const [discoverSearch, setDiscoverSearch] = useState('');
   const [submittedDiscoverSearch, setSubmittedDiscoverSearch] = useState('');
@@ -168,17 +183,17 @@ export function SkillsPage() {
 
   const catalogQuery = useSkillCatalog(source, submittedDiscoverSearch, discoverLimit, { enabled: tab === 'discover' });
   const items = useMemo(() => skillsQuery.data ?? [], [skillsQuery.data]);
-  const customItems = useMemo(
-    () => items.filter((skill) => skill.source === 'custom'),
-    [items],
-  );
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return items.filter((skill) => {
+      if (relationship === 'created' && !skill.created_by_me) return false;
+      if (relationship === 'shared' && skill.created_by_me) return false;
+      if (installationState === 'installed' && !skill.installed) return false;
+      if (installationState === 'uninstalled' && skill.installed) return false;
       if (installedSource !== 'all' && skill.source !== installedSource) return false;
       return !query || skill.name.toLowerCase().includes(query) || skill.description.toLowerCase().includes(query) || skill.allowed_tools.some((tool) => tool.toLowerCase().includes(query));
     });
-  }, [installedSource, items, search]);
+  }, [installedSource, items, search, relationship, installationState]);
 
   const installedFor = (item: SkillCatalogItem) =>
     items.find((skill) => skill.source === item.source && skill.source_id === item.source_id);
@@ -187,7 +202,7 @@ export function SkillsPage() {
     setParams(
       value === 'discover'
         ? { tab: 'discover', source }
-        : value === 'custom' ? { tab: 'custom' } : {},
+        : {},
       { replace: true },
     );
   };
@@ -217,7 +232,7 @@ export function SkillsPage() {
     if (!confirmDelete) return;
     try {
       await deleteMutation.mutateAsync(confirmDelete.id);
-      toast.success(t('skills.deleted', 'Skill Uninstalled'));
+      toast.success(t('skills.resourceDeleted', 'Skill deleted'));
       setConfirmDelete(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -253,38 +268,56 @@ export function SkillsPage() {
 
         <Tabs value={tab} onValueChange={changeTab} className="flex min-h-0 flex-1 flex-col gap-4">
           <TabsList variant="underline" className="w-fit shrink-0">
-            <TabsTrigger value="installed">
-              {t('skills.tab.installed', 'Installed')}
+            <TabsTrigger value="all">
+              {t('skills.tab.all', 'Skills')}
               <span className="ml-1.5 rounded bg-background/80 px-1.5 py-0.5 text-xs tabular-nums">{items.length}</span>
             </TabsTrigger>
             <TabsTrigger value="discover">{t('skills.tab.discover', 'Discover')}</TabsTrigger>
-            <TabsTrigger value="custom">
-              {t('skills.tab.custom', 'Custom')}
-              <span className="ml-1.5 rounded bg-background/80 px-1.5 py-0.5 text-xs tabular-nums">{customItems.length}</span>
-            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="installed" className="mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
-            <ManagementToolbar>
-              <div className="relative min-w-[16rem] max-w-md flex-1">
-                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input data-testid="skill-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('skills.search_ph', 'Search Installed Skills')} className="pl-9" />
+          <TabsContent value="all" className="mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
+            <ManagementToolbar className="flex-col items-stretch">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-0 w-full sm:max-w-md sm:flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input data-testid="skill-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('skills.searchAll', 'Search Skills')} className="pl-9" />
+                </div>
+                <Button onClick={openCustomDialog}><Plus />{t('skills.custom.new', 'Upload Skill Package')}</Button>
               </div>
-              <Select value={installedSource} onValueChange={(value) => setInstalledSource(value as InstalledSource)}>
-                <SelectTrigger className="w-48" aria-label={t('skills.filter_source', 'Filter by skill source')}><SelectValue /></SelectTrigger>
-                <SelectContent className="max-h-72">
-                  <SelectItem value="all">{t('skills.source.all', 'All Sources')}</SelectItem>
-                  <SelectItem value="openai">{t('skills.source.openai', 'OpenAI Curated')}</SelectItem>
-                  <SelectItem value="anthropic">{t('skills.source.anthropic', 'Anthropic Public')}</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={relationship} onValueChange={setRelationship}>
+                  <SelectTrigger className="w-44" aria-label={t('skills.relationship.label', 'Resource relationship')}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('skills.relationship.all', 'All relationships')}</SelectItem>
+                    <SelectItem value="created">{t('skills.relationship.created', 'Created by me')}</SelectItem>
+                    <SelectItem value="shared">{t('skills.relationship.shared', 'Shared with me')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={installationState} onValueChange={setInstallationState}>
+                  <SelectTrigger className="w-44" aria-label={t('skills.installState.label', 'Installation status')}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('skills.installState.all', 'All installation states')}</SelectItem>
+                    <SelectItem value="installed">{t('skills.installState.installed', 'Installed')}</SelectItem>
+                    <SelectItem value="uninstalled">{t('skills.installState.uninstalled', 'Not installed')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={installedSource} onValueChange={(value) => setInstalledSource(value as InstalledSource)}>
+                  <SelectTrigger className="w-48" aria-label={t('skills.filter_source', 'Filter by skill source')}><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value="all">{t('skills.source.all', 'All Sources')}</SelectItem>
+                    <SelectItem value="custom">{t('skills.source.custom', 'Custom')}</SelectItem>
+                    <SelectItem value="openai">{t('skills.source.openai', 'OpenAI Curated')}</SelectItem>
+                    <SelectItem value="anthropic">{t('skills.source.anthropic', 'Anthropic Public')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </ManagementToolbar>
 
             <div className="page-scroll-region flex-1 pr-1">
             {skillsQuery.isLoading ? <AsyncState kind="loading" title={t('skills.loading', 'Loading…')} /> : skillsQuery.isError ? (
               <ActionableError
                 title={t('skills.load_error', 'Failed To Load Skills.')}
-                description={t('skills.load_error_hint', 'Check your connection, then reload the installed skills.')}
+                description={t('skills.loadAllHint', 'Check your connection, then reload Skills.')}
                 actionLabel={t('retry', 'Retry')}
                 onAction={() => void skillsQuery.refetch()}
                 technicalDetails={skillsQuery.error instanceof Error ? skillsQuery.error.message : String(skillsQuery.error)}
@@ -293,7 +326,7 @@ export function SkillsPage() {
             ) : items.length === 0 ? (
               <CompactEmptyState
                 data-testid="skill-empty-state"
-                title={t('skills.empty', 'No Skills Installed Yet.')}
+                title={t('skills.noAccessible', 'No accessible Skills yet.')}
                 description={t('skills.emptyHint', 'Open Discover to choose a verified instruction package.')}
                 actionLabel={t('skills.open_discover', 'Open Discover')}
                 onAction={() => changeTab('discover')}
@@ -320,13 +353,7 @@ export function SkillsPage() {
                   submitDiscoverSearch();
                 }}
               >
-                <Select value={source} onValueChange={changeSource}>
-                  <SelectTrigger className="w-56" aria-label={t('skills.select_catalog', 'Select skill catalog')}><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    <SelectItem value="openai">{t('skills.source.openai_repo', 'OpenAI Skills')}</SelectItem>
-                    <SelectItem value="anthropic">{t('skills.source.anthropic_repo', 'Anthropic Skills')}</SelectItem>
-                  </SelectContent>
-                </Select>
+
                 <div className="relative min-w-[16rem] flex-1">
                   <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -356,6 +383,15 @@ export function SkillsPage() {
                   )}
                 </Button>
               </form>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={source} onValueChange={changeSource}>
+                  <SelectTrigger className="w-56" aria-label={t('skills.select_catalog', 'Select skill catalog')}><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value="openai">{t('skills.source.openai_repo', 'OpenAI Skills')}</SelectItem>
+                    <SelectItem value="anthropic">{t('skills.source.anthropic_repo', 'Anthropic Skills')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <p className="mt-2 text-xs text-muted-foreground">{sourceDescription}</p>
               <div className="mt-3 rounded-lg border border-edge-subtle bg-surface-work p-4">
                 <div className="flex items-start gap-3">
@@ -411,47 +447,18 @@ export function SkillsPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="custom" className="mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden data-[state=inactive]:hidden">
-            <ManagementToolbar>
-              <div className="min-w-0 flex-1">
-                <div className="font-medium">{t('skills.custom.title', 'Your Skills')}</div>
-                <p className="text-sm text-muted-foreground">
-                  {t('skills.custom.help', 'Upload a complete Skill package. After import, edit it from the detail page and publish explicit versions.')}
-                </p>
-              </div>
-              <Button onClick={openCustomDialog}>
-                <Plus />
-                {t('skills.custom.new', 'Upload Skill Package')}
-              </Button>
-            </ManagementToolbar>
-            <div className="page-scroll-region flex-1 pr-1">
-              {customItems.length === 0 ? (
-                <div className="empty-state">
-                  <div className="empty-state-title">{t('skills.custom.empty', 'No Custom Skills Yet.')}</div>
-                  <div className="empty-state-copy">{t('skills.custom.empty_hint', 'Upload a ZIP package containing SKILL.md at its root.')}</div>
-                  <Button variant="outline" onClick={openCustomDialog}>{t('skills.custom.new', 'Upload Skill Package')}</Button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {customItems.map((skill) => (
-                    <SkillCard key={skill.id} skill={skill} onDelete={setConfirmDelete} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </TabsContent>
         </Tabs>
       </ManagementPageShell>
 
       <Dialog open={!!confirmDelete} onOpenChange={(open) => !open && setConfirmDelete(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('skills.delete_title', 'Uninstall This Skill?')}</DialogTitle>
-            <DialogDescription>{t('skills.delete_confirm', 'The agent will no longer be able to load this Skill. Its installed bundle will be removed.')}</DialogDescription>
+            <DialogTitle>{t('skills.deleteResourceTitle', 'Delete this Skill?')}</DialogTitle>
+            <DialogDescription>{t('skills.deleteResourceHint', 'This deletes the resource for all recipients. To remove only your installation, use Uninstall.')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmDelete(null)} disabled={deleteMutation.isPending}>{t('skills.cancel', 'Cancel')}</Button>
-            <Button variant="destructive" data-testid="skill-confirm-delete" onClick={() => void handleDelete()} disabled={deleteMutation.isPending}>{t('skills.delete', 'Uninstall')}</Button>
+            <Button variant="destructive" data-testid="skill-confirm-delete" onClick={() => void handleDelete()} disabled={deleteMutation.isPending}>{t('skills.deleteResource', 'Delete Skill')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

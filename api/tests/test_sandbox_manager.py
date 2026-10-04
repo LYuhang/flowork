@@ -169,6 +169,8 @@ async def test_lazy_create_and_reuse():
     def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False, expose_mount=True, workspace_profile="chat"):
         return MagicMock(
             tenant_id=tenant,
+            user_id=user_id,
+            workflow_run_source=None,
             wf_id=workspace,
             closed=False,
             last_used=0.0,
@@ -251,6 +253,8 @@ async def test_session_rebuilds_when_exposed_roots_change():
     def build(tenant, workspace, user_id=None, expose_run=True, expose_runtime=False, expose_mount=True, workspace_profile="chat"):
         session = MagicMock(
             tenant_id=tenant,
+            user_id=user_id,
+            workflow_run_source=None,
             wf_id=workspace,
             closed=False,
             last_used=0.0,

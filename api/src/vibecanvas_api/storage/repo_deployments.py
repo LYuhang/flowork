@@ -124,6 +124,8 @@ class DeploymentsRepo:
         self,
         *,
         deployment_ids: tuple[str, ...] | list[str] | None = None,
+        creator_user_id: str | None = None,
+        exclude_creator: bool = False,
         trigger_type: Optional[str] = None,
         enabled: Optional[bool] = None,
         wf_id: Optional[str] = None,
@@ -149,6 +151,9 @@ class DeploymentsRepo:
             params["deployment_ids"] = [
                 str(value) for value in normalized_ids
             ]
+        if creator_user_id is not None:
+            clauses.append("d.user_id != :creator" if exclude_creator else "d.user_id = :creator")
+            params["creator"] = uuid.UUID(str(creator_user_id))
         if trigger_type is not None:
             clauses.append("trigger_type = :tt")
             params["tt"] = trigger_type
@@ -187,7 +192,7 @@ class DeploymentsRepo:
                 WHERE """
                 + where_sql
                 + """
-                ORDER BY d.created_at DESC
+                ORDER BY d.created_at DESC, d.id
                 LIMIT :limit OFFSET :offset
                 """
             ),
@@ -199,6 +204,8 @@ class DeploymentsRepo:
         self,
         *,
         deployment_ids: tuple[str, ...] | list[str] | None = None,
+        creator_user_id: str | None = None,
+        exclude_creator: bool = False,
         trigger_type: Optional[str] = None,
         enabled: Optional[bool] = None,
         wf_id: Optional[str] = None,
@@ -218,6 +225,9 @@ class DeploymentsRepo:
                 return 0
             clauses.append("d.id = ANY(CAST(:deployment_ids AS uuid[]))")
             params["deployment_ids"] = [str(value) for value in normalized_ids]
+        if creator_user_id is not None:
+            clauses.append("d.user_id != :creator" if exclude_creator else "d.user_id = :creator")
+            params["creator"] = uuid.UUID(str(creator_user_id))
         if trigger_type is not None:
             clauses.append("d.trigger_type = :tt")
             params["tt"] = trigger_type
@@ -249,6 +259,8 @@ class DeploymentsRepo:
         self,
         *,
         deployment_ids: tuple[str, ...] | list[str] | None = None,
+        creator_user_id: str | None = None,
+        exclude_creator: bool = False,
         wf_id: str | None = None,
     ) -> dict:
         """Return list-page totals without loading every deployment row."""
@@ -270,6 +282,9 @@ class DeploymentsRepo:
                 }
             id_clause = " AND d.id = ANY(CAST(:deployment_ids AS uuid[]))"
             params["deployment_ids"] = [str(value) for value in normalized_ids]
+        if creator_user_id is not None:
+            id_clause += " AND d.user_id != :creator" if exclude_creator else " AND d.user_id = :creator"
+            params["creator"] = uuid.UUID(str(creator_user_id))
         if wf_id:
             id_clause += " AND d.wf_id = :wf_id"
             params["wf_id"] = wf_id

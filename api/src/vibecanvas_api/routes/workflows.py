@@ -24,6 +24,7 @@ from __future__ import annotations
 from vibecanvas_api.services.task_notifications import NotificationPolicy
 
 import uuid
+from dataclasses import replace
 
 from fastapi import (
     APIRouter,
@@ -50,6 +51,7 @@ from ..auth.deps import (
 )
 from ..authorization.dependencies import (
     authorize_resource,
+    authorized_resource_scope,
     context_for_auth,
     get_authz_service,
     mutation_coordinator_for_request,
@@ -104,7 +106,11 @@ from ..schemas.workflow import (
     WorkflowMetaPatch, WorkflowSnapshotOut,
 )
 from ..storage import stop_registry
-from ..storage.execution_repo import running_execution_ids
+from ..storage.execution_repo import ExecutionRepo
+from ..storage.chat_project_repo import ChatProjectRepo
+from ..storage.db import session_scope
+from ..services.chat_workspace import project_workspace_scope_id
+from ..services.workflow_run_source import WorkflowRunSource
 from ..storage.repo_tasks import TasksRepo
 from ..storage.repo_service_accounts import ServiceAccountsRepo
 from ..storage.workflow_repo import WorkflowRepo
@@ -121,8 +127,15 @@ async def _workflow_sandbox_status_payload(
     user_id: str,
     wf_id: str,
 ) -> dict:
-    status_payload = await get_sandbox_manager().status(tenant_id, wf_id)
-    running_exec_ids = running_execution_ids(wf_id)
+    # Source-workflow admission can change the request session's RLS scope.
+    # Compute and execution state always belong to the current actor instead.
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as private_db:
+        project = await ChatProjectRepo(private_db, user_id).find_for_workflow(wf_id)
+        record = await ExecutionRepo(private_db, user_id).latest_execution(wf_id)
+        workspace_id = project_workspace_scope_id(project.project_id) if project else None
+    status_payload = (await get_sandbox_manager().status(tenant_id, workspace_id)
+                      if workspace_id else {"status": "idle", "activity_state": "idle", "ttl_paused": False})
+    running_exec_ids = [record["exec_id"]] if record and record["status"] in {"pending", "running"} else []
     if running_exec_ids:
         status_payload = {
             **status_payload,
@@ -137,6 +150,7 @@ async def _workflow_sandbox_status_payload(
     return {
         "wf_id": wf_id,
         "scope_id": wf_id,
+        "workspace_scope_id": workspace_id,
         "mount_scope_id": _mount_scope_id(user_id),
         **status_payload,
     }
@@ -281,34 +295,46 @@ async def list_workflows(
         context,
     )
     timings.mark("workflow_visibility")
-    rows, total = await repo.list_authorized_workflows(
-        authorized_ids,
-        limit=page.limit,
-        offset=page.offset,
-    )
-    timings.mark("workflow_inventory")
-    resources = [
-        _workflow_resource(auth, item["wf_id"]) for item in rows
-    ]
-    decisions = await batch_resource_decisions(
-        service,
-        principal=principal,
-        resources=resources,
-        context=context,
-    )
-    timings.mark("workflow_capabilities")
-    provenance = ResourceProvenanceBuilder(session)
-    items = [
-        await _meta_to_out(item, decisions[resource], provenance)
-        for item, resource in zip(rows, resources, strict=True)
-    ]
+    from vibecanvas_api.storage.shared_resource_locator import shared_resource_roots
+    roots = await shared_resource_roots(auth.user_id, active_organization_id=auth.active_organization_id, resource_type="workflow")
+    groups = {auth.active_organization_id: list(authorized_ids)}
+    for root in roots:
+        owner = str(root.owner_tenant_id)
+        if owner == auth.active_organization_id:
+            continue
+        scoped = replace(context, admitted_resource_organization_id=owner,
+            admitted_resource_type="workflow", admitted_resource_id=root.resource_id,
+            consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+        decision = await service.check(principal, Action.VIEW_METADATA,
+            ResourceRef(ResourceType.WORKFLOW, root.resource_id, owner), scoped)
+        if decision.allowed:
+            groups.setdefault(owner, []).append(root.resource_id)
+    original = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one()
+    items = []
+    total = 0
+    try:
+        for owner, identifiers in groups.items():
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": owner})
+            rows, count = await repo.list_authorized_workflows(identifiers, limit=page.offset + page.limit, offset=0)
+            total += count
+            provenance = ResourceProvenanceBuilder(session)
+            for row in rows:
+                scoped = context if owner == auth.active_organization_id else replace(context,
+                    admitted_resource_organization_id=owner, admitted_resource_type="workflow",
+                    admitted_resource_id=row["wf_id"], consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+                decision = await service.check(principal, Action.VIEW_METADATA,
+                    ResourceRef(ResourceType.WORKFLOW, row["wf_id"], owner), scoped)
+                if not decision.allowed:
+                    total -= 1
+                    continue
+                item = await _meta_to_out(row, decision, provenance)
+                items.append(item.model_copy(update={"created_by_me": str(row.get("creator")) == str(auth.user_id)}))
+    finally:
+        await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
+    items.sort(key=lambda item: (-item.updated_at, item.wf_id))
     timings.mark("workflow_projection")
-    return Page[WorkflowMetaOut](
-        items=items,
-        total=total,
-        limit=page.limit,
-        offset=page.offset,
-    )
+    return Page[WorkflowMetaOut](items=items[page.offset:page.offset + page.limit],
+        total=total, limit=page.limit, offset=page.offset)
 
 
 @router.post("", response_model=WorkflowMetaOut, status_code=201)
@@ -400,22 +426,22 @@ async def get_workflow_sandbox_statuses(
     """
     items = []
     seen: set[str] = set()
-    authorized_ids = set(await service.list_authorized_ids(
-        principal_for_auth(auth),
-        Action.INSPECT_RUNS,
-        ResourceType.WORKFLOW,
-        context_for_auth(auth, request),
-    ))
     for workflow_id in wf_id[:200]:
         if (
             not workflow_id
             or workflow_id in seen
-            or workflow_id not in authorized_ids
         ):
             continue
         seen.add(workflow_id)
-        if not await repo.get_meta(workflow_id):
-            continue
+        try:
+            async with authorized_resource_scope(request=request, auth=auth, session=session,
+                    resource_type=ResourceType.WORKFLOW, resource_id=workflow_id, action=Action.INSPECT_RUNS):
+                if not await repo.get_meta(workflow_id):
+                    continue
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                continue
+            raise
         items.append(await _workflow_sandbox_status_payload(
             session=session,
             tenant_id=auth.tenant_id,
@@ -505,12 +531,19 @@ async def start_workflow_sandbox(
     )
     if not await repo.get_meta(wf_id):
         raise HTTPException(status_code=404, detail=f"workflow {wf_id} not found")
+    async with session_scope(tenant_id=auth.tenant_id, user_id=auth.user_id) as private_db:
+        project = await ChatProjectRepo(private_db, auth.user_id).for_workflow(wf_id)
+        workspace_id = project_workspace_scope_id(project.project_id)
     sandbox_session = await get_sandbox_manager().get_session(
         auth.tenant_id,
-        wf_id,
+        workspace_id,
         user_id=auth.user_id,
         expose_run=True,
         expose_runtime=True,
+        workflow_run_source=WorkflowRunSource(
+            tenant_id=context_for_auth(auth, request).admitted_resource_organization_id or auth.tenant_id,
+            workflow_id=wf_id,
+        ),
     )
     await sandbox_session.prewarm_fileops()
     return await _workflow_sandbox_status_payload(
@@ -540,10 +573,14 @@ async def close_workflow_sandbox(
     )
     if not await repo.get_meta(wf_id):
         raise HTTPException(status_code=404, detail=f"workflow {wf_id} not found")
-    running_exec_ids = running_execution_ids(wf_id)
-    for exec_id in running_exec_ids:
-        stop_registry.signal(exec_id)
-    await get_sandbox_manager().close_session(auth.tenant_id, wf_id)
+    async with session_scope(tenant_id=auth.tenant_id, user_id=auth.user_id) as private_db:
+        project = await ChatProjectRepo(private_db, auth.user_id).find_for_workflow(wf_id)
+        record = await ExecutionRepo(private_db, auth.user_id).latest_execution(wf_id)
+        workspace_id = project_workspace_scope_id(project.project_id) if project else None
+        if record and record["status"] in {"pending", "running"}:
+            stop_registry.signal(record["exec_id"])
+    if workspace_id is not None:
+        await get_sandbox_manager().close_session(auth.tenant_id, workspace_id)
     return await _workflow_sandbox_status_payload(
         session=session,
         tenant_id=auth.tenant_id,
@@ -694,7 +731,7 @@ async def delete_workflow(
                                   wf_id=wf_id, action=Action.DELETE)
     try:
         _, mutation_ids = await commit_deletion(session, workflow_id=wf_id,
-            user_id=ctx.user_id, tenant_id=ctx.tenant_id, coordinator=coordinator,
+            user_id=ctx.user_id, coordinator=coordinator,
             authorize=authorize, audit_ctx=extract_request_audit_context(request), actor_email=ctx.email)
     except ToolError as exc:
         raise HTTPException(status_code=404 if str(exc) == "workflow_unavailable" else 409,
@@ -1359,13 +1396,11 @@ async def submit_batch(
     enqueues a durable workflow with ``workflow_id == tasks.id`` (so DBOS and
     the business row share one idempotency key used by the reconciler).
     """
-    await _authorize_workflow(
-        request=request,
-        auth=ctx,
-        service=service,
-        wf_id=wf_id,
-        action=Action.EXECUTE,
-    )
+    from vibecanvas_api.authorization.dependencies import authorized_resource_scope
+    await _rebind_request_organization(session, ctx)
+    async with authorized_resource_scope(request=request, auth=ctx, session=session,
+            resource_type=ResourceType.ORGANIZATION, resource_id=ctx.active_organization_id, action=Action.CREATE):
+        pass
     # Validate the output destination up front (cheap, no I/O) so a bad path /
     # unsupported type is a 422 at submit, not a runtime task failure.
     if body.output is not None:
@@ -1381,8 +1416,11 @@ async def submit_batch(
             ) from e
 
     from vibecanvas_api.services.task_snapshots import freeze_workflow
-    snapshot = await freeze_workflow(session, ctx.user_id, wf_id,
-                                     major=body.major, version=body.version)
+    async with authorized_resource_scope(request=request, auth=ctx, session=session,
+            resource_type=ResourceType.WORKFLOW, resource_id=wf_id, action=Action.EXECUTE):
+        workflow_tenant_id = await session.scalar(text("SELECT current_setting('app.tenant_id', true)"))
+        snapshot = await freeze_workflow(session, ctx.user_id, wf_id,
+                                         major=body.major, version=body.version)
     task_id = uuid.uuid4()
     service_account_id = uuid.uuid4()
     await ServiceAccountsRepo(session).create_for_owner(
@@ -1406,6 +1444,7 @@ async def submit_batch(
         tenant_id=uuid.UUID(ctx.tenant_id),
         user_id=uuid.UUID(ctx.user_id),
         workflow_id=wf_id,
+        workflow_tenant_id=uuid.UUID(workflow_tenant_id),
         task_type="batch_exec",
         payload={**body.model_dump(), "workflow_snapshot": snapshot},
         background_job_id=str(task_id),
@@ -1413,13 +1452,9 @@ async def submit_batch(
     )
     # Close the permission-revocation race immediately before the durable
     # queued Task row is introduced.
-    await _authorize_workflow(
-        request=request,
-        auth=ctx,
-        service=service,
-        wf_id=wf_id,
-        action=Action.EXECUTE,
-    )
+    async with authorized_resource_scope(request=request, auth=ctx, session=session,
+            resource_type=ResourceType.WORKFLOW, resource_id=wf_id, action=Action.EXECUTE):
+        pass
     try:
         await session.flush()
     except IntegrityError as e:
@@ -1456,8 +1491,9 @@ async def submit_batch(
                 owner_resource_type="task",
                 owner_resource_id=str(task_id),
                 workflow_id=wf_id,
+                workflow_organization_id=workflow_tenant_id,
                 credential_ids=credential_ids,
-                resource_refs=await ServiceAccountsRepo(session).resource_refs(service_account_id),
+                resource_owners=await ServiceAccountsRepo(session).resource_owners(service_account_id),
             )
         ),
         operation_id=uuid.uuid4().hex,

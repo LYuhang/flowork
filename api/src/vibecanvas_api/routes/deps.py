@@ -17,6 +17,7 @@ from ..storage.chat_project_repo import ChatProjectRepo
 from ..storage.agent_runtime_repo import AgentRuntimeRepo
 from ..storage.execution_repo import ExecutionRepo
 from ..storage.workflow_repo import WorkflowRepo
+from ..storage.db import session_scope
 
 
 async def get_workflow_repo(
@@ -29,11 +30,11 @@ async def get_workflow_repo(
 
 
 async def get_execution_repo(
-    session: AsyncSession = Depends(tenant_db),
     ctx: AuthContext = Depends(current_user),
-) -> ExecutionRepo:
-    """Workflow-page execution state repo. RLS isolates by tenant."""
-    return ExecutionRepo(session, ctx.user_id)
+):
+    """Execution state belongs to the actor, even while reading a shared Workflow."""
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.user_id) as session:
+        yield ExecutionRepo(session, ctx.user_id)
 
 
 async def get_chat_repo(

@@ -12,6 +12,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from vibecanvas_api.services.deployment_completion import complete_before_cancelling
+from vibecanvas_api.services.vfs_run_context import sync_run_back
 from vibecanvas_api.services.workflow_artifacts import persist_workflow_artifacts, restore_workflow_artifacts
 from vibecanvas_api.services.workflow_retry import retry_reason, load_retry_visits
 from vibecanvas_api.storage.db import short_session_scope
@@ -119,7 +120,7 @@ class SessionExecutions:
             async with group.pool.acquire(execution_id) as slot:
                 context = dict(context)
                 source_id = context.pop("_workflow_resume_from", None)
-                if source_id is not None:
+                if source_id is not None and self.session.workflow_run_source is None:
                     await restore_workflow_artifacts(
                         root=slot.artifacts, tenant_id=self.session.tenant_id,
                         execution_id=source_id,
@@ -131,7 +132,16 @@ class SessionExecutions:
                         tenant_id=self.session.tenant_id,
                         execution_id=execution_id,
                         wf_id=wf_id,
+                        excluded_roots=(frozenset(self.session.workspace_folders)
+                                        if self.session.workflow_run_source is not None else frozenset()),
                     )
+                    if self.session.workflow_run_source is not None:
+                        await sync_run_back(
+                            self.session.workflow_run_id,
+                            self.session.workflow_run_tenant_id,
+                            self.session.workflow_run_dir,
+                            self.session.workflow_run_id,
+                        )
                     await self.session._sync_mount_folder()
 
                 result = await WorkflowExecutionDriver(

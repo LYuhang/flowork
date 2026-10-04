@@ -18,11 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { createKb, importKb, listKbs, type ImportKbSource } from '@/lib/api/kb';
 import { useFormatDateTime } from '@/lib/timezone';
-import { SharedResourceList } from '@/components/resources/SharedResourceList';
-import {
-  ResourceScopeSwitch,
-  type ResourceListScope,
-} from '@/components/resources/ResourceScopeSwitch';
+
 
 const knowledgeKey = ['knowledge-bases'] as const;
 type KnowledgeSort = 'updated' | 'created' | 'name';
@@ -50,13 +46,10 @@ export function KnowledgeListPage() {
   const folderInput = useRef<HTMLInputElement>(null);
   const archiveInput = useRef<HTMLInputElement>(null);
   const [sort, setSort] = useState<KnowledgeSort>('updated');
-  const scope: ResourceListScope = searchParams.get('scope') === 'shared'
-    ? 'shared'
-    : 'owned';
+  const scope = searchParams.get('scope') ?? 'all';
   const knowledge = useQuery({
     queryKey: knowledgeKey,
     queryFn: listKbs,
-    enabled: scope === 'owned',
   });
   const create = useMutation({
     mutationFn: () => createKb({ name: name.trim(), description: description.trim() || undefined }),
@@ -105,6 +98,7 @@ export function KnowledgeListPage() {
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return (knowledge.data ?? [])
+      .filter((item) => scope === 'created' ? item.created_by_me : scope === 'shared' ? !item.created_by_me : true)
       .filter((item) => (
         !normalized
         || `${item.name} ${item.description ?? ''}`.toLocaleLowerCase().includes(normalized)
@@ -115,36 +109,14 @@ export function KnowledgeListPage() {
         const rightDate = Date.parse(sort === 'created' ? right.created_at : right.latest_updated_at);
         return rightDate - leftDate;
       });
-  }, [knowledge.data, query, sort]);
+  }, [knowledge.data, query, sort, scope]);
   const hasActiveFilters = Boolean(query.trim());
-  const setScope = (value: ResourceListScope) => {
+  const setScope = (value: string) => {
     const next = new URLSearchParams(searchParams);
-    if (value === 'shared') next.set('scope', 'shared');
+    if (value !== 'all') next.set('scope', value);
     else next.delete('scope');
     setSearchParams(next, { replace: true });
   };
-
-  if (scope === 'shared') {
-    return (
-      <ManagementPageShell
-        resourceKind="knowledge"
-        title={t('knowledge.title', 'Knowledge')}
-        description={t('knowledge.description', 'Curate sources the Agent can retrieve through the explicit /knowledge capability.')}
-      >
-        <ResourceScopeSwitch value={scope} onValueChange={setScope} />
-        <div className="relative min-w-64 sm:max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-content-tertiary" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="pl-9"
-            placeholder={t('knowledge.searchShared', 'Search shared knowledge')}
-          />
-        </div>
-        <SharedResourceList resourceType="knowledge_base" search={query} />
-      </ManagementPageShell>
-    );
-  }
 
   return (
     <ManagementPageShell
@@ -156,22 +128,32 @@ export function KnowledgeListPage() {
         <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />{t('knowledge.create', 'New knowledge base')}</Button>
       </>}
     >
-      <ResourceScopeSwitch value={scope} onValueChange={setScope} />
-      <div className="flex flex-wrap items-center gap-2">
+
+      <div className="flex flex-col gap-3">
         <div className="relative min-w-64 flex-1 sm:max-w-md">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-content-tertiary" />
           <Input value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" placeholder={t('knowledge.searchList', 'Search knowledge bases')} />
         </div>
-        <Select value={sort} onValueChange={(value) => setSort(value as KnowledgeSort)}>
-          <SelectTrigger className="w-40" aria-label={t('knowledge.sort', 'Sort knowledge bases')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="updated">{t('knowledge.sort.updated', 'Recently updated')}</SelectItem>
-            <SelectItem value="created">{t('knowledge.sort.created', 'Newest created')}</SelectItem>
-            <SelectItem value="name">{t('knowledge.sort.name', 'Name')}</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={scope} onValueChange={setScope}>
+            <SelectTrigger className="w-48" aria-label={t('skills.relationship.label', 'Resource relationship')}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('skills.relationship.all', 'All relationships')}</SelectItem>
+              <SelectItem value="created">{t('skills.relationship.created', 'Created by me')}</SelectItem>
+              <SelectItem value="shared">{t('skills.relationship.shared', 'Shared with me')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={(value) => setSort(value as KnowledgeSort)}>
+            <SelectTrigger className="w-40" aria-label={t('knowledge.sort', 'Sort knowledge bases')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="updated">{t('knowledge.sort.updated', 'Recently updated')}</SelectItem>
+              <SelectItem value="created">{t('knowledge.sort.created', 'Newest created')}</SelectItem>
+              <SelectItem value="name">{t('knowledge.sort.name', 'Name')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       {knowledge.isLoading ? <AsyncState kind="loading" title={t('knowledge.loading', 'Loading knowledge bases…')} /> : null}
       {knowledge.isError && errorState(knowledge.error) === 'permission' ? (

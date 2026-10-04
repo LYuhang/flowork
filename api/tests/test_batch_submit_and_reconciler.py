@@ -58,6 +58,7 @@ def test_submit_body_silently_drops_smuggled_fields():
     # tenant_id/user_id/background_job_id smuggles are dropped; `output` + `concurrency`
     # are the legit optional fields (defaults None / 1).
     assert dumped == {
+        "notification_policy": {},
         "evaluation": {"enabled": False, "script": ""},
         "data_source": {"rows": []},
         "column_mapping": {},

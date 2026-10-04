@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.auth.repo import AuthRepo
@@ -235,6 +235,7 @@ _SHAREABLE_PATH_PARAMETERS = (
     ("task_id", "task"),
     ("dep_id", "deployment"),
     ("kb_id", "knowledge_base"),
+    ("skill_id", "skill_installation"),
 )
 
 
@@ -251,6 +252,7 @@ async def _admit_shared_resource(
     """
     resource_type = ""
     resource_id = ""
+    execution_id = None
     for parameter, candidate_type in _SHAREABLE_PATH_PARAMETERS:
         candidate_id = request.path_params.get(parameter)
         if candidate_id:
@@ -258,26 +260,42 @@ async def _admit_shared_resource(
             resource_id = str(candidate_id)
             break
     if not resource_id:
+        # Generic share-target routes still admit exactly one known root.
+        candidate_type = request.path_params.get("resource_type")
+        if candidate_type in {kind for _, kind in _SHAREABLE_PATH_PARAMETERS}:
+            resource_type = candidate_type
+            resource_id = str(request.path_params.get("resource_id") or "")
+    if not resource_id:
+        # Execution routes have no parent ID in their path. Resolve only the
+        # source root, never execution inputs, events or credentials. Admission
+        # remains a locator; the route must authorize the source and visibility.
+        path = request.scope.get("path", "").rstrip("/")
+        if path == "/api/v1/workflow-executions":
+            candidate_type = request.query_params.get("source_type")
+            if candidate_type == "workflow":
+                # Interactive runs belong to the caller, even when their
+                # definition belongs to another organization. The history
+                # route admits the definition only during its permission check.
+                return
+            if candidate_type in {"workflow", "task", "deployment"}:
+                resource_type = candidate_type
+                resource_id = request.query_params.get("source_id", "")
+        elif path.startswith("/api/v1/workflow-executions/"):
+            candidate_id = request.path_params.get("execution_id")
+            try:
+                execution_id = uuid.UUID(str(candidate_id))
+            except (ValueError, TypeError):
+                return
+    if not resource_id and execution_id is None:
         return
-
-    from vibecanvas_api.storage.models_authorization import (
-        SharedResourceProjection,
-    )
-
-    owner_ids = list((await session.execute(
-        select(SharedResourceProjection.owner_tenant_id)
-        .where(
-            SharedResourceProjection.recipient_user_id
-            == uuid.UUID(ctx.user_id),
-            SharedResourceProjection.resource_type == resource_type,
-            SharedResourceProjection.resource_id == resource_id,
-        )
-        .distinct()
-        .limit(2)
-    )).scalars())
-    if len(owner_ids) != 1:
+    from vibecanvas_api.storage.shared_resource_locator import shared_resource_roots
+    roots = await shared_resource_roots(ctx.user_id, active_organization_id=ctx.active_organization_id, resource_type=resource_type or None,
+                                       resource_id=resource_id or None, execution_id=execution_id, limit=2)
+    if len(roots) != 1:
         return
-    owner_id = str(owner_ids[0])
+    root = roots[0]
+    resource_type, resource_id = root.resource_type, root.resource_id
+    owner_id = str(root.owner_tenant_id)
     if owner_id == ctx.active_organization_id:
         return
     await session.execute(

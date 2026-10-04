@@ -19,16 +19,18 @@ from sqlalchemy import text
 from vibecanvas_api.services.vfs_signing import sign_vfs_url
 
 
-async def _register(client) -> str:
-    email = f"u{uuid.uuid4().hex[:12]}@example.com"
-    r = await client.post("/api/v1/auth/register",
-                          json={"email": email, "username": "Test User", "password": "pw12345678"})
-    assert r.status_code in (200, 201), r.text
-    return r.json()["session_token"]
+from tests.test_workflow_authorization_integration import (
+    _browser_sessions, _headers as _session_headers, _register as _browser_register,
+)
+
+
+async def _register(client):
+    token, _ = await _browser_register(client, 'vfs')
+    return token
 
 
 def _hdr(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
+    return _session_headers(token)
 
 
 async def _create_wf(client, token: str) -> str:

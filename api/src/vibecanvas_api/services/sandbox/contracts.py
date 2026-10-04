@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
+from vibecanvas_api.services.workflow_run_source import WorkflowRunSource
 
 
 class SandboxScopeKind(str, Enum):
@@ -52,6 +53,7 @@ class SandboxSpec(BaseModel):
     resource_profile: str = "interactive-medium"
     lifecycle_policy: str = "interactive"
     mount_specs: tuple[dict[str, Any], ...] = ()
+    workflow_run_source: WorkflowRunSource | None = None
     network_policy_id: str = "default"
     environment_layer_digest: str = "default"
     snapshot_policy: str = "disabled"

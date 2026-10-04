@@ -328,7 +328,7 @@ tests:
         assertions:
           can_view_metadata: true
           can_view: true
-          can_inspect_runs: false
+          can_inspect_runs: true
           can_execute: false
           can_manage_secret: false
       - user: user:audrey
@@ -377,7 +377,7 @@ tests:
           can_view_metadata: true
           can_view: true
           can_update: false
-          can_use: false
+          can_use: true
           can_manage_access: false
       - user: user:audrey
         object: knowledge_base:kb-1

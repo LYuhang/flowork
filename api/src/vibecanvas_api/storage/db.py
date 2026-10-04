@@ -203,3 +203,21 @@ def maintenance_database_url() -> str:
         or os.environ.get("ADMIN_DATABASE_URL")
         or config.database.url
     )
+
+
+@asynccontextmanager
+async def temporary_tenant_scope(session: AsyncSession, tenant_id):
+    """Use a host-validated dependency owner without changing the caller.
+
+    This is a storage scope, not an authorization grant. Callers authorize a
+    resource or load a persisted reference first, and never commit inside it.
+    Savepoint rollback restores SET LOCAL on failures as well as normal exit.
+    """
+    async with session.begin_nested():
+        previous = await session.scalar(text("SELECT current_setting('app.tenant_id', true)"))
+        if tenant_id is not None:
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                                  {"tenant": str(tenant_id)})
+        yield
+        await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                              {"tenant": previous or ""})

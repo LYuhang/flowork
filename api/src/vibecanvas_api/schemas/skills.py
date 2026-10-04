@@ -19,6 +19,8 @@ class SkillOut(BaseModel):
     description: str
     allowed_tools: list[str]
     version: int
+    installed: bool = False
+    created_by_me: bool = False
     source: Optional[str] = None
     source_id: Optional[str] = None
     source_url: Optional[str] = None

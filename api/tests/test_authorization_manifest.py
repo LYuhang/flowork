@@ -58,6 +58,7 @@ def test_share_target_resolver_manifest_has_exact_dynamic_resource_allowlist():
         "task",
         "deployment",
         "knowledge_base",
+        "skill_installation",
     }
     assert permission.action is Action.MANAGE_ACCESS
 

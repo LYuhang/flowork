@@ -37,18 +37,6 @@ type storage_root
     define can_delete: manager or can_administer from organization
     define can_mount: manager
 
-type skill_installation
-  relations
-    define organization: [organization]
-    define manager: [user]
-    define consumer: [service_account]
-    define can_view_metadata: manager or can_administer from organization or can_view_audit from organization
-    define can_view: manager
-    define can_update: manager
-    define can_delete: manager or can_administer from organization
-    define can_use: manager or consumer
-    define can_publish: manager
-
 type mcp_installation
   relations
     define organization: [organization]

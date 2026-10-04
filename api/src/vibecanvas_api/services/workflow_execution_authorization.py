@@ -6,6 +6,7 @@ The resolver runs only after identity, permissions and execution state checks.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from fastapi import HTTPException, Request
 from sqlalchemy import or_, select, text
 
@@ -17,7 +18,7 @@ from vibecanvas_api.authorization.types import (
 from vibecanvas_api.config import config
 from vibecanvas_api.services.agent_runtime.model_capability import authorization_model_generation
 from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
-from vibecanvas_api.storage.db import session_scope
+from vibecanvas_api.storage.db import session_scope, temporary_tenant_scope
 from vibecanvas_api.storage.models import User, WorkflowRunState
 from vibecanvas_api.storage.models_tasks import ScheduledRunExecution, Task, TaskSchedule
 from vibecanvas_api.storage.models_org import OrgMembership
@@ -98,7 +99,7 @@ async def authorize_workflow_execution(
                     detail={"code": "runtime_model_membership_revoked"},
                 )
 
-    async with session_scope(tenant_id=capability.organization_id) as session:
+    async with session_scope(tenant_id=capability.organization_id, user_id=capability.user_id) as session:
         service = authz_service_for_session(
             session=session,
             organization_id=capability.organization_id,
@@ -154,21 +155,6 @@ async def authorize_workflow_execution(
         execution_resource_type = ResourceType(
             capability.execution_resource_type
         )
-        workflow_decision = await service.check(
-            principal,
-            Action.EXECUTE,
-            ResourceRef(
-                ResourceType.WORKFLOW,
-                capability.workflow_id,
-                capability.organization_id,
-            ),
-            authz_context,
-        )
-        if not workflow_decision.allowed:
-            raise HTTPException(
-                status_code=403,
-                detail={"code": "runtime_model_workflow_access_revoked"},
-            )
         execution_decision = await service.check(
             principal,
             Action.EXECUTE,
@@ -184,11 +170,12 @@ async def authorize_workflow_execution(
                 status_code=403,
                 detail={"code": "runtime_model_execution_access_revoked"},
             )
-        if not await _workflow_execution_is_active(session, capability):
-            raise HTTPException(
-                status_code=403,
-                detail={"code": "runtime_model_execution_inactive"},
-            )
+        workflow_owner = await _active_workflow_source_organization(session, capability)
+        if workflow_owner is None:
+            raise HTTPException(status_code=403, detail={"code": "runtime_model_execution_inactive"})
+        if not await workflow_source_access_allowed(session=session, service=service, principal=principal,
+                context=authz_context, workflow_id=capability.workflow_id, workflow_owner=workflow_owner):
+            raise HTTPException(status_code=403, detail={"code": "runtime_model_workflow_access_revoked"})
         return await resolve(
             session=session,
             service=service,
@@ -198,10 +185,35 @@ async def authorize_workflow_execution(
         )
 
 
-async def _workflow_execution_is_active(
+async def workflow_source_access_allowed(*, session, service, principal, context, workflow_id, workflow_owner):
+    """Check a persisted execution's source without widening resource resolution.
+
+    The caller validates the execution identity before passing its source owner.
+    The service uses this same session, so revocation guards read the source
+    organization's ledger. Credentials remain in the caller's original scope.
+    """
+    source_context = replace(context,
+        admitted_resource_organization_id=str(workflow_owner),
+        admitted_resource_type=ResourceType.WORKFLOW.value,
+        admitted_resource_id=workflow_id)
+    source = ResourceRef(ResourceType.WORKFLOW, workflow_id, str(workflow_owner))
+    async with temporary_tenant_scope(session, workflow_owner):
+        from vibecanvas_api.authorization.parent_resolvers import collaboration_root_exists
+        if not await collaboration_root_exists(session, source):
+            return False
+        decision = await service.check(principal, Action.EXECUTE, source, source_context)
+        return decision.allowed
+
+
+async def _workflow_execution_is_active(session, capability) -> bool:
+    """Shared liveness check for execution caches and runtime brokers."""
+    return await _active_workflow_source_organization(session, capability) is not None
+
+
+async def _active_workflow_source_organization(
     session,
     capability,
-) -> bool:
+) -> str | None:
     """Fence a Workflow model lease against its live control-plane record."""
     resource_type = ResourceType(capability.execution_resource_type)
     service_account_id: uuid.UUID | None = None
@@ -209,10 +221,10 @@ async def _workflow_execution_is_active(
         try:
             service_account_id = uuid.UUID(capability.principal_id)
         except ValueError:
-            return False
+            return None
     if resource_type is ResourceType.WORKFLOW_EXECUTION:
         if service_account_id is not None:
-            return False
+            return None
         state = (
             await session.execute(
                 select(WorkflowRunState).where(
@@ -226,20 +238,23 @@ async def _workflow_execution_is_active(
                 )
             )
         ).scalar_one_or_none()
-        return state is not None
+        return str(state.workflow_tenant_id) if state is not None else None
     if resource_type is ResourceType.AGENT_RUN:
         if service_account_id is not None:
-            return False
+            return None
         run = await AgentRunsRepo(session).get(capability.execution_id)
-        return bool(
-            run is not None
-            and run.status == "running"
-            and str(run.creator_user_id) == capability.user_id
-        )
+        if run is None or run.status != "running" or str(run.creator_user_id) != capability.user_id:
+            return None
+        from vibecanvas_api.storage.shared_resource_locator import shared_resource_roots
+        roots = await shared_resource_roots(capability.user_id, active_organization_id=capability.organization_id, resource_type="workflow",
+                                           resource_id=capability.workflow_id, limit=2)
+        if len(roots) > 1:
+            return None
+        return str(roots[0].owner_tenant_id) if roots else capability.organization_id
     try:
         execution_uuid = uuid.UUID(capability.execution_id)
     except ValueError:
-        return False
+        return None
     if resource_type is ResourceType.TASK:
         actor_filter = (
             Task.service_account_id == service_account_id
@@ -256,7 +271,7 @@ async def _workflow_execution_is_active(
                 )
             )
         ).scalar_one_or_none()
-        return task is not None
+        return str(task.workflow_tenant_id) if task is not None else None
     if resource_type is ResourceType.TASK_EXECUTION:
         actor_filter = (
             TaskSchedule.service_account_id == service_account_id
@@ -278,13 +293,13 @@ async def _workflow_execution_is_active(
                 )
             )
         ).scalar_one_or_none()
-        return execution is not None
+        return str(execution.workflow_tenant_id) if execution is not None else None
     if resource_type is ResourceType.DEPLOYMENT_INVOCATION:
         row = (
             await session.execute(
                 text(
                     """
-                    SELECT i.status, i.wf_id, d.user_id,
+                    SELECT i.status, i.wf_id, i.workflow_tenant_id, d.user_id,
                            d.service_account_id
                     FROM deployment_invocations AS i
                     JOIN deployments AS d ON d.id = i.deployment_id
@@ -295,7 +310,7 @@ async def _workflow_execution_is_active(
                 {"invocation_id": capability.execution_id},
             )
         ).mappings().one_or_none()
-        return bool(
+        active = bool(
             row is not None
             and row["status"] in {"running", "waiting_approval"}
             and row["wf_id"] == capability.workflow_id
@@ -305,4 +320,5 @@ async def _workflow_execution_is_active(
                 else str(row["user_id"]) == capability.user_id
             )
         )
-    return False
+        return str(row["workflow_tenant_id"]) if active else None
+    return None

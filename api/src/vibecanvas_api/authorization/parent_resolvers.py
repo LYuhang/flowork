@@ -121,7 +121,7 @@ async def _workflow_execution_parent(
 ) -> ResourceRef | None:
     workflow_id = (
         await session.execute(
-            select(WorkflowRunState.wf_id).where(or_(
+            select(WorkflowRunState.wf_id).distinct().where(or_(
                 WorkflowRunState.turn_id == resource.id,
                 WorkflowRunState.wf_id == resource.id,
             ))
@@ -267,3 +267,36 @@ async def resolve_authorization_root(
         return resource
     resolver = AUTHZ_PARENT_RESOLVERS.get(resource.type)
     return await resolver(session, resource) if resolver else None
+
+
+async def collaboration_root_exists(session: AsyncSession, resource: ResourceRef) -> bool:
+    """Reject deleted collaboration roots even while remote grants remain.
+
+    The caller must bind the owner's RLS scope before this existence check;
+    it does not replace authorization or read any resource payload.
+    """
+    from vibecanvas_api.storage.models import Workflow
+    from vibecanvas_api.storage.models_tasks import Task
+    from vibecanvas_api.storage.models_deployments import Deployment
+    from vibecanvas_api.storage.models_skills import Skill
+    from vibecanvas_api.storage.models_kb import KnowledgeBase
+
+    roots = {
+        ResourceType.WORKFLOW: (Workflow, Workflow.wf_id),
+        ResourceType.TASK: (Task, Task.id),
+        ResourceType.DEPLOYMENT: (Deployment, Deployment.id),
+        ResourceType.SKILL_INSTALLATION: (Skill, Skill.skill_id),
+        ResourceType.KNOWLEDGE_BASE: (KnowledgeBase, KnowledgeBase.id),
+    }
+    entry = roots.get(resource.type)
+    if entry is None:
+        return True
+    model, key = entry
+    try:
+        identifier = resource.id if resource.type is ResourceType.WORKFLOW else uuid.UUID(resource.id)
+    except ValueError:
+        return False
+    query = select(key).where(key == identifier)
+    if hasattr(model, "deleted_at"):
+        query = query.where(model.deleted_at.is_(None))
+    return (await session.execute(query)).scalar_one_or_none() is not None

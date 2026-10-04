@@ -94,7 +94,8 @@ def test_interaction_required_projects_runtime_neutral_waiting_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_streams_codex_through_resident_sandbox() -> None:
+@pytest.mark.parametrize("shared_workflow", [False, True])
+async def test_orchestrator_streams_codex_through_resident_sandbox(shared_workflow) -> None:
     manager = _Manager()
     orchestrator = AgentRuntimeOrchestrator(manager)
     open_request = RuntimeOpenRequest(
@@ -105,7 +106,10 @@ async def test_orchestrator_streams_codex_through_resident_sandbox() -> None:
         runtime_session_id="runtime",
         runtime_root="/runtime/.codex",
     )
+    from vibecanvas_api.services.sandbox.contracts import WorkflowRunSource
+    source = WorkflowRunSource(tenant_id="owner-tenant", workflow_id="shared-workflow") if shared_workflow else None
     turn_request = RuntimeTurnRequest(
+        workflow_run_source=source,
         tenant_id="tenant",
         user_id="user",
         chat_id="chat",
@@ -132,6 +136,9 @@ async def test_orchestrator_streams_codex_through_resident_sandbox() -> None:
     assert manager.calls
     assert manager.calls[0][0][1] == "workspace"
     assert manager.calls[0][1]["lease"] == "interactive"
+    assert manager.calls[0][1].get("workflow_run_source") == source
+    assert manager.calls[0][0][0] == "tenant"
+    assert manager.calls[0][0][2] == "user"
 
 
 @pytest.mark.asyncio

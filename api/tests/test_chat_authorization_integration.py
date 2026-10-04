@@ -6,6 +6,7 @@ import uuid
 
 from httpx import ASGITransport, AsyncClient
 import pytest
+from tests.test_workflow_authorization_integration import _headers, _register, _browser_sessions
 from sqlalchemy import text
 
 from vibecanvas_api.app import build_app
@@ -113,31 +114,7 @@ class _RelationshipStore:
         return False
 
 
-def _headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
 
-
-async def _register(
-    client: AsyncClient,
-    label: str,
-) -> tuple[str, dict]:
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": f"{label}_{uuid.uuid4().hex[:12]}@example.com",
-            "username": label,
-            "password": "pw12345678",
-        },
-    )
-    assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
-    me = (
-        await client.get(
-            "/api/v1/auth/me",
-            headers=_headers(token),
-        )
-    ).json()
-    return token, me
 
 
 async def _join_active_organization(

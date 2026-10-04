@@ -91,12 +91,12 @@ class DeploymentInvocationsRepo:
             text(
                 """
                 INSERT INTO deployment_invocations (
-                    id, tenant_id, deployment_id, wf_id, trigger_type, source,
+                    id, tenant_id, workflow_tenant_id, deployment_id, wf_id, trigger_type, source,
                     status, started_at, revision_id, private_ciphertext, private_nonce,
                     private_key_id, dispatch_deadline, timeout_seconds
                 )
                 VALUES (
-                    :id, :tenant_id, :deployment_id, :wf_id, :trigger_type,
+                    :id, :tenant_id, (SELECT workflow_tenant_id FROM deployments WHERE id=:deployment_id), :deployment_id, :wf_id, :trigger_type,
                     :source, :status,
                     CASE WHEN :status = 'running' THEN now() ELSE NULL END,
                     :revision_id, :private_ciphertext, :private_nonce, :private_key_id,

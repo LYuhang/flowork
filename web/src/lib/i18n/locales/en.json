@@ -2400,7 +2400,7 @@
   "mcp.catalog.tab.connection": "Connection",
   "mcp.catalog.tab.security": "Security",
   "mcp.catalog.about": "About",
-  "mcp.catalog.source": "Source",
+  "mcp.catalog.source": "Select MCP catalog",
   "mcp.catalog.transport": "Connection",
   "mcp.catalog.version": "Version",
   "mcp.catalog.uses": "Uses",
@@ -2809,7 +2809,7 @@
   ,"share.effectiveAccess": "Your effective access"
   ,"share.customAccess": "Custom access"
   ,"share.computed": "Computed"
-  ,"share.privacyHint": "Enter an exact email address or department/team path, then search explicitly. No account directory is shown."
+  ,"share.privacyHint": "Find a person by their complete email address. Department choices are limited to your authorized directory."
   ,"share.inheritedHint": "Inherited access is managed through its department, team, or organization."
   ,"share.addDirect": "Add access"
   ,"share.user": "User"
@@ -2819,10 +2819,10 @@
   ,"share.targetType": "Target type"
   ,"share.emailAddress": "Complete email address"
   ,"share.emailPlaceholder": "name@example.com"
-  ,"share.departmentPath": "Exact department/team path"
+  ,"share.departmentPath": "Department or team name"
   ,"share.groupPlaceholder": "Product / Platform"
   ,"share.currentOrganization": "Current organization"
-  ,"share.businessTargetHint": "Search a company member by full email, a department/team by its exact path, or choose the entire organization."
+  ,"share.businessTargetHint": "Enter a full email address, search and select a department or team, or choose the entire organization."
   ,"share.personalTargetHint": "Search another account by its complete email address."
   ,"share.searchAction": "Search"
   ,"share.searching": "Searching…"
@@ -2982,7 +2982,7 @@
   ,"preview.url.reload": "Reload page"
   ,"preview.url.openNewTab": "Open page in a new tab"
   ,"preview.url.invalid": "Enter an absolute HTTP(S) address."
-  ,"preview.url.loading": "Loading {{host}}…"
+  ,"preview.url.loading": "Loading web page…"
   ,"preview.url.timeout": "This page did not finish loading or may block embedding. Reload it, or open it in a new tab."
   ,"preview.url.isolation": "This page is isolated from Flowork. If the site blocks embedding,"
   ,"knowledge.tabs.overview": "Overview"
@@ -3936,5 +3936,35 @@
     "running": "Running",
     "waiting_approval": "Awaiting approval",
     "empty": "No matching nodes"
-  }
+  },
+  "resourceAccess.read": "Read only",
+  "resourceAccess.edit": "Can edit",
+  "resourceAccess.execute": "Can execute",
+  "resourceAccess.editExecute": "Can edit · Can execute",
+  "resourceAccess.manage": "Can manage",
+  "resourceAccess.editUnavailable": "Editing requires edit permission and the latest version.",
+  "organization.addCompanyMember": "Add company member",
+  "organization.addCompanyMemberHint": "Enter the email of a registered account. They join as an ordinary member; their personal resources remain private.",
+  "organization.memberEmail": "Email",
+  "share.noDepartments": "No matching departments or teams.",
+  "nav.permissions": "Permissions",
+  "resourceScope.organizationHint": "Resources in this company that you can access. Creating a resource does not share it with everyone.",
+  "skills.tab.all": "Skills",
+  "skills.searchAll": "Search Skills",
+  "skills.relationship.label": "Resource relationship",
+  "skills.relationship.all": "All relationships",
+  "skills.relationship.created": "Created by me",
+  "skills.relationship.shared": "Shared with me",
+  "skills.installState.label": "Installation status",
+  "skills.installState.all": "All installation states",
+  "skills.installState.installed": "Installed",
+  "skills.installState.uninstalled": "Not installed",
+  "skills.install": "Install",
+  "skills.uninstall": "Uninstall",
+  "skills.deleteResource": "Delete Skill",
+  "skills.deleteResourceTitle": "Delete this Skill?",
+  "skills.deleteResourceHint": "This deletes the resource for all recipients. To remove only your installation, use Uninstall.",
+  "skills.resourceDeleted": "Skill deleted",
+  "skills.noAccessible": "No accessible Skills yet.",
+  "skills.loadAllHint": "Check your connection, then reload Skills."
 }

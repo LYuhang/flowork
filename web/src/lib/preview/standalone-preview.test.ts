@@ -92,3 +92,16 @@ it.each(['https://elsewhere.test/tasks/1', '//elsewhere.test/tasks/1', '/preview
 it('preserves the source details tab in a preview return destination', () => {
   expect(previewReturnPath('/tasks/1?tab=logs')).toBe('/tasks/1?tab=logs');
 });
+
+it('preserves instance authority on reload without using the return location as authority', () => {
+  const source = { type: 'task' as const, id: 'task-id' };
+  const href = standaloneWorkflowPreviewHref('wf', 'v1.sv2', undefined, source);
+  const search = new URL(href, 'https://example.test').searchParams;
+  expect(standaloneWorkflowPreviewTarget(search)).toEqual({ workflowId: 'wf', version: 'v1.sv2', source });
+  search.set('returnTo', '/deployments/unrelated');
+  expect(standaloneWorkflowPreviewTarget(search)?.source).toEqual(source);
+  search.set('instanceType', 'organization');
+  expect(standaloneWorkflowPreviewTarget(search)).toBeNull();
+  search.delete('instanceType');
+  expect(standaloneWorkflowPreviewTarget(search)).toBeNull();
+});

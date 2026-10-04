@@ -1,20 +1,23 @@
+import type { InstanceWorkflowSource } from '@/lib/preview/instance-workflow';
 import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { workflowVersionHref } from '@/lib/workflow/version-link';
 
-export function WorkflowVersionLink({ workflowId, version, kind = 'snapshot', inline = false }: {
+export function WorkflowVersionLink({ workflowId, version, kind = 'snapshot', inline = false, source }: {
   workflowId: string | null | undefined;
   version: unknown;
   kind?: 'snapshot' | 'configured' | 'execution' | 'serving';
   inline?: boolean;
+  source?: InstanceWorkflowSource;
 }) {
   const { t } = useTranslation();
   const location = useLocation();
   const target = workflowVersionHref(workflowId, version);
   const returnTo = location.pathname + location.search + location.hash;
-  const href = target ? `${target}&returnTo=${encodeURIComponent(returnTo)}` : null;
+  const instance = source ? `&${new URLSearchParams({ instanceType: source.type, instanceId: source.id })}` : '';
+  const href = target ? `${target}${instance}&returnTo=${encodeURIComponent(returnTo)}` : null;
   const label = {
     snapshot: t('workflowVersionLink.snapshot', 'View workflow version'),
     configured: t('workflowVersionLink.configured', 'View configured version'),

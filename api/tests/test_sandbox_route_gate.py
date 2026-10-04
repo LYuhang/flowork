@@ -66,7 +66,7 @@ async def test_node_producer_provider_failure_yields_error_frame(monkeypatch):
         async def get_session(self, *args, **kwargs):
             raise SandboxUnavailable("no runsc on this box")
 
-    monkeypatch.setattr(ex, "get_sandbox_manager", lambda: _UnavailableManager())
+    monkeypatch.setattr(ex, "_acquire_canvas_execution_session", _UnavailableManager().get_session)
     async def _persist_noop(*args, **kwargs):
         return None
     monkeypatch.setattr(ex, "_with_execution_repo", _persist_noop)
@@ -148,7 +148,7 @@ async def test_node_producer_persists_complete_debug_metadata(monkeypatch):
         return None
 
     persisted = AsyncMock()
-    monkeypatch.setattr(ex, "get_sandbox_manager", lambda: _Manager())
+    monkeypatch.setattr(ex, "_acquire_canvas_execution_session", _Manager().get_session)
     monkeypatch.setattr(ex, "classify_workflow", lambda workflow: None)
     monkeypatch.setattr(ex, "_with_execution_repo", _repo_noop)
     monkeypatch.setattr(
@@ -233,7 +233,7 @@ async def test_node_producer_hard_cancels_sandbox_before_cancelled_frame(monkeyp
         return None
 
     persisted = AsyncMock()
-    monkeypatch.setattr(ex, "get_sandbox_manager", lambda: _Manager())
+    monkeypatch.setattr(ex, "_acquire_canvas_execution_session", _Manager().get_session)
     monkeypatch.setattr(ex, "classify_workflow", lambda workflow: None)
     monkeypatch.setattr(ex, "_with_execution_repo", _repo_noop)
     monkeypatch.setattr(

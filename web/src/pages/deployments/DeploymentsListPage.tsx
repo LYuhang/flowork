@@ -63,11 +63,7 @@ import { AsyncState } from '@/components/ui/async-state';
 import { ResourceIcon } from '@/components/presentation/ResourceIcon';
 import { ResourceProvenanceLine } from '@/components/resources/ResourceProvenanceLine';
 import { WorkflowPagination } from '@/pages/workspace/WorkflowPagination';
-import { SharedResourceList } from '@/components/resources/SharedResourceList';
-import {
-  ResourceScopeSwitch,
-  type ResourceListScope,
-} from '@/components/resources/ResourceScopeSwitch';
+
 
 type DeploymentKind = TriggerType;
 type StatusFilter = 'all' | 'active' | 'disabled';
@@ -91,9 +87,8 @@ export function DeploymentsListPage() {
   const formatTime = useFormatDateTime();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const resourceScope: ResourceListScope = searchParams.get('scope') === 'shared'
-    ? 'shared'
-    : 'owned';
+  const resourceScope: 'all' | 'created' | 'shared' = searchParams.get('scope') === 'shared'
+    ? 'shared' : searchParams.get('scope') === 'created' ? 'created' : 'all';
   const typeParam = searchParams.get('type');
   const typeFilter: 'all' | DeploymentKind = DEPLOYMENT_TYPES.includes(typeParam as DeploymentKind)
     ? typeParam as DeploymentKind
@@ -159,8 +154,9 @@ export function DeploymentsListPage() {
   };
 
   const query = useQuery({
-    queryKey: ['deployments', { search, typeFilter, statusFilter, page, workflowId: initialWorkflowId }],
+    queryKey: ['deployments', { search, typeFilter, statusFilter, page, workflowId: initialWorkflowId, resourceScope }],
     queryFn: () => listDeployments({
+      source: resourceScope,
       q: search || undefined,
       workflow_id: initialWorkflowId || undefined,
       trigger_type: typeFilter === 'all' ? undefined : typeFilter,
@@ -171,7 +167,6 @@ export function DeploymentsListPage() {
     placeholderData: (previous) => previous,
     refetchOnWindowFocus: false,
     refetchInterval: 15_000,
-    enabled: resourceScope === 'owned',
   });
 
   const enabledMutation = useMutation({
@@ -211,36 +206,10 @@ export function DeploymentsListPage() {
       .at(-1)
     ?? null;
 
-  const setResourceScope = (value: ResourceListScope) => updateListParams({
-    scope: value === 'shared' ? 'shared' : null,
+  const setResourceScope = (value: string) => updateListParams({
+    scope: value === 'all' ? null : value,
     page: null,
-    type: null,
-    status: null,
   });
-
-  if (resourceScope === 'shared') {
-    return (
-      <ManagementPageShell
-        resourceKind="deployment"
-        title={t('deployments.title', 'Deployment')}
-        description={t('deployments.subtitle', 'Publish workflows as APIs or webhooks.')}
-        icon={Rocket}
-        className="gap-5"
-      >
-        <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
-        <div className="relative min-w-0 sm:max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t('deployments.searchShared', 'Search shared deployments')}
-            className="pl-9"
-          />
-        </div>
-        <SharedResourceList resourceType="deployment" search={searchDraft} />
-      </ManagementPageShell>
-    );
-  }
 
   return (
     <>
@@ -266,8 +235,6 @@ export function DeploymentsListPage() {
           </>}
       >
 
-        <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
-
         <OperationalSummary
           label={t('deployments.summary.label', 'Deployment status summary')}
           items={[
@@ -279,8 +246,8 @@ export function DeploymentsListPage() {
         />
 
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-edge-structural bg-surface-work">
-          <ManagementToolbar className="border-x-0 border-t-0 bg-surface-sunken/70 px-4 py-3">
-            <div className="relative min-w-0 basis-full sm:basis-60 sm:flex-1">
+          <ManagementToolbar className="flex-col items-stretch border-x-0 border-t-0 bg-surface-sunken/70 px-4 py-3">
+            <div className="relative w-full min-w-0 sm:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
                 value={searchDraft}
@@ -292,34 +259,44 @@ export function DeploymentsListPage() {
                 className="pl-9"
               />
             </div>
-            <SearchSelect value={initialWorkflowId} onValueChange={value => updateListParams({ workflow_id: value || null, page: null })}
-              options={(workflowsQuery.data?.items ?? []).map(w => ({ value: w.wf_id, label: w.workflow_name || w.wf_id, meta: w.wf_id }))
-                .concat(initialWorkflowId && !workflowsQuery.data?.items.some(w => w.wf_id === initialWorkflowId) ? [{ value: initialWorkflowId, label: initialWorkflowId, meta: initialWorkflowId }] : [])}
-              placeholder={t('tasks.related.filter', 'Filter by Workflow')} searchPlaceholder={t('tasks.related.filter', 'Filter by Workflow')} />
-            {initialWorkflowId && <Button variant="ghost" size="sm" onClick={() => updateListParams({ workflow_id: null, page: null })}>{t('tasks.related.clear', 'All workflows')}</Button>}
-            <Select value={typeFilter} onValueChange={(value) => updateListParams({ type: value === 'all' ? null : value, page: null })}>
-              <SelectTrigger className="w-[150px]" aria-label={t('deployments.filter.type', 'Filter by deployment type')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('deployments.filter.allTypes', 'All types')}</SelectItem>
-                {DEPLOYMENT_TYPES.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {triggerLabel(type, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={(value) => updateListParams({ status: value === 'all' ? null : value, page: null })}>
-              <SelectTrigger className="w-[150px]" aria-label={t('deployments.filter.status', 'Filter by deployment status')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('deployments.filter.allStatuses', 'All status')}</SelectItem>
-                <SelectItem value="active">{t('deployments.status.active', 'Active')}</SelectItem>
-                <SelectItem value="disabled">{t('deployments.status.disabled', 'Disabled')}</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={resourceScope} onValueChange={setResourceScope}>
+                <SelectTrigger className="w-48" aria-label={t('skills.relationship.label', 'Resource relationship')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('skills.relationship.all', 'All relationships')}</SelectItem>
+                  <SelectItem value="created">{t('skills.relationship.created', 'Created by me')}</SelectItem>
+                  <SelectItem value="shared">{t('skills.relationship.shared', 'Shared with me')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <SearchSelect value={initialWorkflowId} onValueChange={value => updateListParams({ workflow_id: value || null, page: null })}
+                options={(workflowsQuery.data?.items ?? []).map(w => ({ value: w.wf_id, label: w.workflow_name || w.wf_id, meta: w.wf_id }))
+                  .concat(initialWorkflowId && !workflowsQuery.data?.items.some(w => w.wf_id === initialWorkflowId) ? [{ value: initialWorkflowId, label: initialWorkflowId, meta: initialWorkflowId }] : [])}
+                placeholder={t('tasks.related.filter', 'Filter by Workflow')} searchPlaceholder={t('tasks.related.filter', 'Filter by Workflow')} />
+              {initialWorkflowId && <Button variant="ghost" size="sm" onClick={() => updateListParams({ workflow_id: null, page: null })}>{t('tasks.related.clear', 'All workflows')}</Button>}
+              <Select value={typeFilter} onValueChange={(value) => updateListParams({ type: value === 'all' ? null : value, page: null })}>
+                <SelectTrigger className="w-[150px]" aria-label={t('deployments.filter.type', 'Filter by deployment type')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('deployments.filter.allTypes', 'All types')}</SelectItem>
+                  {DEPLOYMENT_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {triggerLabel(type, t)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={(value) => updateListParams({ status: value === 'all' ? null : value, page: null })}>
+                <SelectTrigger className="w-[150px]" aria-label={t('deployments.filter.status', 'Filter by deployment status')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('deployments.filter.allStatuses', 'All status')}</SelectItem>
+                  <SelectItem value="active">{t('deployments.status.active', 'Active')}</SelectItem>
+                  <SelectItem value="disabled">{t('deployments.status.disabled', 'Disabled')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </ManagementToolbar>
 
           {query.isLoading ? (

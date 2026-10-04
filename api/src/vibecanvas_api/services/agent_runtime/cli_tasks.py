@@ -22,7 +22,7 @@ from vibecanvas_api.flowork_cli.task_cli import FIXED_COLUMNS, WRITE_OPERATIONS
 from vibecanvas_api.routes import tasks as routes, workflows
 from vibecanvas_api.services.agent_resources import context as agent_context
 from vibecanvas_api.services.agent_resources.authorization import _require_active_chat_write, require_workflow_action
-from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params
+from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params, admitted_resource_route_params, visible_resource_rows
 from vibecanvas_api.services.agent_resources.workflow_transfer import read_workflow_snapshot
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_tasks import TasksRepo
@@ -282,17 +282,27 @@ def prepare_batch(arguments, snapshot):
 
 
 async def _read(ctx, operation, arguments, emit):
+    if operation == "task.list":
+        async def page(params, offset):
+            return await routes.list_tasks(**params, status=[], task_type=[],
+                workflow_id=None, q=None, limit=100, offset=offset)
+        rows = await visible_resource_rows(ctx, "task", list_page=page, get_resource=routes.get_task)
+        values = [_task(row) for row in rows]
+        statuses = arguments.get("status", "").split(",") if arguments.get("status") else []
+        values = [row for row in values
+                  if (not statuses or row.get("status") in statuses)
+                  and (not arguments.get("task_type") or row.get("task_type") == arguments["task_type"])
+                  and (not arguments.get("workflow_id") or row.get("workflow_id") == arguments["workflow_id"])]
+        values.sort(key=lambda row: (str(row.get("submitted_at") or ""), str(row["task_id"])), reverse=True)
+        offset, limit = arguments.get("offset", 0), arguments.get("limit", 20)
+        return {"tasks": [{"name": (row.get("config") or {}).get("name"),
+                **{key: row.get(key) for key in ("task_id", "task_type", "workflow_id", "status", "progress", "submitted_at")}}
+                for row in values[offset:offset + limit]],
+                "next_offset": offset + limit if offset + limit < len(values) else None}
     task_id = uuid.UUID(arguments["task_id"]) if "task_id" in arguments else None
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
-        common = resource_route_params(ctx, session)
-        if operation == "task.list":
-            result = await routes.list_tasks(**common, status=arguments.get("status", "").split(",") if arguments.get("status") else [],
-                task_type=["scheduled_run" if arguments["task_type"] == "schedule_run" else "batch_exec"] if arguments.get("task_type") else [],
-                workflow_id=arguments.get("workflow_id"), q=None, limit=arguments.get("limit", 20), offset=arguments.get("offset", 0))
-            offset = arguments.get("offset", 0) + len(result["items"])
-            return {"tasks": [{"name": (value.get("config") or {}).get("name"),
-                    **{key: value.get(key) for key in ("task_id", "task_type", "workflow_id", "status", "progress", "submitted_at")}} for value in map(_task, result["items"])],
-                    "next_offset": offset if offset < result["total"] else None}
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
+        common = (await admitted_resource_route_params(ctx, session, "task", task_id)
+                if task_id else resource_route_params(ctx, session))
         task = await routes.get_task(task_id, **common)
         expected = "scheduled_run" if arguments["task_type"] == "schedule_run" else "batch_exec"
         if task["task_type"] != expected:
@@ -422,8 +432,9 @@ async def execute(call, arguments):
             snapshot = await read_workflow_snapshot(ctx, workflow_id=arguments["workflow_id"], major=arguments.get("major", ""), version=arguments.get("version", ""))
             prepared, sheet = await asyncio.to_thread(prepare_batch, arguments, snapshot)
         # Preflight current type and permission before presenting any approval.
-        async with session_scope(tenant_id=ctx.tenant_id) as session:
-            common = resource_route_params(ctx, session)
+        async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
+            common = (await admitted_resource_route_params(ctx, session, "task", task_id)
+                if task_id else resource_route_params(ctx, session))
             current = None
             if task_id:
                 action = {"cancel": Action.CANCEL, "resume": Action.RESUME, "run": Action.EXECUTE, "evaluate": Action.EXECUTE, "delete": Action.DELETE}.get(operation.rsplit(".", 1)[1], Action.UPDATE)
@@ -433,7 +444,7 @@ async def execute(call, arguments):
                 if current is None or current.task_type != expected:
                     raise ToolError("wrong_task_type", "The Task does not exist or belongs to another task category.")
             else:
-                await routes._authorize_workflow_use(workflow_id=arguments["workflow_id"], **{key: value for key, value in common.items() if key != "session"})
+                await require_workflow_action(ctx, arguments["workflow_id"], Action.EXECUTE)
             needs_approval = operation not in {"task.batch_exec.cancel", "task.schedule_run.cancel", "task.schedule_run.pause"}
             if operation == "task.schedule_run.create" and arguments.get("paused"):
                 needs_approval = False
@@ -442,6 +453,7 @@ async def execute(call, arguments):
                 needs_approval = schedule.enabled and bool(arguments.keys() - {"task_id", "task_type", "name", "notify", "notify_email"})
             if cap.approval_mode not in {"agent", "always_ask", "always_allow"}:
                 raise ToolError("invalid_approval_mode", "Unknown approval mode.")
+        async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
             await session.execute(text("""INSERT INTO task_cli_leases(call_id,tenant_id,run_id,operation,expires_at)
                 VALUES (:id,CAST(:tenant AS uuid),:run,:operation,now()+interval '30 seconds')"""),
                 {"id": call.call_id, "tenant": cap.tenant_id, "run": cap.turn_id, "operation": operation})
@@ -462,7 +474,8 @@ async def execute(call, arguments):
             live = (await session.execute(text("SELECT 1 FROM task_cli_leases WHERE call_id=:id AND expires_at>now()"), {"id": call.call_id})).first()
             if not live:
                 raise ToolError("approval_cancelled", "The command is no longer active.")
-            common = resource_route_params(ctx, session)
+            common = (await admitted_resource_route_params(ctx, session, "task", task_id)
+                if task_id else resource_route_params(ctx, session))
             write_started = True
             if operation == "task.batch_exec.create":
                 result = await workflows.submit_batch(arguments["workflow_id"], prepared, request=common["request"], ctx=common["ctx"], session=session, service=common["service"])

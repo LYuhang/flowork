@@ -14,7 +14,7 @@ describe('useSkills', () => {
   beforeEach(() => vi.restoreAllMocks());
   it('returns the listed skills', async () => {
     vi.spyOn(client, 'listSkills').mockResolvedValue([
-      { id: 'skill-workflow-builder', name: 'workflow-builder', description: 'build wf', allowed_tools: ['canvas'], version: 1, created_at: null, updated_at: null, access: { capabilities: ['view', 'use'], effective_role: 'viewer', source: 'computed' }, provenance: { ownership_scope: 'platform', origin_type: 'catalog_install', owner: { type: 'platform', display_name: 'Flowork' }, created_by: null } },
+      { installed: true, created_by_me: true, id: 'skill-workflow-builder', name: 'workflow-builder', description: 'build wf', allowed_tools: ['canvas'], version: 1, created_at: null, updated_at: null, access: { capabilities: ['view', 'use'], effective_role: 'viewer', source: 'computed' }, provenance: { ownership_scope: 'platform', origin_type: 'catalog_install', owner: { type: 'platform', display_name: 'Flowork' }, created_by: null } },
     ]);
     const { result } = renderHook(() => useSkills(), { wrapper });
     await waitFor(() => expect(result.current.data?.length).toBe(1));
@@ -27,6 +27,7 @@ describe('useSaveCustomSkill', () => {
 
   it('fetches the complete detail instead of caching the narrow upload response', async () => {
     const created: client.Skill = {
+      installed: true, created_by_me: true,
       id: 'skill-custom',
       name: 'Custom',
       description: 'Uploaded',

@@ -23,6 +23,8 @@ from vibecanvas_engine import Workflow
 from ..auth.deps import AuthContext, current_user
 from ..authorization.dependencies import (
     authorize_resource,
+    authorized_resource_scope,
+    context_for_auth,
     get_authz_service,
 )
 from ..authorization.service import AuthzService
@@ -55,6 +57,9 @@ from ..storage.db import session_scope
 from ..storage.execution_repo import ExecutionRepo
 from ..storage.sync_session import current_sync_tenant_id
 from ..storage.workflow_repo import WorkflowRepo
+from ..storage.chat_project_repo import ChatProjectRepo
+from ..services.chat_workspace import project_workspace_scope_id
+from ..services.workflow_run_source import WorkflowRunSource
 from ..streaming.sse import format_event
 from ..streaming.turn_runtime import (
     TURN_BUFFERS, TURN_TASKS, register_turn, request_cancel,
@@ -103,17 +108,18 @@ async def _authorize_execution_action(
     exec_id: str,
     action: Action,
 ):
-    return await authorize_resource(
-        request=request,
-        auth=auth,
-        service=service,
-        resource=ResourceRef(
-            ResourceType.WORKFLOW_EXECUTION,
-            exec_id,
-            auth.active_organization_id,
-        ),
-        action=action,
-    )
+    # Resolve the private record before checking its shared definition. A
+    # Workflow grant alone never authorizes another user's execution ID.
+    async with session_scope(tenant_id=auth.tenant_id, user_id=auth.user_id) as session:
+        record = await ExecutionRepo(session, auth.user_id).get_execution(exec_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="execution_not_found")
+        async with authorized_resource_scope(
+            request=request, auth=auth, session=session,
+            resource_type=ResourceType.WORKFLOW, resource_id=record["wf_id"], action=action,
+        ):
+            return
+
 
 
 async def _sse_from_turn(
@@ -205,6 +211,19 @@ async def _with_execution_repo(tenant_id: str, user_id: str, fn):
         return await fn(ExecutionRepo(s, user_id))
 
 
+async def _acquire_canvas_execution_session(tenant_id: str, user_id: str, wf_id: str,
+                                            workflow_tenant_id: str | None):
+    # Caller has authorized execution of the Workflow. The hidden Project stays
+    # private to the actor and is the same one used by canvas conversations.
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
+        project = await ChatProjectRepo(session, user_id).for_workflow(wf_id)
+        workspace_id = project_workspace_scope_id(project.project_id)
+    return await get_sandbox_manager().get_session(
+        tenant_id, workspace_id, user_id=user_id, expose_run=True, expose_runtime=True,
+        workflow_run_source=WorkflowRunSource(tenant_id=workflow_tenant_id or tenant_id, workflow_id=wf_id),
+    )
+
+
 async def _fail_history(tenant_id: str, exec_id: str):
     async with session_scope(tenant_id=tenant_id) as session:
         repo = WorkflowHistoryRepo(session)
@@ -241,7 +260,7 @@ async def _request_history_cancel(exec_repo, exec_id: str):
 
 
 async def _reject_live_execution(tenant_id: str, wf_id: str, record):
-    active = TURN_TASKS.get(record["exec_id"]) or TURN_TASKS.get(wf_id)
+    active = TURN_TASKS.get(record["exec_id"])
     if active is not None and not active.done():
         raise HTTPException(409, f"workflow {wf_id} already has a running execution")
     history_id = _history_id(record["exec_id"])
@@ -442,7 +461,7 @@ async def _persist_node_progress(
 async def _produce_execution_sandbox(
     stop: asyncio.Event, wf_id: str, exec_id: str, body: ExecutionRequest,
     wf_dict: dict, creator_user_id: str, tenant_id: str,
-    *, workflow_version: str | None = None,
+    *, workflow_version: str | None = None, workflow_tenant_id: str | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run a workflow execution through the workflow's resident sandbox session.
 
@@ -467,12 +486,8 @@ async def _produce_execution_sandbox(
         )
         workflow_run_id = wf_id
         stage_started = time.perf_counter()
-        session = await get_sandbox_manager().get_session(
-            tenant_id,
-            workflow_run_id,
-            user_id=creator_user_id,
-            expose_run=True,
-            expose_runtime=True,
+        session = await _acquire_canvas_execution_session(
+            tenant_id, creator_user_id, wf_id, workflow_tenant_id,
         )
         # The sandbox service deliberately keeps daemon host paths private.
         # Remote sessions therefore expose only the logical workflow run id;
@@ -483,7 +498,7 @@ async def _produce_execution_sandbox(
             if clear_owned_run is not None:
                 await clear_owned_run()
             else:
-                await clear_run_contents(workflow_run_id, tenant_id)
+                await clear_run_contents(workflow_run_id, workflow_tenant_id or tenant_id)
         logger.warning(
             "workflow_execution_stage",
             stage="workflow_run_prepare_done",
@@ -615,7 +630,7 @@ async def _produce_execution_sandbox(
                     # trimming the live frame for DB/SSE.
                     np = persist_node_frame_payload(payload)
                     if np is not None:
-                        await write_node_result(workflow_run_id, tenant_id, np)
+                        await write_node_result(workflow_run_id, workflow_tenant_id or tenant_id, np)
                     await _persist_node_progress(
                         exec_id, creator_user_id, tenant_id, live_payload)
                 elif payload_node_id:
@@ -673,7 +688,7 @@ async def _produce_execution_sandbox(
                     _accumulate_per_node(per_node, live_payload)
                     np = persist_node_frame_payload(payload)
                     if np is not None:
-                        await write_node_result(workflow_run_id, tenant_id, np)
+                        await write_node_result(workflow_run_id, workflow_tenant_id or tenant_id, np)
                     await _persist_node_progress(
                         exec_id, creator_user_id, tenant_id, live_payload)
                     logger.warning(
@@ -831,7 +846,7 @@ async def _produce_execution_sandbox(
 async def _produce_execution(
     stop: asyncio.Event, wf_id: str, exec_id: str, body: ExecutionRequest,
     wf_dict: dict, creator_user_id: str, tenant_id: str,
-    *, workflow_version: str | None = None,
+    *, workflow_version: str | None = None, workflow_tenant_id: str | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run a workflow execution; yield EXEC_UPDATE events as it progresses.
 
@@ -865,7 +880,7 @@ async def _produce_execution(
             tenant_id,
             creator_user_id,
             lambda repo: repo.start_execution(
-                wf_id, version, exec_id, is_single_node=False),
+                wf_id, version, exec_id, is_single_node=False, workflow_tenant_id=workflow_tenant_id),
         )
     except RuntimeError as e:
         yield "EXEC_UPDATE", {
@@ -922,6 +937,7 @@ async def _produce_execution(
             stop, wf_id, exec_id, body, wf_dict,
             creator_user_id, tenant_id,
             workflow_version=workflow_version,
+            workflow_tenant_id=workflow_tenant_id,
         ):
             yield ev
     finally:
@@ -979,7 +995,7 @@ async def start_execution(
                 raise HTTPException(status_code=409, detail="workflow_resume_unavailable")
 
     execution_record_id = str(uuid.uuid4())
-    workflow_turn_key = wf_id
+    workflow_turn_key = execution_record_id
 
     active = TURN_TASKS.get(workflow_turn_key)
     if active is not None and not active.done():
@@ -1015,6 +1031,8 @@ async def start_execution(
     # not resumable like chat, so dropping early frames is acceptable.
     buf, stop = register_turn(workflow_turn_key, drop_oldest=True)
 
+    source_organization = context_for_auth(ctx, request).admitted_resource_organization_id or ctx.tenant_id
+
     async def producer(stop_ev: asyncio.Event):
         # ``ctx`` is a frozen dataclass of plain strings — safe to
         # capture in this closure that outlives the request.
@@ -1022,6 +1040,7 @@ async def start_execution(
             stop_ev, wf_id, execution_record_id, body, wf_dict,
             ctx.user_id, ctx.tenant_id,
             workflow_version=workflow_version,
+            workflow_tenant_id=source_organization,
         ):
             yield ev
 
@@ -1055,6 +1074,7 @@ async def _produce_node_execution(
     tenant_id: str | None = None, wf_id: str | None = None,
     creator_user_id: str | None = None,
     workflow: dict | None = None,
+    workflow_tenant_id: str | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run ONE node (the draft node from the request body) and yield its
     synthesized ``running`` to ``completed`` or ``error`` frames.
@@ -1106,7 +1126,7 @@ async def _produce_node_execution(
             tenant_id,
             creator_user_id,
             lambda repo: repo.start_execution(
-                wf_id, (1, 0), exec_id, target_node_id=nid, is_single_node=True),
+                wf_id, (1, 0), exec_id, target_node_id=nid, is_single_node=True, workflow_tenant_id=workflow_tenant_id),
         )
     except RuntimeError as e:
         yield "EXEC_UPDATE", {
@@ -1208,12 +1228,8 @@ async def _produce_node_execution(
             yield "EXEC_UPDATE", await _record_cancelled()
             return
         workflow_run_id = wf_id
-        session = await get_sandbox_manager().get_session(
-            tenant_id,
-            workflow_run_id,
-            user_id=creator_user_id,
-            expose_run=True,
-            expose_runtime=True,
+        session = await _acquire_canvas_execution_session(
+            tenant_id, creator_user_id, wf_id, workflow_tenant_id,
         )
         if stop.is_set():
             yield "EXEC_UPDATE", await _record_cancelled()
@@ -1428,11 +1444,14 @@ async def execute_node(
     node_dict = body.node
     inputs = body.input
 
+    source_organization = context_for_auth(ctx, request).admitted_resource_organization_id or ctx.tenant_id
+
     async def producer(stop_ev: asyncio.Event):
         try:
             async for ev in _produce_node_execution(
                 stop_ev, exec_id, node_dict, inputs, ctx.tenant_id, wf_id,
                 ctx.user_id, workflow,
+                workflow_tenant_id=source_organization,
             ):
                 yield ev
         except Exception as exc:
@@ -1579,13 +1598,12 @@ async def cancel_workflow_execution(
             status_code=404,
             detail=f"workflow {wf_id} has no running execution",
         )
-    buf = TURN_BUFFERS.get(wf_id)
+    buf = TURN_BUFFERS.get(record["exec_id"])
     if buf is not None and not buf.closed:
         try:
             await buf.put(("EXEC_UPDATE", {"status": "cancelled"}))
         except RuntimeError:
             pass
-    request_cancel(wf_id)
     request_cancel(record["exec_id"])
     await _authorize_workflow_action(
         request=request,

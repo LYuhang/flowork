@@ -81,7 +81,8 @@ class WorkflowRpcWorker:
                 raise ValueError("workflow RPC control path is too long")
             env = {**_workflow_python_env(), **self.env}
             mounts = [(dest, src) for dest, src in self.rw_binds if dest not in {"/run", "/runs", "/work"}]
-            mounts.append(("/run", str(artifacts)))
+            # Mount the parent before private child aliases such as /run/chats.
+            mounts.insert(0, ("/run", str(artifacts)))
             self._booting = True
             self._startup_output = ""
             launch = asyncio.create_task(

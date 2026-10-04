@@ -48,12 +48,12 @@ def binding(**target):
 async def test_run_context_keeps_recorded_version_separate_from_current_canvas():
     execution_id = str(uuid.uuid4())
     executions = SimpleNamespace(latest_execution=AsyncMock(return_value={"exec_id": execution_id}))
-    history = SimpleNamespace(detail=AsyncMock(return_value={
+    history = SimpleNamespace(get=AsyncMock(return_value={"source_type": "workflow", "source_id": "wf-one", "initiator_user_id": "actor"}), is_workflow_owner=AsyncMock(return_value=False), detail=AsyncMock(return_value={
         "wf_id": "wf-one", "source_id": "wf-one", "source_type": "workflow", "status": "failed",
         "workflow_version": "v1.sv7", "node_id": None,
         "workflow": {"__meta__": {"workflow_version": 99}}, "inputs": {"secret": "not context"},
     }))
-    run = await resolve_workflow_run_context(executions, history, workflow_id="wf-one")
+    run = await resolve_workflow_run_context(executions, history, workflow_id="wf-one", user_id="actor")
     snapshot, _ = await resolve_workflow_chat_context(Reader(), binding(kind="workflow"), chat_id="chat-one", run_context=run)
     assert snapshot["version"] == "v2.sv3"
     assert snapshot["run"]["latest_execution"]["workflow_version"] == "v1.sv7"
@@ -61,7 +61,7 @@ async def test_run_context_keeps_recorded_version_separate_from_current_canvas()
     assert snapshot["run"]["directory_is_snapshot"] is False
     assert "not context" not in str(snapshot["run"])
     history.detail.return_value["workflow_version"] = None
-    missing_version = await resolve_workflow_run_context(executions, history, workflow_id="wf-one")
+    missing_version = await resolve_workflow_run_context(executions, history, workflow_id="wf-one", user_id="actor")
     assert missing_version["latest_execution"]["workflow_version"] is None
     assert missing_version["latest_execution"]["version_recorded"] is False
     assert snapshot["run"]["latest_execution"]["workflow_version"] == "v1.sv7"
@@ -70,17 +70,17 @@ async def test_run_context_keeps_recorded_version_separate_from_current_canvas()
 @pytest.mark.asyncio
 async def test_run_context_handles_no_history_node_debug_and_wrong_scope():
     executions = SimpleNamespace(latest_execution=AsyncMock(return_value=None))
-    history = SimpleNamespace(detail=AsyncMock())
-    assert (await resolve_workflow_run_context(executions, history, workflow_id="wf-one"))["status"] == "no_execution_record"
+    history = SimpleNamespace(get=AsyncMock(return_value={"source_type": "workflow", "source_id": "wf-one", "initiator_user_id": "actor"}), is_workflow_owner=AsyncMock(return_value=False), detail=AsyncMock())
+    assert (await resolve_workflow_run_context(executions, history, workflow_id="wf-one", user_id="actor"))["status"] == "no_execution_record"
     history.detail.assert_not_awaited()
     executions.latest_execution.return_value = {"exec_id": str(uuid.uuid4())}
     history.detail.return_value = {"wf_id": "wf-one", "source_id": "wf-one", "source_type": "workflow",
                                    "status": "succeeded", "node_id": "code", "workflow_version": "v8.sv2"}
-    run = await resolve_workflow_run_context(executions, history, workflow_id="wf-one")
+    run = await resolve_workflow_run_context(executions, history, workflow_id="wf-one", user_id="actor")
     assert run["latest_execution"]["definition_source"] == "unsaved_node"
     assert run["latest_execution"]["workflow_version"] is None
     history.detail.return_value["source_type"] = "deployment"
-    assert (await resolve_workflow_run_context(executions, history, workflow_id="wf-one"))["status"] == "execution_history_unavailable"
+    assert (await resolve_workflow_run_context(executions, history, workflow_id="wf-one", user_id="actor"))["status"] == "execution_history_unavailable"
 
 
 @pytest.mark.asyncio
@@ -193,3 +193,23 @@ async def test_readable_title_tracks_confirmed_context_without_rebinding_history
     assert selected.initial_subversion == 3
     current["nodes"]["focus"]["node_name"] = "Result"
     assert workflow_chat_title(current) == "[v2.sv4] Result (focus) → Result (end)"
+
+
+@pytest.mark.asyncio
+async def test_run_context_does_not_load_another_users_trace_for_shared_editor():
+    execution_id = str(uuid.uuid4())
+    executions = SimpleNamespace(latest_execution=AsyncMock(return_value={"exec_id": execution_id}))
+    history = SimpleNamespace(
+        get=AsyncMock(return_value={"source_type": "workflow", "source_id": "wf-one", "initiator_user_id": "other"}),
+        is_workflow_owner=AsyncMock(return_value=False),
+        detail=AsyncMock(return_value={"wf_id": "wf-one", "source_id": "wf-one", "source_type": "workflow",
+                                     "status": "succeeded", "workflow_version": "v1.sv0", "node_id": None}),
+    )
+    result = await resolve_workflow_run_context(executions, history, workflow_id="wf-one", user_id="actor")
+    assert result["status"] == "not_authorized"
+    assert result["latest_execution"] is None
+    history.detail.assert_not_awaited()
+    history.is_workflow_owner.return_value = True
+    result = await resolve_workflow_run_context(executions, history, workflow_id="wf-one", user_id="actor")
+    assert result["status"] == "available"
+    history.detail.assert_awaited_once_with(execution_id)

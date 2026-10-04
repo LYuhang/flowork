@@ -468,7 +468,7 @@
   "search_workflows": "按名称或 ID 搜索…",
   "copy_wf_id": "复制 Workflow ID",
   "wf_id_copied": "Workflow ID 已复制到剪贴板",
-  "wf_count": "共 {{n}} 个 Workflow",
+  "wf_count": "共 {{n}} 个工作流",
   "col_name": "名称",
   "col_version": "版本",
   "col_updated": "更新时间",
@@ -2400,7 +2400,7 @@
   "mcp.catalog.tab.connection": "连接",
   "mcp.catalog.tab.security": "安全",
   "mcp.catalog.about": "简介",
-  "mcp.catalog.source": "来源",
+  "mcp.catalog.source": "选择 MCP 目录",
   "mcp.catalog.transport": "连接方式",
   "mcp.catalog.version": "版本",
   "mcp.catalog.uses": "使用次数",
@@ -2809,7 +2809,7 @@
   ,"share.effectiveAccess": "你的有效权限"
   ,"share.customAccess": "自定义权限"
   ,"share.computed": "系统计算"
-  ,"share.privacyHint": "请输入完整邮箱或部门/团队路径，并主动搜索。这里不会展示账号目录。"
+  ,"share.privacyHint": "使用完整邮箱查找用户。部门选项仅包含你有权查看的目录。"
   ,"share.inheritedHint": "继承权限由对应的部门、团队或组织统一管理。"
   ,"share.addDirect": "添加访问权限"
   ,"share.user": "用户"
@@ -2819,10 +2819,10 @@
   ,"share.targetType": "分享对象"
   ,"share.emailAddress": "完整邮箱地址"
   ,"share.emailPlaceholder": "name@example.com"
-  ,"share.departmentPath": "准确的部门/团队路径"
+  ,"share.departmentPath": "部门或团队名称"
   ,"share.groupPlaceholder": "产品部 / 平台团队"
   ,"share.currentOrganization": "当前组织"
-  ,"share.businessTargetHint": "可通过完整邮箱搜索组织成员，通过准确路径搜索部门/团队，或选择整个组织。"
+  ,"share.businessTargetHint": "输入完整邮箱，搜索并选择部门或团队，或选择整个公司。"
   ,"share.personalTargetHint": "请输入对方的完整邮箱地址进行搜索。"
   ,"share.searchAction": "搜索"
   ,"share.searching": "正在搜索…"
@@ -2982,7 +2982,7 @@
   ,"preview.url.reload": "重新加载网页"
   ,"preview.url.openNewTab": "在新标签页中打开"
   ,"preview.url.invalid": "请输入完整的 HTTP(S) 地址。"
-  ,"preview.url.loading": "正在加载 {{host}}…"
+  ,"preview.url.loading": "正在载入网页…"
   ,"preview.url.timeout": "网页未能完成加载，或该网站禁止嵌入。可以重新加载，或在新标签页中打开。"
   ,"preview.url.isolation": "此网页与 Flowork 隔离。如果网站禁止嵌入，"
   ,"knowledge.tabs.overview": "概览"
@@ -3936,5 +3936,35 @@
     "running": "运行中",
     "waiting_approval": "等待审批",
     "empty": "没有匹配的节点"
-  }
+  },
+  "resourceAccess.read": "只读",
+  "resourceAccess.edit": "可编辑",
+  "resourceAccess.execute": "可执行",
+  "resourceAccess.editExecute": "可编辑 · 可执行",
+  "resourceAccess.manage": "可管理",
+  "resourceAccess.editUnavailable": "编辑需要可编辑权限，且当前为最新版本。",
+  "organization.addCompanyMember": "添加公司成员",
+  "organization.addCompanyMemberHint": "填写已注册账号的邮箱。加入后默认为普通成员，其个人资源仍保持私有。",
+  "organization.memberEmail": "邮箱",
+  "share.noDepartments": "没有匹配的部门或团队。",
+  "nav.permissions": "权限管理",
+  "resourceScope.organizationHint": "当前公司中你有权访问的资源。新建资源不会自动向全公司共享。",
+  "skills.tab.all": "技能",
+  "skills.searchAll": "搜索技能",
+  "skills.relationship.label": "资源关系",
+  "skills.relationship.all": "全部资源关系",
+  "skills.relationship.created": "我创建的",
+  "skills.relationship.shared": "与我共享",
+  "skills.installState.label": "安装状态",
+  "skills.installState.all": "全部安装状态",
+  "skills.installState.installed": "已安装",
+  "skills.installState.uninstalled": "未安装",
+  "skills.install": "安装",
+  "skills.uninstall": "卸载",
+  "skills.deleteResource": "删除技能",
+  "skills.deleteResourceTitle": "删除此技能？",
+  "skills.deleteResourceHint": "删除资源将影响所有接收者。若仅取消自己的安装，请使用卸载。",
+  "skills.resourceDeleted": "技能已删除",
+  "skills.noAccessible": "暂无可访问的技能。",
+  "skills.loadAllHint": "请检查网络连接，然后重新加载技能。"
 }

@@ -3,6 +3,7 @@ import { lazy, Suspense, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { TFunction } from 'i18next';
 import { toast } from 'sonner';
 import {
@@ -66,11 +67,7 @@ import { CompactEmptyState } from '@/components/presentation/CompactEmptyState';
 import { AsyncState } from '@/components/ui/async-state';
 import { ResourceIcon } from '@/components/presentation/ResourceIcon';
 import { ResourceProvenanceLine } from '@/components/resources/ResourceProvenanceLine';
-import { SharedResourceList } from '@/components/resources/SharedResourceList';
-import {
-  ResourceScopeSwitch,
-  type ResourceListScope,
-} from '@/components/resources/ResourceScopeSwitch';
+
 
 const PAGE_SIZE = 25;
 const TASK_LIST_REFETCH_ACTIVE_MS = 2_000;
@@ -372,9 +369,8 @@ export function TasksListPage() {
   const formatTime = useFormatDateTime();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const resourceScope: ResourceListScope = searchParams.get('scope') === 'shared'
-    ? 'shared'
-    : 'owned';
+  const resourceScope: 'all' | 'created' | 'shared' = searchParams.get('scope') === 'shared'
+    ? 'shared' : searchParams.get('scope') === 'created' ? 'created' : 'all';
   const activeType: TaskType = searchParams.get('type') === 'scheduled_run'
     ? 'scheduled_run'
     : 'batch_exec';
@@ -414,9 +410,10 @@ export function TasksListPage() {
   });
 
   const listQuery = useQuery({
-    queryKey: ['tasks', { activeType, statusFilter, queryText, workflowFilter, offset }],
+    queryKey: ['tasks', { activeType, statusFilter, queryText, workflowFilter, offset, resourceScope }],
     queryFn: () =>
       listTasks({
+        source: resourceScope,
         status: statusFilter.length ? statusFilter : undefined,
         task_type: [activeType],
         q: queryText || undefined,
@@ -433,18 +430,16 @@ export function TasksListPage() {
       return hasActiveTask ? TASK_LIST_REFETCH_ACTIVE_MS : TASK_LIST_REFETCH_IDLE_MS;
     },
     refetchOnWindowFocus: false,
-    enabled: resourceScope === 'owned',
   });
 
   const summaryQuery = useQuery({
-    queryKey: ['tasks', 'summary', activeType, workflowFilter],
-    queryFn: () => getTaskSummary({ task_type: [activeType], workflow_id: workflowFilter || undefined }),
+    queryKey: ['tasks', 'summary', activeType, workflowFilter, resourceScope],
+    queryFn: () => getTaskSummary({ source: resourceScope, task_type: [activeType], workflow_id: workflowFilter || undefined }),
     refetchInterval: (query) => {
       const data = query.state.data;
       return (data?.active ?? 0) > 0 ? TASK_LIST_REFETCH_ACTIVE_MS : TASK_LIST_REFETCH_IDLE_MS;
     },
     refetchOnWindowFocus: false,
-    enabled: resourceScope === 'owned',
   });
 
   const cancelMutation = useMutation({
@@ -501,35 +496,10 @@ export function TasksListPage() {
     setActiveType(type);
   };
   const statusOptions = tabStatusOptions(activeType);
-  const setResourceScope = (value: ResourceListScope) => updateListParams({
-    scope: value === 'shared' ? 'shared' : null,
-    type: null,
-    status: null,
+  const setResourceScope = (value: string) => updateListParams({
+    scope: value === 'all' ? null : value,
     offset: null,
   });
-
-  if (resourceScope === 'shared') {
-    return (
-      <ManagementPageShell
-        resourceKind="task"
-        className="gap-5"
-        title={t('tasks.title', 'Task')}
-        description={t('tasks.subtitle', 'Batch and scheduled workflow runs')}
-      >
-        <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
-        <div className="relative min-w-0 sm:max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input
-            value={queryText}
-            onChange={(event) => setQueryText(event.target.value)}
-            placeholder={t('tasks.searchShared', 'Search shared tasks')}
-            className="pl-9"
-          />
-        </div>
-        <SharedResourceList resourceType="task" search={queryText} />
-      </ManagementPageShell>
-    );
-  }
 
   return (
     <>
@@ -583,8 +553,6 @@ export function TasksListPage() {
             </DropdownMenu>
           </>}
       >
-
-        <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
 
         {createMode === 'batch_exec' && (
           <BatchTaskCreatePanel
@@ -649,7 +617,7 @@ export function TasksListPage() {
         />
 
         <ManagementToolbar className="flex-col items-stretch rounded-lg border-x border-edge-structural bg-surface-work">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3">
             <form
               className="relative w-full lg:max-w-sm"
               onSubmit={(event) => {
@@ -668,6 +636,14 @@ export function TasksListPage() {
               />
             </form>
             <div className="flex flex-wrap items-center gap-2">
+              <Select value={resourceScope} onValueChange={setResourceScope}>
+                <SelectTrigger className="w-48" aria-label={t('skills.relationship.label', 'Resource relationship')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('skills.relationship.all', 'All relationships')}</SelectItem>
+                  <SelectItem value="created">{t('skills.relationship.created', 'Created by me')}</SelectItem>
+                  <SelectItem value="shared">{t('skills.relationship.shared', 'Shared with me')}</SelectItem>
+                </SelectContent>
+              </Select>
               <Suspense fallback={null}>
                 <SearchSelect value={workflowFilter} onValueChange={value => updateListParams({ workflow_id: value || null, offset: null })}
                   options={workflowOptions(filterWorkflows.data?.items ?? []).concat(workflowFilter && !filterWorkflows.data?.items.some(w => w.wf_id === workflowFilter) ? [{ value: workflowFilter, label: workflowFilter }] : [])}
@@ -875,7 +851,7 @@ export function TasksListPage() {
                                     {t('tasks.scheduled.runNow', 'Run now')}
                                   </DropdownMenuItem>
                                 ) : null}
-                                {((task.payload as Record<string, unknown> | null)?.schedule_enabled === false || task.status === 'paused') && capabilities.has('update') ? (
+                                {((task.payload as Record<string, unknown> | null)?.schedule_enabled === false || task.status === 'paused') && capabilities.has('resume') && !(task.payload as Record<string, unknown> | null)?.schedule_completed ? (
                                   <DropdownMenuItem
                                     onClick={(event) => {
                                       event.stopPropagation();
@@ -889,7 +865,7 @@ export function TasksListPage() {
                                   >
                                     {t('tasks.scheduled.resume', 'Resume schedule')}
                                   </DropdownMenuItem>
-                                ) : capabilities.has('update') && !(task.payload as Record<string, unknown> | null)?.schedule_completed ? (
+                                ) : capabilities.has('update') && (task.payload as Record<string, unknown> | null)?.schedule_enabled !== false && task.status !== 'paused' && !(task.payload as Record<string, unknown> | null)?.schedule_completed ? (
                                   <DropdownMenuItem
                                     onClick={(event) => {
                                       event.stopPropagation();

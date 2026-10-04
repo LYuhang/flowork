@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -133,6 +133,10 @@ class SetGroupMemberBody(BaseModel):
 class UpdateOrganizationMemberBody(BaseModel):
     role: Literal["owner", "admin", "member", "guest", "auditor"]
     status: Literal["invited", "active", "suspended", "revoking", "revoked"]
+
+
+class AddOrganizationMemberBody(BaseModel):
+    email: EmailStr
 
 
 def _organization_out(
@@ -506,6 +510,46 @@ async def list_organization_members(
     return {"items": await OrganizationRepo(session).list_members()}
 
 
+@router.post("/{organization_id}/members", response_model=OrganizationMemberOut, status_code=201)
+async def add_organization_member(
+    organization_id: str,
+    body: AddOrganizationMemberBody,
+    request: Request,
+    auth: AuthContext = Depends(current_user),
+    _step_up: AuthContext = Depends(require_recent_step_up),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+) -> dict:
+    require_active_organization(auth, organization_id)
+    await _require_permission(request=request, auth=auth, service=service,
+        resource_type=ResourceType.ORGANIZATION, resource_id=organization_id,
+        action=Action.MANAGE_MEMBERS, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    repo = OrganizationRepo(session)
+    try:
+        membership = await repo.add_registered_member(email=str(body.email), invited_by=uuid.UUID(auth.user_id))
+    except ValueError as exc:
+        raise HTTPException(404 if str(exc) == "registered_user_not_found" else 409, str(exc)) from exc
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(409, "organization_membership_already_exists") from exc
+    coordinator = mutation_coordinator_for_request(request, organization_id)
+    mutation_ids = await enqueue_structural_delta(session=session, coordinator=coordinator,
+        actor_type="user", actor_id=auth.user_id, before=(),
+        after=organization_membership_edges(organization_id=organization_id,
+            user_id=str(membership.user_id), role=membership.org_role, status=membership.status),
+        operation_id=uuid.uuid4().hex, source="organization-membership-add")
+    user_id = membership.user_id
+    await record_audit(session, action=audit_actions.ORGANIZATION_MEMBER_CHANGE,
+        actor_user_id=auth.user_id, actor_email=auth.email,
+        target_type=audit_actions.TARGET_ORGANIZATION, target_id=organization_id,
+        target_name=None, outcome="success", audit_ctx=extract_request_audit_context(request),
+        meta={"user_id": str(user_id), "role": "member", "status": "active", "operation": "add"})
+    await session.commit()
+    await apply_committed_structural_mutations(coordinator, mutation_ids)
+    await _rebind_tenant_guc(session, organization_id)
+    return await repo.get_member_projection(user_id)
+
+
 @router.get(
     "/{organization_id}/service-accounts",
     response_model=ServiceAccountListOut,
@@ -636,9 +680,17 @@ async def update_organization_member(
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
     repo = OrganizationRepo(session)
-    membership = await repo.get_member(user_id)
+    await repo.lock_membership_changes()
+    actor = await repo.get_member(uuid.UUID(auth.user_id))
+    if actor is None or actor.status != "active" or actor.org_role not in {"owner", "admin"}:
+        raise HTTPException(403, "organization_member_management_forbidden")
+    membership = await repo.get_member(user_id, include_revoked=True)
     if membership is None:
         raise HTTPException(404, "organization_membership_not_found")
+    if actor.org_role != "owner" and (
+        membership.org_role in {"owner", "admin"} or body.role in {"owner", "admin"}
+    ):
+        raise HTTPException(403, "organization_owner_required")
     before = organization_membership_edges(
         organization_id=organization_id,
         user_id=str(membership.user_id),

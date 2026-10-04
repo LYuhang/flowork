@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from .mcp_runtime_protocol import McpDesiredState, McpExecutionContext
+from vibecanvas_api.services.workflow_run_source import WorkflowRunSource
 
 
 RUNTIME_PROTOCOL_VERSION = 2
@@ -316,6 +317,7 @@ class RuntimeDurableHistorySnapshot(BaseModel):
 
 
 class RuntimeTurnRequest(BaseModel):
+    workflow_run_source: WorkflowRunSource | None = None
     protocol_version: Literal[2] = RUNTIME_PROTOCOL_VERSION
     tenant_id: str
     user_id: str

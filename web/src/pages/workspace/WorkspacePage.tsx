@@ -52,11 +52,7 @@ import { DuplicateWorkflowDialog } from '@/pages/workspace/DuplicateWorkflowDial
 import { WorkflowPagination } from '@/pages/workspace/WorkflowPagination';
 import { ManagementPageShell, ManagementToolbar } from '@/components/layout/management-page-shell';
 import { ActionableError } from '@/components/presentation/ActionableError';
-import { SharedResourceList } from '@/components/resources/SharedResourceList';
-import {
-  ResourceScopeSwitch,
-  type ResourceListScope,
-} from '@/components/resources/ResourceScopeSwitch';
+
 
 type WorkflowMetaOut = components['schemas']['WorkflowMetaOut'];
 
@@ -101,9 +97,7 @@ export function WorkspacePage() {
     useState<WorkflowMetaOut | null>(null);
 
   const search = searchParams.get('q') ?? '';
-  const resourceScope: ResourceListScope = searchParams.get('scope') === 'shared'
-    ? 'shared'
-    : 'owned';
+  const resourceScope = searchParams.get('scope') ?? 'all';
   const sortValue = searchParams.get('sort');
   const sortOption: SortOption = sortValue === 'updated_asc' || sortValue === 'name_asc' || sortValue === 'name_desc'
     ? sortValue
@@ -115,16 +109,16 @@ export function WorkspacePage() {
     : 'all';
   const rawPage = Number.parseInt(searchParams.get('page') ?? '0', 10);
   const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 0;
-  const needsCatalog = search.trim().length > 0
+  const needsCatalog = resourceScope !== 'all' || search.trim().length > 0
     || sandboxFilter !== 'all'
     || sortOption !== 'updated_desc';
   const pageWorkspace = useWorkspaceList(
     PAGE_SIZE,
     page * PAGE_SIZE,
-    resourceScope === 'owned' && !needsCatalog,
+    !needsCatalog,
   );
   const catalogWorkspace = useWorkspaceCatalog(
-    resourceScope === 'owned' && needsCatalog,
+    needsCatalog,
     FETCH_LIMIT,
     // A complete first page is already the catalog. Reuse it when entering
     // search/sort instead of clearing the list and downloading it again.
@@ -152,8 +146,8 @@ export function WorkspacePage() {
     page: null,
   });
   const setPage = (value: number) => updateListParams({ page: value > 0 ? String(value) : null });
-  const setResourceScope = (value: ResourceListScope) => updateListParams({
-    scope: value === 'shared' ? 'shared' : null,
+  const setResourceScope = (value: string) => updateListParams({
+    scope: value === 'all' ? null : value,
     page: null,
     sandbox: null,
   });
@@ -166,7 +160,7 @@ export function WorkspacePage() {
   const isError = workspace.isError;
 
   const textMatchedAndSorted = useMemo(() => {
-    const base = filterWorkflows(items, search);
+    const base = filterWorkflows(items, search).filter(item => resourceScope === 'created' ? item.created_by_me : resourceScope === 'shared' ? !item.created_by_me : true);
     return [...base].sort((a, b) => {
       let cmp: number;
       if (sortKey === 'name') {
@@ -178,7 +172,7 @@ export function WorkspacePage() {
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [items, search, sortDir, sortKey]);
+  }, [items, search, sortDir, sortKey, resourceScope]);
   const sandboxStatusIds = useMemo(() => {
     if (sandboxFilter !== 'all') {
       return textMatchedAndSorted.map((wf) => wf.wf_id);
@@ -190,7 +184,7 @@ export function WorkspacePage() {
   }, [items, needsCatalog, page, sandboxFilter, textMatchedAndSorted]);
   const sandboxStatuses = useWorkflowSandboxStatuses(
     sandboxStatusIds,
-    resourceScope === 'owned' && sandboxStatusIds.length > 0,
+    sandboxStatusIds.length > 0,
   );
   const sandboxByWorkflowId = useMemo(() => {
     const map = new Map<string, WorkflowSandboxStatus>();
@@ -258,30 +252,6 @@ export function WorkspacePage() {
     );
   };
 
-  if (resourceScope === 'shared') {
-    return (
-      <ManagementPageShell
-        resourceKind="workflow"
-        title={t('workspace_header', 'Workflows')}
-        className="gap-6"
-      >
-        <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
-        <ManagementToolbar className="rounded-lg border-x border-edge-subtle">
-          <div className="relative min-w-[220px] flex-1 sm:max-w-sm">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-8"
-              placeholder={t('workspace.searchShared', 'Search shared workflows…')}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-        </ManagementToolbar>
-        <SharedResourceList resourceType="workflow" search={search} />
-      </ManagementPageShell>
-    );
-  }
-
   return (
     <>
       <ManagementPageShell
@@ -294,13 +264,11 @@ export function WorkspacePage() {
         className="gap-6"
       >
 
-        <ResourceScopeSwitch value={resourceScope} onValueChange={setResourceScope} />
-
         {/* Keep search/sort controls mounted while a different query loads.
             Switching from a page to the searchable catalog must not drop
             focus or interrupt typing after the first character. */}
         <div className="flex min-h-0 flex-1 flex-col gap-4">
-          <ManagementToolbar className="rounded-lg border-x border-edge-subtle">
+          <ManagementToolbar className="flex-col items-stretch rounded-lg border-x border-edge-subtle">
             <div className="relative min-w-[220px] flex-1 sm:max-w-sm">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -315,54 +283,64 @@ export function WorkspacePage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Select
-              value={sandboxFilter}
-              onValueChange={(value) => {
-                setSandboxFilter(value as SandboxFilter);
-              }}
-            >
-              <SelectTrigger className="w-[154px]" aria-label={t('workspace.filter_sandbox', 'Filter by sandbox')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('workspace.sandbox_all', 'All sandboxes')}</SelectItem>
-                <SelectItem value="running">{t('workspace.sandbox_running', 'Running')}</SelectItem>
-                <SelectItem value="hibernated">{t('workflow.sandbox.hibernated', 'Sandbox hibernated')}</SelectItem>
-                <SelectItem value="idle">{t('workflow.sandbox.idle', 'Sandbox idle')}</SelectItem>
-                <SelectItem value="closed">{t('workflow.sandbox.closed', 'Sandbox closed')}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={sortOption}
-              onValueChange={(value) => {
-                const next = readSortOption(value as SortOption);
-                setSort(next.sortKey, next.sortDir);
-              }}
-            >
-              <SelectTrigger className="w-[160px]" aria-label={t('workspace.sort', 'Sort workflows')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="updated_desc">{t('workspace.sort_updated_desc', 'Updated newest')}</SelectItem>
-                <SelectItem value="updated_asc">{t('workspace.sort_updated_asc', 'Updated oldest')}</SelectItem>
-                <SelectItem value="name_asc">{t('workspace.sort_name_asc', 'Name A-Z')}</SelectItem>
-                <SelectItem value="name_desc">{t('workspace.sort_name_desc', 'Name Z-A')}</SelectItem>
-              </SelectContent>
-            </Select>
-            {filtersActive && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                <X className="h-4 w-4" />
-                {t('clear', 'Clear')}
-              </Button>
-            )}
-            <span className="ml-auto whitespace-nowrap text-meta">
-              {filtersActive
-                ? t('wf_count_filtered', '{{shown}} of {{total}} workflows', {
-                    shown: totalItems,
-                    total: catalogWorkspace.data?.total ?? totalItems,
-                  })
-                : t('wf_count', '{{n}} workflows', { n: totalItems })}
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={resourceScope} onValueChange={setResourceScope}>
+                <SelectTrigger className="w-48" aria-label={t('skills.relationship.label', 'Resource relationship')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('skills.relationship.all', 'All relationships')}</SelectItem>
+                  <SelectItem value="created">{t('skills.relationship.created', 'Created by me')}</SelectItem>
+                  <SelectItem value="shared">{t('skills.relationship.shared', 'Shared with me')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={sandboxFilter}
+                onValueChange={(value) => {
+                  setSandboxFilter(value as SandboxFilter);
+                }}
+              >
+                <SelectTrigger className="w-[154px]" aria-label={t('workspace.filter_sandbox', 'Filter by sandbox')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('workspace.sandbox_all', 'All sandboxes')}</SelectItem>
+                  <SelectItem value="running">{t('workspace.sandbox_running', 'Running')}</SelectItem>
+                  <SelectItem value="hibernated">{t('workflow.sandbox.hibernated', 'Sandbox hibernated')}</SelectItem>
+                  <SelectItem value="idle">{t('workflow.sandbox.idle', 'Sandbox idle')}</SelectItem>
+                  <SelectItem value="closed">{t('workflow.sandbox.closed', 'Sandbox closed')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={sortOption}
+                onValueChange={(value) => {
+                  const next = readSortOption(value as SortOption);
+                  setSort(next.sortKey, next.sortDir);
+                }}
+              >
+                <SelectTrigger className="w-[160px]" aria-label={t('workspace.sort', 'Sort workflows')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="updated_desc">{t('workspace.sort_updated_desc', 'Updated newest')}</SelectItem>
+                  <SelectItem value="updated_asc">{t('workspace.sort_updated_asc', 'Updated oldest')}</SelectItem>
+                  <SelectItem value="name_asc">{t('workspace.sort_name_asc', 'Name A-Z')}</SelectItem>
+                  <SelectItem value="name_desc">{t('workspace.sort_name_desc', 'Name Z-A')}</SelectItem>
+                </SelectContent>
+              </Select>
+              {filtersActive && (
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                  <X className="h-4 w-4" />
+                  {t('clear', 'Clear')}
+                </Button>
+              )}
+              <span className="ml-auto whitespace-nowrap text-meta">
+                {filtersActive
+                  ? t('wf_count_filtered', '{{shown}} of {{total}} workflows', {
+                      shown: totalItems,
+                      total: catalogWorkspace.data?.total ?? totalItems,
+                    })
+                  : t('wf_count', '{{n}} workflows', { n: totalItems })}
+              </span>
+            </div>
           </ManagementToolbar>
 
         {isLoading ? (

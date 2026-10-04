@@ -54,6 +54,11 @@ message SessionDescriptor {
   bool expose_run = 6;
 }
 
+message WorkflowRunSource {
+  string tenant_id = 1;
+  string workflow_id = 2;
+}
+
 message AcquireRequest {
   SandboxScope scope = 1;
   string principal_id = 2;
@@ -68,6 +73,7 @@ message AcquireRequest {
   string request_id = 11;
   // Omitted by older clients means enabled; explicit false never hydrates/binds /mount.
   optional bool expose_mount = 12;
+  WorkflowRunSource workflow_run_source = 13;
 }
 
 message AcquireResponse {

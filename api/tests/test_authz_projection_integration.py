@@ -304,3 +304,47 @@ async def test_reconciler_removes_suspended_membership_and_old_hierarchy(
         "descendant",
         f"group:{new_parent_id}",
     ) in store.tuples
+
+
+async def test_cross_organization_structural_transaction_and_retry(pg_engine):
+    from vibecanvas_api.authorization.mutations import AuthzMutationCoordinator
+    from vibecanvas_api.authorization.openfga_client import OpenFgaUnavailableError
+    from vibecanvas_api.authorization.projection import enqueue_structural_delta, apply_committed_structural_mutations
+    first, user, _, _, first_workflow = await _seed()
+    second, _, _, _, second_workflow = await _seed()
+    class InterruptedStore(_TupleStore):
+        fail = True
+        async def write(self, *, writes=(), deletes=()):
+            if self.fail and len(self.tuples) == 1:
+                raise OpenFgaUnavailableError()
+            await super().write(writes=writes, deletes=deletes)
+    store = InterruptedStore()
+    coordinator = AuthzMutationCoordinator(client=store, organization_id=first)
+    edges = frozenset({MutationEdge(first, 'workflow', first_workflow, 'viewer', 'user', user),
+                       MutationEdge(second, 'workflow', second_workflow, 'viewer', 'user', user)})
+    async def enqueue(session, operation):
+        ids = await enqueue_structural_delta(session=session, coordinator=coordinator,
+            actor_type='user', actor_id=user, before=frozenset(), after=edges,
+            operation_id=operation, source='cross-organization-test')
+        assert (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one() == first
+        return ids
+    rollback_operation = uuid.uuid4().hex
+    with pytest.raises(RuntimeError, match='cancel transaction'):
+        async with session_scope(first) as session:
+            rolled_back = await enqueue(session, rollback_operation)
+            raise RuntimeError('cancel transaction')
+    async with pg_engine.connect() as connection:
+        assert (await connection.execute(text("SELECT count(*) FROM authz_mutations WHERE source_revision=:source"),
+            {'source': 'cross-organization-test:' + rollback_operation})).scalar_one() == 0
+    async with session_scope(first) as session:
+        ids = await enqueue(session, uuid.uuid4().hex)
+    with pytest.raises(OpenFgaUnavailableError):
+        await apply_committed_structural_mutations(coordinator, ids)
+    assert len(store.tuples) == 1
+    store.fail = False
+    await apply_committed_structural_mutations(coordinator, ids)
+    assert {item.object for item in store.tuples} == {f'workflow:{first_workflow}', f'workflow:{second_workflow}'}
+    for organization in (first, second):
+        async with session_scope(organization) as session:
+            statuses = (await session.execute(text("SELECT status FROM authz_mutations WHERE mutation_id=ANY(:ids)"), {'ids': list(ids)})).scalars().all()
+            assert statuses == ['applied']

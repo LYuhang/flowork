@@ -118,7 +118,8 @@ export type ShareableResourceKind =
   | 'workflow'
   | 'task'
   | 'deployment'
-  | 'knowledge_base';
+  | 'knowledge_base'
+  | 'skill_installation';
 
 export interface DirectBinding {
   relation: ShareRelation;
@@ -225,6 +226,16 @@ export async function createOrganization(input: {
   return requestJson('/api/v1/organizations', {
     method: 'POST',
     body: JSON.stringify(input),
+  });
+}
+
+export async function addOrganizationMember(
+  organizationId: string,
+  email: string,
+): Promise<OrganizationMember> {
+  return requestJson(`/api/v1/organizations/${encodeURIComponent(organizationId)}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
   });
 }
 
@@ -372,6 +383,8 @@ function resourceAccessPath(kind: ShareableResourceKind, resourceId: string): st
       return `/api/v1/tasks/${encodedId}/access`;
     case 'deployment':
       return `/api/v1/deployments/${encodedId}/access`;
+    case 'skill_installation':
+      return `/api/v1/skills/${encodedId}/access`;
     case 'knowledge_base':
       return `/api/v1/kb/${encodedId}/access`;
   }

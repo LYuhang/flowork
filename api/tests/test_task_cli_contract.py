@@ -137,15 +137,15 @@ async def test_schedule_status_selects_exact_execution_and_never_latest(monkeypa
     async def scope(**kw):
         yield SimpleNamespace()
     monkeypatch.setattr(cli_tasks, "session_scope", scope)
-    monkeypatch.setattr(cli_tasks, "resource_route_params", lambda *args: {
-        "request": None, "ctx": None, "service": None, "session": args[1],
-    })
+    monkeypatch.setattr(cli_tasks, "admitted_resource_route_params", AsyncMock(return_value={
+        "request": None, "ctx": None, "service": None, "session": None,
+    }))
     monkeypatch.setattr(cli_tasks.routes, "get_task", AsyncMock(return_value={"task_type": "scheduled_run"}))
     get = AsyncMock(return_value={"id": execution_id, "status": "succeeded", "result": {"answer": 0}})
     listing = AsyncMock(side_effect=AssertionError("No latest-execution fallback"))
     monkeypatch.setattr(cli_tasks.routes, "get_scheduled_run_execution", get)
     monkeypatch.setattr(cli_tasks.routes, "list_scheduled_run_executions", listing)
-    result = await cli_tasks._read(SimpleNamespace(tenant_id="t"), "task.status", {
+    result = await cli_tasks._read(SimpleNamespace(tenant_id="t", username="user"), "task.status", {
         "task_id": task_id, "task_type": "schedule_run", "execution_id": execution_id}, AsyncMock())
     assert str(get.await_args.args[1]) == execution_id
     assert result["result"]["answer"] == 0 and result["status"] == "succeeded"

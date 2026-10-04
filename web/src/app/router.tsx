@@ -46,6 +46,7 @@ import {
   loadPlatformManagementPage,
   loadResetPasswordPage,
   loadSettingsPage,
+  loadPermissionsPage,
   loadSignupPage,
   loadStandalonePreviewPage,
   loadSkillCatalogDetailPage,
@@ -80,6 +81,7 @@ const EmbedChatPage = lazy(() =>
 const StandalonePreviewPage = lazy(() =>
   loadStandalonePreviewPage().then((m) => ({ default: m.StandalonePreviewPage })),
 );
+const PermissionsPage = lazy(() => loadPermissionsPage().then((m) => ({ default: m.PermissionsPage })));
 const SettingsPage = lazy(() =>
   loadSettingsPage().then((m) => ({
     default: m.SettingsPage,
@@ -303,6 +305,7 @@ export const router = createBrowserRouter([
             path: 'workflow/:wfId/version/:vKey',
             element: routeElement(CanvasPage),
           },
+          { path: 'permissions', element: routeElement(PermissionsPage) },
           {
             // Per-device user preferences such as language and theme.
             path: 'settings',

@@ -14,6 +14,8 @@ export interface Skill {
   description: string;
   allowed_tools: string[];
   version: number;
+  installed: boolean;
+  created_by_me: boolean;
   source?: SkillSource | null;
   source_id?: string | null;
   source_url?: string | null;
@@ -168,6 +170,11 @@ export async function getSkill(id: string): Promise<SkillDetail> {
 export async function deleteSkill(id: string): Promise<void> {
   const response = await authedFetch(`/api/v1/skills/${id}`, { method: 'DELETE' });
   if (!response.ok) throw new Error(`deleteSkill failed: ${await errorDetail(response)}`);
+}
+
+export async function setSkillInstalled(id: string, installed: boolean): Promise<void> {
+  const response = await authedFetch(`/api/v1/skills/${id}/installation`, { method: installed ? 'PUT' : 'DELETE' });
+  if (!response.ok) throw new Error(`Skill installation failed: ${await errorDetail(response)}`);
 }
 
 export async function searchSkillCatalog(

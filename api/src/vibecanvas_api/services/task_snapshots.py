@@ -1,7 +1,7 @@
 """Freeze saved Workflow content for durable tasks (caller authorizes access).
 
-Selectors are resource configuration, never a Chat connection. Old schedules
-without a selector explicitly retain their legacy global-HEAD policy.
+Selectors are resource configuration, never a Chat connection. The host supplies
+the source organization for persisted cross-organization references.
 """
 from copy import deepcopy
 import re
@@ -12,7 +12,13 @@ from vibecanvas_api.storage.models import WorkflowVersion
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 
-async def freeze_workflow(session, user_id, workflow_id, *, major=None, version=None):
+async def freeze_workflow(session, user_id, workflow_id, *, major=None, version=None, workflow_tenant_id=None):
+    from vibecanvas_api.storage.db import temporary_tenant_scope
+    async with temporary_tenant_scope(session, workflow_tenant_id):
+        return await _read_workflow(session, user_id, workflow_id, major=major, version=version)
+
+
+async def _read_workflow(session, user_id, workflow_id, *, major=None, version=None):
     repo = WorkflowRepo(session, str(user_id))
     meta = await repo.get_meta(workflow_id)
     if not meta:

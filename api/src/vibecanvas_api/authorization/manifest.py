@@ -165,6 +165,7 @@ _EXPLICIT_ACTIONS = {
     "refresh_mcp_server": Action.MANAGE_SECRET,
     "list_organization_members": Action.VIEW_AUDIT,
     "update_organization_member": Action.MANAGE_MEMBERS,
+    "add_organization_member": Action.MANAGE_MEMBERS,
     "create_group": Action.MANAGE_MEMBERS,
     "set_group_member": Action.MANAGE_MEMBERS,
     "revoke_group_member": Action.MANAGE_MEMBERS,
@@ -463,6 +464,7 @@ def permission_for_route(
                 ResourceType.TASK,
                 ResourceType.DEPLOYMENT,
                 ResourceType.KNOWLEDGE_BASE,
+                ResourceType.SKILL_INSTALLATION,
             }),
         )
     if path.startswith("/api/v1/workflow-executions"):
@@ -566,7 +568,7 @@ def permission_for_route(
                 selector="body:kb_ids",
                 parent_resolver="direct",
             )
-        if endpoint == "upload_file":
+        if endpoint in {"upload_file", "delete_file"}:
             action = Action.UPDATE
         elif endpoint == "list_files":
             action = Action.VIEW
@@ -622,6 +624,10 @@ def permission_for_route(
             action = Action.VIEW
         elif endpoint == "publish_custom_skill_version":
             action = Action.PUBLISH
+        elif endpoint == "install_skill_for_user":
+            action = Action.USE
+        elif endpoint == "uninstall_skill_for_user":
+            action = Action.VIEW
         child = "{revision_id}" in path
         return _spec(
             admission=AdmissionKind.RESOURCE,
@@ -714,7 +720,7 @@ def permission_for_route(
             admission=AdmissionKind.RESOURCE,
             resource_type=(
                 ResourceType.VFS_RUN
-                if "{run_id}" in path
+                if "{run_id}" in path or endpoint == "raw_run_content"
                 else ResourceType.VFS_PATH
             ),
             action=action,

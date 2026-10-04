@@ -21,6 +21,16 @@ from vibecanvas_api.routes import resource_access as resource_access_routes
 from vibecanvas_api.storage.db import session_scope
 
 
+@pytest.fixture(autouse=True)
+def _browser_sessions(monkeypatch):
+    monkeypatch.setattr(config, "web_session_cookie_enabled", True)
+    # Isolate fixture registrations from deployment Redis and other tests.
+    from vibecanvas_api.auth import ratelimit
+    monkeypatch.setattr(config, "distributed_auth_rate_limit_enabled", False)
+    monkeypatch.setattr(ratelimit, "_local_limiter", ratelimit.LoginRateLimiter(max_attempts=1000, window_seconds=300))
+    monkeypatch.setattr(ratelimit, "_local_action_limiters", {})
+
+
 class _RelationshipStore:
     """Small tuple evaluator; the pinned model itself is tested separately."""
 
@@ -167,13 +177,24 @@ class _RelationshipStore:
         return False
 
 
-def _headers(token: str, **extra: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", **extra}
+def _headers(token: dict[str, str], **extra: str) -> dict[str, str]:
+    return {**token, **extra}
 
 
-async def _register(client: AsyncClient, label: str) -> tuple[str, dict]:
+def _session_headers(response, client):
+    cookies = dict(response.cookies)
+    client.cookies.clear()
+    return {
+        "Cookie": "; ".join(f"{key}={value}" for key, value in cookies.items()),
+        "X-CSRF-Token": next(value for key, value in cookies.items() if key.endswith("-csrf")),
+        "Origin": config.public_urls.public_url or "http://testserver",
+    }
+
+
+async def _register(client: AsyncClient, label: str) -> tuple[dict[str, str], dict]:
     response = await client.post(
         "/api/v1/auth/register",
+        headers={"Origin": config.public_urls.public_url or "http://testserver"},
         json={
             "email": f"{label}_{uuid.uuid4().hex[:12]}@example.com",
             "username": label,
@@ -181,7 +202,7 @@ async def _register(client: AsyncClient, label: str) -> tuple[str, dict]:
         },
     )
     assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
+    token = _session_headers(response, client)
     me = (
         await client.get(
             "/api/v1/auth/me",
@@ -194,10 +215,11 @@ async def _register(client: AsyncClient, label: str) -> tuple[str, dict]:
 async def _register_exact(
     client: AsyncClient,
     label: str,
-) -> tuple[str, dict, str]:
+) -> tuple[dict[str, str], dict, str]:
     email = f"{label}_{uuid.uuid4().hex[:12]}@example.com"
     response = await client.post(
         "/api/v1/auth/register",
+        headers={"Origin": config.public_urls.public_url or "http://testserver"},
         json={
             "email": email,
             "username": label,
@@ -205,7 +227,7 @@ async def _register_exact(
         },
     )
     assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
+    token = _session_headers(response, client)
     me_response = await client.get(
         "/api/v1/auth/me",
         headers=_headers(token),
@@ -380,7 +402,7 @@ async def test_workflow_direct_share_capabilities_and_revoke(
             "Workflow Company"
         )
         assert resolved_organization.json()["target"]["allowed_relations"] == [
-            "viewer"
+            "viewer", "editor", "operator", "manager"
         ]
 
         # Relationship-scope grants remain one userset tuple. Membership
@@ -722,8 +744,10 @@ async def test_workflow_direct_share_capabilities_and_revoke(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("shared_role", ["viewer", "editor", "operator", "manager"])
 async def test_cross_personal_shared_with_me_rechecks_authoritative_access(
     pg_engine,
+    shared_role,
     monkeypatch,
 ):
     """A projection locates a cross-tenant root but never grants it."""
@@ -774,12 +798,12 @@ async def test_cross_personal_shared_with_me_rechecks_authoritative_access(
         target = resolved.json()["target"]
         assert target is not None
         assert target["target_type"] == "user"
-        assert "manager" not in target["allowed_relations"]
+        assert set(target["allowed_relations"]) == {"viewer", "editor", "operator", "manager"}
 
         granted = await client.post(
             f"/api/v1/workflows/{wf_id}/access",
             json={
-                "relation": "viewer",
+                "relation": shared_role,
                 "resolution_token": target["resolution_token"],
             },
             headers=_headers(
@@ -803,7 +827,7 @@ async def test_cross_personal_shared_with_me_rechecks_authoritative_access(
         assert item["description"] == (
             "Visible only after current authorization"
         )
-        assert item["access"]["effective_role"] == "viewer"
+        assert item["access"]["effective_role"] == shared_role
         assert item["access"]["source"] == "shared"
         assert item["provenance"]["ownership_scope"] == "personal"
         assert item["provenance"]["origin_type"] == "created"
@@ -815,14 +839,85 @@ async def test_cross_personal_shared_with_me_rechecks_authoritative_access(
         )
         assert detail.status_code == 200, detail.text
 
+        from types import SimpleNamespace
+        from vibecanvas_api.services.agent_resources.authorization import require_workflow_action, list_authorized_workflows
+        from vibecanvas_api.services.agent_resources.workflow_transfer import read_workflow_snapshot
+        from vibecanvas_api.authorization.types import Action
+        from vibecanvas_api.agents.tools.decorator import ToolError
+        agent = SimpleNamespace(tenant_id=recipient["active_organization_id"], username=recipient["user_id"],
+            turn_id="shared-workflow-test", authorization_client=store,
+            authorization_membership_role="owner", authorization_membership_status="active")
+        discovered = await list_authorized_workflows(agent)
+        assert [row["wf_id"] for row in discovered] == [wf_id]
+        assert discovered[0]["access"]["effective_role"] == shared_role
+        assert await list_authorized_workflows(agent, limit=1, offset=1) == []
+        snapshot = await read_workflow_snapshot(agent, workflow_id=wf_id)
+        assert snapshot["id"] == wf_id
+        for action, roles in [(Action.UPDATE, {"editor", "manager"}), (Action.EXECUTE, {"operator", "manager"})]:
+            if shared_role in roles:
+                assert (await require_workflow_action(agent, wf_id, action)).allowed
+            else:
+                with pytest.raises(ToolError, match="permission_denied"):
+                    await require_workflow_action(agent, wf_id, action)
+
+        chat_id = "shared-canvas-" + uuid.uuid4().hex
+        chat_body = {"workflow_context": {"workflow_id": wf_id, "major_version": 1,
+                     "initial_subversion": 0, "target": {"kind": "workflow"}}}
+        chat_response = await client.put(f"/api/v1/chat-scopes/{wf_id}/chats/{chat_id}",
+                                         json=chat_body, headers=_headers(recipient_token))
+        assert chat_response.status_code == (200 if shared_role in {"editor", "manager"} else 404), chat_response.text
+        if chat_response.status_code == 200:
+            from vibecanvas_api.storage.db import session_scope
+            from vibecanvas_api.storage.chat_project_repo import ChatProjectRepo
+            project_id = chat_response.json()["project_id"]
+            async with session_scope(tenant_id=recipient["active_organization_id"], user_id=recipient["user_id"]) as session:
+                project = await ChatProjectRepo(session, recipient["user_id"]).get(project_id)
+                assert project is not None
+                assert str(project.tenant_id) == recipient["active_organization_id"]
+                assert str(project.creator_user_id) == recipient["user_id"]
+            async with session_scope(tenant_id=owner["active_organization_id"], user_id=owner["user_id"]) as session:
+                assert await ChatProjectRepo(session, owner["user_id"]).get(project_id) is None
+
+        if shared_role == "manager":
+            third_token, third, third_email = await _register_exact(client, "reshare_recipient")
+            target_response = await client.post(
+                f"/api/v1/resource-access/workflow/{wf_id}/resolve-target",
+                json={"target_type": "user", "identifier": third_email},
+                headers=_headers(recipient_token),
+            )
+            assert target_response.status_code == 200, target_response.text
+            target = target_response.json()["target"]
+            assert target is not None
+            reshared = await client.post(
+                f"/api/v1/workflows/{wf_id}/access",
+                json={"relation": "viewer", "resolution_token": target["resolution_token"]},
+                headers=_headers(recipient_token, **{"Idempotency-Key": "manager-reshare"}),
+            )
+            assert reshared.status_code == 201, reshared.text
+            bindings = await client.get(f"/api/v1/workflows/{wf_id}/access", headers=_headers(recipient_token))
+            assert bindings.status_code == 200, bindings.text
+            assert any(item["subject_id"] == third["user_id"] for item in bindings.json()["items"])
+            third_detail = await client.get(f"/api/v1/workflows/{wf_id}", headers=_headers(third_token))
+            assert third_detail.status_code == 200, third_detail.text
+            revoked = await client.request(
+                "DELETE", f"/api/v1/workflows/{wf_id}/access",
+                json={"relation": "viewer", "subject_type": "user", "subject_id": third["user_id"]},
+                headers=_headers(recipient_token, **{"Idempotency-Key": "manager-revoke"}),
+            )
+            assert revoked.status_code == 200, revoked.text
+            assert (await client.get(f"/api/v1/workflows/{wf_id}", headers=_headers(third_token))).status_code == 404
+
         # Simulate an authoritative tuple already removed while a stale
         # recipient locator remains. The list must fail closed and expose no
         # resource metadata from the projection alone.
         store.tuples.discard(OpenFgaTuple(
             f"user:{recipient['user_id']}",
-            "viewer",
+            shared_role,
             f"workflow:{wf_id}",
         ))
+        assert await list_authorized_workflows(agent) == []
+        with pytest.raises(ToolError, match="workflow_unavailable"):
+            await read_workflow_snapshot(agent, workflow_id=wf_id)
         stale_projection = await client.get(
             "/api/v1/resource-access/shared?resource_type=workflow",
             headers=_headers(recipient_token),

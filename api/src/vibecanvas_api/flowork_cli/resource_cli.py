@@ -19,7 +19,7 @@ def add_parser(groups):
             skill_cli.add_commands(commands)
         for action in actions:
             leaf = commands.add_parser(action, allow_abbrev=False,
-                description="Read resource metadata or definitions. Does not invoke MCP business tools. IDs refer to installed resources, not catalog entries. List returns one page; follow next_offset with --offset until null. Pipe JSON through jq/grep to filter text.")
+                description="Read resource metadata or definitions. Does not invoke MCP business tools. IDs identify accessible platform resources, not catalog entries. List returns resources in items and one page at a time; follow next_offset with --offset until null. Pipe JSON through jq/grep to filter text.")
             if action == "list":
                 leaf.add_argument("--limit", type=int, default=20)
                 leaf.add_argument("--offset", type=int, default=0)

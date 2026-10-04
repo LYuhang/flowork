@@ -70,6 +70,7 @@ async def test_canvas_approval_projects_progress_and_survives_viewer_refresh(
         user_id=actor,
         provider=BubblewrapProvider(shutil.which("bwrap")),
         workspace_folders=(),
+        workflow_run_source=None,
         _rw_binds=[],
         skills_dir=None,
         _sync_mount_folder=AsyncMock(),
@@ -157,7 +158,9 @@ async def test_canvas_approval_projects_progress_and_survives_viewer_refresh(
                 await routes._request_history_cancel(ExecutionRepo(db, actor), execution_id)
         elif outcome == "process_loss":
             group = next(iter(session._history_executions.groups.values()))
-            await next(iter(group.pool._slots.values())).close()
+            # Slot.close() requests normal cancellation; kill the worker to
+            # exercise unexpected process loss without a cancellation request.
+            next(iter(group.pool._slots.values())).handle.proc.kill()
         await asyncio.wait_for(work, 20)
         async with session_scope(tenant_id=tenant) as db:
             history = WorkflowHistoryRepo(db)
@@ -167,13 +170,15 @@ async def test_canvas_approval_projects_progress_and_survives_viewer_refresh(
             status = (
                 "cancelled"
                 if outcome == "cancel"
+                else "timed_out"
+                if outcome == "timeout"
                 else "failed"
                 if outcome in {"process_loss", "revoked"}
                 else "succeeded"
             )
             assert detail["status"] == status
             assert record["status"] == (
-                "stopped" if outcome == "cancel" else "error" if outcome in {"process_loss", "revoked"} else "success"
+                "stopped" if outcome == "cancel" else "error" if outcome in {"process_loss", "revoked", "timeout"} else "success"
             )
             assert current.history_id == execution_id
             if status == "succeeded":

@@ -8409,6 +8409,7 @@ export interface components {
         };
         /** WorkflowMetaOut */
         WorkflowMetaOut: {
+            created_by_me?: boolean;
             /** Wf Id */
             wf_id: string;
             /** Workflow Name */

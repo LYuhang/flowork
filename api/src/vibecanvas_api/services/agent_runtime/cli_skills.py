@@ -18,7 +18,7 @@ from vibecanvas_api.flowork_cli.skill_cli import WRITE_OPERATIONS, validate
 from vibecanvas_api.routes import skills
 from vibecanvas_api.services.agent_resources import context as agent_context
 from vibecanvas_api.services.agent_resources.authorization import _require_active_chat_write
-from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params
+from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params, admitted_resource_route_params
 from vibecanvas_api.services.skill_bundle import validate_skill_files
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_skills import SkillsRepo
@@ -47,15 +47,13 @@ async def authorize(params, identifier, *, deleting=False):
         if deleting:
             if row is None:
                 raise HTTPException(404, 'skill not found')
-            if str(row['user_id']) != str(params['ctx'].user_id):
-                raise HTTPException(403, 'Only your own Skill installation can be deleted.')
         else:
-            skills._require_owned_custom_skill(row, params['ctx'].user_id)
+            skills._require_custom_skill(row)
 
 
 async def download(ctx, identifier):
     async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
-        params = resource_route_params(ctx, session)
+        params = await admitted_resource_route_params(ctx, session, "skill_installation", identifier)
         auth = {key:value for key,value in params.items() if key != 'session'}
         await skills._authorize_skill(skill_id=identifier, action=Action.USE,
             consistency=ConsistencyPreference.HIGHER_CONSISTENCY, **auth)
@@ -78,13 +76,15 @@ async def download(ctx, identifier):
 async def refresh(ctx, cap, identifier):
     from vibecanvas_api.agents.tools._session_fs import _require_session
     async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
-        params = resource_route_params(ctx, session)
+        params = await admitted_resource_route_params(ctx, session, "skill_installation", identifier)
         auth = {key:value for key,value in params.items() if key != 'session'}
         await skills._authorize_skill(skill_id=identifier, action=Action.USE,
             consistency=ConsistencyPreference.HIGHER_CONSISTENCY, **auth)
         row = await SkillsRepo(session).get(identifier)
         if row is None or not row.get('current_revision_id'):
             raise HTTPException(404, 'skill_version_unavailable')
+        if not row.get('installed'):
+            raise ToolError('skill_not_installed', 'Install this Skill with skill install --skill-id ID before refreshing it.')
         await skills._authorize_skill_revision(revision_id=row['current_revision_id'], action=Action.USE,
             consistency=ConsistencyPreference.HIGHER_CONSISTENCY, **auth)
         sandbox = await _require_session(ctx)
@@ -101,6 +101,18 @@ async def execute(call, arguments):
     try:
         args = validate(operation, arguments)
         ctx = await agent_context.resolve_context(cap)
+        if operation in {'skill.install', 'skill.uninstall'}:
+            async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
+                await _require_active_chat_write(session, ctx)
+                identifier = uuid.UUID(args['skill_id'])
+                params = await admitted_resource_route_params(ctx, session, 'skill_installation', identifier)
+                started = True
+                installed = operation == 'skill.install'
+                handler = skills.install_skill_for_user if installed else skills.uninstall_skill_for_user
+                await handler(skill_id=str(identifier), **params)
+                await session.commit()
+                return {'status': 'succeeded', 'skill_id': str(identifier), 'installed': installed,
+                        'message': 'Personal Skill installation updated. Agent discovery refreshes on the next turn.'}
         if operation == 'skill.refresh':
             return await refresh(ctx, cap, uuid.UUID(args['skill_id']))
         if operation == 'skill.download':
@@ -117,7 +129,11 @@ async def execute(call, arguments):
             raise ToolError('invalid_approval_mode', 'Unknown approval mode. No changes were made.')
         identifier = uuid.UUID(args['skill_id']) if 'skill_id' in args else None
         async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
-            await authorize(resource_route_params(ctx, session), identifier, deleting=deleting)
+            params = (await admitted_resource_route_params(ctx, session, "skill_installation", identifier)
+                      if identifier else resource_route_params(ctx, session))
+            await authorize(params, identifier, deleting=deleting)
+            # CLI leases belong to the acting Chat, never the shared package.
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": str(ctx.tenant_id)})
             await session.execute(text("""INSERT INTO skill_cli_leases(call_id,tenant_id,run_id,operation,expires_at)
                 VALUES (:id,CAST(:tenant AS uuid),:run,:operation,now()+interval '30 seconds')"""),
                 {'id':call.call_id,'tenant':cap.tenant_id,'run':cap.turn_id,'operation':operation})
@@ -137,7 +153,8 @@ async def execute(call, arguments):
             await _require_active_chat_write(session, ctx)
             if not (await session.execute(text('SELECT 1 FROM skill_cli_leases WHERE call_id=:id AND expires_at>now()'), {'id':call.call_id})).first():
                 raise ToolError('approval_cancelled', 'The CLI command is no longer active.')
-            params = resource_route_params(ctx, session)
+            params = (await admitted_resource_route_params(ctx, session, "skill_installation", identifier)
+                      if identifier else resource_route_params(ctx, session))
             request = params['request']
             await authorize(params, identifier, deleting=deleting)
             started = True

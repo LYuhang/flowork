@@ -37,6 +37,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { organizationsQueryKey } from '@/lib/api/organization-query-keys';
 import {
+  addOrganizationMember,
   createOrganizationGroup,
   getOrganizationSelf,
   listGroupMembers,
@@ -139,9 +140,11 @@ function MemberIdentity({ member }: { member: OrganizationMember }) {
 function MemberAccessControls({
   organizationId,
   member,
+  canAssignAdmin,
 }: {
   organizationId: string;
   member: OrganizationMember;
+  canAssignAdmin: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -194,7 +197,7 @@ function MemberAccessControls({
       >
         <SelectTrigger className="w-36" aria-label={t('organization.role', 'Role')}><SelectValue /></SelectTrigger>
         <SelectContent>
-          {ORGANIZATION_ROLES.map((item) => (
+          {ORGANIZATION_ROLES.filter((item) => canAssignAdmin || !['owner', 'admin'].includes(item)).map((item) => (
             <SelectItem key={item} value={item}>{t(`organization.roles.${item}`, item)}</SelectItem>
           ))}
         </SelectContent>
@@ -364,6 +367,19 @@ export function OrganizationSettingsPanel() {
     queryKey: groupMembersKey(activeOrganizationId, effectiveGroupId),
     queryFn: () => listGroupMembers(activeOrganizationId, effectiveGroupId),
     enabled: Boolean(activeOrganizationId && effectiveGroupId && canViewDirectory),
+  });
+
+  const [addCompanyMemberOpen, setAddCompanyMemberOpen] = useState(false);
+  const [companyMemberEmail, setCompanyMemberEmail] = useState('');
+  const addCompanyMember = useMutation({
+    mutationFn: () => addOrganizationMember(activeOrganizationId, companyMemberEmail.trim()),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: organizationMembersKey(activeOrganizationId) });
+      setAddCompanyMemberOpen(false);
+      setCompanyMemberEmail('');
+      toast.success(t('organization.memberAdded', 'Member added'));
+    },
+    onError: (reason) => toast.error(errorMessage(reason)),
   });
 
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
@@ -559,7 +575,10 @@ export function OrganizationSettingsPanel() {
           {canViewDirectory ? (
             <TabsContent value="people" className="m-0 p-5 sm:p-6">
               <div className="mb-4">
+                <div className="flex items-center justify-between gap-3">
                 <h4 className="text-sm font-semibold">{t('organization.members', 'People')}</h4>
+                  {canManageMembers && isBusiness ? <Button variant="outline" size="sm" onClick={() => setAddCompanyMemberOpen(true)}><Plus />{t('organization.addCompanyMember', 'Add company member')}</Button> : null}
+                </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {canManageMembers
                     ? t('organization.peopleManageHint', 'Manage organization roles and membership status. Directory-managed members remain read only.')
@@ -568,7 +587,7 @@ export function OrganizationSettingsPanel() {
               </div>
               <div className="overflow-hidden rounded-xl border border-edge-subtle">
                 {members.data?.map((member) => {
-                  const editable = canManageMembers && member.source !== 'scim';
+                  const editable = canManageMembers && member.source !== 'scim' && (activeOrganization?.role === 'owner' || !['owner', 'admin'].includes(member.role));
                   return (
                     <div key={member.membership_id} className="flex flex-wrap items-center gap-3 border-b border-edge-subtle px-4 py-3 last:border-b-0">
                       <div className="min-w-[220px] flex-1">
@@ -578,7 +597,7 @@ export function OrganizationSettingsPanel() {
                         <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">SCIM</span>
                       ) : null}
                       {editable ? (
-                        <MemberAccessControls organizationId={activeOrganizationId} member={member} />
+                        <MemberAccessControls organizationId={activeOrganizationId} member={member} canAssignAdmin={activeOrganization?.role === 'owner'} />
                       ) : (
                         <div className="flex items-center gap-2">
                           <RoleBadge role={member.role} />
@@ -696,6 +715,25 @@ export function OrganizationSettingsPanel() {
           ) : null}
         </Tabs>
       </section>
+
+      <Dialog open={addCompanyMemberOpen} onOpenChange={setAddCompanyMemberOpen}>
+        <DialogContent>
+          <form onSubmit={(event) => { event.preventDefault(); if (canManageMembers && isBusiness && !addCompanyMember.isPending) addCompanyMember.mutate(); }}>
+            <DialogHeader>
+              <DialogTitle>{t('organization.addCompanyMember', 'Add company member')}</DialogTitle>
+              <DialogDescription>{t('organization.addCompanyMemberHint', 'Enter the email of a registered account. They join as an ordinary member; their personal resources remain private.')}</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2 py-4">
+              <Label htmlFor="company-member-email">{t('organization.memberEmail', 'Email')}</Label>
+              <Input id="company-member-email" type="email" required autoComplete="off" value={companyMemberEmail} onChange={(event) => setCompanyMemberEmail(event.target.value)} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAddCompanyMemberOpen(false)}>{t('common_cancel', 'Cancel')}</Button>
+              <Button type="submit" disabled={!canManageMembers || !isBusiness || !companyMemberEmail.trim() || addCompanyMember.isPending}>{t('organization.addCompanyMember', 'Add company member')}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createGroupOpen} onOpenChange={setCreateGroupOpen}>
         <DialogContent>

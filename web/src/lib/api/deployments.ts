@@ -102,6 +102,7 @@ export interface DeploymentListResponse {
 }
 
 export interface ListDeploymentsParams {
+  source?: "all" | "created" | "shared";
   trigger_type?: TriggerType;
   enabled?: boolean;
   workflow_id?: string;
@@ -241,6 +242,7 @@ async function authedFetch(
 
 function buildListQuery(p: ListDeploymentsParams): string {
   const params = new URLSearchParams();
+  if (p.source) params.set("source", p.source);
   if (p.trigger_type) params.set('trigger_type', p.trigger_type);
   if (p.enabled !== undefined) params.set('enabled', String(p.enabled));
   if (p.workflow_id) params.set('workflow_id', p.workflow_id);

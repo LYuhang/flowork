@@ -6,6 +6,8 @@ business-object root through OpenFGA, then maps to VFS scopes/paths.
 """
 from __future__ import annotations
 
+from vibecanvas_api.services.workspace_file_access import owned_workspace_chats, workspace_path_visible
+
 import asyncio
 import os
 import uuid
@@ -162,7 +164,7 @@ async def _project_storage_scope(session: AsyncSession, project_id: str) -> str 
     )).one_or_none()
     if row is None:
         return None
-    return _project_workspace_scope_id(row.project_id, workflow_id=row.workflow_id)
+    return _project_workspace_scope_id(row.project_id)
 
 
 async def _resolve_path(
@@ -246,6 +248,11 @@ async def _resolve_path(
             return ResolvedPath(path, "project", scope_id=scope_id, project_id=project_id)
         bucket = parts[2]
         if bucket in {"data", "chats"}:
+            if bucket == "chats" and not workspace_path_visible(
+                _join_vfs('/chats', parts[3:]),
+                await owned_workspace_chats(session, scope_id, auth.user_id),
+            ):
+                raise HTTPException(status_code=404, detail="storage_path_not_found")
             return ResolvedPath(
                 path, "project", scope_id=scope_id,
                 vfs_path=_join_vfs(f"/{bucket}", parts[3:]),
@@ -746,6 +753,9 @@ async def list_storage(
     elif resolved.scope_id and resolved.vfs_path:
         rows = await VfsRepo(session, object_store=get_object_store()).ls_meta(
             wf_id=resolved.scope_id, prefix=resolved.vfs_path.rstrip("/") + "/")
+        if resolved.vfs_path.startswith('/chats'):
+            private_chats = await owned_workspace_chats(session, resolved.scope_id, auth.user_id)
+            rows = [row for row in rows if workspace_path_visible(row.path, private_chats)]
         items = _direct_children(
             logical_parent=logical, vfs_parent=resolved.vfs_path,
             entries=rows,

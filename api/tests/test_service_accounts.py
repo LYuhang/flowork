@@ -34,21 +34,18 @@ from vibecanvas_api.storage.sync_session import current_sync_tenant_id
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 
-def _headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+from tests.test_workflow_authorization_integration import _browser_sessions, _headers, _session_headers
 
 
-async def _register(client, *, prefix: str) -> tuple[str, dict]:
+async def _register(client, *, prefix: str) -> tuple[dict[str, str], dict]:
     response = await client.post(
         "/api/v1/auth/register",
-        json={
-            "email": f"{prefix}_{uuid.uuid4().hex[:12]}@example.com",
-            "username": prefix,
-            "password": "pw12345678",
-        },
+        headers={"Origin": config.public_urls.public_url or "http://testserver"},
+        json={"email": f"{prefix}_{uuid.uuid4().hex[:12]}@example.com",
+              "username": prefix, "password": "pw12345678"},
     )
     assert response.status_code == 201, response.text
-    return response.json()["session_token"], response.json()
+    return _session_headers(response, client), response.json()
 
 
 async def _seed_identity(app_engine, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> None:
@@ -453,7 +450,7 @@ async def test_resource_delegation_revocation_survives_dependency_refresh(app_en
             name="Resource consumer", kind="task", owner_resource_type="task",
             owner_resource_id=str(uuid.uuid4()), created_by=user_id)
         grant = dict(tenant_id=tenant_id, service_account_id=account_id,
-                     resource_type="skill_installation", resource_id=skill_id)
+                     resource_type="skill_installation", resource_id=skill_id, resource_tenant_id=tenant_id)
         await repo.bind_resource(**grant)
         assert await repo.resource_refs(account_id) == (("skill_installation", str(skill_id)),)
         await repo.revoke_resource(service_account_id=account_id,
@@ -461,3 +458,64 @@ async def test_resource_delegation_revocation_survives_dependency_refresh(app_en
         await repo.bind_resource(**grant)
         assert await repo.resource_refs(account_id) == ()
         assert await repo.resource_refs(account_id, include_revoked=True) == (("skill_installation", str(skill_id)),)
+
+
+@pytest.mark.asyncio
+async def test_dependency_ownership_is_separate_and_recipient_scoped(app_engine):
+    tenant, owner, user, owner_user, account, skill = (uuid.uuid4() for _ in range(6))
+    await _seed_identity(app_engine, tenant_id=tenant, user_id=user)
+    await _seed_identity(app_engine, tenant_id=owner, user_id=owner_user)
+    async with session_scope(str(tenant)) as session:
+        repo = ServiceAccountsRepo(session)
+        await repo.create_for_owner(service_account_id=account, tenant_id=tenant,
+            name="Shared dependency", kind="task", owner_resource_type="task",
+            owner_resource_id=str(uuid.uuid4()), created_by=user)
+        grant = dict(tenant_id=tenant, service_account_id=account,
+            resource_type="skill_installation", resource_id=skill, resource_tenant_id=owner)
+        await repo.bind_resource(**grant)
+        assert await repo.resource_owners(account) == {("skill_installation", str(skill)): str(owner)}
+        await repo.revoke_resource(service_account_id=account, resource_type="skill_installation", resource_id=skill)
+        await repo.bind_resource(**grant)
+        assert await repo.resource_owners(account) == {}
+        assert await repo.resource_owners(account, include_revoked=True) == {("skill_installation", str(skill)): str(owner)}
+    async with session_scope(str(owner)) as session:
+        assert await ServiceAccountsRepo(session).resource_owners(account, include_revoked=True) == {}
+
+
+def test_service_account_projection_uses_dependency_organization():
+    from vibecanvas_api.authorization.projection import service_account_edges
+    from vibecanvas_api.authorization.mutations import MutationEdge
+    account_org, resource_org, account, creator, task, workflow, skill = (str(uuid.uuid4()) for _ in range(7))
+    edges = service_account_edges(organization_id=account_org, service_account_id=account,
+        created_by=creator, owner_resource_type="task", owner_resource_id=task,
+        workflow_id=workflow, resource_owners={("skill_installation", skill): resource_org})
+    assert MutationEdge(resource_org, "skill_installation", skill, "consumer", "service_account", account) in edges
+    assert MutationEdge(account_org, "skill_installation", skill, "consumer", "service_account", account) not in edges
+    assert all(edge.organization_id == account_org for edge in edges if edge.object_type != "skill_installation")
+
+
+@pytest.mark.asyncio
+async def test_shared_dependency_projection_is_collected_only_by_resource_owner(app_engine):
+    from vibecanvas_api.authorization.projection import collect_structural_projection
+    from vibecanvas_api.authorization.mutations import MutationEdge
+    from vibecanvas_api.storage.models_skills import Skill
+    tenant, user, task, _ = await _seed_running_task_with_account(app_engine)
+    owner, owner_user, skill = (uuid.uuid4() for _ in range(3))
+    await _seed_identity(app_engine, tenant_id=owner, user_id=owner_user)
+    async with session_scope(str(owner)) as session:
+        session.add(Skill(skill_id=skill, tenant_id=owner, user_id=owner_user,
+                          name="Shared projection fixture", description="", source="custom"))
+    async with session_scope(str(tenant)) as session:
+        account = (await session.execute(text("SELECT service_account_id FROM tasks WHERE id=:id"), {"id": task})).scalar_one()
+        await ServiceAccountsRepo(session).bind_resource(tenant_id=tenant, service_account_id=account,
+            resource_type="skill_installation", resource_id=skill, resource_tenant_id=owner)
+    edge = MutationEdge(str(owner), "skill_installation", str(skill), "consumer", "service_account", str(account))
+    async with session_scope(str(tenant)) as session:
+        assert edge not in await collect_structural_projection(session, organization_id=str(tenant))
+    async with session_scope(str(owner)) as session:
+        assert edge in await collect_structural_projection(session, organization_id=str(owner))
+    async with session_scope(str(tenant)) as session:
+        await ServiceAccountsRepo(session).revoke_resource(service_account_id=account,
+            resource_type="skill_installation", resource_id=skill)
+    async with session_scope(str(owner)) as session:
+        assert edge not in await collect_structural_projection(session, organization_id=str(owner))

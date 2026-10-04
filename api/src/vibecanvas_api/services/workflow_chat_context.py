@@ -82,7 +82,7 @@ class WorkflowReader(Protocol):
     async def get_workflow_at(self, wf_id: str, v: int, sv: int) -> dict: ...
 
 
-async def resolve_workflow_run_context(executions, history, *, workflow_id: str) -> dict:
+async def resolve_workflow_run_context(executions, history, *, workflow_id: str, user_id: str) -> dict:
     """Describe the actual debug projection, after INSPECT_RUNS authorization.
 
     Node debug can leave files from earlier runs in /run. Never describe that
@@ -98,6 +98,15 @@ async def resolve_workflow_run_context(executions, history, *, workflow_id: str)
         uuid.UUID(str(execution_id))
     except (ValueError, TypeError):
         return {**base, "status": "execution_history_unavailable", "latest_execution": None}
+    # Sharing a definition does not share another user's database history.
+    # Check the unencrypted ownership fields before loading any trace payload.
+    record = await history.get(execution_id)
+    if (not record or record.get("source_type") != "workflow"
+            or record.get("source_id") != workflow_id):
+        return {**base, "status": "execution_history_unavailable", "latest_execution": None}
+    if (str(record["initiator_user_id"]) != user_id
+            and not await history.is_workflow_owner(workflow_id, user_id)):
+        return {**base, "status": "not_authorized", "latest_execution": None}
     detail = await history.detail(execution_id)
     if (not detail or detail.get("wf_id") != workflow_id
             or detail.get("source_id") != workflow_id or detail.get("source_type") != "workflow"):

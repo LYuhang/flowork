@@ -45,6 +45,24 @@ async def check_dependencies(session, workflow_id):
             raise ToolError("workflow_in_use", f"The workflow has {label}.",
                             info={"hint": "Disable scheduled dependencies and cancel or finish active executions before retrying."})
 
+    # Other organizations may own instances of this shared Workflow. Only
+    # inspect dependency existence; never return their IDs, payloads or logs.
+    from vibecanvas_api.storage.sync_session import short_admin_connection
+    owner = await session.scalar(select(Workflow.tenant_id).where(Workflow.wf_id == workflow_id))
+    if owner is not None:
+        async with short_admin_connection() as connection:
+            for table, column, condition, label in checks[:-1]:
+                if (await connection.execute(text(f"SELECT 1 FROM {table} WHERE {column}=:id "
+                        f"AND workflow_tenant_id=:owner AND tenant_id<>:owner AND {condition} LIMIT 1"),
+                        {"id": workflow_id, "owner": owner})).first():
+                    raise ToolError("workflow_in_use", f"The workflow has {label}.",
+                        info={"hint": "Disable dependent instances and finish active executions before deleting the workflow."})
+            if (await connection.execute(text("SELECT 1 FROM workflow_cli_leases "
+                    "WHERE workflow_id=:id AND tenant_id<>:owner AND operation='run' LIMIT 1"),
+                    {"id": workflow_id, "owner": owner})).first():
+                raise ToolError("workflow_in_use", "The workflow has active or unconfirmed CLI executions.",
+                    info={"hint": "Finish or cancel active executions before deleting the workflow."})
+
     active_chat = (await session.execute(select(AgentRun.run_id)
         .join(Chat, Chat.chat_id == AgentRun.chat_id)
         .join(ChatProject, ChatProject.project_id == Chat.project_id)
@@ -80,10 +98,14 @@ async def preflight(session, workflow_id, user_id):
     return meta
 
 
-async def commit_deletion(session, *, workflow_id, user_id, tenant_id, coordinator,
+async def commit_deletion(session, *, workflow_id, user_id, coordinator,
                           expected=None, authorize=None,
                           audit_ctx=None, actor_email=""):
     meta = await preflight(session, workflow_id, user_id)
+    # Cleanup and structural relations belong to the locked source, while
+    # user_id remains the real actor for audit and authorization.
+    tenant_id = str(await session.scalar(select(Workflow.tenant_id).where(Workflow.wf_id == workflow_id)))
+    coordinator = coordinator.for_organization(tenant_id)
     if expected is not None and fingerprint(meta) != expected:
         raise ToolError("workflow_changed", "The workflow changed while approval was pending.",
                         info={"hint": "Review the updated workflow and request approval again."})

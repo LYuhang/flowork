@@ -151,13 +151,14 @@ while time.monotonic()<until:
 
 @pytest.mark.asyncio
 async def test_save_refreshes_authorized_names_without_mutating_or_disclosing(monkeypatch):
+    monkeypatch.setattr("vibecanvas_api.services.runtime_skills.authorized_skill_rows", AsyncMock(return_value=[]))
     identifier = str(uuid4())
     workflow = graph(identifier)
     repo = SimpleNamespace(get=AsyncMock(return_value={'name': 'Renamed Skill'}))
     monkeypatch.setattr(resources, 'SkillsRepo', lambda session: repo)
     service = SimpleNamespace(check=AsyncMock(return_value=SimpleNamespace(allowed=True)))
     kwargs = dict(session=object(), workflow=workflow, service=service,
-        principal=object(), context=SimpleNamespace(active_organization_id='tenant'))
+        principal=SimpleNamespace(type=resources.PrincipalType.USER), context=SimpleNamespace(active_organization_id='tenant'))
     saved = await resources.canonicalize_resource_names(**kwargs)
     assert saved['worker']['node_config']['skills'] == [{'id': identifier, 'name': 'Renamed Skill'}]
     assert workflow == graph(identifier)

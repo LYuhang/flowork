@@ -103,6 +103,12 @@ class AuthzMutationCoordinator:
         self._client = client
         self.organization_id = organization_id
 
+    def for_organization(self, organization_id: str) -> "AuthzMutationCoordinator":
+        """Keep the configured client while routing a trusted structural edge."""
+        if organization_id == self.organization_id:
+            return self
+        return AuthzMutationCoordinator(client=self._client, organization_id=organization_id)
+
     @property
     def can_apply(self) -> bool:
         return self._client is not None
@@ -262,6 +268,10 @@ class AuthzMutationCoordinator:
                         await self._client.write(writes=(tuple_,))
                     elif mutation.desired_state == "absent" and exists:
                         await self._client.write(deletes=(tuple_,))
+                    if mutation.desired_state == "absent":
+                        from vibecanvas_api.services.skill_installation_cleanup import discard_inaccessible_installations
+                        await discard_inaccessible_installations(self._client,
+                            skill_id=mutation.object_id if mutation.object_type == "skill_installation" else None)
                 except OpenFgaUnavailableError as exc:
                     mutation.status = "failed"
                     mutation.error_code = exc.reason_code
@@ -519,6 +529,7 @@ _RECIPIENT_PROJECTED_TYPES = frozenset({
     "task",
     "deployment",
     "knowledge_base",
+    "skill_installation",
 })
 
 

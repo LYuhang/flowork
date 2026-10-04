@@ -44,7 +44,7 @@ export function ResourceScopeSwitch({
             : 'text-muted-foreground hover:text-foreground',
         )}
         aria-pressed={value === 'owned'}
-        title={active?.name}
+        title={isBusiness ? t('resourceScope.organizationHint', 'Resources in this company that you can access. Creating a resource does not share it with everyone.') : active?.name}
         onClick={() => onValueChange('owned')}
       >
         <OwnerIcon className="size-3.5" aria-hidden="true" />

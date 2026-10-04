@@ -216,12 +216,14 @@ describe('organization role surface', () => {
     renderRole('admin', ['view_audit', 'manage_members', 'manage_policy']);
     await user.click(await screen.findByRole('tab', { name: /^people$/i }));
     await user.click((await screen.findAllByRole('combobox'))[0]);
-    await user.click(screen.getByRole('option', { name: 'admin' }));
+    expect(screen.queryByRole('option', { name: 'admin' })).toBeNull();
+    expect(screen.queryByRole('option', { name: 'owner' })).toBeNull();
+    await user.click(screen.getByRole('option', { name: 'guest' }));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     expect(updateOrganizationMember).toHaveBeenCalledWith(
       'organization-roles',
       'other-user',
-      { role: 'admin', status: 'active' },
+      { role: 'guest', status: 'active' },
     );
   });
 

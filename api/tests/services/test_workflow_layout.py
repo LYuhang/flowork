@@ -33,7 +33,7 @@ def setup(monkeypatch):
     monkeypatch.setattr(layout, "WorkflowRepo", lambda *_: repo)
     monkeypatch.setattr(layout, "_require_active_chat_write", active)
     monkeypatch.setattr(layout, "resolve_target", target)
-    monkeypatch.setattr(layout, "_decision", decision)
+    monkeypatch.setattr(layout, "_workflow_decision", decision)
     monkeypatch.setattr(layout, "_service", lambda *_: None)
     monkeypatch.setattr(layout, "_workflow_resource", lambda *_: None)
     return ctx, session, graph, repo, active, decision, target

@@ -1305,18 +1305,10 @@ async def test_workflow_runtime_broker_keeps_saved_secret_host_only_and_revokes_
         validate_test_destination,
     )
 
-    email = f"workflow_broker_{uuid.uuid4().hex[:12]}@example.com"
-    register = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": email,
-            "username": "Workflow Broker User",
-            "password": "pw12345678",
-        },
-    )
-    assert register.status_code in (200, 201), register.text
-    headers = {"Authorization": f"Bearer {register.json()['session_token']}"}
-    me = (await client.get("/api/v1/auth/me", headers=headers)).json()
+    from tests.test_workflow_authorization_integration import _register
+    monkeypatch.setattr(config, "web_session_cookie_enabled", True)
+    monkeypatch.setattr(config, "distributed_auth_rate_limit_enabled", False)
+    headers, me = await _register(client, "workflow_broker")
     workflow_response = await client.post(
         "/api/v1/workflows",
         json={"name": "Brokered workflow"},

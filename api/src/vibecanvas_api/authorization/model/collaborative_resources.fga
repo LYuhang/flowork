@@ -4,9 +4,9 @@ type workflow
   relations
     define organization: [organization]
     define viewer: [user, group#direct_member, group#member, organization#member]
-    define editor: [user, group#direct_member, group#member]
-    define operator: [user, service_account, group#direct_member, group#member]
-    define manager: [user, group#direct_member, group#member]
+    define editor: [user, group#direct_member, group#member, organization#member]
+    define operator: [user, service_account, group#direct_member, group#member, organization#member]
+    define manager: [user, group#direct_member, group#member, organization#member]
     define can_view_metadata: viewer or editor or operator or manager or can_administer from organization or can_view_audit from organization
     define can_view: viewer or editor or operator or manager
     define can_export: viewer or editor or operator or manager
@@ -24,9 +24,9 @@ type task
   relations
     define organization: [organization]
     define viewer: [user, group#direct_member, group#member, organization#member]
-    define editor: [user, group#direct_member, group#member]
-    define operator: [user, service_account, group#direct_member, group#member]
-    define manager: [user, group#direct_member, group#member]
+    define editor: [user, group#direct_member, group#member, organization#member]
+    define operator: [user, service_account, group#direct_member, group#member, organization#member]
+    define manager: [user, group#direct_member, group#member, organization#member]
     define can_view_metadata: viewer or editor or operator or manager or can_administer from organization or can_view_audit from organization
     define can_view: viewer or editor or operator or manager
     define can_export: viewer or editor or operator or manager
@@ -42,9 +42,9 @@ type deployment
   relations
     define organization: [organization]
     define viewer: [user, group#direct_member, group#member, organization#member]
-    define editor: [user, group#direct_member, group#member]
-    define operator: [user, service_account, group#direct_member, group#member]
-    define manager: [user, group#direct_member, group#member]
+    define editor: [user, group#direct_member, group#member, organization#member]
+    define operator: [user, service_account, group#direct_member, group#member, organization#member]
+    define manager: [user, group#direct_member, group#member, organization#member]
     define can_view_metadata: viewer or editor or operator or manager or can_administer from organization or can_view_audit from organization
     define can_view: viewer or editor or operator or manager
     define can_update: editor or manager
@@ -52,19 +52,34 @@ type deployment
     define can_manage_access: manager or can_administer from organization
     define can_execute: operator or manager
     define can_cancel: operator or manager
-    define can_inspect_runs: operator or manager
+    define can_inspect_runs: viewer or editor or operator or manager
     define can_manage_secret: manager or can_administer from organization
 
 type knowledge_base
   relations
     define organization: [organization]
     define viewer: [user, group#direct_member, group#member, organization#member]
-    define editor: [user, group#direct_member, group#member]
-    define operator: [user, service_account, group#direct_member, group#member]
-    define manager: [user, group#direct_member, group#member]
-    define can_view_metadata: viewer or editor or operator or manager or can_administer from organization or can_view_audit from organization
-    define can_view: viewer or editor or operator or manager
+    define editor: [user, group#direct_member, group#member, organization#member]
+    define manager: [user, group#direct_member, group#member, organization#member]
+    define can_view_metadata: viewer or editor or manager or can_administer from organization or can_view_audit from organization
+    define can_view: viewer or editor or manager
     define can_update: editor or manager
     define can_delete: manager or can_administer from organization
     define can_manage_access: manager or can_administer from organization
-    define can_use: operator or manager
+    define can_use: viewer or editor or manager
+
+
+type skill_installation
+  relations
+    define organization: [organization]
+    define viewer: [user, group#direct_member, group#member, organization#member]
+    define editor: [user, group#direct_member, group#member, organization#member]
+    define manager: [user, group#direct_member, group#member, organization#member]
+    define consumer: [service_account]
+    define can_view_metadata: viewer or editor or manager or can_administer from organization or can_view_audit from organization
+    define can_view: viewer or editor or manager
+    define can_update: editor or manager
+    define can_delete: manager or can_administer from organization
+    define can_manage_access: manager or can_administer from organization
+    define can_use: viewer or editor or manager or consumer
+    define can_publish: editor or manager

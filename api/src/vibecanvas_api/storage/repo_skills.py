@@ -147,6 +147,8 @@ class SkillsRepo:
             version=version,
             files=files or [],
         )
+        from vibecanvas_api.storage.repo_skill_installations import SkillInstallationsRepo
+        await SkillInstallationsRepo(self.session).install(user_id, skill_id)
         return skill_id
 
     async def save_draft(
@@ -414,7 +416,9 @@ class SkillsRepo:
     async def list_for_user(self, user_id: str | uuid.UUID) -> list[dict]:
         rows = (await self.session.execute(
             text(
-                "SELECT s.*, r.revision_hash, r.file_manifest, "
+                "SELECT s.*, EXISTS (SELECT 1 FROM user_skill_installations i "
+                "WHERE i.skill_id=s.skill_id AND i.user_id=NULLIF(current_setting('app.user_id', true), '')::uuid) AS installed, "
+                "r.revision_hash, r.file_manifest, "
                 "r.size_bytes AS revision_size_bytes "
                 "FROM skills s LEFT JOIN skill_revisions r "
                 "ON r.revision_id=s.current_revision_id "
@@ -464,7 +468,9 @@ class SkillsRepo:
         rows = (
             await self.session.execute(
                 text(
-                    "SELECT s.*, r.revision_hash, r.file_manifest, "
+                    "SELECT s.*, EXISTS (SELECT 1 FROM user_skill_installations i "
+                    "WHERE i.skill_id=s.skill_id AND i.user_id=NULLIF(current_setting('app.user_id', true), '')::uuid) AS installed, "
+                    "r.revision_hash, r.file_manifest, "
                     "r.size_bytes AS revision_size_bytes "
                     "FROM skills s LEFT JOIN skill_revisions r "
                     "ON r.revision_id=s.current_revision_id "
@@ -481,7 +487,9 @@ class SkillsRepo:
         self, skill_id: uuid.UUID | str, *, user_id: str | uuid.UUID | None = None,
     ) -> Optional[dict]:
         sql = (
-            "SELECT s.*, r.revision_hash, r.file_manifest, "
+            "SELECT s.*, EXISTS (SELECT 1 FROM user_skill_installations i "
+            "WHERE i.skill_id=s.skill_id AND i.user_id=NULLIF(current_setting('app.user_id', true), '')::uuid) AS installed, "
+            "r.revision_hash, r.file_manifest, "
             "r.size_bytes AS revision_size_bytes "
             "FROM skills s LEFT JOIN skill_revisions r "
             "ON r.revision_id=s.current_revision_id "

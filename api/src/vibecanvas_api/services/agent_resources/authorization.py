@@ -214,9 +214,27 @@ async def _decision(
     return decision
 
 
+async def _workflow_decision(session, ctx, workflow_id, action, *,
+                             consistency=ConsistencyPreference.HIGHER_CONSISTENCY):
+    """Keep the actor identity while admitting exactly one shared Workflow."""
+    from vibecanvas_api.services.agent_runtime.resource_routes import admitted_resource_route_params
+    from vibecanvas_api.authorization.dependencies import context_for_auth
+    params = await admitted_resource_route_params(ctx, session, "workflow", workflow_id)
+    try:
+        decision = await params["service"].check(
+            _principal(ctx), action, _workflow_resource(ctx, workflow_id),
+            context_for_auth(params["ctx"], params["request"], consistency=consistency),
+        )
+    except OpenFgaUnavailableError as exc:
+        raise ToolError("authorization_unavailable", "Authorization is temporarily unavailable.") from exc
+    if not decision.allowed:
+        raise _permission_error()
+    return decision
+
+
 async def require_organization_create(ctx) -> Decision:
     organization_id = str(getattr(ctx, "tenant_id", "") or "")
-    async with session_scope(tenant_id=organization_id) as session:
+    async with session_scope(tenant_id=organization_id, user_id=ctx.username) as session:
         return await _decision(
             ctx=ctx,
             service=_service(ctx, session),
@@ -242,14 +260,8 @@ async def require_workflow_action(
     if not workflow_id:
         raise ToolError("no_workflow", "An explicit workflow ID is required.")
     organization_id = str(getattr(ctx, "tenant_id", "") or "")
-    async with session_scope(tenant_id=organization_id) as session:
-        return await _decision(
-            ctx=ctx,
-            service=_service(ctx, session),
-            action=action,
-            resource=_workflow_resource(ctx, workflow_id),
-            consistency=consistency,
-        )
+    async with session_scope(tenant_id=organization_id, user_id=ctx.username) as session:
+        return await _workflow_decision(session, ctx, workflow_id, action, consistency=consistency)
 
 
 async def require_chat_action(
@@ -265,7 +277,7 @@ async def require_chat_action(
     if not chat_id:
         raise _permission_error()
     organization_id = str(getattr(ctx, "tenant_id", "") or "")
-    async with session_scope(tenant_id=organization_id) as session:
+    async with session_scope(tenant_id=organization_id, user_id=ctx.username) as session:
         return await _decision(
             ctx=ctx,
             service=_service(ctx, session),
@@ -285,14 +297,8 @@ async def load_authorized_workflow(
     if not workflow_id:
         raise ToolError("no_workflow", "An explicit workflow ID is required.")
     organization_id = str(getattr(ctx, "tenant_id", "") or "")
-    async with session_scope(tenant_id=organization_id) as session:
-        service = _service(ctx, session)
-        decision = await _decision(
-            ctx=ctx,
-            service=service,
-            action=action,
-            resource=_workflow_resource(ctx, workflow_id),
-        )
+    async with session_scope(tenant_id=organization_id, user_id=ctx.username) as session:
+        decision = await _workflow_decision(session, ctx, workflow_id, action)
         repo = WorkflowRepo(session, str(getattr(ctx, "username", "") or ""))
         meta = await repo.get_meta(workflow_id)
         if not meta:
@@ -308,7 +314,7 @@ async def list_authorized_workflows(
     organization_id = str(getattr(ctx, "tenant_id", "") or "")
     principal = _principal(ctx)
     context = _request_context(ctx, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
-    async with session_scope(tenant_id=organization_id) as session:
+    async with session_scope(tenant_id=organization_id, user_id=ctx.username) as session:
         service = _service(ctx, session)
         try:
             authorized_ids = await service.list_authorized_ids(
@@ -325,11 +331,9 @@ async def list_authorized_workflows(
         repo = WorkflowRepo(session, principal.id)
         rows, _total = await repo.list_authorized_workflows(
             authorized_ids,
-            limit=limit,
-            offset=offset,
+            limit=max(1, offset + limit),
+            offset=0,
         )
-        if not include_access:
-            return rows
         resources = [
             _workflow_resource(ctx, str(row["wf_id"])) for row in rows
         ]
@@ -345,7 +349,7 @@ async def list_authorized_workflows(
                 "authorization_unavailable",
                 "Authorization is temporarily unavailable.",
             ) from exc
-        return [
+        output = [
             {
                 **row,
                 "access": {
@@ -359,6 +363,32 @@ async def list_authorized_workflows(
             }
             for row, resource in zip(rows, resources, strict=True)
         ]
+
+        from vibecanvas_api.services.agent_runtime.resource_routes import shared_resource_cards
+        cards = await shared_resource_cards(ctx, session, "workflow")
+    by_id = {str(row["wf_id"]): row for row in output}
+    for card in cards:
+        if card.resource_id in by_id:
+            continue
+        async with session_scope(tenant_id=organization_id, user_id=ctx.username) as session:
+            try:
+                decision = await _workflow_decision(session, ctx, card.resource_id, Action.VIEW_METADATA)
+            except ToolError as exc:
+                if str(exc) != "permission_denied":
+                    raise
+                continue
+            meta = await WorkflowRepo(session, principal.id).get_meta(card.resource_id)
+            if not meta:
+                continue
+            by_id[card.resource_id] = {**meta, "access": {
+                "capabilities": sorted(action.value for action in decision.capabilities),
+                "effective_role": decision.effective_role, "source": "shared",
+            }}
+    combined = sorted(by_id.values(), key=lambda row: (-float(row.get("updated_at") or 0), str(row["wf_id"])))
+    result = combined[max(0, offset):max(0, offset) + max(0, limit)]
+    if not include_access:
+        return [{key: value for key, value in row.items() if key != "access"} for row in result]
+    return result
 
 
 async def _require_active_chat_write(session, ctx) -> None:
@@ -387,14 +417,9 @@ async def _require_active_chat_write(session, ctx) -> None:
 async def _require_workflow_read(session, ctx, workflow_id: str) -> None:
     # Descriptions/tags are private content: metadata visibility alone is not
     # enough to return metadata. Never read a graph for metadata queries.
-    service = _service(ctx, session)
     try:
         for action in (Action.USE, Action.VIEW):
-            await _decision(
-                ctx=ctx, service=service, action=action,
-                resource=_workflow_resource(ctx, workflow_id),
-                consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
-            )
+            await _workflow_decision(session, ctx, workflow_id, action, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
     except ToolError as exc:
         if str(exc) == "permission_denied":
             raise ToolError("workflow_unavailable", "The workflow does not exist or is no longer accessible.") from exc
@@ -411,8 +436,7 @@ async def get_authorized_workflow_metadata(ctx, workflow_id: str, changes: dict 
         if not meta:
             raise ToolError("workflow_unavailable", "The workflow is unavailable.")
         if changes is not None:
-            await _decision(ctx=ctx, service=_service(ctx, session), action=Action.UPDATE,
-                resource=_workflow_resource(ctx, workflow_id), consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+            await _workflow_decision(session, ctx, workflow_id, action=Action.UPDATE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
             fields = {"workflow_name" if key == "name" else key: value for key, value in changes.items()}
             meta = await repo.update_meta(workflow_id, **fields)
         return meta

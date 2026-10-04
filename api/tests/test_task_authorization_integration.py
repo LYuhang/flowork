@@ -99,6 +99,8 @@ class _RelationshipStore:
                 )
             if relation in {"can_view", "can_use"}:
                 return self._role(user, object_, roles)
+            if relation == "can_execute":
+                return self._role(user, object_, {"operator", "manager"})
             return False
         if not object_.startswith("task:"):
             return False
@@ -132,28 +134,9 @@ class _RelationshipStore:
         return False
 
 
-def _headers(token: str, **extra: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", **extra}
-
-
-async def _register(client: AsyncClient, label: str) -> tuple[str, dict]:
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": f"{label}_{uuid.uuid4().hex[:12]}@example.com",
-            "username": label,
-            "password": "pw12345678",
-        },
-    )
-    assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
-    me = (
-        await client.get(
-            "/api/v1/auth/me",
-            headers=_headers(token),
-        )
-    ).json()
-    return token, me
+from tests.test_workflow_authorization_integration import (
+    _browser_sessions, _headers, _register,
+)
 
 
 async def _join_active_organization(
@@ -372,6 +355,20 @@ async def test_task_direct_roles_capabilities_and_revoke(
 
         await grant("viewer", viewer)
         await grant("operator", operator)
+
+        for token, expected_source in [(owner_token, 'created'), (viewer_token, 'shared')]:
+            for source in ('all', 'created', 'shared'):
+                listed = await client.get(f'/api/v1/tasks?source={source}&limit=1', headers=_headers(token))
+                assert listed.status_code == 200, listed.text
+                expected = source in ('all', expected_source)
+                assert listed.json()['total'] == int(expected)
+                assert [item['id'] for item in listed.json()['items']] == ([task_id] if expected else [])
+                counts = await client.get(f'/api/v1/tasks/summary?source={source}', headers=_headers(token))
+                assert counts.status_code == 200, counts.text
+                assert counts.json()['enabled'] == int(expected)
+            beyond = await client.get('/api/v1/tasks?source=all&limit=1&offset=1', headers=_headers(token))
+            assert beyond.json()['items'] == []
+            assert beyond.json()['total'] == 1
 
         shared = await client.get(
             "/api/v1/resource-access/shared?resource_type=task",

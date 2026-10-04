@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import structlog
+from starlette.requests import Request
 
-from vibecanvas_api.auth.deps import AuthContext
+from vibecanvas_api.auth.deps import AuthContext, _admit_shared_resource
 from vibecanvas_api.auth.live_identity import (
     LiveIdentityError,
     resolve_live_authorization_identity,
 )
 from vibecanvas_api.storage.db import session_scope
 
-from .dependencies import authz_service_for_session, scope_authz_service
+from .dependencies import authz_service_for_session, scope_authz_service, context_for_auth
+from .parent_resolvers import collaboration_root_exists
 from .types import (
     Action,
-    AuthzRequestContext,
     ConsistencyPreference,
     PrincipalRef,
     PrincipalType,
@@ -63,10 +64,20 @@ async def authorization_lease_is_valid(
 
         async with session_scope(
             tenant_id=auth.active_organization_id,
+            user_id=lease_auth.user_id,
         ) as resource_session:
+            request = Request({
+                "type": "http", "method": "GET", "path": "/internal/stream-lease",
+                "headers": [], "query_string": b"",
+                "path_params": {"resource_type": resource.type.value, "resource_id": resource.id},
+            })
+            await _admit_shared_resource(request, lease_auth, resource_session)
+            if not await collaboration_root_exists(resource_session, resource):
+                return _deny_lease("resource_deleted", auth=auth)
             service = authz_service_for_session(
                 session=resource_session,
-                organization_id=auth.active_organization_id,
+                organization_id=(getattr(request.state, "admitted_resource_organization_id", None)
+                                 or lease_auth.active_organization_id),
                 openfga_client=openfga_client,
             )
             service = scope_authz_service(
@@ -79,16 +90,7 @@ async def authorization_lease_is_valid(
                 PrincipalRef(PrincipalType.USER, lease_auth.user_id),
                 action,
                 resource,
-                AuthzRequestContext(
-                    active_organization_id=lease_auth.active_organization_id,
-                    session_id=lease_auth.session_id,
-                    session_generation=lease_auth.session_generation,
-                    membership_id=lease_auth.membership_id,
-                    membership_role=lease_auth.membership_role,
-                    membership_status=lease_auth.membership_status,
-                    authentication_strength=lease_auth.authentication_strength,
-                    consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
-                ),
+                context_for_auth(lease_auth, request, consistency=ConsistencyPreference.HIGHER_CONSISTENCY),
             )
             if not decision.allowed:
                 logger.debug(

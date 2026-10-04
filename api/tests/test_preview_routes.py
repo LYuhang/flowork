@@ -38,19 +38,11 @@ def _office_payload(extension: str) -> bytes:
     return target.getvalue()
 
 
+from tests.test_workflow_authorization_integration import _browser_sessions, _register as _register_user
+
+
 async def _register(client) -> tuple[dict, dict]:
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": f"preview_{uuid.uuid4().hex[:12]}@example.com",
-            "username": "Preview User",
-            "password": "pw12345678",
-        },
-    )
-    assert response.status_code in (200, 201), response.text
-    headers = {"Authorization": f"Bearer {response.json()['session_token']}"}
-    me = (await client.get("/api/v1/auth/me", headers=headers)).json()
-    return headers, me
+    return await _register_user(client, 'preview')
 
 
 async def _chat_fixture(client, app_engine) -> tuple[dict, dict, str, str]:
@@ -660,7 +652,7 @@ async def test_preview_html_resource_session_maps_workspace_files(
         headers,
         scope_id,
         "index.html",
-        b'<img src="/data/pixel.png">',
+        b'<img src="/data/pixel.png"><img src="/chats/other/private.png"><a href="/chats/">Chats</a>',
         "text/html",
     )
     image = b"\x89PNG\r\n\x1a\npreview-resource"
@@ -703,6 +695,8 @@ async def test_preview_html_resource_session_maps_workspace_files(
     assert rendered_resource.content == image
     unrelated = await client.get(f"{root}data/private.txt")
     assert unrelated.status_code == 403
+    private_chat = await client.get(f"{root}chats/other/private.png")
+    assert private_chat.status_code == 403
     wrong_audience = await client.get(
         f"{root}data/pixel.png".replace(
             "/resources/file-preview/",

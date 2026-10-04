@@ -411,6 +411,10 @@ def _migrate(pg_url, monkeypatch_session):
                          password=app_password).render_as_string(
         hide_password=False)
     monkeypatch_session.setenv("DATABASE_URL", app_url)
+    # Background identity checks must use this disposable database too;
+    # never inherit a service's maintenance connection from the environment.
+    monkeypatch_session.setenv("MAINTENANCE_DATABASE_URL", su_url.render_as_string(hide_password=False))
+    monkeypatch_session.delenv("ADMIN_DATABASE_URL", raising=False)
     _live_config.database.url = app_url
     # 3. Migrate to head AS vibecanvas_app → it owns every table.
     cfg = AlembicConfig(str(ALEMBIC_INI))

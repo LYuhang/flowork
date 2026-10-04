@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, FetchedValue, ForeignKey,
+    BigInteger, Boolean, CheckConstraint, FetchedValue, ForeignKey, ForeignKeyConstraint,
     Identity, Index, Integer, LargeBinary, Text, TIMESTAMP,
     UniqueConstraint, func, text,
 )
@@ -114,21 +114,25 @@ class WorkflowRunState(Base):
     """Lightweight control plane for interactive workflow-page execution.
 
     Large node inputs/outputs stay in the workflow run VFS. This table stores
-    only the current UI-restorable state for one workflow.
+    only the current UI-restorable state for one user and workflow.
     """
 
     __tablename__ = "workflow_run_state"
+    workflow_tenant_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False,
+        server_default=FetchedValue(),
+    )
     wf_id: Mapped[str] = mapped_column(
         Text, ForeignKey("workflows.wf_id", ondelete="CASCADE"),
         primary_key=True,
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("tenants.tenant_id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=False, primary_key=True,
         server_default=text("current_setting('app.tenant_id', true)::uuid"),
     )
     creator_user_id: Mapped[uuid.UUID] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False,
+        PgUUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False, primary_key=True,
     )
     turn_id: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     run_kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="workflow")
@@ -181,13 +185,16 @@ class WorkflowRunEvent(Base):
 
     __tablename__ = "workflow_run_events"
     wf_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("workflow_run_state.wf_id", ondelete="CASCADE"),
+        Text,
         primary_key=True,
+    )
+    creator_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.user_id"), primary_key=True,
     )
     seq: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("tenants.tenant_id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=False, primary_key=True,
         server_default=text("current_setting('app.tenant_id', true)::uuid"),
     )
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
@@ -200,6 +207,9 @@ class WorkflowRunEvent(Base):
     )
     created_at: Mapped[datetime] = _ts()
     __table_args__ = (
+        ForeignKeyConstraint(["wf_id", "tenant_id", "creator_user_id"],
+                             ["workflow_run_state.wf_id", "workflow_run_state.tenant_id", "workflow_run_state.creator_user_id"],
+                             name="fk_workflow_run_event_owner", ondelete="CASCADE"),
         Index("ix_workflow_run_events_wf_seq", "wf_id", "seq"),
     )
 

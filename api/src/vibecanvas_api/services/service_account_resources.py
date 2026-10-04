@@ -10,7 +10,6 @@ from vibecanvas_api.authorization.openfga_client import openfga_client_from_conf
 from vibecanvas_api.authorization.types import Action, AuthzRequestContext, ConsistencyPreference, PrincipalRef, PrincipalType, ResourceRef, ResourceType
 from vibecanvas_api.services.workflow_resources import collect_subagent_resources
 from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
-from vibecanvas_api.storage.repo_skills import SkillsRepo
 from vibecanvas_api.storage.repo_mcp_servers import McpServersRepo
 
 
@@ -34,19 +33,39 @@ async def bind_workflow_resources(session, *, tenant_id: UUID, service_account_i
         context = AuthzRequestContext(active_organization_id=str(tenant_id),
             membership_id=str(membership["membership_id"]), membership_role=membership["org_role"],
             membership_status=membership["status"], consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+        owners = {}
+        skill_rows = {}
+        if any(kind == "skill_installation" for kind, _ in wanted):
+            from vibecanvas_api.services.runtime_skills import authorized_skill_rows
+            original_user = (await session.execute(text("SELECT current_setting('app.user_id', true)"))).scalar_one() or ""
+            try:
+                await session.execute(text("SELECT set_config('app.user_id', :user, true)"), {"user": created_by})
+                rows = await authorized_skill_rows(session=session, service=service,
+                    principal=PrincipalRef(PrincipalType.USER, created_by), context=context)
+                skill_rows = {str(row["skill_id"]): row for row in rows}
+            finally:
+                await session.execute(text("SELECT set_config('app.user_id', :user, true)"), {"user": original_user})
         for kind, identifier in sorted(wanted):
-            decision = await service.check(PrincipalRef(PrincipalType.USER, created_by), Action.USE,
-                ResourceRef(ResourceType(kind), identifier, str(tenant_id)), context)
-            if not decision.allowed:
-                raise HTTPException(403, "workflow_resource_delegation_denied")
-            repo = SkillsRepo(session) if kind == "skill_installation" else McpServersRepo(session)
-            row = await repo.get(UUID(identifier))
-            if row is None or (not row.get("revision_hash") if kind == "skill_installation" else not row.get("enabled")):
-                raise HTTPException(422, "workflow_resource_unavailable")
+            if kind == "skill_installation":
+                row = skill_rows.get(identifier)
+                if row is None:
+                    raise HTTPException(403, "workflow_resource_delegation_denied")
+                if not row.get("revision_hash"):
+                    raise HTTPException(422, "workflow_resource_unavailable")
+                owners[(kind, identifier)] = UUID(str(row["tenant_id"]))
+            else:
+                decision = await service.check(PrincipalRef(PrincipalType.USER, created_by), Action.USE,
+                    ResourceRef(ResourceType(kind), identifier, str(tenant_id)), context)
+                if not decision.allowed:
+                    raise HTTPException(403, "workflow_resource_delegation_denied")
+                row = await McpServersRepo(session).get(UUID(identifier))
+                if row is None or not row.get("enabled"):
+                    raise HTTPException(422, "workflow_resource_unavailable")
+                owners[(kind, identifier)] = tenant_id
         accounts = ServiceAccountsRepo(session)
         for kind, identifier in sorted(wanted):
             await accounts.bind_resource(tenant_id=tenant_id, service_account_id=service_account_id,
-                resource_type=kind, resource_id=UUID(identifier))
+                resource_type=kind, resource_id=UUID(identifier), resource_tenant_id=owners[(kind, identifier)])
         return await accounts.resource_refs(service_account_id)
     finally:
         await client.close()
@@ -79,7 +98,8 @@ async def delegate_new_resources(*, session, coordinator, tenant_id: str,
         return ()
     bound = set(await bind_workflow_resources(session, tenant_id=UUID(tenant_id),
         service_account_id=account_id, created_by=created_by, workflow=additions))
-    edges = {MutationEdge(tenant_id, kind, identifier, "consumer", "service_account", service_account_id)
+    owners = await accounts.resource_owners(account_id)
+    edges = {MutationEdge(owners[(kind, identifier)], kind, identifier, "consumer", "service_account", service_account_id)
              for kind, identifier in bound - existing}
     if not edges:
         return ()

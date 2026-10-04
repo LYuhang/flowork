@@ -56,6 +56,7 @@ export interface KbDetail extends Kb {
 }
 
 export interface KbListItem extends Kb {
+  created_by_me: boolean;
   file_count: number;
   chunk_count: number;
   stored_count: number;

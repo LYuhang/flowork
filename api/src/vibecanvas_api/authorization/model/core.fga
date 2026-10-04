@@ -15,7 +15,7 @@ type organization
   relations
     define owner: [user]
     define admin: [user]
-    define member: [user]
+    define member: [user] or owner or admin
     define guest: [user]
     define auditor: [user]
     define can_view_metadata: owner or admin or member or auditor

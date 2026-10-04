@@ -46,6 +46,7 @@ async def test_waiting_row_holds_worker_and_each_input_has_its_own_history(pg_en
         user_id=actor,
         provider=BubblewrapProvider(shutil.which("bwrap")),
         workspace_folders=(),
+        workflow_run_source=None,
         _rw_binds=[],
         skills_dir=None,
         _sync_mount_folder=AsyncMock(),

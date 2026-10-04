@@ -106,7 +106,6 @@ from vibecanvas_api.services.service_account_credentials import (
 from vibecanvas_api.services.sse_bridge import task_event_stream
 from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
 from vibecanvas_api.storage.repo_tasks import TasksRepo
-from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
@@ -309,27 +308,6 @@ async def _authorize_organization_create(
         raise HTTPException(status_code=404, detail="resource_not_found")
 
 
-async def _authorize_workflow_use(
-    *,
-    request: Request,
-    ctx: AuthContext,
-    service: AuthzService,
-    workflow_id: str,
-) -> None:
-    decision = await service.check(
-        principal_for_auth(ctx),
-        Action.USE,
-        ResourceRef(
-            ResourceType.WORKFLOW,
-            workflow_id,
-            ctx.active_organization_id,
-        ),
-        context_for_auth(ctx, request),
-    )
-    if not decision.allowed:
-        raise HTTPException(status_code=404, detail="resource_not_found")
-
-
 async def _rebind_request_organization(
     session: AsyncSession,
     ctx: AuthContext,
@@ -396,6 +374,7 @@ async def list_tasks(
     status: list[str] = Query(default=[]),
     task_type: list[str] = Query(default=[]),
     workflow_id: str | None = None,
+    source: Literal["all", "created", "shared"] = "all",
     q: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -422,39 +401,43 @@ async def list_tasks(
         ResourceType.TASK,
         context,
     )
-    items, total = await TasksRepo(session).list_for_tenant(
-        task_ids=authorized_ids,
-        status=status or None,
-        task_type=task_type or None,
-        workflow_id=workflow_id,
-        search=q,
-        limit=limit,
-        offset=offset,
-    )
-    resources = [_task_resource(ctx, item.id) for item in items]
-    decisions = await batch_resource_decisions(
-        service,
-        principal=principal,
-        resources=resources,
-        context=context,
-    )
-    provenance = ResourceProvenanceBuilder(session)
-    output_items = [
-        await _task_to_out(item, decisions[resource], provenance)
-        for item, resource in zip(items, resources, strict=True)
-    ]
-    return {
-        "items": output_items,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-    }
+    from vibecanvas_api.services.shared_inventory import inventory_groups, inventory_context
+    groups = await inventory_groups(service=service, principal=principal, context=context,
+        resource_type=ResourceType.TASK, local_ids=authorized_ids)
+    original = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one()
+    output_items = []
+    total = 0
+    try:
+        for owner, identifiers in groups.items():
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": owner})
+            items, count = await TasksRepo(session).list_for_tenant(task_ids=identifiers,
+                status=status or None, task_type=task_type or None, workflow_id=workflow_id, search=q,
+                creator_user_id=ctx.user_id if source != "all" else None,
+                exclude_creator=source == "shared", limit=offset + limit, offset=0)
+            total += count
+            provenance = ResourceProvenanceBuilder(session)
+            for item in items:
+                decision = await service.check(principal, Action.VIEW_METADATA,
+                    ResourceRef(ResourceType.TASK, str(item.id), owner),
+                    inventory_context(context, owner, "task", str(item.id)))
+                if not decision.allowed:
+                    total -= 1
+                    continue
+                output = await _task_to_out(item, decision, provenance)
+                output["created_by_me"] = str(item.user_id) == str(ctx.user_id)
+                output_items.append(output)
+    finally:
+        await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
+    output_items.sort(key=lambda item: item["id"])
+    output_items.sort(key=lambda item: item.get("submitted_at") or "", reverse=True)
+    return {"items": output_items[offset:offset + limit], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/summary")
 async def tasks_summary(
     request: Request,
     workflow_id: str | None = None,
+    source: Literal["all", "created", "shared"] = "all",
     task_type: list[str] | None = Query(default=None),
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
@@ -466,11 +449,22 @@ async def tasks_summary(
         ResourceType.TASK,
         context_for_auth(ctx, request),
     )
-    return await TasksRepo(session).summary_for_tenant(
-        task_ids=authorized_ids,
-        task_type=task_type,
-        workflow_id=workflow_id,
-    )
+    from vibecanvas_api.services.shared_inventory import inventory_groups
+    groups = await inventory_groups(service=service, principal=principal_for_auth(ctx),
+        context=context_for_auth(ctx, request), resource_type=ResourceType.TASK, local_ids=authorized_ids)
+    original = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one()
+    summary = {}
+    try:
+        for owner, identifiers in groups.items():
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": owner})
+            counts = await TasksRepo(session).summary_for_tenant(task_ids=identifiers,
+                task_type=task_type, workflow_id=workflow_id,
+                creator_user_id=ctx.user_id if source != "all" else None, exclude_creator=source == "shared")
+            for key, value in counts.items():
+                summary[key] = summary.get(key, 0) + value
+    finally:
+        await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
+    return summary
 
 
 @router.post("/scheduled-runs", status_code=status.HTTP_201_CREATED)
@@ -486,12 +480,6 @@ async def create_scheduled_run(
         ctx=ctx,
         service=service,
     )
-    await _authorize_workflow_use(
-        request=request,
-        ctx=ctx,
-        service=service,
-        workflow_id=body.workflow_id,
-    )
     if body.schedule_type not in {"interval", "cron", "once"}:
         raise HTTPException(status_code=422, detail="schedule_type must be interval, cron or once")
     if body.schedule_type == "once" and any(v is not None for v in (
@@ -504,12 +492,13 @@ async def create_scheduled_run(
         raise HTTPException(status_code=422, detail="interval_seconds must be positive")
     if body.schedule_type == "cron" and not body.cron_expr:
         raise HTTPException(status_code=422, detail="cron_expr is required")
-    meta = await WorkflowRepo(session, ctx.user_id).get_meta(body.workflow_id)
-    if not meta:
-        raise HTTPException(status_code=404, detail=f"workflow {body.workflow_id} not found")
+    from vibecanvas_api.authorization.dependencies import authorized_resource_scope
     from vibecanvas_api.services.task_snapshots import freeze_workflow
-    snapshot = await freeze_workflow(session, ctx.user_id, body.workflow_id,
-                                     major=body.major, version=body.version)
+    async with authorized_resource_scope(request=request, auth=ctx, session=session,
+            resource_type=ResourceType.WORKFLOW, resource_id=body.workflow_id, action=Action.EXECUTE):
+        workflow_tenant_id = await session.scalar(text("SELECT current_setting('app.tenant_id', true)"))
+        snapshot = await freeze_workflow(session, ctx.user_id, body.workflow_id,
+                                         major=body.major, version=body.version)
     try:
         next_run_at = (
             compute_next_run_at(
@@ -565,6 +554,7 @@ async def create_scheduled_run(
             tenant_id=uuid.UUID(ctx.tenant_id),
             user_id=uuid.UUID(ctx.user_id),
             workflow_id=body.workflow_id,
+            workflow_tenant_id=uuid.UUID(workflow_tenant_id),
             name=body.name.strip() or "Scheduled run",
             enabled=body.enabled,
             schedule_type=body.schedule_type,
@@ -629,8 +619,9 @@ async def create_scheduled_run(
                 owner_resource_type="task",
                 owner_resource_id=str(task_id),
                 workflow_id=body.workflow_id,
+                workflow_organization_id=workflow_tenant_id,
                 credential_ids=credential_ids,
-                resource_refs=await ServiceAccountsRepo(session).resource_refs(service_account_id),
+                resource_owners=await ServiceAccountsRepo(session).resource_owners(service_account_id),
             )
         ),
         operation_id=uuid.uuid4().hex,
@@ -735,8 +726,10 @@ async def update_scheduled_run(
         fields["start_at"] = body.start_at.isoformat() if body.start_at else None
     if body.major or body.version:
         from vibecanvas_api.services.task_snapshots import freeze_workflow
-        await _authorize_workflow_use(request=request, ctx=ctx, service=service, workflow_id=schedule.workflow_id)
-        snapshot = await freeze_workflow(session, ctx.user_id, schedule.workflow_id, major=body.major, version=body.version)
+        from vibecanvas_api.authorization.dependencies import authorized_resource_scope
+        async with authorized_resource_scope(request=request, auth=ctx, session=session,
+                resource_type=ResourceType.WORKFLOW, resource_id=schedule.workflow_id, action=Action.EXECUTE):
+            snapshot = await freeze_workflow(session, ctx.user_id, schedule.workflow_id, major=body.major, version=body.version)
         fields["workflow_selector"] = {"version": snapshot["version"]}
     enabled = schedule.enabled if body.enabled is None else body.enabled
     schedule_type = fields.get("schedule_type", schedule.schedule_type)
@@ -783,6 +776,14 @@ async def update_scheduled_run(
         action=Action.UPDATE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
+    if enabled and not schedule.enabled:
+        # Enabling through settings starts future executions just like resume.
+        # Editing configuration must not bypass the separate execution grant.
+        await _authorize_task(
+            request=request, ctx=ctx, service=service, task_id=task_id,
+            action=Action.RESUME,
+            consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
+        )
     schedule = await repo.update_schedule(schedule.id, **fields)
     if task.service_account_id is not None:
         await ServiceAccountsRepo(session).set_status(
@@ -917,7 +918,7 @@ async def run_scheduled_now(
     run_key = f"manual:{execution_id}"
     execution = await repo.create_scheduled_execution(
         execution_id=execution_id,
-        tenant_id=uuid.UUID(ctx.tenant_id),
+        tenant_id=schedule.tenant_id,
         schedule_id=schedule.id,
         workflow_id=schedule.workflow_id,
         run_key=run_key,
@@ -933,8 +934,8 @@ async def run_scheduled_now(
         task_id=task_id,
         schedule_id=schedule.id,
         execution_id=execution_id,
-        tenant_id=ctx.tenant_id,
-        user_id=ctx.user_id,
+        tenant_id=str(schedule.tenant_id),
+        user_id=str(schedule.user_id),
         workflow_id=schedule.workflow_id,
     )
     return {"status": "queued", "execution": execution_to_out(execution)}
@@ -1007,14 +1008,15 @@ async def _delete_task_record(task_id, task, request, ctx, session):
             )
         )
         account_before = service_account_edges(
-            organization_id=ctx.active_organization_id,
+            organization_id=str(task.tenant_id),
             service_account_id=str(task.service_account_id),
             created_by=str(task.user_id),
             owner_resource_type="task",
             owner_resource_id=str(task_id),
             workflow_id=str(task.workflow_id),
+            workflow_organization_id=str(task.workflow_tenant_id),
             credential_ids=credential_ids,
-            resource_refs=await account_repo.resource_refs(task.service_account_id),
+            resource_owners=await account_repo.resource_owners(task.service_account_id),
         )
         await account_repo.set_status(
             task.service_account_id,
@@ -1023,7 +1025,7 @@ async def _delete_task_record(task_id, task, request, ctx, session):
     await session.execute(text("DELETE FROM tasks WHERE id=:id"), {"id": task_id})
     coordinator = mutation_coordinator_for_request(
         request,
-        ctx.active_organization_id,
+        str(task.tenant_id),
     )
     mutation_ids = await enqueue_structural_delta(
         session=session,
@@ -1032,7 +1034,7 @@ async def _delete_task_record(task_id, task, request, ctx, session):
         actor_id=ctx.user_id,
         before=(
             resource_root_edges(
-                organization_id=ctx.active_organization_id,
+                organization_id=str(task.tenant_id),
                 object_type="task",
                 object_id=str(task_id),
                 owner_relation="manager",
@@ -1209,7 +1211,7 @@ async def cancel_scheduled_run_execution(
             "data": {"execution_id": str(execution_id), "schedule_id": str(schedule.id)},
             "error": None,
         },
-        uuid.UUID(ctx.tenant_id),
+        task.tenant_id,
     )
     return {"status": state}
 
@@ -1376,6 +1378,23 @@ async def revoke_task_access(
     )
 
 
+@router.get("/{task_id}/workflow-preview")
+async def preview_task_workflow(
+    task_id: uuid.UUID, workflow_id: str, version: str, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_task(request=request, ctx=ctx, service=service,
+                          task_id=task_id, action=Action.VIEW)
+    repo = TasksRepo(session)
+    task = await repo.get(task_id)
+    if task is None:
+        raise HTTPException(404, "task_not_found")
+    from vibecanvas_api.services.instance_workflow_preview import task_workflow_preview
+    return await task_workflow_preview(session, ctx.user_id, task,
+        await repo.get_schedule_by_task(task_id), workflow_id=workflow_id, version=version)
+
+
 @router.get("/{task_id}")
 async def get_task(
     task_id: uuid.UUID,
@@ -1457,7 +1476,7 @@ async def cancel_task(
         action=Action.CANCEL,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    tenant_uuid = uuid.UUID(ctx.tenant_id)
+    tenant_uuid = t.tenant_id
 
     if t.status == "queued":
         await session.execute(
@@ -1628,7 +1647,7 @@ async def resume_task(
             "data": {"resume_policy": "skip_success"},
             "error": None,
         },
-        uuid.UUID(ctx.tenant_id),
+        t.tenant_id,
     )
     await session.flush()
 
@@ -1761,7 +1780,7 @@ async def stream_task_events(
         task_event_stream(
             task_id=task_id,
             last_event_id=last_event_id,
-            tenant_id=ctx.tenant_id,
+            tenant_id=str(t.tenant_id),
             redis_url=_config.redis.url,
             authorization_guard=lambda: authorization_lease_is_valid(
                 auth=ctx,

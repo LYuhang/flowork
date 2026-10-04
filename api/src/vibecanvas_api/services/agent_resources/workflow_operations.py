@@ -9,7 +9,7 @@ from vibecanvas_api.agents.tools.decorator import ToolError
 from vibecanvas_api.authorization.types import Action, ConsistencyPreference
 from vibecanvas_api.flowork_cli.cli import error, validate_arguments
 from vibecanvas_api.services.agent_resources.authorization import (
-    _decision,
+    _workflow_decision,
     _principal,
     _request_context,
     _require_active_chat_write,
@@ -163,9 +163,7 @@ async def operate_workflow(ctx, arguments: dict) -> dict:
         await _require_active_chat_write(session, ctx)
         selection = await resolve_target(session, ctx, arguments["workflow_id"], arguments["major"], for_update=True)
         workflow_id, major, sub = selection["id"], selection["major"], selection["sub"]
-        await _decision(ctx=ctx, service=_service(ctx, session), action=Action.UPDATE,
-                        resource=_workflow_resource(ctx, workflow_id),
-                        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+        await _workflow_decision(session, ctx, workflow_id, action=Action.UPDATE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
         repo = WorkflowRepo(session, ctx.username)
         graph = deepcopy(await repo.get_workflow_at(workflow_id, major, sub))
         applied, failure, results = 0, {}, []
@@ -191,9 +189,12 @@ async def operate_workflow(ctx, arguments: dict) -> dict:
                 item["status"] = "not_saved"
         else:
             from vibecanvas_api.services.workflow_resources import canonicalize_resource_names
-            graph = await canonicalize_resource_names(session=session, workflow=graph,
-                service=_service(ctx, session), principal=_principal(ctx),
-                context=_request_context(ctx, consistency=ConsistencyPreference.HIGHER_CONSISTENCY))
+            # Dependencies belong to the editing user, even when the graph
+            # transaction has admitted a different resource owner.
+            async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as dependencies_session:
+                graph = await canonicalize_resource_names(session=dependencies_session, workflow=graph,
+                    service=_service(ctx, dependencies_session), principal=_principal(ctx),
+                    context=_request_context(ctx, consistency=ConsistencyPreference.HIGHER_CONSISTENCY))
             pointer = await repo.commit(workflow_id, graph, note=arguments["note"] or f"agent: workflow operation {applied}/{len(operations)}",
                                         target_major=major, stamp_metadata=True)
             sub = pointer.sv

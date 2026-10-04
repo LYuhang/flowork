@@ -30,6 +30,7 @@ import {
 import {
   grantResolvedResourceBinding,
   listOrganizations,
+  listOrganizationGroups,
   listResourceBindings,
   resolveResourceShareTarget,
   revokeResourceBinding,
@@ -104,6 +105,27 @@ export function ResourceShareDialog({
   const [resolvedTarget, setResolvedTarget] = useState<ResolvedShareTarget | null>(null);
   const [relation, setRelation] = useState<ShareRelation>('viewer');
 
+  const groups = useQuery({
+    queryKey: ['organization-groups', organizationId],
+    queryFn: () => listOrganizationGroups(organizationId),
+    enabled: open && isBusiness && targetType === 'group',
+  });
+  const groupOptions = (groups.data ?? []).flatMap((group) => {
+    const names = [group.name];
+    const seen = new Set([group.group_id]);
+    let parentId = group.parent_group_id;
+    while (parentId) {
+      const parent = groups.data?.find((item) => item.group_id === parentId);
+      if (!parent || seen.has(parentId) || names.length >= 8) return [];
+      seen.add(parentId);
+      names.unshift(parent.name);
+      parentId = parent.parent_group_id;
+    }
+    const path = names.join(' / ');
+    return path.toLocaleLowerCase().includes(identifier.trim().toLocaleLowerCase())
+      ? [{ id: group.group_id, path }] : [];
+  });
+
   const resetTarget = () => {
     setTargetType('user');
     setIdentifier('');
@@ -112,12 +134,12 @@ export function ResourceShareDialog({
   };
 
   const resolveTarget = useMutation({
-    mutationFn: () => resolveResourceShareTarget(
+    mutationFn: (selectedPath?: string) => resolveResourceShareTarget(
       resourceKind,
       resourceId,
       {
         target_type: targetType,
-        identifier: targetType === 'organization' ? '' : identifier.trim(),
+        identifier: targetType === 'organization' ? '' : selectedPath ?? identifier.trim(),
       },
     ),
     onSuccess: (target) => {
@@ -321,7 +343,7 @@ export function ResourceShareDialog({
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && canSearch && !resolveTarget.isPending) {
                         event.preventDefault();
-                        resolveTarget.mutate();
+                        resolveTarget.mutate(undefined);
                       }
                     }}
                   />
@@ -330,7 +352,7 @@ export function ResourceShareDialog({
               <Button
                 variant="outline"
                 disabled={!canSearch || resolveTarget.isPending}
-                onClick={() => resolveTarget.mutate()}
+                onClick={() => resolveTarget.mutate(undefined)}
               >
                 <Search className="size-4" />
                 {resolveTarget.isPending
@@ -338,6 +360,14 @@ export function ResourceShareDialog({
                   : t('share.searchAction', 'Search')}
               </Button>
             </div>
+
+            {targetType === 'group' && !resolvedTarget ? (
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-edge-subtle">
+                {groups.isLoading ? <p className="p-3 text-sm">{t('share.searching', 'Searching…')}</p> : groups.isError ? <p className="p-3 text-sm text-destructive">{t('share.searchFailed')}</p> : groupOptions.length === 0 ? <p className="p-3 text-sm">{t('share.noDepartments', 'No matching departments or teams.')}</p> : groupOptions.map((group) => (
+                  <button key={group.id} type="button" disabled={resolveTarget.isPending} className="block w-full px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50" onClick={() => { updateIdentifier(group.path); resolveTarget.mutate(group.path); }}>{group.path}</button>
+                ))}
+              </div>
+            ) : null}
 
             {resolvedTarget ? (
               <div className="flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/[0.045] p-3 sm:flex-row sm:items-center">

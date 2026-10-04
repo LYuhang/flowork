@@ -14,6 +14,7 @@ class WorkflowCreate(BaseModel):
 
 
 class WorkflowMetaOut(BaseModel):
+    created_by_me: bool = False
     wf_id: str
     workflow_name: str
     description: str

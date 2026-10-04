@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    FetchedValue,
     BigInteger, CheckConstraint, DateTime, Float, ForeignKey, Index, Text,
     UniqueConstraint, func, text,
 )
@@ -46,6 +47,10 @@ class Task(Base):
         UUID(as_uuid=True),
         ForeignKey("service_accounts.service_account_id", ondelete="RESTRICT"),
         nullable=True,
+    )
+    workflow_tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False,
+        server_default=FetchedValue(),
     )
     workflow_id: Mapped[Optional[str]] = mapped_column(
         Text, ForeignKey("workflows.wf_id", ondelete="CASCADE"), nullable=True,
@@ -167,6 +172,10 @@ class TaskSchedule(Base):
         ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
     )
+    workflow_tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False,
+        server_default=FetchedValue(),
+    )
     workflow_id: Mapped[str] = mapped_column(
         Text, ForeignKey("workflows.wf_id", ondelete="CASCADE"), nullable=False,
     )
@@ -243,6 +252,10 @@ class ScheduledRunExecution(Base):
         UUID(as_uuid=True),
         ForeignKey("task_schedules.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    workflow_tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False,
+        server_default=FetchedValue(),
     )
     workflow_id: Mapped[str] = mapped_column(
         Text, ForeignKey("workflows.wf_id", ondelete="CASCADE"), nullable=False,

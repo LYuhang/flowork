@@ -1,15 +1,17 @@
+import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
-import { BookOpenText, ExternalLink, GitCommitHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { BookOpenText, ExternalLink, GitCommitHorizontal, Pencil, Share2, Trash2 } from 'lucide-react';
+import { ResourceShareDialog } from '@/components/modals/ResourceShareDialog';
 import { CopyButton } from '@/components/ui/copy-button';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useDeleteSkill, usePublishSkillVersion, useSkill, useSkillDraft, useSkillVersion, useSkillVersions } from '@/lib/api/queries/skills';
+import { useSetSkillInstalled, useDeleteSkill, usePublishSkillVersion, useSkill, useSkillDraft, useSkillVersion, useSkillVersions } from '@/lib/api/queries/skills';
 import { getSkillFile, getSkillVersionFile, getSkillDraftFile, writeSkillDraftFile } from '@/lib/api/skills';
 import { SkillFileBrowser } from '@/pages/skills/SkillFileBrowser';
 import { StatusBadge } from '@/components/ui/status';
@@ -33,8 +35,10 @@ export function SkillDetailPage() {
   const canEdit = query.data?.source === 'custom' && query.data.access.capabilities.includes('update');
   const draft = useSkillDraft(id, !!canEdit);
   const remove = useDeleteSkill();
+  const installation = useSetSkillInstalled();
   const publish = usePublishSkillVersion();
   const editing = !!canEdit && !revision && params.get('edit') === '1';
+  const [shareOpen, setShareOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [versionDialog, setVersionDialog] = useState(false);
   const [nextVersion, setNextVersion] = useState('');
@@ -79,7 +83,7 @@ export function SkillDetailPage() {
   return <EntityDetailShell resourceKind="skill" backTo="/skills" backLabel={t('skills.back', 'Skills')}
     title={viewed.name} description={viewed.description} icon={BookOpenText}
     status={editing ? <StatusBadge status="warning">{t('files.manage.draft', 'Draft')}</StatusBadge> : revision ? <StatusBadge status="neutral">{t('skills.custom.historical', 'Historical version')}</StatusBadge> : undefined}
-    metadata={<><span>{sourceName}</span><span>{t('skills.files_count', {count:files.length,defaultValue:'{{count}} Files'})}</span><ResourceProvenanceLine provenance={viewed.provenance} /></>}
+    metadata={<><span>{sourceName}</span><span>{t('skills.files_count', {count:files.length,defaultValue:'{{count}} Files'})}</span><ResourceAccessBadge access={skill.access} /><ResourceProvenanceLine provenance={viewed.provenance} /></>}
     actions={<>
       <Select value={revision ?? 'latest'} disabled={editing || publish.isPending} onValueChange={value => {
         const next = new URLSearchParams(params); if (value === 'latest') next.delete('revision'); else next.set('revision', value);
@@ -91,11 +95,17 @@ export function SkillDetailPage() {
         </SelectContent>
       </Select>
       {skill.source_url && <Button variant="outline" size="sm" asChild><a href={skill.source_url} target="_blank" rel="noreferrer"><ExternalLink />{t('skills.catalog.source', 'Source')}</a></Button>}
-      {canEdit && !revision && <>
-        <Button variant="outline" size="sm" disabled={!draft.data || publish.isPending} onClick={() => setEditing(!editing)}><Pencil />{editing ? t('files.manage.finishEditing', 'Finish editing') : t('skills.edit', 'Edit')}</Button>
+      {skill.source === 'custom' && <>
+        <Button variant="outline" size="sm" disabled={!canEdit || !!revision || !draft.data || publish.isPending} onClick={() => setEditing(!editing)}><Pencil />{editing ? t('files.manage.finishEditing', 'Finish editing') : t('skills.edit', 'Edit')}</Button>
         {editing && <Button size="sm" disabled={!draft.data?.has_changes || publish.isPending} onClick={() => {setNextVersion(String(skill.version+1)); setPublishHash(token); setVersionDialog(true);}}><GitCommitHorizontal />{t('skills.custom.new_version', 'New version')}</Button>}
       </>}
-      {skill.access.capabilities.includes('delete') && <Button variant="outline" size="sm" className="text-destructive" onClick={() => setConfirmDelete(true)}><Trash2 />{t('skills.delete', 'Uninstall')}</Button>}
+      {skill.source === 'custom' && (!canEdit || !!revision) && <span className="text-xs text-muted-foreground">{t('resourceAccess.editUnavailable')}</span>}
+      {skill.source === 'custom' && skill.access.capabilities.includes('manage_access') && <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}><Share2 />{t('share.share', 'Share')}</Button>}
+      {skill.access.capabilities.includes('use') && <Button variant="outline" size="sm" disabled={installation.isPending} onClick={async () => {
+        try { await installation.mutateAsync({ id: skill.id, installed: !skill.installed }); }
+        catch (reason) { toast.error(reason instanceof Error ? reason.message : String(reason)); }
+      }}>{skill.installed ? t('skills.uninstall', 'Uninstall') : t('skills.install', 'Install')}</Button>}
+      {skill.access.capabilities.includes('delete') && <Button variant="outline" size="sm" className="text-destructive" onClick={() => setConfirmDelete(true)}><Trash2 />{t('skills.deleteResource', 'Delete Skill')}</Button>}
     </>}
   >
     <Tabs value={tab} onValueChange={value => {const next = new URLSearchParams(params); next.set('tab',value); setParams(next,{replace:true});}} className="flex min-h-0 flex-1 flex-col gap-4">
@@ -119,12 +129,14 @@ export function SkillDetailPage() {
         </SectionBlock>
       </TabsContent>
     </Tabs>
-    <Dialog open={versionDialog} onOpenChange={setVersionDialog}><DialogContent><DialogHeader><DialogTitle>{t('skills.custom.new_version','New version')}</DialogTitle><DialogDescription>{t('files.manage.publishSkillHint')}</DialogDescription></DialogHeader>
+    <ResourceShareDialog open={shareOpen && skill.access.capabilities.includes('manage_access')} onOpenChange={setShareOpen} resourceKind="skill_installation"
+      resourceId={skill.id} resourceName={skill.name} effectiveRole={skill.access.effective_role} accessSource={skill.access.source} />
+    <Dialog open={versionDialog && editing} onOpenChange={setVersionDialog}><DialogContent><DialogHeader><DialogTitle>{t('skills.custom.new_version','New version')}</DialogTitle><DialogDescription>{t('files.manage.publishSkillHint')}</DialogDescription></DialogHeader>
       <Input type="number" aria-label={t('skills.detail.version','Version')} min={skill.version+1} step={1} value={nextVersion} onChange={e => setNextVersion(e.target.value)} />
       <DialogFooter><Button variant="outline" disabled={publish.isPending} onClick={() => setVersionDialog(false)}>{t('cancel','Cancel')}</Button><Button disabled={publish.isPending} onClick={() => void publishVersion()}>{t('files.manage.publish','Publish')}</Button></DialogFooter>
     </DialogContent></Dialog>
-    <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>{t('skills.delete_title','Uninstall this Skill?')}</DialogTitle><DialogDescription>{t('skills.delete_confirm','The agent will no longer be able to load this Skill.')}</DialogDescription></DialogHeader><DialogFooter>
-      <Button variant="outline" disabled={remove.isPending} onClick={() => setConfirmDelete(false)}>{t('cancel','Cancel')}</Button><Button variant="destructive" disabled={remove.isPending} onClick={async () => {try {await remove.mutateAsync(skill.id); navigate('/skills');} catch(reason) {toast.error(reason instanceof Error ? reason.message : String(reason));}}}>{t('skills.delete','Uninstall')}</Button>
+    <Dialog open={confirmDelete && skill.access.capabilities.includes('delete')} onOpenChange={setConfirmDelete}><DialogContent><DialogHeader><DialogTitle>{t('skills.deleteResourceTitle','Delete this Skill?')}</DialogTitle><DialogDescription>{t('skills.deleteResourceHint','This deletes the resource for all recipients. To remove only your installation, use Uninstall.')}</DialogDescription></DialogHeader><DialogFooter>
+      <Button variant="outline" disabled={remove.isPending} onClick={() => setConfirmDelete(false)}>{t('cancel','Cancel')}</Button><Button variant="destructive" disabled={remove.isPending} onClick={async () => {try {await remove.mutateAsync(skill.id); navigate('/skills');} catch(reason) {toast.error(reason instanceof Error ? reason.message : String(reason));}}}>{t('skills.deleteResource','Delete Skill')}</Button>
     </DialogFooter></DialogContent></Dialog>
   </EntityDetailShell>;
 }

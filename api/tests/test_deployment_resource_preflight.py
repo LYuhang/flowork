@@ -103,6 +103,7 @@ async def test_new_delegation_excludes_existing_and_revoked_resources(monkeypatc
     monkeypatch.setattr(projection, 'enqueue_structural_delta', enqueue)
     graph = {'worker': {'node_type': 'SubAgentNode', 'node_config': {'skills': [
         {'id': identifier, 'name': 'skill'} for identifier in (existing, revoked, added)]}}}
+    repo.resource_owners = AsyncMock(return_value={('skill_installation', added): str(uuid4())})
     kwargs = dict(session=object(), coordinator=object(), tenant_id=str(uuid4()),
                   service_account_id=str(uuid4()), created_by=str(uuid4()), workflow=graph)
     assert await delegation.delegate_new_resources(**kwargs) == ('intent',)

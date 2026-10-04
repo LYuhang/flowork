@@ -1,4 +1,4 @@
-"""Private Skill-installation authorization and Runtime inheritance."""
+"""Unshared custom Skill authorization and Runtime inheritance."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ import uuid
 import zipfile
 
 import pytest
+from tests.test_workflow_authorization_integration import _headers, _register, _browser_sessions
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
+from vibecanvas_api.config import config
 from vibecanvas_api.app import build_app
 from vibecanvas_api.authorization.dependencies import (
     authz_service_for_session,
@@ -124,7 +126,7 @@ class _RelationshipStore:
             )
         if relation in {"can_view", "can_update", "can_use", "can_publish"}:
             return is_manager
-        if relation == "can_delete":
+        if relation in {"can_delete", "can_manage_access"}:
             return is_manager or self._organization_role(
                 user,
                 object_,
@@ -132,9 +134,6 @@ class _RelationshipStore:
             )
         return False
 
-
-def _headers(token: str, **extra: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", **extra}
 
 
 def _bundle() -> bytes:
@@ -145,27 +144,6 @@ def _bundle() -> bytes:
     return output.getvalue()
 
 
-async def _register(
-    client: AsyncClient,
-    label: str,
-) -> tuple[str, dict]:
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": f"{label}_{uuid.uuid4().hex[:12]}@example.com",
-            "username": label,
-            "password": "pw12345678",
-        },
-    )
-    assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
-    me = (
-        await client.get(
-            "/api/v1/auth/me",
-            headers=_headers(token),
-        )
-    ).json()
-    return token, me
 
 
 async def _join_active_organization(
@@ -214,8 +192,13 @@ async def _join_active_organization(
 async def test_skill_installation_stays_private_and_owner_can_use_revisions(
     pg_engine,
     tmp_path,
+    monkeypatch,
 ):
+    monkeypatch.setattr(config, "resource_sharing_enabled", True)
     store = _RelationshipStore()
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(store, "close", AsyncMock(), raising=False)
+    monkeypatch.setattr("vibecanvas_api.authorization.openfga_client.openfga_client_from_config", lambda: store)
     app = build_app()
     app.state.openfga_client = store
 
@@ -267,7 +250,7 @@ async def test_skill_installation_stays_private_and_owner_can_use_revisions(
         skill = created.json()
         skill_id = skill["id"]
         assert skill["access"]["effective_role"] == "manager"
-        assert "manage_access" not in skill["access"]["capabilities"]
+        assert "manage_access" in skill["access"]["capabilities"]
         assert OpenFgaTuple(
             f"user:{owner['user_id']}",
             "manager",
@@ -276,7 +259,7 @@ async def test_skill_installation_stays_private_and_owner_can_use_revisions(
 
         for token, expected_capabilities in (
             (auditor_token, {"view_metadata"}),
-            (admin_token, {"view_metadata", "delete"}),
+            (admin_token, {"view_metadata", "delete", "manage_access"}),
         ):
             inventory = await client.get(
                 "/api/v1/skills",
@@ -309,22 +292,11 @@ async def test_skill_installation_stays_private_and_owner_can_use_revisions(
             )
         ).status_code == 404
 
-        for method in ("GET", "POST", "DELETE"):
-            response = await client.request(
-                method,
-                f"/api/v1/skills/{skill_id}/access",
-                json=(
-                    {
-                        "relation": "viewer",
-                        "subject_type": "user",
-                        "subject_id": outsider["user_id"],
-                    }
-                    if method != "GET"
-                    else None
-                ),
-                headers=_headers(owner_token),
-            )
-            assert response.status_code == 404
+        # Custom skills support explicit sharing; unshared content stays private.
+        access = await client.get(f"/api/v1/skills/{skill_id}/access", headers=_headers(owner_token))
+        assert access.status_code == 200, access.text
+        denied_access = await client.get(f"/api/v1/skills/{skill_id}/access", headers=_headers(outsider_token))
+        assert denied_access.status_code == 404
 
         draft_md = SKILL_MD.replace(
             "Say hello using",
@@ -332,19 +304,19 @@ async def test_skill_installation_stays_private_and_owner_can_use_revisions(
         )
         saved = await client.put(
             f"/api/v1/skills/{skill_id}/draft",
-            json={"skill_md": draft_md},
+            json={"skill_md": draft_md, "expected_hash": skill["revision_hash"]},
             headers=_headers(owner_token),
         )
         assert saved.status_code == 200, saved.text
         published = await client.post(
             f"/api/v1/skills/{skill_id}/versions",
-            json={"version": 2},
+            json={"version": 2, "expected_hash": saved.json()["draft_hash"]},
             headers=_headers(owner_token),
         )
         assert published.status_code == 200, published.text
 
         async with session_scope(
-            tenant_id=owner["tenant_id"],
+            tenant_id=owner["tenant_id"], user_id=owner["user_id"],
         ) as session:
             service = authz_service_for_session(
                 session=session,
@@ -371,6 +343,7 @@ async def test_skill_installation_stays_private_and_owner_can_use_revisions(
         hydrated = await hydrate_runtime_skills(
             destination=str(runtime_root),
             tenant_id=owner["tenant_id"],
+            user_id=owner["user_id"],
             skills=owner_skills,
         )
         assert hydrated == 2

@@ -49,14 +49,13 @@ def test_shareable_and_private_types_do_not_drift():
             types[OPENFGA_OBJECT_TYPES[resource_type]]["relations"]
         )
         assert {"viewer", "editor", "manager"} <= relations
-        if OPENFGA_OBJECT_TYPES[resource_type] != "template":
+        if resource_type not in {ResourceType.SKILL_INSTALLATION, ResourceType.KNOWLEDGE_BASE}:
             assert "operator" in relations
 
     for object_type in {
         "chat",
         "template",
         "storage_root",
-        "skill_installation",
         "mcp_installation",
         "llm_credential",
     }:
@@ -69,7 +68,6 @@ def test_shareable_and_private_types_do_not_drift():
         ResourceType.CHAT,
         ResourceType.TEMPLATE,
         ResourceType.STORAGE_ROOT,
-        ResourceType.SKILL_INSTALLATION,
         ResourceType.MCP_INSTALLATION,
         ResourceType.LLM_CREDENTIAL,
     }.isdisjoint(SHAREABLE_RESOURCE_TYPES)
@@ -139,3 +137,79 @@ def test_workflow_resource_delegates_get_use_without_management_or_secret_access
         for name, relation in model["relations"].items():
             if name.startswith("can_") and name != "can_use":
                 assert not _references_relation(relation, "consumer")
+
+
+def test_shared_skill_roles_do_not_grant_execution_or_credential_access():
+    from vibecanvas_api.authorization.openfga_model import ROLE_CAPABILITIES, SHARE_RELATION_SUBJECTS
+    from vibecanvas_api.authorization.types import Action
+    roles = ROLE_CAPABILITIES[ResourceType.SKILL_INSTALLATION]
+    assert set(SHARE_RELATION_SUBJECTS[ResourceType.SKILL_INSTALLATION]) == {"viewer", "editor", "manager"}
+    assert roles["viewer"] == {Action.VIEW_METADATA, Action.VIEW, Action.USE}
+    assert roles["editor"] == roles["viewer"] | {Action.UPDATE, Action.PUBLISH}
+    assert Action.MANAGE_ACCESS in roles["manager"]
+    assert all(Action.MANAGE_SECRET not in actions for actions in roles.values())
+
+
+def test_share_registry_subjects_match_model():
+    from vibecanvas_api.authorization.openfga_model import SHARE_RELATION_SUBJECTS, SHARE_ROLES
+    types = _model_types()
+    assert set(SHARE_ROLES) == SHAREABLE_RESOURCE_TYPES
+    for resource_type, roles in SHARE_RELATION_SUBJECTS.items():
+        model = types[OPENFGA_OBJECT_TYPES[resource_type]]
+        assert set(roles) == set(SHARE_ROLES[resource_type])
+        for role, subjects in roles.items():
+            actual = {
+                (item["type"], item.get("relation"))
+                for item in model["metadata"]["relations"][role]["directly_related_user_types"]
+            }
+            assert actual == {(kind.value, relation) for kind, relation in subjects}
+
+
+def test_skill_model_read_and_publish_capabilities_match_registry():
+    from vibecanvas_api.authorization.openfga_model import ROLE_CAPABILITIES
+    model = _model_types()["skill_installation"]
+    for role, expected in ROLE_CAPABILITIES[ResourceType.SKILL_INSTALLATION].items():
+        for action, relation in ACTION_RELATIONS[ResourceType.SKILL_INSTALLATION].items():
+            assert _references_relation(model["relations"][relation], role) == (action in expected), (role, action)
+
+
+def test_company_membership_includes_administrators_but_not_guests():
+    member = _model_types()["organization"]["relations"]["member"]
+    assert _references_relation(member, "owner")
+    assert _references_relation(member, "admin")
+    assert not _references_relation(member, "guest")
+    assert not _references_relation(member, "auditor")
+    assert {"this": {}} in member["union"]["child"]
+
+
+def test_company_can_receive_each_supported_share_role():
+    from vibecanvas_api.authorization.openfga_model import SHARE_RELATION_SUBJECTS
+    from vibecanvas_api.authorization.types import RelationshipSubjectType
+    for roles in SHARE_RELATION_SUBJECTS.values():
+        for subjects in roles.values():
+            assert (RelationshipSubjectType.ORGANIZATION, "member") in subjects
+
+
+def test_knowledge_readers_can_use_content_without_a_separate_operator_role():
+    from vibecanvas_api.authorization.openfga_model import ROLE_CAPABILITIES, SHARE_ROLES
+    from vibecanvas_api.authorization.types import Action
+    kind = ResourceType.KNOWLEDGE_BASE
+    assert SHARE_ROLES[kind] == ("viewer", "editor", "manager")
+    model = _model_types()["knowledge_base"]
+    assert "operator" not in model["relations"]
+    roles = ROLE_CAPABILITIES[kind]
+    assert roles["viewer"] == {Action.VIEW_METADATA, Action.VIEW, Action.USE}
+    assert roles["editor"] == roles["viewer"] | {Action.UPDATE}
+    for role, expected in roles.items():
+        for action, relation in ACTION_RELATIONS[kind].items():
+            assert _references_relation(model["relations"][relation], role) == (action in expected), (role, action)
+
+
+def test_instance_history_is_visible_to_all_content_roles():
+    types = _model_types()
+    for kind in ("task", "deployment"):
+        children = types[kind]["relations"]["can_inspect_runs"]["union"]["child"]
+        assert {child["computedUserset"]["relation"] for child in children} == {
+            "viewer", "editor", "operator", "manager",
+        }
+    assert types["workflow"]["relations"]["can_inspect_runs"] != types["deployment"]["relations"]["can_inspect_runs"]

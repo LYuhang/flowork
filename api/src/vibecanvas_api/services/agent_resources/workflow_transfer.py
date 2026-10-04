@@ -7,7 +7,7 @@ from copy import deepcopy
 from vibecanvas_api.agents.tools.decorator import ToolError
 from vibecanvas_api.authorization.types import Action, ConsistencyPreference
 from vibecanvas_api.services.agent_resources.authorization import (
-    _decision,
+    _workflow_decision,
     _principal,
     _request_context,
     _require_active_chat_write,
@@ -30,7 +30,7 @@ from .workflow_target import resolve_target
 
 async def read_workflow_snapshot(ctx, *, workflow_id: str, version: str = "", major: str = "") -> dict:
     """Authorize and freeze an explicit branch, pinned version, or Preview HEAD."""
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         if not workflow_id:
             raise ToolError("invalid_arguments", "An explicit workflow ID is required.")
         if version and major:
@@ -87,9 +87,7 @@ async def upload_workflow(ctx, workflow: dict, *, workflow_id: str, major: str, 
     async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         await _require_active_chat_write(session, ctx)
         selection = await resolve_target(session, ctx, workflow_id, major, for_update=True)
-        await _decision(ctx=ctx, service=_service(ctx, session), action=Action.UPDATE,
-                        resource=_workflow_resource(ctx, workflow_id),
-                        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+        await _workflow_decision(session, ctx, workflow_id, action=Action.UPDATE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
         metadata = graph.setdefault("__meta__", {})
         if metadata.get("workflow_id") not in (None, "", workflow_id):
             raise ToolError("workflow_mismatch", "The file belongs to another workflow. Specify that workflow ID or use create --file to make a copy.")
@@ -100,9 +98,12 @@ async def upload_workflow(ctx, workflow: dict, *, workflow_id: str, major: str, 
             raise ToolError("workflow_unavailable", "The workflow is unavailable.")
         from vibecanvas_api.services.workflow_resources import collect_subagent_resources, canonicalize_resource_names
         if collect_subagent_resources(graph):
-            graph = await canonicalize_resource_names(session=session, workflow=graph,
-                service=_service(ctx, session), principal=_principal(ctx),
-                context=_request_context(ctx, consistency=ConsistencyPreference.HIGHER_CONSISTENCY))
+            # Dependencies belong to the editing user, even when the graph
+            # transaction has admitted a different resource owner.
+            async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as dependencies_session:
+                graph = await canonicalize_resource_names(session=dependencies_session, workflow=graph,
+                    service=_service(ctx, dependencies_session), principal=_principal(ctx),
+                    context=_request_context(ctx, consistency=ConsistencyPreference.HIGHER_CONSISTENCY))
         pointer = await repo.commit(workflow_id, graph, note=note or "agent: workflow upload",
                                     target_major=selection["major"], stamp_metadata=True, expected_version=expected_version)
         result = {"id": workflow_id, "version": f"v{pointer.parent_v}.sv{pointer.sv}", "node_count": _node_count(graph)}

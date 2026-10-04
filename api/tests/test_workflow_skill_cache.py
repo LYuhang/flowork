@@ -118,7 +118,7 @@ async def test_live_authorization_denial_is_distinct_from_outage(monkeypatch, st
 
 
 @pytest.mark.asyncio
-async def test_live_authorization_checks_delegation_and_pinned_revision(monkeypatch):
+async def test_live_authorization_checks_discovered_pinned_revision(monkeypatch):
     from types import SimpleNamespace
     from vibecanvas_api.authorization.types import PrincipalType, ResourceType
     from vibecanvas_api.services import workflow_execution_authorization as execution_auth
@@ -128,14 +128,19 @@ async def test_live_authorization_checks_delegation_and_pinned_revision(monkeypa
     revision = str(uuid4())
     principal = SimpleNamespace(type=PrincipalType.SERVICE_ACCOUNT, id=str(uuid4()))
     service = SimpleNamespace(check=AsyncMock(return_value=SimpleNamespace(allowed=True)))
+    from vibecanvas_api.authorization.types import AuthzRequestContext
+    organization = str(uuid4())
+    session = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: organization)))
+    monkeypatch.setattr('vibecanvas_api.services.runtime_skills.authorized_skill_rows', AsyncMock(return_value=[
+        {'skill_id': retained, 'tenant_id': organization}]))
     async def authorize(request, capability, *, resolve):
-        return await resolve(session=object(), service=service, principal=principal,
-            authz_context=object(), capability=SimpleNamespace(organization_id=str(uuid4())))
+        return await resolve(session=session, service=service, principal=principal,
+            authz_context=AuthzRequestContext(active_organization_id=organization), capability=SimpleNamespace(organization_id=organization))
     monkeypatch.setattr(execution_auth, 'authorize_workflow_execution', authorize)
     monkeypatch.setattr(ServiceAccountsRepo, 'resource_refs',
         AsyncMock(return_value=[('skill_installation', retained)]))
     monkeypatch.setattr(SkillsRepo, 'get', AsyncMock(return_value={'current_revision_id': 'new-publication'}))
-    get_revision = AsyncMock(return_value={'revision_id': revision})
+    get_revision = AsyncMock(return_value={'revision_id': revision, 'revision_hash': 'a' * 64})
     monkeypatch.setattr(SkillsRepo, 'get_revision', get_revision)
     skills = [{'id': identifier, 'revision_id': revision, 'revision_hash': 'a' * 64}
               for identifier in (retained, revoked)]

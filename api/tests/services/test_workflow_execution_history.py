@@ -121,3 +121,46 @@ async def test_observer_drains_committed_events_when_completion_races_a_read(mon
     assert result == {"result": "done"}
     assert [call.args[0]["seq"] for call in on_event.await_args_list] == [1, 2, 3]
     on_failure.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shared", [True, False])
+async def test_completed_canvas_run_syncs_source_folder_separately_from_private_artifacts(monkeypatch, shared):
+    from vibecanvas_api.services.sandbox import session_executions as module
+    slot = SimpleNamespace(artifacts="/tmp/shared-workflow-run")
+
+    @asynccontextmanager
+    async def acquire(execution_id):
+        yield slot
+
+    @asynccontextmanager
+    async def db_scope(**kwargs):
+        yield None
+
+    class Driver:
+        def __init__(self, **kwargs):
+            self.persist = kwargs['persist_artifacts']
+
+        async def run(self, **kwargs):
+            await self.persist()
+            return {'final_outputs': {}}
+
+    artifacts, sync = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(module, 'persist_workflow_artifacts', artifacts)
+    monkeypatch.setattr(module, 'sync_run_back', sync)
+    monkeypatch.setattr(module, 'WorkflowExecutionDriver', Driver)
+    monkeypatch.setattr(module, 'short_session_scope', db_scope)
+    monkeypatch.setattr(module.WorkflowHistoryRepo, 'get', AsyncMock(return_value={'status': 'succeeded'}))
+    session = SimpleNamespace(tenant_id='actor-org', workflow_run_source=object() if shared else None,
+        workflow_run_id='workflow', workflow_run_tenant_id='owner-org',
+        workflow_run_dir='/tmp/shared-workflow-run', workspace_folders=('data', 'memory', 'logs', 'chats'),
+        _sync_mount_folder=AsyncMock())
+    owner = module.SessionExecutions(session)
+    await owner._execute(SimpleNamespace(pool=SimpleNamespace(acquire=acquire)), 'execution', {}, {}, 'workflow')
+    assert artifacts.call_args.kwargs['tenant_id'] == 'actor-org'
+    assert artifacts.call_args.kwargs['execution_id'] == 'execution'
+    if shared:
+        sync.assert_awaited_once_with('workflow', 'owner-org', '/tmp/shared-workflow-run', 'workflow')
+        assert 'chats' in artifacts.call_args.kwargs['excluded_roots']
+    else:
+        sync.assert_not_called()

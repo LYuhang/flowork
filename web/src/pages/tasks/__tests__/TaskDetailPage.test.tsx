@@ -154,7 +154,7 @@ describe("<TaskDetailPage>", () => {
     vi.mocked(getTask).mockResolvedValue(task);
     renderAt(TASK_ID);
     expect(await screen.findByRole('link', { name: 'v2.sv3' }))
-      .toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3&returnTo=' + encodeURIComponent(`/tasks/${TASK_ID}`));
+      .toHaveAttribute('href', `/preview?type=workflow&workflowId=wf_42&version=v2.sv3&instanceType=task&instanceId=${TASK_ID}&returnTo=` + encodeURIComponent(`/tasks/${TASK_ID}`));
   });
 
   it("renders the workflow id, status badge, and progress for a running task", async () => {
@@ -339,10 +339,18 @@ describe("<TaskDetailPage>", () => {
     expect(screen.queryByText("Row one")).not.toBeInTheDocument();
   });
 
-  it.each([true, false])("keeps execution failures out of the schedule overview (enabled=%s)", async (enabled) => {
+  it.each([
+    { enabled: true, canResume: false },
+    { enabled: false, canResume: false },
+    { enabled: false, canResume: true },
+  ])("keeps schedule state and resume permission separate ($enabled, $canResume)", async ({ enabled, canResume }) => {
     const user = userEvent.setup();
     const scheduledTask = makeTask({ status: enabled ? "failed" : "paused", error: JSON.stringify({node_2: "[NodeId: node_2] Image path is empty"}) });
     scheduledTask.task_type = "scheduled_run";
+    scheduledTask.access = { ...scheduledTask.access,
+      capabilities: scheduledTask.access.capabilities.filter((capability) =>
+        capability !== 'resume' || canResume),
+    };
     const execution: ScheduledRunExecution = {
       id: "11111111-1111-1111-1111-111111111111",
       schedule_id: "22222222-2222-2222-2222-222222222222",
@@ -397,6 +405,8 @@ describe("<TaskDetailPage>", () => {
 
     renderAt(TASK_ID);
     await screen.findAllByText(enabled ? "Enabled" : "Paused");
+    if (!enabled && canResume) expect(await screen.findByRole('button', { name: 'Resume schedule' })).toBeInTheDocument();
+    else expect(screen.queryByRole('button', { name: 'Resume schedule' })).not.toBeInTheDocument();
     expect(screen.queryByText("Last scheduled execution failed")).not.toBeInTheDocument();
     expect(screen.queryByText("node_2: [NodeId: node_2] Image path is empty")).not.toBeInTheDocument();
     expect((await screen.findAllByText(enabled ? "Enabled" : "Paused")).length).toBeGreaterThan(0);
@@ -470,7 +480,7 @@ describe("<TaskDetailPage>", () => {
     await user.click(screen.getByRole("button", { name: /^调度记录/ }));
     expect(await screen.findByText(/手动触发/)).toBeInTheDocument();
     for (const link of await screen.findAllByRole('link', { name: '查看所选执行版本 v2.sv3' })) {
-      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3&returnTo=' + encodeURIComponent(`/tasks/${TASK_ID}?tab=logs`));
+      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v2.sv3&instanceType=execution&instanceId=11111111-1111-1111-1111-111111111111&returnTo=' + encodeURIComponent(`/tasks/${TASK_ID}?tab=logs`));
     }
     expect(screen.getAllByText("成功").length).toBeGreaterThan(0);
     expect(screen.getByText(/未发送/)).toBeInTheDocument();

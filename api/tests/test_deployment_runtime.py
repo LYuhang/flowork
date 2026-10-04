@@ -25,7 +25,7 @@ async def test_resident_rpc_calls_reuse_process_and_persist_history(pg_engine, a
     graph = await controller.graph(spec)
     tenant, revision = str(dep["tenant_id"]), str(dep["active_revision_id"])
     session = SimpleNamespace(
-        provider=BubblewrapProvider(shutil.which("bwrap")), workspace_folders=(), _rw_binds=[],
+        provider=BubblewrapProvider(shutil.which("bwrap")), workspace_folders=(), _rw_binds=[], workflow_run_source=None,
         skills_dir=None, _begin_activity=Mock(), _end_activity=Mock(), _sync_mount_folder=AsyncMock(),
         _deployment_workspace=SimpleNamespace(sync=AsyncMock()),
     )

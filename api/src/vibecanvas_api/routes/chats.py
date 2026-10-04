@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
+from contextlib import asynccontextmanager
 import hashlib
 import json
 import mimetypes
@@ -219,7 +220,7 @@ async def _chat_workspace_scope(
     inventory = await chat_repo.get_authorized_inventory(chat_id)
     if inventory is None:
         raise HTTPException(status_code=404, detail="chat_not_found")
-    return _project_workspace_scope_id(inventory["project_id"], workflow_id=inventory.get("workflow_id")), inventory
+    return _project_workspace_scope_id(inventory["project_id"]), inventory
 
 
 async def _require_project(project_repo, project_id: str | None):
@@ -305,6 +306,16 @@ async def _authorize_chat_child(
     return AuthorizedResource(resource=resource, decision=decision)
 
 
+@asynccontextmanager
+async def _workflow_chat_scope(request, auth, workflow_repo, scope_id, action):
+    """Temporarily read one Workflow without changing private Chat ownership."""
+    from ..authorization.dependencies import authorized_resource_scope
+    session = workflow_repo._s
+    async with authorized_resource_scope(request=request, auth=auth, session=session,
+            resource_type=ResourceType.WORKFLOW, resource_id=scope_id, action=action) as (scoped_request, scoped_service):
+        yield session, workflow_repo, scoped_service, scoped_request
+
+
 async def _authorize_chat_carrier(
     *,
     request: Request,
@@ -319,19 +330,9 @@ async def _authorize_chat_carrier(
         if not _is_internal_carrier_scope(scope_id, auth.user_id):
             raise HTTPException(status_code=404, detail="chat_scope_not_found")
         return
-    await authorize_resource(
-        request=request,
-        auth=auth,
-        service=service,
-        resource=ResourceRef(
-            ResourceType.WORKFLOW,
-            scope_id,
-            auth.active_organization_id,
-        ),
-        action=action,
-    )
-    if not await workflow_repo.get_meta(scope_id):
-        raise HTTPException(status_code=404, detail="chat_scope_not_found")
+    async with _workflow_chat_scope(request, auth, workflow_repo, scope_id, action):
+        if not await workflow_repo.get_meta(scope_id):
+            raise HTTPException(status_code=404, detail="chat_scope_not_found")
 
 
 async def _rebind_request_organization(
@@ -488,23 +489,23 @@ async def create_chat_session(
             request=request, auth=auth, service=service, workflow_repo=wf_repo,
             scope_id=scope_id, action=Action.UPDATE,
         )
-        # Serialize accepted canvas conversations with Workflow deletion.
-        from ..services.workflow_deletion import lock_live_workflow
-        try:
-            await lock_live_workflow(session, scope_id)
-        except ToolError as exc:
-            raise HTTPException(status_code=409, detail="workflow_unavailable") from exc
         existing_binding = await chat_repo.get_workflow_context(chat_id)
         if existing_binding is not None and existing_binding != workflow_binding.model_dump(mode="json"):
             raise HTTPException(status_code=409, detail="workflow_chat_binding_conflict")
-        if existing_binding is None:
+        async with _workflow_chat_scope(request, auth, wf_repo, scope_id, Action.UPDATE):
+            from ..services.workflow_deletion import lock_live_workflow
             try:
-                context, _instruction = await resolve_workflow_chat_context(
-                    wf_repo, workflow_binding, chat_id=chat_id, creating=True,
-                )
-            except WorkflowContextError as exc:
-                raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
-            name = workflow_chat_title(context)
+                await lock_live_workflow(session, scope_id)
+            except ToolError as exc:
+                raise HTTPException(status_code=409, detail="workflow_unavailable") from exc
+            if existing_binding is None:
+                try:
+                    context, _instruction = await resolve_workflow_chat_context(
+                        wf_repo, workflow_binding, chat_id=chat_id, creating=True,
+                    )
+                except WorkflowContextError as exc:
+                    raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+                name = workflow_chat_title(context)
         project = await project_repo.for_workflow(scope_id)
         project_id = project.project_id
     else:
@@ -577,7 +578,7 @@ async def delete_chat_project(
     chat_ids = await project_repo.chat_ids(project_id)
     await _require_project_workspace_idle(session, auth, chat_ids)
 
-    workspace_scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
+    workspace_scope_id = _project_workspace_scope_id(project_id)
     await get_sandbox_manager().close_session(auth.tenant_id, workspace_scope_id)
     vfs_deleted = await VfsRepo(
         session,
@@ -662,7 +663,7 @@ async def get_project_sandbox_statuses(
         project = await project_repo.get(pid)
         if project is None:
             continue
-        scope_id = _project_workspace_scope_id(pid, workflow_id=project.workflow_id)
+        scope_id = _project_workspace_scope_id(pid)
         items.append({
             "project_id": pid,
             "scope_id": scope_id,
@@ -728,7 +729,7 @@ async def get_project_workspace(
         raise HTTPException(status_code=404, detail="project_not_found")
     return {
         "project_id": project_id,
-        "workspace_scope_id": _project_workspace_scope_id(project_id, workflow_id=project.workflow_id),
+        "workspace_scope_id": _project_workspace_scope_id(project_id),
         "mount_scope_id": _mount_scope_id(auth.user_id),
     }
 
@@ -740,7 +741,7 @@ async def start_project_sandbox(
     auth: AuthContext = Depends(current_user),
 ) -> dict:
     project = await _require_project(project_repo, project_id)
-    scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
+    scope_id = _project_workspace_scope_id(project_id)
     sandbox = await get_sandbox_manager().get_session(
         auth.tenant_id, scope_id, user_id=auth.user_id, expose_run=True,
         expose_runtime=True, lease="interactive",
@@ -761,7 +762,7 @@ async def close_project_sandbox(
     if project is None:
         raise HTTPException(status_code=404, detail="project_not_found")
     await _require_project_workspace_idle(session, auth, await project_repo.chat_ids(project_id))
-    scope_id = _project_workspace_scope_id(project_id, workflow_id=project.workflow_id)
+    scope_id = _project_workspace_scope_id(project_id)
     return {"project_id": project_id, "scope_id": scope_id,
             **await get_sandbox_manager().close_session(auth.tenant_id, scope_id)}
 
@@ -1072,7 +1073,7 @@ async def delete_chat_session(
             },
         )
 
-    workspace_scope_id = _project_workspace_scope_id(selected["project_id"], workflow_id=selected.get("workflow_id"))
+    workspace_scope_id = _project_workspace_scope_id(selected["project_id"])
     # Thread deletion never tears down the Project's shared process or files.
     vfs_deleted = 0
     runtime_state_deleted = False
@@ -3030,6 +3031,7 @@ async def post_message(
         ) from exc
 
     workflow_context_snapshot = None
+    workflow_run_source = None
     workflow_instruction = None
     workflow_binding_data = await chat_repo.get_workflow_context(chat_id)
     if workflow_binding_data is not None:
@@ -3040,32 +3042,39 @@ async def post_message(
             request=http_request, auth=auth, service=authz_service, workflow_repo=wf_repo,
             scope_id=scope_id, action=Action.UPDATE,
         )
-        # Serialize accepted canvas conversations with Workflow deletion.
-        from ..services.workflow_deletion import lock_live_workflow
-        try:
-            await lock_live_workflow(session, scope_id)
-        except ToolError as exc:
-            raise HTTPException(status_code=409, detail="workflow_unavailable") from exc
-        inspect_runs = await authz_service.check(
-            principal_for_auth(auth), Action.INSPECT_RUNS,
-            ResourceRef(ResourceType.WORKFLOW, scope_id, auth.active_organization_id),
-            context_for_auth(auth, http_request),
-        )
-        run_context = {"status": "not_authorized"}
-        if inspect_runs.allowed:
-            from ..storage.execution_repo import ExecutionRepo
-            from ..storage.workflow_history_repo import WorkflowHistoryRepo
-            run_context = await resolve_workflow_run_context(
-                ExecutionRepo(session, auth.user_id), WorkflowHistoryRepo(session), workflow_id=scope_id,
+        async with _workflow_chat_scope(http_request, auth, wf_repo, scope_id, Action.UPDATE) as (_, _, workflow_service, workflow_request):
+            from ..services.sandbox.contracts import WorkflowRunSource
+            workflow_access = context_for_auth(auth, workflow_request)
+            workflow_run_source = WorkflowRunSource(
+                tenant_id=workflow_access.admitted_resource_organization_id or auth.active_organization_id,
+                workflow_id=scope_id,
             )
-        try:
-            workflow_context_snapshot, workflow_instruction = await resolve_workflow_chat_context(
-                wf_repo, workflow_binding, chat_id=chat_id,
-                creating=not any(item["chat_id"] == chat_id and item.get("last_message_at") for item in sessions),
-                run_context=run_context,
+            # Serialize accepted canvas conversations with Workflow deletion.
+            from ..services.workflow_deletion import lock_live_workflow
+            try:
+                await lock_live_workflow(session, scope_id)
+            except ToolError as exc:
+                raise HTTPException(status_code=409, detail="workflow_unavailable") from exc
+            inspect_runs = await workflow_service.check(
+                principal_for_auth(auth), Action.INSPECT_RUNS,
+                ResourceRef(ResourceType.WORKFLOW, scope_id, auth.active_organization_id),
+                context_for_auth(auth, workflow_request),
             )
-        except WorkflowContextError as exc:
-            raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+            run_context = {"status": "not_authorized"}
+            if inspect_runs.allowed:
+                from ..storage.execution_repo import ExecutionRepo
+                from ..storage.workflow_history_repo import WorkflowHistoryRepo
+                run_context = await resolve_workflow_run_context(
+                    ExecutionRepo(session, auth.user_id), WorkflowHistoryRepo(session), workflow_id=scope_id, user_id=auth.user_id,
+                )
+            try:
+                workflow_context_snapshot, workflow_instruction = await resolve_workflow_chat_context(
+                    wf_repo, workflow_binding, chat_id=chat_id,
+                    creating=not any(item["chat_id"] == chat_id and item.get("last_message_at") for item in sessions),
+                    run_context=run_context,
+                )
+            except WorkflowContextError as exc:
+                raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
 
     # Load the chat's persisted active_modes, then apply this turn's command.
     active_modes = await chat_repo.get_active_modes(chat_id)
@@ -3507,6 +3516,7 @@ async def post_message(
         runtime_version=runtime_binding["runtime_version"],
     )
     turn_request = RuntimeTurnRequest(
+        workflow_run_source=workflow_run_source,
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
         chat_id=chat_id,

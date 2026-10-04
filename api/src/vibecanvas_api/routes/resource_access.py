@@ -10,7 +10,7 @@ import uuid
 
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import desc, func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.audit import actions as audit_actions
@@ -31,6 +31,7 @@ from vibecanvas_api.authorization.dependencies import (
     scope_authz_service,
 )
 from vibecanvas_api.authorization.service import AuthzService
+from vibecanvas_api.authorization.openfga_model import SHARE_ROLES
 from vibecanvas_api.authorization.share_resolution import (
     ShareResolution,
     mint_share_resolution,
@@ -60,10 +61,10 @@ from vibecanvas_api.services.resource_provenance import (
 )
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.models import User
-from vibecanvas_api.storage.models_authorization import SharedResourceProjection
 from vibecanvas_api.storage.models_org import Group, Organization, OrgMembership
 from vibecanvas_api.storage.repo_deployments import DeploymentsRepo
 from vibecanvas_api.storage.repo_kb import KbRepo
+from vibecanvas_api.storage.repo_skills import SkillsRepo
 from vibecanvas_api.storage.repo_org import GroupRepo
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
@@ -76,18 +77,15 @@ _RESOURCE_TYPES = {
     "task": ResourceType.TASK,
     "deployment": ResourceType.DEPLOYMENT,
     "knowledge_base": ResourceType.KNOWLEDGE_BASE,
+    "skill_installation": ResourceType.SKILL_INSTALLATION,
 }
-_RELATIONS = {
-    "workflow": ("viewer", "editor", "operator", "manager"),
-    "task": ("viewer", "editor", "operator", "manager"),
-    "deployment": ("viewer", "editor", "operator", "manager"),
-    "knowledge_base": ("viewer", "editor", "operator", "manager"),
-}
+_RELATIONS = {name: SHARE_ROLES[kind] for name, kind in _RESOURCE_TYPES.items()}
 _ShareableResourceName = Literal[
     "workflow",
     "task",
     "deployment",
     "knowledge_base",
+    "skill_installation",
 ]
 
 
@@ -148,6 +146,18 @@ async def _shared_resource_card(
         name = str(deployment.get("name") or resource_id)
         creator_user_id = deployment.get("user_id")
         updated_at = deployment.get("updated_at") or deployment.get("created_at")
+    elif resource_type == "skill_installation":
+        try:
+            typed_id = uuid.UUID(resource_id)
+        except ValueError:
+            return None
+        skill = await SkillsRepo(session).get(typed_id)
+        if skill is None or skill.get("source") != "custom":
+            return None
+        name = skill.get("name") or resource_id
+        description = (skill.get("description") or "") if can_view_content else ""
+        creator_user_id = skill.get("user_id")
+        updated_at = skill.get("updated_at") or skill.get("created_at")
     else:
         try:
             typed_id = uuid.UUID(resource_id)
@@ -161,6 +171,10 @@ async def _shared_resource_card(
         creator_user_id = knowledge.user_id
         updated_at = knowledge.updated_at or knowledge.created_at
 
+    # A company/department grant can include the creator too. It does not
+    # change a resource created by this user into a received share.
+    if str(creator_user_id) == str(recipient_user_id):
+        return None
     if updated_at is None:
         return None
     if updated_at.tzinfo is None:
@@ -317,42 +331,35 @@ async def list_shared_resources(
     candidate is checked against OpenFGA at higher consistency under the
     owner's RLS context before any private metadata is decrypted.
     """
-    last_projection_update = func.max(
-        SharedResourceProjection.updated_at
-    ).label("last_projection_update")
-    statement = (
-        select(
-            SharedResourceProjection.owner_tenant_id,
-            SharedResourceProjection.resource_type,
-            SharedResourceProjection.resource_id,
-            last_projection_update,
+    from vibecanvas_api.storage.shared_resource_locator import shared_resource_roots
+    # Pagination counts visible resources, not stale locator rows or creators
+    # incidentally included by a company-wide grant.
+    cards: list[SharedResourceOut] = []
+    seen: set[tuple[str, str]] = set()
+    scan_offset = 0
+    batch_size = 100
+    while len(cards) <= offset + limit:
+        roots = await shared_resource_roots(
+            auth.user_id, active_organization_id=auth.active_organization_id, resource_type=resource_type,
+            limit=batch_size, offset=scan_offset,
         )
-        .where(
-            SharedResourceProjection.recipient_user_id
-            == uuid.UUID(auth.user_id)
-        )
-        .group_by(
-            SharedResourceProjection.owner_tenant_id,
-            SharedResourceProjection.resource_type,
-            SharedResourceProjection.resource_id,
-        )
-        .order_by(
-            desc(last_projection_update),
-            SharedResourceProjection.resource_type,
-            SharedResourceProjection.resource_id,
-            SharedResourceProjection.owner_tenant_id,
-        )
-        .offset(offset)
-        .limit(limit + 1)
+        if not roots:
+            break
+        for card in await _authorized_shared_cards(request, auth, roots):
+            key = (card.resource_type, card.resource_id)
+            if key not in seen:
+                seen.add(key)
+                cards.append(card)
+        scan_offset += len(roots)
+        if len(roots) < batch_size:
+            break
+    return SharedResourceListOut(
+        items=cards[offset:offset + limit],
+        next_offset=offset + limit if len(cards) > offset + limit else None,
     )
-    if resource_type is not None:
-        statement = statement.where(
-            SharedResourceProjection.resource_type == resource_type
-        )
-    projection_rows = list((await session.execute(statement)).all())
-    has_more = len(projection_rows) > limit
-    projection_rows = projection_rows[:limit]
 
+
+async def _authorized_shared_cards(request, auth, projection_rows):
     by_owner: dict[uuid.UUID, list[tuple[int, str, str]]] = defaultdict(list)
     for index, row in enumerate(projection_rows):
         by_owner[row.owner_tenant_id].append((
@@ -425,10 +432,7 @@ async def list_shared_resources(
                     authorized_cards.append((index, card))
 
     authorized_cards.sort(key=lambda item: item[0])
-    return SharedResourceListOut(
-        items=[card for _, card in authorized_cards],
-        next_offset=(offset + limit if has_more else None),
-    )
+    return [card for _, card in authorized_cards]
 
 
 @router.post(
@@ -501,7 +505,7 @@ async def resolve_share_target(
 
     organization = await session.get(
         Organization,
-        uuid.UUID(auth.active_organization_id),
+        uuid.UUID(getattr(request.state, "admitted_resource_organization_id", None) or auth.active_organization_id),
     )
     if organization is None:
         raise HTTPException(status_code=404, detail="resource_not_found")
@@ -545,11 +549,6 @@ async def resolve_share_target(
 
     if subject_id:
         relations = _RELATIONS[resource_type]
-        if organization.kind == "personal":
-            # Cross-personal recipients are Guests, never replacement owners.
-            relations = tuple(item for item in relations if item != "manager")
-        if body.target_type == "organization":
-            relations = ("viewer",)
         resolution = ShareResolution(
             actor_user_id=auth.user_id,
             session_id=auth.session_id,

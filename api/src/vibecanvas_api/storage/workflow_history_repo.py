@@ -63,6 +63,11 @@ class WorkflowHistoryRepo:
             nonce=row[f"{prefix}_nonce"],
         )
 
+    async def is_workflow_owner(self, workflow_id: str, user_id: str) -> bool:
+        return bool((await self.session.execute(text(
+            "SELECT EXISTS (SELECT 1 FROM workflows WHERE wf_id=:workflow AND owner_id=:user)"
+        ), {"workflow": workflow_id, "user": uuid.UUID(user_id)})).scalar_one())
+
     async def get(self, execution_id: str, *, lock: bool = False):
         suffix = " FOR UPDATE" if lock else ""
         return (
@@ -484,11 +489,15 @@ class WorkflowHistoryRepo:
         source_id: str,
         statuses: list[str] | None = None,
         pending_for_user_id: str | None = None,
+        initiator_user_id: str | None = None,
         before: tuple[datetime, str] | None = None,
         limit: int = 50,
     ) -> dict:
         clauses = ["r.source_type=:source_type", "r.source_id=:source_id"]
         params: dict = {"source_type": source_type, "source_id": source_id, "limit": max(1, min(limit, 100)) + 1}
+        if initiator_user_id is not None:
+            clauses.append("r.initiator_user_id=:initiator")
+            params["initiator"] = uuid.UUID(initiator_user_id)
         if statuses:
             if not set(statuses) <= RUN_STATUSES:
                 raise ValueError("unknown execution status")

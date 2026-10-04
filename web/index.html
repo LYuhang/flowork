@@ -39,7 +39,7 @@
         var route =
           pathname.match(/^(.*)\/embed\/chat(?:\/.*)?$/) ||
           pathname.match(
-            /^(.*)\/(?:chat|share|preview|workspace|management|tasks|deployments|credentials|mcp-servers|skills|knowledge|storage|settings|workflow-executions|workflow|login|signup|reset-password)(?:\/.*)?$/,
+            /^(.*)\/(?:chat|share|preview|workspace|management|permissions|tasks|deployments|credentials|mcp-servers|skills|knowledge|storage|settings|workflow-executions|workflow|login|signup|reset-password)(?:\/.*)?$/,
           );
         var inferred = route ? route[1] : pathname === '/' ? '' : pathname;
         var normalize = function (value) {

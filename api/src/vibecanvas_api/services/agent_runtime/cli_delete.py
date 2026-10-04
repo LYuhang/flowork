@@ -12,7 +12,7 @@ from vibecanvas_api.authorization.types import Action, ConsistencyPreference
 from vibecanvas_api.authorization.projection import apply_committed_structural_mutations
 from vibecanvas_api.flowork_cli.cli import error, uncertain_result
 from vibecanvas_api.services.agent_resources import context as agent_context
-from vibecanvas_api.services.agent_resources.authorization import require_workflow_action, _require_active_chat_write
+from vibecanvas_api.services.agent_resources.authorization import require_workflow_action, _require_active_chat_write, _workflow_decision
 from vibecanvas_api.services import workflow_deletion as deletion
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.hitl_repo import HitlRepo
@@ -104,8 +104,11 @@ async def execute(call, arguments):
         ctx = await agent_context.resolve_context(cap)
         await require_workflow_action(ctx, workflow_id, Action.DELETE,
                                       consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
-        async with session_scope(tenant_id=cap.tenant_id) as session:
+        async with session_scope(tenant_id=cap.tenant_id, user_id=cap.user_id) as session:
+            await _require_active_chat_write(session, ctx)
+            await _workflow_decision(session, ctx, workflow_id, Action.DELETE)
             meta = await deletion.preflight(session, workflow_id, cap.user_id)
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": cap.tenant_id})
             await session.execute(text("""INSERT INTO workflow_cli_leases(call_id,tenant_id,workflow_id,run_id,operation,expires_at)
                 VALUES (:id,CAST(:tenant AS uuid),:wf,:run,'delete',now()+interval '30 seconds')"""),
                 {"id": call.call_id, "tenant": cap.tenant_id, "wf": workflow_id, "run": cap.turn_id})
@@ -121,15 +124,16 @@ async def execute(call, arguments):
         coordinator = AuthzMutationCoordinator(client=ctx.authorization_client, organization_id=cap.tenant_id)
         async with session_scope(tenant_id=cap.tenant_id, user_id=cap.user_id) as session:
             await _require_active_chat_write(session, ctx)
+            await _workflow_decision(session, ctx, workflow_id, Action.DELETE)
             async def authorize():
-                await require_workflow_action(ctx, workflow_id, Action.DELETE,
-                                              consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+                await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": cap.tenant_id})
                 live = (await session.execute(text("SELECT 1 FROM workflow_cli_leases WHERE call_id=:id AND expires_at>now()"),
                                               {"id": call.call_id})).first()
                 if not live:
                     raise ToolError("approval_cancelled", "The CLI command is no longer active.")
+                await _workflow_decision(session, ctx, workflow_id, Action.DELETE)
             result, mutations = await deletion.commit_deletion(session, workflow_id=workflow_id,
-                user_id=cap.user_id, tenant_id=cap.tenant_id, coordinator=coordinator,
+                user_id=cap.user_id, coordinator=coordinator,
                 expected=deletion.fingerprint(meta), authorize=authorize)
             committed = True
         # A projection outage must not turn a committed deletion into a retry.

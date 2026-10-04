@@ -17,8 +17,11 @@ from vibecanvas_api.storage.db import short_session_scope
 from vibecanvas_api.storage.vfs_run_repo import VfsRunRepo
 
 
-def _files(root: str):
+def _files(root: str, excluded_roots: frozenset[str] = frozenset()):
     for directory, _subdirs, filenames, directory_fd in os.fwalk(root, follow_symlinks=False):
+        if os.path.normpath(directory) == os.path.normpath(root):
+            _subdirs[:] = [name for name in _subdirs if name not in excluded_roots]
+            filenames = [name for name in filenames if name not in excluded_roots]
         for name in filenames:
             # O_NOFOLLOW protects the final component; fwalk's directory fd
             # pins the already-open directory across rename/link races.
@@ -37,10 +40,11 @@ def _files(root: str):
                 yield relative, file.read()
 
 
-async def persist_workflow_artifacts(*, root: str, tenant_id: str, execution_id: str, wf_id: str) -> None:
+async def persist_workflow_artifacts(*, root: str, tenant_id: str, execution_id: str, wf_id: str,
+                                     excluded_roots: frozenset[str] = frozenset()) -> None:
     # One file per transaction keeps DB locks short. Errors propagate: a caller
     # must not publish a successful result with missing durable file references.
-    iterator = _files(root)
+    iterator = _files(root, excluded_roots)
     sentinel = object()
     try:
         while True:

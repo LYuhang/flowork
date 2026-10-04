@@ -701,12 +701,13 @@ is local to the current turn; it does not activate a persistent management mode.
 | `flowork-cli skill download --skill-id ID --output-dir NEW_DIR` | Download the latest full package without overwriting local files. |
 | `flowork-cli skill check --source-dir DIR` | Validate the complete package without publishing. |
 | `flowork-cli skill create --source-dir DIR` | Validate and publish a new Custom Skill. |
-| `flowork-cli skill publish --skill-id ID --source-dir DIR` | Replace the full package and unpublished draft, validate, and publish the next version automatically. Missing local files are removed from the published package. |
+| `flowork-cli skill publish --skill-id ID --source-dir DIR --expected-version N` | Validate and publish the next version if the downloaded version still matches and no unpublished draft exists. Missing local files are removed from the published package. |
 | `flowork-cli skill refresh --skill-id ID` | Refresh only the current Chat runtime folder from the latest publication; does not publish. |
-| `flowork-cli skill delete --skill-id ID` | Remove the caller's own installation while preserving local downloads and any upstream catalog source. |
+| `flowork-cli skill delete --skill-id ID` | Delete an installation with delete permission, preserving local downloads and any upstream catalog source. Deleting a shared custom Skill removes the resource for all recipients. |
 
-Only the creator may update a Custom Skill. Catalog packages and other users'
-Skills cannot be edited through this workflow. Write operations follow the
+Owners and shared editors/managers may update a Custom Skill. Catalog packages
+and viewer-only shares cannot be edited. Shared managers may delete the resource.
+The host checks current permissions on each operation. Write operations follow the
 existing approval policy. Unknown write outcomes must be inspected with list/get
 before retrying. Skill CLI approvals use migration 147; apply migrations with
 the configured migration-owner connection, keeping the application's restricted

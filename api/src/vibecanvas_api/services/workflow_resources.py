@@ -14,6 +14,8 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+from dataclasses import replace
+from sqlalchemy import text
 from uuid import UUID, uuid4
 
 from vibecanvas_api.authorization.types import Action, PrincipalType, ResourceRef, ResourceType
@@ -76,8 +78,12 @@ async def resolve_workflow_resources(*, session, workflow, service, principal, c
     selected_skills = {ref["id"] for node in nodes.values() for ref in node["skills"]}
     skill_rows = []
     if selected_skills:
-        authorized = await service.list_authorized_ids(principal, Action.USE, ResourceType.SKILL_INSTALLATION, context)
-        skill_rows = await skill_repo.list_authorized(authorized)
+        if getattr(principal, "type", None) in {PrincipalType.USER, PrincipalType.SERVICE_ACCOUNT}:
+            from vibecanvas_api.services.runtime_skills import authorized_skill_rows
+            skill_rows = await authorized_skill_rows(session=session, service=service, principal=principal, context=context)
+        else:
+            authorized = await service.list_authorized_ids(principal, Action.USE, ResourceType.SKILL_INSTALLATION, context)
+            skill_rows = await skill_repo.list_authorized(authorized)
     resolved_skills = {}
     for row in skill_rows:
         identifier = str(row["skill_id"])
@@ -88,9 +94,25 @@ async def resolve_workflow_resources(*, session, workflow, service, principal, c
             continue
         # Installation HEAD and immutable revision id are read together by get/list.
         revision_id = str(row["current_revision_id"])
-        await require(ResourceType.SKILL_INSTALLATION, identifier)
-        revision_allowed = await service.check(principal, Action.USE,
-            ResourceRef(ResourceType.SKILL_REVISION, revision_id, organization), context)
+        owner = str(row.get("tenant_id") or organization)
+        if owner == organization:
+            await require(ResourceType.SKILL_INSTALLATION, identifier)
+            revision_allowed = await service.check(principal, Action.USE,
+                ResourceRef(ResourceType.SKILL_REVISION, revision_id, organization), context)
+        else:
+            original = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one()
+            try:
+                await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": owner})
+                scoped = replace(context, admitted_resource_organization_id=owner,
+                    admitted_resource_type="skill_installation", admitted_resource_id=identifier)
+                installation = await service.check(principal, Action.USE,
+                    ResourceRef(ResourceType.SKILL_INSTALLATION, identifier, owner), scoped)
+                if not installation.allowed:
+                    raise PermissionError(f"workflow_resource_unavailable:skill_installation:{identifier}")
+                revision_allowed = await service.check(principal, Action.USE,
+                    ResourceRef(ResourceType.SKILL_REVISION, revision_id, owner), scoped)
+            finally:
+                await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
         if not revision_allowed.allowed:
             if identifier in selected_skills:
                 raise PermissionError(f"workflow_skill_revision_unavailable:{identifier}")
@@ -179,14 +201,28 @@ def publish_skill_files(root: str, *, skill_id: str, revision_hash: str, files: 
             shutil.rmtree(staging)
 
 
-async def materialize_workflow_skills(*, session, root: str, snapshot: dict) -> None:
-    repo = SkillsRepo(session)
-    for descriptor in snapshot["skills"]:
-        files = await repo.read_revision_files(UUID(descriptor["id"]), UUID(descriptor["revision_id"]))
-        if files is None:
-            raise ValueError("workflow_skill_snapshot_unavailable")
-        await asyncio.to_thread(publish_skill_files, root, skill_id=descriptor["id"],
-            revision_hash=descriptor["revision_hash"], files=files)
+async def materialize_workflow_skills(*, root: str, snapshot: dict) -> None:
+    if not snapshot["skills"]:
+        return
+    from types import SimpleNamespace
+    from starlette.requests import Request
+    from vibecanvas_api.authorization.openfga_client import openfga_client_from_config
+    from vibecanvas_api.services.workflow_skill_cache import authorized_lease_skills
+    claims = snapshot.get("execution")
+    if not claims:
+        raise PermissionError("workflow_skill_execution_required")
+    client = openfga_client_from_config()
+    request = Request({"type": "http", "method": "POST", "path": "/internal/workflow-skills",
+        "headers": [], "query_string": b"", "app": SimpleNamespace(state=SimpleNamespace(openfga_client=client))})
+    try:
+        packages = await authorized_lease_skills(request, claims, snapshot["skills"], include_files=True)
+        if len(packages) != len(snapshot["skills"]):
+            raise PermissionError("workflow_skill_snapshot_unavailable")
+        for descriptor in packages:
+            await asyncio.to_thread(publish_skill_files, root, skill_id=descriptor["id"],
+                revision_hash=descriptor["revision_hash"], files=descriptor["files"])
+    finally:
+        await client.close()
 
 
 async def prepare_execution_resources(*, sandbox_session, workflow: dict, tenant_id: str,
@@ -239,11 +275,8 @@ async def prepare_execution_resources(*, sandbox_session, workflow: dict, tenant
 async def prepare_ephemeral_resources(*, root: str, workflow: dict, claims: dict) -> dict:
     """Use the same execution authorization for an isolated one-shot mount."""
     from types import SimpleNamespace
-    from vibecanvas_api.storage.db import short_session_scope
-
     async def materialize(snapshot):
-        async with short_session_scope(tenant_id=claims["tenant_id"]) as session:
-            await materialize_workflow_skills(session=session, root=root, snapshot=snapshot)
+        await materialize_workflow_skills(root=root, snapshot=snapshot)
 
     return await prepare_execution_resources(
         sandbox_session=SimpleNamespace(prepare_workflow_skills=materialize),
@@ -260,6 +293,13 @@ async def canonicalize_resource_names(*, session, workflow, service, principal, 
     nodes = collect_subagent_resources(workflow)
     result = copy.deepcopy(workflow)
     names = {}
+    if principal.type == PrincipalType.USER and any(node["skills"] for node in nodes.values()):
+        from vibecanvas_api.services.runtime_skills import authorized_skill_rows
+        visible_skills = await authorized_skill_rows(
+            session=session, service=service, principal=principal, context=context,
+        )
+        names.update({(ResourceType.SKILL_INSTALLATION, str(row["skill_id"])): row["name"]
+                      for row in visible_skills})
     for node_id, selected in nodes.items():
         for collection, kind, repo_type in (
             ("skills", ResourceType.SKILL_INSTALLATION, SkillsRepo),

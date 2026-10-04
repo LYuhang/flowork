@@ -96,7 +96,7 @@ class _RelationshipStore:
             return False
         if not object_.startswith("knowledge_base:"):
             return False
-        content_roles = {"viewer", "editor", "operator", "manager"}
+        content_roles = {"viewer", "editor", "manager"}
         if relation == "can_view_metadata":
             return self._role(user, object_, content_roles) or (
                 self._organization_role(
@@ -110,7 +110,7 @@ class _RelationshipStore:
         if relation == "can_update":
             return self._role(user, object_, {"editor", "manager"})
         if relation == "can_use":
-            return self._role(user, object_, {"operator", "manager"})
+            return self._role(user, object_, {"viewer", "editor", "manager"})
         if relation in {"can_delete", "can_manage_access"}:
             return self._role(user, object_, {"manager"}) or (
                 self._organization_role(
@@ -122,28 +122,9 @@ class _RelationshipStore:
         return False
 
 
-def _headers(token: str, **extra: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", **extra}
-
-
-async def _register(client: AsyncClient, label: str) -> tuple[str, dict]:
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": f"{label}_{uuid.uuid4().hex[:12]}@example.com",
-            "username": label,
-            "password": "pw12345678",
-        },
-    )
-    assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
-    me = (
-        await client.get(
-            "/api/v1/auth/me",
-            headers=_headers(token),
-        )
-    ).json()
-    return token, me
+from tests.test_workflow_authorization_integration import (
+    _browser_sessions, _headers, _register,
+)
 
 
 async def _join_active_organization(
@@ -215,8 +196,6 @@ async def test_knowledge_base_roles_children_share_and_revoke(
 
     monkeypatch.setattr("vibecanvas_api.routes.auth._consume_unauthenticated_rate_limit", _enqueue_background_job)
     monkeypatch.setattr(config, "resource_sharing_enabled", True)
-    # This authorization fixture intentionally uses bearer sessions.
-    monkeypatch.setattr(config, "web_session_cookie_enabled", False)
     store = _RelationshipStore()
     object_store = _ObjectStore()
     monkeypatch.setattr("vibecanvas_api.services.knowledge_packages.get_object_store", lambda: object_store)
@@ -238,12 +217,12 @@ async def test_knowledge_base_roles_children_share_and_revoke(
         owner_token, owner = await _register(client, "kb_owner")
         viewer_token, viewer = await _register(client, "kb_viewer")
         editor_token, editor = await _register(client, "kb_editor")
-        operator_token, operator = await _register(client, "kb_operator")
+        reader_token, reader = await _register(client, "kb_reader")
         outsider_token, outsider = await _register(client, "kb_outsider")
         guest_token, guest = await _register(client, "kb_guest")
         auditor_token, auditor = await _register(client, "kb_auditor")
         admin_token, admin = await _register(client, "kb_admin")
-        for member in (viewer, editor, operator, outsider):
+        for member in (viewer, editor, reader, outsider):
             await _join_active_organization(
                 pg_engine,
                 user_id=member["user_id"],
@@ -374,7 +353,7 @@ async def test_knowledge_base_roles_children_share_and_revoke(
 
         await grant("viewer", viewer)
         await grant("editor", editor)
-        await grant("operator", operator)
+        await grant("viewer", reader)
 
         shared = await client.get(
             "/api/v1/resource-access/shared?resource_type=knowledge_base",
@@ -398,7 +377,7 @@ async def test_knowledge_base_roles_children_share_and_revoke(
         assert viewer_access["effective_role"] == "viewer"
         assert "view" in viewer_access["capabilities"]
         assert "update" not in viewer_access["capabilities"]
-        assert "use" not in viewer_access["capabilities"]
+        assert "use" in viewer_access["capabilities"]
 
         draft_response = await client.get(f"/api/v1/kb/{kb_id}/draft", headers=_headers(editor_token))
         assert draft_response.status_code == 200, draft_response.text
@@ -417,33 +396,43 @@ async def test_knowledge_base_roles_children_share_and_revoke(
         assert editor_update.status_code == 200, editor_update.text
         assert editor_update.json()["has_changes"] is True
         assert editor_update.json()["name"] == "Editor renamed"
-        operator_update = await client.patch(
+        reader_update = await client.patch(
             f"/api/v1/kb/{kb_id}",
-            json={"name": "operator cannot rename", "expected_hash": draft_hash},
-            headers=_headers(operator_token),
+            json={"name": "reader cannot rename", "expected_hash": draft_hash},
+            headers=_headers(reader_token),
         )
-        assert operator_update.status_code == 404
+        assert reader_update.status_code == 404
 
         viewer_search = await client.post(
             "/api/v1/kb/search",
             json={"kb_ids": [kb_id], "query": "secret"},
             headers=_headers(viewer_token),
         )
-        assert viewer_search.status_code == 404
-        operator_search = await client.post(
+        assert viewer_search.status_code == 200, viewer_search.text
+        reader_search = await client.post(
             "/api/v1/kb/search",
             json={
                 "kb_ids": [kb_id],
                 "query": "secret",
             },
-            headers=_headers(operator_token),
+            headers=_headers(reader_token),
         )
-        assert operator_search.status_code == 200, operator_search.text
-        assert operator_search.json() == {"results": []}
+        assert reader_search.status_code == 200, reader_search.text
+        assert reader_search.json() == {"results": []}
+
+        published = await client.post(
+            f"/api/v1/kb/{kb_id}/versions",
+            json={"expected_hash": editor_update.json()["content_hash"]},
+            headers=_headers(editor_token),
+        )
+        assert published.status_code == 200, published.text
+        current = await client.get(f"/api/v1/kb/{kb_id}", headers=_headers(editor_token))
+        version = current.json()["package_version"]
 
         uploaded = await client.post(
             f"/api/v1/kb/{kb_id}/files",
             files={"file": ("notes.txt", b"private notes", "text/plain")},
+            data={"expected_version": str(version)},
             headers=_headers(editor_token),
         )
         assert uploaded.status_code == 200, uploaded.text
@@ -455,19 +444,21 @@ async def test_knowledge_base_roles_children_share_and_revoke(
             headers=_headers(viewer_token),
         )
         assert files.status_code == 200, files.text
-        assert files.json()[0]["id"] == file_id
-        assert files.json()[0]["access"]["effective_role"] == "viewer"
+        shared_file = next(item for item in files.json() if item["id"] == file_id)
+        assert shared_file["access"]["effective_role"] == "viewer"
 
+        current = await client.get(f"/api/v1/kb/{kb_id}", headers=_headers(editor_token))
+        params = {"expected_version": current.json()["package_version"]}
+        viewer_delete_file = await client.delete(
+            f"/api/v1/kb/{kb_id}/files/{file_id}",
+            params=params, headers=_headers(viewer_token),
+        )
+        assert viewer_delete_file.status_code == 404
         editor_delete_file = await client.delete(
             f"/api/v1/kb/{kb_id}/files/{file_id}",
-            headers=_headers(editor_token),
+            params=params, headers=_headers(editor_token),
         )
-        assert editor_delete_file.status_code == 404
-        owner_delete_file = await client.delete(
-            f"/api/v1/kb/{kb_id}/files/{file_id}",
-            headers=_headers(owner_token),
-        )
-        assert owner_delete_file.status_code == 204
+        assert editor_delete_file.status_code == 204, editor_delete_file.text
 
         listed = await client.get(
             f"/api/v1/kb/{kb_id}/access",
@@ -480,7 +471,7 @@ async def test_knowledge_base_roles_children_share_and_revoke(
         } == {
             ("viewer", viewer["user_id"]),
             ("editor", editor["user_id"]),
-            ("operator", operator["user_id"]),
+            ("viewer", reader["user_id"]),
         }
 
         structural_revoke = await client.request(

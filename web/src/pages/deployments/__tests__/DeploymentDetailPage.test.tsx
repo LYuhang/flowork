@@ -30,9 +30,9 @@ vi.mock('@/lib/api/deployments', () => ({
     name: 'API bot',
     slug: 'bot',
     trigger_type: 'api',
-    version_pin: 'head',
-    pinned_major: null,
-    pinned_sub: null,
+    version_pin: 'specific',
+    pinned_major: 1,
+    pinned_sub: 0,
     enabled: true,
     rate_limit_qps: 10,
     invoke_count: 5,
@@ -71,18 +71,11 @@ vi.mock('@/lib/api/deployments', () => ({
 
 vi.mock('@/lib/api/queries/workflow', () => ({
   useWorkflowVersions: () => ({ data: { versions: [{ major: 1, sub: 0 }] }, isLoading: false }),
-  useWorkflow: () => ({
-    data: {
-      workflow: {
-        node_1: {
-          node_type: 'StartNode',
-          input_fields: {
-            analysis_focus: { type: 'string' },
-          },
-        },
-      },
-    },
-  }),
+}));
+vi.mock('@/lib/preview/instance-workflow', () => ({
+  loadInstanceWorkflow: vi.fn(async () => ({ workflow: {
+    node_1: { node_type: 'StartNode', input_fields: { analysis_focus: { type: 'string' } } },
+  } })),
 }));
 
 import { DeploymentDetailPage } from '@/pages/deployments/DeploymentDetailPage';
@@ -129,6 +122,23 @@ describe('<DeploymentDetailPage>', () => {
       next_cursor: null,
       limit: 50,
     });
+  });
+
+  it('shows shared viewer configuration without mutation or secret controls', async () => {
+    const dep = await getDeployment(DEP_ID);
+    vi.mocked(getDeployment).mockResolvedValueOnce({ ...dep, access: {
+      capabilities: ['view', 'inspect_runs'], effective_role: 'viewer', source: 'computed',
+    } });
+    const user = userEvent.setup();
+    renderAt(DEP_ID);
+    await screen.findByRole('heading', { name: 'API bot' });
+    await user.click(screen.getByRole('tab', { name: /^Settings$/i }));
+    for (const label of ['Rate limit (QPS)', 'Call timeout (seconds)', 'CPU cores', 'Memory (MiB)', 'Worker processes', 'Concurrent executions per worker']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /rotate api key/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
   });
 
   it('links an accepted approval invocation to its execution without resubmitting', async () => {
@@ -467,10 +477,10 @@ describe('<DeploymentDetailPage>', () => {
     expect(screen.getByText('new-instance')).toBeInTheDocument();
     expect(screen.getAllByText('v1.sv0').length).toBeGreaterThan(0);
     for (const link of screen.getAllByRole('link', { name: 'v1.sv0' })) {
-      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v1.sv0&returnTo=' + encodeURIComponent(`/deployments/${DEP_ID}`));
+      expect(link).toHaveAttribute('href', `/preview?type=workflow&workflowId=wf_42&version=v1.sv0&instanceType=deployment&instanceId=${DEP_ID}&returnTo=` + encodeURIComponent(`/deployments/${DEP_ID}`));
     }
     expect(screen.queryByRole('link', { name: /View serving version/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'v1.sv1' })).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf_42&version=v1.sv1&returnTo=' + encodeURIComponent(`/deployments/${DEP_ID}`));
+    expect(screen.getByRole('link', { name: 'v1.sv1' })).toHaveAttribute('href', `/preview?type=workflow&workflowId=wf_42&version=v1.sv1&instanceType=deployment&instanceId=${DEP_ID}&returnTo=` + encodeURIComponent(`/deployments/${DEP_ID}`));
     expect(screen.getByText('v1.sv1')).toBeInTheDocument();
     expect(screen.getByText('Serving')).toBeInTheDocument();
     expect(screen.getByText('Starting')).toBeInTheDocument();

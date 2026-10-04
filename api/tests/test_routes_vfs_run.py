@@ -21,16 +21,18 @@ from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.vfs_run_repo import VfsRunRepo
 
 
-async def _register(client) -> str:
-    email = f"u{uuid.uuid4().hex[:12]}@example.com"
-    r = await client.post("/api/v1/auth/register",
-                          json={"email": email, "username": "Test User", "password": "pw12345678"})
-    assert r.status_code in (200, 201), r.text
-    return r.json()["session_token"]
+from tests.test_workflow_authorization_integration import (
+    _browser_sessions, _headers as _session_headers, _register as _browser_register,
+)
+
+
+async def _register(client):
+    token, _ = await _browser_register(client, 'vfs')
+    return token
 
 
 def _hdr(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
+    return _session_headers(token)
 
 
 async def _create_wf(client, token: str) -> str:
@@ -102,3 +104,23 @@ async def test_run_404_for_unknown_path(client, pg_engine):
     r = await client.get(
         "/api/v1/vfs/content?run_id=r1&path=/run/n1/nope.bin", headers=_hdr(tok))
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_run_download_link_rechecks_request_identity(client, pg_engine):
+    tok = await _register(client)
+    wf_id = await _create_wf(client, tok)
+    tenant = await _dev_tenant(pg_engine, wf_id)
+    await _seed_run(tenant, wf_id, wf_id=wf_id, path="/run/shared.txt", data=b"evidence", content_type="text/plain")
+    signed = await client.post('/api/v1/vfs/sign', headers=_hdr(tok),
+        json={'run_id': wf_id, 'path': '/run/shared.txt'})
+    assert signed.status_code == 200, signed.text
+    url = signed.json()['url']
+    assert url.startswith('/api/v1/vfs/run-content?')
+    response = await client.get(url, headers=_hdr(tok))
+    assert response.status_code == 200, response.text
+    assert response.content == b'evidence'
+    assert response.headers['cache-control'] == 'private, no-store'
+    other = await _register(client)
+    denied = await client.get(url, headers=_hdr(other))
+    assert denied.status_code == 404

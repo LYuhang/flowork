@@ -10,11 +10,11 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import text
 
-EXECUTION_FIELDS = ("wf_id", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "service_account_id", "cpu_millis", "memory_mb", "worker_count", "worker_concurrency")
+EXECUTION_FIELDS = ("workflow_tenant_id", "wf_id", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "service_account_id", "cpu_millis", "memory_mb", "worker_count", "worker_concurrency")
 
 
 def desired_key(dep: dict) -> str:
-    return json.dumps({k: str(dep[k]) if k == "service_account_id" and dep.get(k) else dep.get(k)
+    return json.dumps({k: str(dep[k]) if k in {"service_account_id", "workflow_tenant_id"} and dep.get(k) else dep.get(k)
                        for k in EXECUTION_FIELDS}, sort_keys=True)
 
 
@@ -24,7 +24,7 @@ def revision_scope(revision_id: str) -> str:
 
 def execution_spec(dep: dict, workflow: dict, user_id: str) -> dict:
     meta = workflow["__meta__"]
-    return {"wf_id": dep["wf_id"], "version_pin": "specific",
+    return {"wf_id": dep["wf_id"], "workflow_tenant_id": str(dep["workflow_tenant_id"]), "version_pin": "specific",
             "pinned_major": meta["workflow_version"], "pinned_sub": meta["workflow_subversion"],
             "mount_enabled": bool(dep["mount_enabled"]), "user_id": str(user_id),
             "cpu_millis": dep.get("cpu_millis", 500), "memory_mb": dep.get("memory_mb", 256),

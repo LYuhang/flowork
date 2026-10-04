@@ -41,8 +41,9 @@ def state(monkeypatch):
         meta.update(active_major=major, active_sub=0)
         return major
 
-    async def commit(wf_id, graph, *, note, stamp_metadata, target_major):
+    async def commit(wf_id, graph, *, note, stamp_metadata, target_major, expected_version):
         assert stamp_metadata
+        assert expected_version == f"v{target_major}.sv{await max_sub(wf_id, target_major)}"
         sub = await max_sub(wf_id, target_major) + 1
         graphs[target_major, sub] = deepcopy(graph)
         meta.update(active_major=target_major, active_sub=sub)
@@ -63,7 +64,7 @@ def state(monkeypatch):
         monkeypatch.setattr(module, "session_scope", scope)
         monkeypatch.setattr(module, "WorkflowRepo", lambda *_: repo)
         monkeypatch.setattr(module, "_service", lambda *_: object())
-        monkeypatch.setattr(module, "_decision", decision)
+        monkeypatch.setattr(module, "_workflow_decision", decision)
         monkeypatch.setattr(module, "_require_active_chat_write", fence)
     monkeypatch.setattr(transfer, "validate_workflow_for_context", AsyncMock(return_value=[]))
     monkeypatch.setattr(transfer, "collect_workflow_warnings", lambda _: [])
@@ -80,7 +81,7 @@ async def test_explicit_branch_overrides_head_and_previous_command(state):
     assert (await transfer.download_workflow(ctx, workflow_id="wf", major="v2"))["version"] == "v2.sv3"
     assert (await transfer.download_workflow(ctx, workflow_id="wf", major="v1"))["version"] == "v1.sv8"
     source = {"__meta__": {"workflow_id": "wf", "workflow_version": 99}, "edited": {}}
-    assert (await transfer.upload_workflow(ctx, source, workflow_id="wf", major="v2"))["version"] == "v2.sv4"
+    assert (await transfer.upload_workflow(ctx, source, workflow_id="wf", major="v2", expected_version="v2.sv3"))["version"] == "v2.sv4"
     assert (await transfer.download_workflow(ctx, workflow_id="wf", major="v1"))["version"] == "v1.sv8"
     assert source["__meta__"]["workflow_version"] == 99
     assert vars(ctx) == before
@@ -122,5 +123,5 @@ async def test_commit_failure_rolls_back_saved_version(state):
     before = deepcopy((state.graphs, state.meta))
     state.repo.commit.side_effect = RuntimeError("database failure")
     with pytest.raises(RuntimeError):
-        await transfer.upload_workflow(state.ctx, {}, workflow_id="wf", major="v2")
+        await transfer.upload_workflow(state.ctx, {}, workflow_id="wf", major="v2", expected_version="v2.sv3")
     assert (state.graphs, state.meta) == before

@@ -1,3 +1,4 @@
+import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
@@ -73,7 +74,7 @@ import { resolveApiUrl } from '@/lib/base-path';
 import { OneTimeSecretField } from '@/pages/deployments/OneTimeSecretField';
 import { DeploymentTerminal } from '@/pages/deployments/DeploymentTerminal';
 import { DeploymentInstances } from '@/pages/deployments/DeploymentInstances';
-import { useWorkflow } from '@/lib/api/queries/workflow';
+import { loadInstanceWorkflow } from '@/lib/preview/instance-workflow';
 import { getStartNodeFields, type StartNodeField } from '@/lib/workflow/start-node';
 import type { TFunction } from 'i18next';
 
@@ -198,7 +199,7 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
         </Button>
       ) : null}
     >
-      {editing ? (
+      {editing && canUpdate ? (
         <div className="max-w-xl space-y-4">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="dep-name">{t('deployments.create.fields.name', 'Name')}</Label>
@@ -241,6 +242,24 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
       )}
     </SectionBlock>
   );
+}
+
+function ReadOnlyConfig({ dep }: { dep: Deployment }) {
+  const { t } = useTranslation();
+  const onOff = (value: boolean) => value ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off');
+  return <SectionBlock title={t('deployments.detail.trafficControl', 'Traffic and runtime controls')}>
+    <DetailSummary items={[
+      { label: t('deployments.settings.acceptTraffic', 'Accept requests'), value: onOff(dep.enabled) },
+      { label: t('deployments.create.fields.rateLimitQps', 'Rate limit (QPS)'), value: dep.rate_limit_qps },
+      { label: t('tasks.version.label', 'Workflow version'), value: dep.pinned_major != null && dep.pinned_sub != null ? `v${dep.pinned_major}.sv${dep.pinned_sub}` : '—' },
+      { label: t('deployments.mount', 'Mount user storage (/mount)'), value: onOff(dep.mount_enabled ?? true) },
+      { label: t('deployments.settings.timeout', 'Call timeout (seconds)'), value: dep.timeout_seconds ?? 30 },
+      { label: t('deployments.resources.cpu', 'CPU cores'), value: (dep.cpu_millis ?? 500) / 1000 },
+      { label: t('deployments.resources.memory', 'Memory (MiB)'), value: dep.memory_mb ?? 256 },
+      { label: t('deployments.workers.count', 'Worker processes'), value: dep.worker_count ?? 1 },
+      { label: t('deployments.workers.concurrency', 'Concurrent executions per worker'), value: (dep.worker_concurrency ?? -1) === -1 ? t('deployments.workers.unlimited', 'Unlimited') : dep.worker_concurrency },
+    ]} />
+  </SectionBlock>;
 }
 
 function ConfigTab({ dep }: { dep: Deployment }) {
@@ -1246,12 +1265,13 @@ export function DeploymentDetailPage() {
     queryFn: () => getDeployment(depId!),
     enabled: !!depId,
     refetchInterval: (q) => {
-      if (tab !== 'overview' && tab !== 'settings') return false;
+      // Permission changes also matter on history/settings and stopped instances.
+      if (tab !== 'overview' && tab !== 'settings') return 15_000;
       const dep = q.state.data;
-      if (!dep?.runtime || (!dep.enabled && dep.runtime.instances.length === 0)) return false;
+      if (!dep?.runtime || (!dep.enabled && dep.runtime.instances.length === 0)) return 15_000;
       return dep.rollout_status === 'ready' ? 15_000 : 5_000;
     },
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: 'always',
   });
   const metricsQuery = useQuery({
     queryKey: ['deployment-metrics', depId, 'last-24-hours'],
@@ -1260,7 +1280,13 @@ export function DeploymentDetailPage() {
     refetchOnWindowFocus: false,
     refetchInterval: tab === 'overview' ? 15_000 : false,
   });
-  const workflowQuery = useWorkflow(query.data?.wf_id ?? '');
+  const linkedVersion = query.data ? deploymentWorkflowVersion(query.data).version : null;
+  const previewVersion = typeof linkedVersion === 'string' ? linkedVersion : null;
+  const workflowQuery = useQuery({
+    queryKey: ['deployment-workflow-snapshot', depId, previewVersion],
+    enabled: !!query.data && !!previewVersion,
+    queryFn: () => loadInstanceWorkflow({ type: 'deployment', id: depId! }, query.data!.wf_id, previewVersion!),
+  });
   const workflowSnapshot = workflowQuery.data?.workflow as Record<string, unknown> | null | undefined;
   const exampleInputs = useMemo(
     () => workflowExampleInputs(getStartNodeFields(workflowSnapshot)),
@@ -1319,8 +1345,8 @@ export function DeploymentDetailPage() {
       </div>}
       metadata={<>
         <span>{triggerLabel(dep, t)}</span>
-        <WorkflowVersionLink workflowId={dep.wf_id} version={linkedWorkflow.version} inline />
-        <ResourceProvenanceLine provenance={dep.provenance} />
+        <WorkflowVersionLink source={{ type: "deployment", id: dep.id }} workflowId={dep.wf_id} version={linkedWorkflow.version} inline />
+        <ResourceAccessBadge access={dep.access} /><ResourceProvenanceLine provenance={dep.provenance} />
       </>}
       actions={<>
             <Button
@@ -1391,13 +1417,13 @@ export function DeploymentDetailPage() {
           <TabsContent value="settings" className="space-y-5 pt-3">
             <BasicInfoSection dep={dep} canUpdate={canUpdate} />
             <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_19rem]">
-              {canUpdate ? <ConfigTab dep={dep} /> : null}
+              {canUpdate ? <ConfigTab dep={dep} /> : <ReadOnlyConfig dep={dep} />}
               {canManageSecret ? <SecurityTab dep={dep} /> : null}
             </div>
           </TabsContent>
         </Tabs>
         <ResourceShareDialog
-          open={shareOpen}
+          open={shareOpen && capabilities.has('manage_access')}
           onOpenChange={setShareOpen}
           resourceKind="deployment"
           resourceId={dep.id}

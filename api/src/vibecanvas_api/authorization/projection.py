@@ -215,9 +215,10 @@ def service_account_edges(
     owner_resource_type: str,
     owner_resource_id: str,
     workflow_id: str,
+    workflow_organization_id: str | None = None,
     status: str = "active",
     credential_ids: tuple[str, ...] = (),
-    resource_refs: tuple[tuple[str, str], ...] = (),
+    resource_owners: dict[tuple[str, str], str] | None = None,
 ) -> frozenset[MutationEdge]:
     """Canonical identity and execution grants for one Service Account.
 
@@ -253,7 +254,7 @@ def service_account_edges(
             service_account_id,
         ),
         MutationEdge(
-            organization_id,
+            workflow_organization_id or organization_id,
             "workflow",
             workflow_id,
             "operator",
@@ -272,10 +273,10 @@ def service_account_edges(
         )
         for credential_id in credential_ids
     )
-    for resource_type, resource_id in resource_refs:
+    for (resource_type, resource_id), resource_organization_id in (resource_owners or {}).items():
         if resource_type not in {"skill_installation", "mcp_installation"}:
             raise ValueError("Unsupported service account dependency")
-        result.add(MutationEdge(organization_id, resource_type, resource_id,
+        result.add(MutationEdge(resource_organization_id, resource_type, resource_id,
                                "consumer", "service_account", service_account_id))
     return frozenset(result)
 
@@ -297,28 +298,39 @@ async def enqueue_structural_delta(
         *((edge, False) for edge in set(before) - set(after)),
         *((edge, True) for edge in set(after) - set(before)),
     ]
-    for index, (edge, desired_present) in enumerate(
-        sorted(
-            changes,
-            key=lambda item: (
-                item[0].lock_key(),
-                item[1],
-            ),
-        )
-    ):
-        mutation = await coordinator.enqueue_structural(
-            session=session,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            edge=edge,
-            desired_present=desired_present,
-            idempotency_key=(
-                f"structural:{operation_id}:{index}:"
-                f"{'present' if desired_present else 'absent'}"
-            ),
-            source_revision=f"{source}:{operation_id}",
-        )
-        mutation_ids.append(mutation.mutation_id)
+    cross_organization = any(edge.organization_id != coordinator.organization_id for edge, _ in changes)
+    original_tenant = None
+    if cross_organization:
+        original_tenant = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one() or ""
+    try:
+        for index, (edge, desired_present) in enumerate(
+            sorted(
+                changes,
+                key=lambda item: (
+                    item[0].lock_key(),
+                    item[1],
+                ),
+            )
+        ):
+            scoped_coordinator = coordinator.for_organization(edge.organization_id)
+            if original_tenant is not None:
+                await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": edge.organization_id})
+            mutation = await scoped_coordinator.enqueue_structural(
+                session=session,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                edge=edge,
+                desired_present=desired_present,
+                idempotency_key=(
+                    f"structural:{operation_id}:{index}:"
+                    f"{'present' if desired_present else 'absent'}"
+                ),
+                source_revision=f"{source}:{operation_id}",
+            )
+            mutation_ids.append(mutation.mutation_id)
+    finally:
+        if original_tenant is not None:
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original_tenant})
     return tuple(mutation_ids)
 
 
@@ -327,11 +339,23 @@ async def apply_committed_structural_mutations(
     mutation_ids: tuple[uuid.UUID, ...],
 ) -> None:
     """Apply committed intents synchronously when OpenFGA is configured."""
-    if not coordinator.can_apply:
+    if not coordinator.can_apply or not mutation_ids:
         return
+    # IDs originate in the host's structural transaction. Read only their
+    # routing metadata; each coordinator applies under its own organization RLS.
+    async with short_admin_connection() as connection:
+        await _require_admin_rls_bypass(connection)
+        rows = (await connection.execute(
+            select(AuthzMutation.mutation_id, AuthzMutation.tenant_id).where(
+                AuthzMutation.mutation_id.in_(mutation_ids)
+            )
+        )).all()
+    owners = {row.mutation_id: str(row.tenant_id) for row in rows}
+    if set(mutation_ids) - owners.keys():
+        raise RuntimeError("structural_authorization_mutation_missing")
     for mutation_id in mutation_ids:
         try:
-            await coordinator.apply_mutation(mutation_id)
+            await coordinator.for_organization(owners[mutation_id]).apply_mutation(mutation_id)
         except AuthzMutationSupersededError:
             # A concurrent newer structural fact is already authoritative.
             continue
@@ -695,6 +719,7 @@ async def collect_structural_projection(
                        sa.status,
                        sa.updated_at,
                        COALESCE(t.workflow_id, d.wf_id) AS workflow_id,
+                       COALESCE(t.workflow_tenant_id, d.workflow_tenant_id)::text AS workflow_tenant_id,
                        COALESCE(
                            array_agg(sac.credential_id::text)
                                FILTER (WHERE sac.credential_id IS NOT NULL),
@@ -717,7 +742,8 @@ async def collect_structural_projection(
                 GROUP BY sa.service_account_id, sa.created_by,
                          sa.owner_resource_type, sa.owner_resource_id,
                          sa.status, sa.updated_at,
-                         COALESCE(t.workflow_id, d.wf_id)
+                         COALESCE(t.workflow_id, d.wf_id),
+                         COALESCE(t.workflow_tenant_id, d.workflow_tenant_id)
                 """
             )
         )
@@ -725,7 +751,7 @@ async def collect_structural_projection(
     for row in service_accounts:
         source = _source_revision("service-account", row)
         from vibecanvas_api.storage.repo_service_accounts import ServiceAccountsRepo
-        dependency_refs = await ServiceAccountsRepo(session).resource_refs(uuid.UUID(row["service_account_id"]))
+        dependency_owners = await ServiceAccountsRepo(session).resource_owners(uuid.UUID(row["service_account_id"]))
         for edge in service_account_edges(
             organization_id=organization_id,
             service_account_id=row["service_account_id"],
@@ -733,11 +759,60 @@ async def collect_structural_projection(
             owner_resource_type=row["owner_resource_type"],
             owner_resource_id=row["owner_resource_id"],
             workflow_id=row["workflow_id"],
+            workflow_organization_id=row["workflow_tenant_id"],
             status=row["status"],
             credential_ids=tuple(row["credential_ids"] or ()),
-            resource_refs=dependency_refs,
+            resource_owners=dependency_owners,
         ):
-            result[edge] = DesiredProjection(edge, source)
+            if edge.organization_id == organization_id:
+                result[edge] = DesiredProjection(edge, source)
+
+    # Incoming dependencies are owned by this resource organization even
+    # though their account and binding rows are isolated in another one.
+    async with short_admin_connection() as connection:
+        await _require_admin_rls_bypass(connection)
+        incoming = (await connection.execute(text("""
+            SELECT sar.resource_id::text, sar.service_account_id::text,
+                   sar.created_at, sa.updated_at
+            FROM service_account_resources sar
+            JOIN service_accounts sa ON sa.service_account_id=sar.service_account_id
+                AND sa.tenant_id=sar.tenant_id
+            JOIN skills s ON s.skill_id=sar.resource_id
+                AND s.tenant_id=sar.resource_tenant_id AND s.deleted_at IS NULL
+            WHERE sar.resource_tenant_id=CAST(:organization AS uuid)
+              AND sar.tenant_id<>sar.resource_tenant_id
+              AND sar.resource_type='skill_installation'
+              AND sar.revoked_at IS NULL AND sa.status<>'deleted'
+              AND (
+                EXISTS (SELECT 1 FROM tasks t WHERE sa.owner_resource_type='task'
+                    AND t.id::text=sa.owner_resource_id AND t.service_account_id=sa.service_account_id
+                    )
+                OR EXISTS (SELECT 1 FROM deployments d WHERE sa.owner_resource_type='deployment'
+                    AND d.id::text=sa.owner_resource_id AND d.service_account_id=sa.service_account_id
+                    AND d.deleted_at IS NULL)
+              )
+        """), {"organization": organization_id})).mappings().all()
+        incoming_workflows = (await connection.execute(text("""
+            SELECT sa.service_account_id::text, sa.updated_at,
+                   refs.workflow_id, refs.updated_at AS created_at
+            FROM (
+                SELECT service_account_id, tenant_id, workflow_tenant_id, workflow_id, submitted_at AS updated_at FROM tasks
+                UNION ALL
+                SELECT service_account_id, tenant_id, workflow_tenant_id, wf_id, updated_at FROM deployments WHERE deleted_at IS NULL
+            ) refs
+            JOIN service_accounts sa ON sa.service_account_id=refs.service_account_id AND sa.tenant_id=refs.tenant_id
+            JOIN workflows w ON w.wf_id=refs.workflow_id AND w.tenant_id=refs.workflow_tenant_id AND w.deleted_at IS NULL
+            WHERE refs.workflow_tenant_id=CAST(:organization AS uuid) AND refs.tenant_id<>refs.workflow_tenant_id
+                AND sa.status<>'deleted'
+        """), {"organization": organization_id})).mappings().all()
+    for dependency in incoming_workflows:
+        edge = MutationEdge(organization_id, "workflow", dependency["workflow_id"],
+                            "operator", "service_account", dependency["service_account_id"])
+        result[edge] = DesiredProjection(edge, _source_revision("service-account-workflow", dependency))
+    for dependency in incoming:
+        edge = MutationEdge(organization_id, "skill_installation", dependency["resource_id"],
+                            "consumer", "service_account", dependency["service_account_id"])
+        result[edge] = DesiredProjection(edge, _source_revision("service-account-dependency", dependency))
 
     return result
 

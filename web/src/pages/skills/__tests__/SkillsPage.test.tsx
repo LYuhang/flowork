@@ -41,7 +41,7 @@ if (!Element.prototype.scrollIntoView) {
 
 const SKILLS = [
   {
-    id: 'skill-workflow',
+    id: 'skill-workflow', installed: true, created_by_me: true, source: 'custom',
     name: 'Workflow Builder',
     description: 'Builds workflows from a doc.',
     allowed_tools: ['read_file', 'apply_workflow_edit'],
@@ -55,7 +55,7 @@ const SKILLS = [
     updated_at: '2026-06-02T00:00:00Z',
   },
   {
-    id: 'skill-tenant',
+    id: 'skill-tenant', installed: false, created_by_me: false, source: 'custom',
     name: 'Invoice Parser',
     description: 'Extracts totals from invoices.',
     allowed_tools: ['read_file'],
@@ -131,6 +131,33 @@ describe('SkillsPage', () => {
     vi.spyOn(sonner.toast, 'error').mockImplementation(() => '' as never);
   });
 
+  it('combines relationship, installation and content source filters', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Workflow Builder');
+    await user.click(screen.getByRole('combobox', { name: 'Resource relationship' }));
+    await user.click(screen.getByRole('option', { name: 'Shared with me' }));
+    await user.click(screen.getByRole('combobox', { name: 'Installation status' }));
+    await user.click(screen.getByRole('option', { name: 'Not installed' }));
+    await user.click(screen.getByRole('combobox', { name: 'Filter by skill source' }));
+    await user.click(screen.getByRole('option', { name: 'Custom' }));
+    expect(screen.getByText('Invoice Parser')).toBeInTheDocument();
+    expect(screen.queryByText('Workflow Builder')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('combobox', { name: 'Installation status' }));
+    await user.click(screen.getByRole('option', { name: /^Installed$/ }));
+    expect(screen.queryByTestId('skill-card')).not.toBeInTheDocument();
+  });
+
+  it('installs a shared Skill without deleting the package', async () => {
+    const install = vi.spyOn(skillsClient, 'setSkillInstalled').mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Invoice Parser');
+    await user.click(screen.getByRole('button', { name: /^Install$/ }));
+    await waitFor(() => expect(install).toHaveBeenCalledWith('skill-tenant', true));
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
   it('renders a card per skill', async () => {
     renderPage();
     await waitFor(() =>
@@ -189,9 +216,9 @@ describe('SkillsPage', () => {
 
   it('offers ZIP-only Custom Skill import without an inline creator', async () => {
     const user = userEvent.setup();
-    renderPage('/?tab=custom');
+    renderPage();
     await waitFor(() =>
-      expect(screen.getAllByRole('button', { name: /upload skill package/i })).toHaveLength(2),
+      expect(screen.getAllByRole('button', { name: /upload skill package/i })).toHaveLength(1),
     );
 
     await user.click(screen.getAllByRole('button', { name: /upload skill package/i })[0]);

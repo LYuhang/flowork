@@ -41,7 +41,7 @@ def state(monkeypatch):
     monkeypatch.setattr(transfer, "_require_active_chat_write", fence)
     monkeypatch.setattr(transfer, "_service", lambda *args: object())
     monkeypatch.setattr(transfer, "_workflow_resource", lambda *args: object())
-    monkeypatch.setattr(transfer, "_decision", decision)
+    monkeypatch.setattr(transfer, "_workflow_decision", decision)
     monkeypatch.setattr(transfer, "validate_workflow_for_context", validate)
     monkeypatch.setattr(transfer, "collect_workflow_warnings", lambda graph: [])
     monkeypatch.setattr(transfer, "_auto_tidy_workflow", Mock())
@@ -130,7 +130,10 @@ async def test_upload_refreshes_skill_name_without_changing_reference_or_input(s
     graph = {'worker': {'node_type': 'SubAgentNode', 'node_config': {
         'skills': [{'id': identifier, 'name': 'old name'}]}}}
     original = deepcopy(graph)
-    monkeypatch.setattr(transfer, '_principal', lambda ctx: object())
+    from vibecanvas_api.authorization.types import PrincipalRef, PrincipalType
+    monkeypatch.setattr(transfer, '_principal', lambda ctx: PrincipalRef(PrincipalType.USER, 'user'))
+    monkeypatch.setattr('vibecanvas_api.services.runtime_skills.authorized_skill_rows',
+                        AsyncMock(return_value=[{'skill_id': identifier, 'name': 'current name'}]))
     monkeypatch.setattr(transfer, '_request_context', lambda *args, **kwargs:
                         SimpleNamespace(active_organization_id='tenant'))
     monkeypatch.setattr(transfer, '_service', lambda *args:

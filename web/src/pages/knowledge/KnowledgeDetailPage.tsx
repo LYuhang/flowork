@@ -1,3 +1,4 @@
+import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -48,7 +49,7 @@ export function KnowledgeDetailPage() {
   const client = useQueryClient();
   const formatTime = useFormatDateTime();
   const [tab, setTab] = useState('files');
-  const [editing, setEditing] = useState(false);
+  const [editingRequested, setEditing] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState('latest');
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishHash, setPublishHash] = useState('');
@@ -68,6 +69,9 @@ export function KnowledgeDetailPage() {
     queryKey: ['knowledge-base', kbId],
     queryFn: () => getKb(kbId),
     enabled: Boolean(kbId),
+    // Refresh permissions independently of file/content changes.
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: 'always',
   });
   const files = useQuery({
     queryKey: ['knowledge-files', kbId],
@@ -75,7 +79,9 @@ export function KnowledgeDetailPage() {
     enabled: Boolean(kbId),
   });
 
-  const draft = useQuery({queryKey: ['knowledge-draft', kbId], queryFn: () => getKnowledgeDraft(kbId), enabled: !!detail.data?.access.capabilities.includes('update')});
+  const canUpdate = !!detail.data?.access.capabilities.includes('update');
+  const editing = editingRequested && canUpdate && selectedVersion === 'latest';
+  const draft = useQuery({queryKey: ['knowledge-draft', kbId], queryFn: () => getKnowledgeDraft(kbId), enabled: canUpdate});
   const versions = useQuery({queryKey: ['knowledge-versions', kbId], queryFn: () => getKnowledgeVersions(kbId), enabled: !!detail.data});
   const number = selectedVersion === 'latest' ? detail.data?.package_version : Number(selectedVersion);
   const snapshot = useQuery({queryKey: ['knowledge-version', kbId, number], queryFn: () => getKnowledgeVersion(kbId, number!), enabled: !!number && !editing});
@@ -84,7 +90,12 @@ export function KnowledgeDetailPage() {
     ...(files.data?.find(file => file.name === path) ?? {}), id: path, name: path,
   } as KbFile));
   const loadFile = (path: string) => getKnowledgeVersionFile(kbId, editing ? 0 : number!, path);
-  const refresh = async () => Promise.all([detail.refetch(), files.refetch(), draft.refetch(), versions.refetch(), snapshot.refetch()]);
+  const refresh = async () => {
+    const current = await detail.refetch();
+    await Promise.all([files.refetch(), versions.refetch(), snapshot.refetch(),
+      ...(current.data?.access.capabilities.includes('update') ? [draft.refetch()] : []),
+    ]);
+  };
   const applyFile = async (path: string, file?: File, create = false) => {
     if (!draft.data) throw new Error('Draft unavailable');
     const next = await writeKnowledgeDraftFile(kbId, path, draft.data.content_hash, file, create);
@@ -175,7 +186,6 @@ export function KnowledgeDetailPage() {
     );
   }
 
-  const canUpdate = detail.data.access.capabilities.includes('update');
   const canShare = detail.data.access.capabilities.includes('manage_access');
   const canDelete = detail.data.access.capabilities.includes('delete');
 
@@ -192,7 +202,7 @@ export function KnowledgeDetailPage() {
           <>
             <span>{shown.data?.files.length ?? detail.data.file_count} {t('knowledge.files', 'files')}</span>
             {editing && <span>{t('files.manage.draft', 'Draft')}</span>}
-            <ResourceProvenanceLine provenance={detail.data.provenance} />
+            <ResourceAccessBadge access={detail.data.access} /><ResourceProvenanceLine provenance={detail.data.provenance} />
           </>
         )}
         actions={(
@@ -203,10 +213,9 @@ export function KnowledgeDetailPage() {
                 {(versions.data ?? []).filter(v => v.version !== detail.data.package_version).map(v => <SelectItem key={v.version} value={String(v.version)}>v{v.version}</SelectItem>)}
               </SelectContent>
             </Select>
-            {canUpdate && selectedVersion === 'latest' && <>
-              <Button variant="outline" size="sm" disabled={!draft.data || publish.isPending} onClick={() => {setEditing(!editing); setTab('files');}}>{editing ? t('files.manage.finishEditing', 'Finish editing') : t('edit', 'Edit')}</Button>
-              {editing && <Button size="sm" disabled={!draft.data?.has_changes || publish.isPending} onClick={() => {setPublishHash(draft.data!.content_hash); setPublishOpen(true);}}>{t('skills.custom.new_version', 'New version')}</Button>}
-            </>}
+            <Button variant="outline" size="sm" disabled={!canUpdate || selectedVersion !== 'latest' || !draft.data || publish.isPending} onClick={() => {setEditing(!editing); setTab('files');}}>{editing ? t('files.manage.finishEditing', 'Finish editing') : t('edit', 'Edit')}</Button>
+            {editing && <Button size="sm" disabled={!draft.data?.has_changes || publish.isPending} onClick={() => {setPublishHash(draft.data!.content_hash); setPublishOpen(true);}}>{t('skills.custom.new_version', 'New version')}</Button>}
+            {(!canUpdate || selectedVersion !== 'latest') && <span className="text-xs text-muted-foreground">{t('resourceAccess.editUnavailable')}</span>}
             <Button variant="outline" size="sm" onClick={() => void refresh()}>
               <RefreshCw className="h-4 w-4" />{t('refresh', 'Refresh')}
             </Button>
@@ -276,14 +285,14 @@ export function KnowledgeDetailPage() {
             />}
           </TabsContent>
         </Tabs>
-        <ConfirmationDialog open={publishOpen} onOpenChange={setPublishOpen} confirmVariant="default"
+        <ConfirmationDialog open={publishOpen && editing} onOpenChange={setPublishOpen} confirmVariant="default"
           title={t('files.manage.publishTitle', {version:detail.data.package_version+1})}
           description={t('files.manage.publishKnowledgeHint')}
           confirmLabel={t('files.manage.publish', 'Publish')} cancelLabel={t('cancel', 'Cancel')}
           pending={publish.isPending} onConfirm={() => publish.mutate()} />
 
         <ConfirmationDialog
-          open={deleteKbOpen}
+          open={deleteKbOpen && canDelete}
           onOpenChange={(open) => {
             if (!removeKnowledgeBase.isPending) setDeleteKbOpen(open);
           }}
@@ -299,7 +308,7 @@ export function KnowledgeDetailPage() {
           onConfirm={() => removeKnowledgeBase.mutate()}
         />
 
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <Dialog open={editOpen && canUpdate} onOpenChange={setEditOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{t('knowledge.editTitle', 'Edit Knowledge details')}</DialogTitle>
@@ -325,7 +334,7 @@ export function KnowledgeDetailPage() {
         </Dialog>
 
         <ConfirmationDialog
-          open={deleteTarget !== null}
+          open={deleteTarget !== null && canUpdate}
           onOpenChange={(open) => {
             if (!open && !removeFile.isPending) setDeleteTarget(null);
           }}
@@ -343,7 +352,7 @@ export function KnowledgeDetailPage() {
       </EntityDetailShell>
 
       <ResourceShareDialog
-        open={shareOpen}
+        open={shareOpen && canShare}
         onOpenChange={setShareOpen}
         resourceKind="knowledge_base"
         resourceId={detail.data.id}

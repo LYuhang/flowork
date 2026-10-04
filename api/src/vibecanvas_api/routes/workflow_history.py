@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.auth.deps import AuthContext, current_user, tenant_db
 from vibecanvas_api.auth.repo import AuthRepo
-from vibecanvas_api.authorization.dependencies import authorize_resource, get_authz_service
+from vibecanvas_api.authorization.dependencies import authorize_resource, authorized_resource_scope, get_authz_service
 from vibecanvas_api.authorization.service import AuthzService
 from vibecanvas_api.authorization.types import Action, ResourceRef, ResourceType
 from vibecanvas_api.storage.workflow_history_repo import HistoryConflict, WorkflowHistoryRepo
@@ -26,7 +26,12 @@ class ApprovalDecision(BaseModel):
     approved: StrictBool
 
 
-async def _authorize_source(request, auth, service, source_type, source_id, *, action=Action.INSPECT_RUNS):
+async def _authorize_source(request, auth, service, source_type, source_id, *, session, action=Action.INSPECT_RUNS):
+    if source_type == "workflow":
+        async with authorized_resource_scope(request=request, auth=auth, session=session,
+                resource_type=ResourceType.WORKFLOW, resource_id=source_id, action=action):
+            pass
+        return
     await authorize_resource(
         request=request,
         auth=auth,
@@ -36,12 +41,20 @@ async def _authorize_source(request, auth, service, source_type, source_id, *, a
     )
 
 
+async def _require_workflow_run_visibility(repo, auth, run):
+    if (run["source_type"] == "workflow"
+            and str(run["initiator_user_id"]) != auth.user_id
+            and not await repo.is_workflow_owner(run["source_id"], auth.user_id)):
+        raise HTTPException(404, "execution_not_found")
+
+
 async def _authorize_detail(request, auth, service, repo, execution_id):
     run = await repo.get(execution_id)
     if run is None:
         raise HTTPException(404, "execution_not_found")
     if not await repo.is_assignee(execution_id, auth.user_id):
-        await _authorize_source(request, auth, service, run["source_type"], run["source_id"])
+        await _require_workflow_run_visibility(repo, auth, run)
+        await _authorize_source(request, auth, service, run["source_type"], run["source_id"], session=repo.session)
     return run
 
 
@@ -62,17 +75,21 @@ async def history(
     # The personal pending view grants only the current assignee's records.
     # Browsing the source's full history still requires normal inspect authority.
     if not mine:
-        await _authorize_source(request, auth, service, source_type, source_id)
+        await _authorize_source(request, auth, service, source_type, source_id, session=session)
     if (before_time is None) != (before_id is None):
         raise HTTPException(422, "both_cursor_fields_required")
     if before_time is not None and before_time.tzinfo is None:
         raise HTTPException(422, "cursor_timezone_required")
+    repo = WorkflowHistoryRepo(session)
+    own_runs_only = (source_type == "workflow" and not mine
+                     and not await repo.is_workflow_owner(source_id, auth.user_id))
     try:
-        result = await WorkflowHistoryRepo(session).history(
+        result = await repo.history(
             source_type=source_type,
             source_id=source_id,
             statuses=statuses,
             pending_for_user_id=auth.user_id if mine else None,
+            initiator_user_id=auth.user_id if own_runs_only else None,
             before=(before_time, str(before_id)) if before_time else None,
             limit=limit,
         )
@@ -166,7 +183,8 @@ async def cancel(
     run = await repo.get(str(execution_id))
     if run is None:
         raise HTTPException(404, "execution_not_found")
-    await _authorize_source(request, auth, service, run["source_type"], run["source_id"], action=Action.CANCEL)
+    await _require_workflow_run_visibility(repo, auth, run)
+    await _authorize_source(request, auth, service, run["source_type"], run["source_id"], session=session, action=Action.CANCEL)
     try:
         return await repo.request_cancel(str(execution_id))
     except HistoryConflict as exc:

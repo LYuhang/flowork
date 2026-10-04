@@ -1,6 +1,8 @@
 """Unified Preview descriptor and optimistic text-write HTTP surface."""
 from __future__ import annotations
 
+from vibecanvas_api.services.workspace_file_access import owned_workspace_chats, workspace_path_visible
+
 import asyncio
 import io
 import mimetypes
@@ -185,7 +187,7 @@ async def _resolve_file(
         )).one_or_none()
         if project is None:
             raise HTTPException(status_code=404, detail="preview_file_not_found")
-        scope_id = project_workspace_scope_id(project.project_id, workflow_id=project.workflow_id)
+        scope_id = project_workspace_scope_id(project.project_id)
         query = select(VfsArtifact).where(
             VfsArtifact.scope_id == scope_id,
             VfsArtifact.path == file_ref.path,
@@ -216,6 +218,10 @@ async def _resolve_file(
         run_id = file_ref.run_id
     else:  # pragma: no cover - Pydantic discriminator is exhaustive
         raise HTTPException(status_code=400, detail="invalid_file_ref")
+    if scope_id and not workspace_path_visible(file_ref.path, set()) and not workspace_path_visible(
+        file_ref.path, await owned_workspace_chats(session, scope_id, auth.user_id),
+    ):
+        raise HTTPException(status_code=404, detail='preview_file_not_found')
     if row is None or not row.object_key:
         raise HTTPException(status_code=404, detail="preview_file_not_found")
     return _ResolvedFile(file_ref=file_ref, row=row, scope_id=scope_id, run_id=run_id)
@@ -576,7 +582,7 @@ async def _event_scope(
         )).one_or_none()
         if project is None:
             raise HTTPException(status_code=404, detail="preview_file_not_found")
-        return "artifact", project_workspace_scope_id(project.project_id, workflow_id=project.workflow_id)
+        return "artifact", project_workspace_scope_id(project.project_id)
     if isinstance(file_ref, MountFileRefV1):
         return "artifact", mount_scope_id(user_id)
     return "run", file_ref.run_id
@@ -965,6 +971,12 @@ async def create_preview_resource_session(
             for root in ("data", "memory", "logs", "chats")
             for rule in rules_for_root(sorted_rules, root)
         )
+        if any(rule.startswith('/chats/') for rule in workspace_rules):
+            private_chats = await owned_workspace_chats(session, resolved.scope_id, auth.user_id)
+            workspace_rules = tuple(
+                rule for rule in workspace_rules
+                if rule.rstrip('/') != '/chats' and workspace_path_visible(rule, private_chats)
+            )
         workspace_capability = issue_vfs_resource_capability(
             tenant_id=auth.tenant_id,
             audience="file-preview",

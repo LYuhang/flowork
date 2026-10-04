@@ -266,6 +266,7 @@ class TasksRepo:
         background_job_id: str | None = None,
         deployment_id: uuid.UUID | None = None,
         service_account_id: uuid.UUID | None = None,
+        workflow_tenant_id: uuid.UUID | None = None,
     ) -> Task:
         encrypted = await self._encrypt_document(
             tenant_id=tenant_id,
@@ -281,6 +282,7 @@ class TasksRepo:
             user_id=user_id,
             owner_id=user_id,
             workflow_id=workflow_id,
+            workflow_tenant_id=workflow_tenant_id or tenant_id,
             task_type=task_type,
             content_ciphertext=encrypted.ciphertext,
             content_nonce=encrypted.nonce,
@@ -379,6 +381,8 @@ class TasksRepo:
         task_type: list[str] | None = None,
         workflow_id: str | None = None,
         search: str | None = None,
+        creator_user_id: str | None = None,
+        exclude_creator: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[Task], int]:
@@ -391,6 +395,9 @@ class TasksRepo:
         if task_ids is not None and not normalized_ids:
             return [], 0
         stmt = select(Task)
+        if creator_user_id is not None:
+            creator = uuid.UUID(str(creator_user_id))
+            stmt = stmt.where(Task.user_id != creator if exclude_creator else Task.user_id == creator)
         if normalized_ids is not None:
             stmt = stmt.where(Task.id.in_(normalized_ids))
         if status:
@@ -407,7 +414,7 @@ class TasksRepo:
                 Task.results_uri.ilike(pattern),
             ))
         count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
-        stmt = stmt.order_by(Task.submitted_at.desc()).limit(limit).offset(offset)
+        stmt = stmt.order_by(Task.submitted_at.desc(), Task.id).limit(limit).offset(offset)
         rows_result = await self.session.execute(stmt)
         count_result = await self.session.execute(count_stmt)
         rows = list(rows_result.scalars().all())
@@ -430,6 +437,8 @@ class TasksRepo:
         task_ids: tuple[str, ...] | list[str] | None = None,
         task_type: list[str] | None = None,
         workflow_id: str | None = None,
+        creator_user_id: str | None = None,
+        exclude_creator: bool = False,
     ) -> dict[str, int]:
         normalized_ids = _normalized_task_ids(task_ids)
         stmt = select(Task.status, func.count()).group_by(Task.status)
@@ -439,6 +448,9 @@ class TasksRepo:
             stmt = stmt.where(Task.task_type.in_(task_type))
         if workflow_id:
             stmt = stmt.where(Task.workflow_id == workflow_id)
+        if creator_user_id is not None:
+            creator = uuid.UUID(str(creator_user_id))
+            stmt = stmt.where(Task.user_id != creator if exclude_creator else Task.user_id == creator)
         result = await self.session.execute(stmt)
         counts = {str(status): int(count) for status, count in result.all()}
         active = sum(counts.get(s, 0) for s in ("queued", "running", "cancelling", "resuming"))
@@ -621,11 +633,13 @@ class TasksRepo:
         workflow_selector: dict | None = None,
         start_at: str | None = None,
         run_at: datetime | None = None,
+        workflow_tenant_id: uuid.UUID | None = None,
     ) -> tuple[Task, TaskSchedule]:
         from vibecanvas_api.services.task_snapshots import freeze_workflow
+        workflow_tenant_id = workflow_tenant_id or tenant_id
         selector = workflow_selector or {}
         snapshot = await freeze_workflow(self.session, user_id, workflow_id,
-                                        major=selector.get("major"), version=selector.get("version"))
+                                        major=selector.get("major"), version=selector.get("version"), workflow_tenant_id=workflow_tenant_id)
         workflow_selector = {"version": snapshot["version"]}
         from vibecanvas_engine.utils import normalize_inputs_for_fields, start_node_input_fields
         input_preset = normalize_inputs_for_fields(input_preset, start_node_input_fields(snapshot["workflow"]))
@@ -679,6 +693,7 @@ class TasksRepo:
             user_id=user_id,
             owner_id=user_id,
             workflow_id=workflow_id,
+            workflow_tenant_id=workflow_tenant_id,
             task_type="scheduled_run",
             status="enabled" if enabled else "paused",
             progress=0,
@@ -693,6 +708,7 @@ class TasksRepo:
             user_id=user_id,
             task_id=task_id,
             workflow_id=workflow_id,
+            workflow_tenant_id=workflow_tenant_id,
             enabled=enabled,
             schedule_type=schedule_type,
             run_at=run_at,
@@ -760,7 +776,7 @@ class TasksRepo:
             from vibecanvas_api.services.task_snapshots import freeze_workflow
             selector = fields["workflow_selector"] or {}
             snapshot = await freeze_workflow(self.session, schedule.user_id, schedule.workflow_id,
-                                            major=selector.get("major"), version=selector.get("version"))
+                                            major=selector.get("major"), version=selector.get("version"), workflow_tenant_id=schedule.workflow_tenant_id)
             fields["workflow_selector"] = {"version": snapshot["version"]}
         private_updates = _SCHEDULE_PRIVATE_FIELDS.intersection(fields)
         if private_updates:
@@ -864,7 +880,7 @@ class TasksRepo:
         if schedule is None:
             raise LookupError("Schedule not found.")
         snapshot = await freeze_workflow(self.session, schedule.user_id, workflow_id,
-                                        **schedule.workflow_selector)
+                                        workflow_tenant_id=schedule.workflow_tenant_id, **schedule.workflow_selector)
         snapshot["mount_enabled"] = bool(schedule.mount_enabled)
         private = {
             "input_snapshot": input_snapshot,
@@ -887,6 +903,7 @@ class TasksRepo:
             tenant_id=tenant_id,
             schedule_id=schedule_id,
             workflow_id=workflow_id,
+            workflow_tenant_id=schedule.workflow_tenant_id,
             run_key=run_key,
             status=status,
             trigger_type=trigger_type,

@@ -1,6 +1,6 @@
 """Delegate newly referenced manual APIs for an accepted Deployment execution.
 
-Following a major can introduce model nodes after deployment creation. Refresh
+A newly selected fixed version can introduce model nodes. Refresh
 only dependencies of the host-selected execution snapshot, never caller inputs.
 Existing grants remain subject to the model broker's live authorization checks;
 this helper does not repair/regrant explicitly revoked existing dependencies.
@@ -35,6 +35,7 @@ from vibecanvas_api.services.llm_credentials_inject import (
 )
 from vibecanvas_api.services.workflow_model_policy import is_workflow_credential
 from vibecanvas_api.storage.db import short_session_scope
+from vibecanvas_api.services.workflow_execution_authorization import workflow_source_access_allowed
 from vibecanvas_api.storage.models import User
 from vibecanvas_api.storage.models_org import OrgMembership
 from vibecanvas_api.storage.repo_llm_credentials import LlmCredentialsRepo
@@ -74,7 +75,7 @@ async def _refresh(
     # Serialize dependency additions with disable/rotation and concurrent calls.
     # The invocation must already exist, be active and belong to this exact SA.
     identity = (await session.execute(text("""
-        SELECT sa.service_account_id
+        SELECT sa.service_account_id, i.workflow_tenant_id
         FROM deployment_invocations i
         JOIN deployments d ON d.id = i.deployment_id
         JOIN service_accounts sa ON sa.service_account_id = d.service_account_id
@@ -91,6 +92,7 @@ async def _refresh(
            "generation": generation, "user_id": uuid.UUID(user_id)})).first()
     if identity is None:
         raise PermissionError("deployment_execution_identity_unavailable")
+    workflow_owner = str(identity[1])
     resource_mutations = ()
     if workflow:
         from vibecanvas_api.services.workflow_resources import collect_subagent_resources
@@ -105,18 +107,16 @@ async def _refresh(
             context = AuthzRequestContext(active_organization_id=tenant_id,
                 consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
             principal = PrincipalRef(PrincipalType.SERVICE_ACCOUNT, service_account_id)
-            for kind, identifier in ((ResourceType.WORKFLOW, workflow_id),
-                                     (ResourceType.DEPLOYMENT_INVOCATION, execution_id)):
-                decision = await service.check(principal, Action.EXECUTE,
-                    ResourceRef(kind, identifier, tenant_id), context)
-                if not decision.allowed:
-                    raise PermissionError("deployment_execution_access_revoked")
+            await _require_execution_sources(session=session, service=service, principal=principal,
+                context=context, workflow_id=workflow_id, workflow_owner=workflow_owner,
+                execution_id=execution_id, tenant_id=tenant_id)
             bound = set(await bind_workflow_resources(session, tenant_id=uuid.UUID(tenant_id),
                 service_account_id=account_id, created_by=user_id, workflow=workflow))
+            owners = await repo.resource_owners(account_id)
             resource_mutations = await enqueue_structural_delta(
                 session=session, coordinator=coordinator, actor_type="service_account",
                 actor_id=service_account_id, before=frozenset(),
-                after={MutationEdge(tenant_id, kind, identifier, "consumer", "service_account", service_account_id)
+                after={MutationEdge(owners[(kind, identifier)], kind, identifier, "consumer", "service_account", service_account_id)
                        for kind, identifier in bound - existing_resources},
                 operation_id=uuid.uuid4().hex, source="deployment-resource-dependencies",
             )
@@ -149,14 +149,9 @@ async def _refresh(
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
     principal = PrincipalRef(PrincipalType.SERVICE_ACCOUNT, service_account_id)
-    for resource_type, resource_id in (
-        (ResourceType.WORKFLOW, workflow_id),
-        (ResourceType.DEPLOYMENT_INVOCATION, execution_id),
-    ):
-        decision = await service.check(principal, Action.EXECUTE,
-            ResourceRef(resource_type, resource_id, tenant_id), context)
-        if not decision.allowed:
-            raise PermissionError("deployment_execution_access_revoked")
+    await _require_execution_sources(session=session, service=service, principal=principal,
+        context=context, workflow_id=workflow_id, workflow_owner=workflow_owner,
+        execution_id=execution_id, tenant_id=tenant_id)
     for credential_id in sorted(additions):
         decision = await service.check(PrincipalRef(PrincipalType.USER, user_id), Action.USE,
             ResourceRef(ResourceType.LLM_CREDENTIAL, credential_id, tenant_id), context)
@@ -176,3 +171,14 @@ async def _refresh(
     )
 
     return (*resource_mutations, *model_mutations)
+
+
+async def _require_execution_sources(*, session, service, principal, context,
+                                     workflow_id, workflow_owner, execution_id, tenant_id):
+    if not await workflow_source_access_allowed(session=session, service=service, principal=principal,
+            context=context, workflow_id=workflow_id, workflow_owner=workflow_owner):
+        raise PermissionError("deployment_execution_access_revoked")
+    decision = await service.check(principal, Action.EXECUTE,
+        ResourceRef(ResourceType.DEPLOYMENT_INVOCATION, execution_id, tenant_id), context)
+    if not decision.allowed:
+        raise PermissionError("deployment_execution_access_revoked")

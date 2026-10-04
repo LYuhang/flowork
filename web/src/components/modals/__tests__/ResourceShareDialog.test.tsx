@@ -11,6 +11,7 @@ import zh from '@/lib/i18n/locales/zh.json';
 import {
   grantResolvedResourceBinding,
   listOrganizations,
+  listOrganizationGroups,
   listResourceBindings,
   resolveResourceShareTarget,
 } from '@/lib/api/organizations';
@@ -19,6 +20,7 @@ import { useAuthStore } from '@/stores/auth';
 vi.mock('@/lib/api/organizations', () => ({
   grantResolvedResourceBinding: vi.fn(),
   listOrganizations: vi.fn(),
+  listOrganizationGroups: vi.fn().mockResolvedValue([]),
   listResourceBindings: vi.fn(),
   resolveResourceShareTarget: vi.fn(),
   revokeResourceBinding: vi.fn(),
@@ -174,4 +176,21 @@ describe('ResourceShareDialog', () => {
     expect(screen.getByLabelText('完整邮箱地址')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '搜索' })).toBeInTheDocument();
   });
+  it('filters authorized departments and resolves the selected full path', async () => {
+    const user = userEvent.setup();
+    const organizations = await listOrganizations();
+    vi.mocked(listOrganizations).mockResolvedValue({ ...organizations, items: organizations.items.map((item) => ({ ...item, kind: 'business' })) });
+    const base = { organization_id: 'personal-organization', kind: 'department' as const, source: 'native' as const, directory_provider_id: null, external_id: null, status: 'active' as const, created_by: 'owner-user', created_at: '', updated_at: '', access: { capabilities: [], effective_role: null, source: 'computed' } };
+    vi.mocked(listOrganizationGroups).mockResolvedValue([
+      { ...base, group_id: 'parent', parent_group_id: null, name: 'Engineering' },
+      { ...base, group_id: 'child', parent_group_id: 'parent', name: 'Platform' },
+    ]);
+    renderDialog();
+    await user.click(await screen.findByRole('combobox', { name: 'Target type' }));
+    await user.click(await screen.findByRole('option', { name: 'Department/Team' }));
+    await user.type(screen.getByLabelText('Department or team name'), 'Plat');
+    await user.click(await screen.findByRole('button', { name: 'Engineering / Platform' }));
+    await waitFor(() => expect(resolveResourceShareTarget).toHaveBeenCalledWith('workflow', 'workflow-1', { target_type: 'group', identifier: 'Engineering / Platform' }));
+  });
+
 });

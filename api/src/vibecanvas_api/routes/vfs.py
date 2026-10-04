@@ -10,6 +10,8 @@ comes from the SAME version_str formatter the agent's read_file uses.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
+from urllib.parse import urlencode
 import base64
 import binascii
 import os
@@ -22,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.auth.deps import AuthContext, current_user, tenant_db
 from vibecanvas_api.authorization.dependencies import (
+    authorized_resource_scope,
     context_for_auth,
     get_authz_service,
     principal_for_auth,
@@ -44,6 +47,7 @@ from vibecanvas_api.schemas.vfs import (
     VfsWriteBytesIn, VfsWriteIn, VfsWriteOut,
 )
 from vibecanvas_api.services.object_store import get_object_store
+from vibecanvas_api.services.workspace_file_access import owned_workspace_chats, workspace_path_visible
 from vibecanvas_api.services.file_revision import vfs_row_revision
 from vibecanvas_api.services.chat_workspace import (
     project_id_from_workspace_scope,
@@ -255,6 +259,27 @@ async def _ensure_run_access(
         raise HTTPException(status_code=404, detail="vfs_run_not_found")
 
 
+@asynccontextmanager
+async def _authorized_run_scope(request, session, auth, service, run_id):
+    try:
+        await _ensure_run_access(service=service, auth=auth, run_id=run_id)
+    except HTTPException as error:
+        if error.status_code != 404:
+            raise
+        # Shared workflow run folders have exactly the workflow ID. Private
+        # execution IDs and Chat run IDs cannot acquire this root permission.
+        async with authorized_resource_scope(request=request, auth=auth, session=session,
+                resource_type=ResourceType.WORKFLOW, resource_id=run_id, action=Action.VIEW) as (scoped, scoped_service):
+            decision = await scoped_service.check(principal_for_auth(auth), Action.VIEW,
+                ResourceRef(ResourceType.VFS_RUN, run_id, auth.active_organization_id),
+                context_for_auth(auth, scoped))
+            if not decision.allowed:
+                raise HTTPException(404, "vfs_run_not_found")
+            yield getattr(scoped.state, "admitted_resource_organization_id", None) or auth.tenant_id
+    else:
+        yield auth.tenant_id
+
+
 @router.get("", response_model=VfsListOut)
 async def list_vfs(
     request: Request,
@@ -296,6 +321,8 @@ async def list_vfs(
         else None
     )
     writable_roots = {writable_root} if writable_root else set()
+    private_chats = (await owned_workspace_chats(session, wf_id, ctx.user_id)
+                     if any(not workspace_path_visible(e.path, set()) for e in entries) else set())
     out = [
         VfsEntryOut(
             path=e.path, kind=e.kind, content_type=e.content_type,
@@ -309,7 +336,7 @@ async def list_vfs(
             ],
         )
         for e in entries
-        if not _is_hidden_path(e.path)
+        if not _is_hidden_path(e.path) and workspace_path_visible(e.path, private_chats)
     ]
     return VfsListOut(
         entries=out,
@@ -323,14 +350,15 @@ async def list_vfs(
 @router.get("/runs/{run_id}", response_model=VfsRunListOut)
 async def list_run_vfs(
     run_id: str,
+    request: Request,
     prefix: str = Query("/"),
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     authz: AuthzService = Depends(get_authz_service),
 ) -> VfsRunListOut:
-    await _ensure_run_access(service=authz, auth=ctx, run_id=run_id)
-    repo = VfsRunRepo(session, get_object_store(), ctx.tenant_id)
-    rows = await repo.ls(run_id=run_id, prefix=prefix)
+    async with _authorized_run_scope(request, session, ctx, authz, run_id) as tenant:
+        repo = VfsRunRepo(session, get_object_store(), tenant)
+        rows = await repo.ls(run_id=run_id, prefix=prefix)
     return VfsRunListOut(entries=[
         VfsRunEntryOut(
             path=r.path,
@@ -353,25 +381,25 @@ async def read_vfs(
     authz: AuthzService = Depends(get_authz_service),
 ) -> VfsReadOut:
     if run_id:
-        await _ensure_run_access(service=authz, auth=ctx, run_id=run_id)
-        repo = VfsRunRepo(session, get_object_store(), ctx.tenant_id)
-        entry = await repo.read(run_id=run_id, path=path)
-        if entry is None:
-            raise HTTPException(status_code=404, detail=f"{path} not in run {run_id}")
-        effective_ct = _inline_text_content_type(path, entry.content_type)
-        if effective_ct:
-            raw = await repo.read_bytes(run_id=run_id, path=path)
-            truncated = len(raw) > VFS_HTTP_MAX_BYTES
-            text = raw[:VFS_HTTP_MAX_BYTES].decode("utf-8", "replace")
+        async with _authorized_run_scope(request, session, ctx, authz, run_id) as tenant:
+            repo = VfsRunRepo(session, get_object_store(), tenant)
+            entry = await repo.read(run_id=run_id, path=path)
+            if entry is None:
+                raise HTTPException(status_code=404, detail=f"{path} not in run {run_id}")
+            effective_ct = _inline_text_content_type(path, entry.content_type)
+            if effective_ct:
+                raw = await repo.read_bytes(run_id=run_id, path=path)
+                truncated = len(raw) > VFS_HTTP_MAX_BYTES
+                text = raw[:VFS_HTTP_MAX_BYTES].decode("utf-8", "replace")
+                return VfsReadOut(
+                    path=path, content_type=effective_ct, content=text,
+                    size_bytes=entry.size_bytes, truncated=truncated,
+                    run_id=run_id, stale=False)
+            # binary → descriptor (no inline content)
             return VfsReadOut(
-                path=path, content_type=effective_ct, content=text,
-                size_bytes=entry.size_bytes, truncated=truncated,
+                path=path, content_type=entry.content_type, content=None,
+                size_bytes=entry.size_bytes, truncated=False,
                 run_id=run_id, stale=False)
-        # binary → descriptor (no inline content)
-        return VfsReadOut(
-            path=path, content_type=entry.content_type, content=None,
-            size_bytes=entry.size_bytes, truncated=False,
-            run_id=run_id, stale=False)
     effective_wf_id = _mount_scope_id(ctx.user_id) if path.startswith("/mount/") else wf_id
     if path.startswith("/mount/"):
         await host_mount_bridge.sync_user(
@@ -386,6 +414,10 @@ async def read_vfs(
         wf_id=effective_wf_id,
         action=Action.VIEW,
     )
+    if not workspace_path_visible(path, set()) and not workspace_path_visible(
+        path, await owned_workspace_chats(session, effective_wf_id, ctx.user_id),
+    ):
+        raise HTTPException(status_code=404, detail='vfs_path_not_found')
     entry = await VfsRepo(session, object_store=get_object_store()).read(
         wf_id=effective_wf_id or None, path=path, touch=False)
     if entry is None:
@@ -434,11 +466,8 @@ async def sign_vfs(
         else (body.wf_id or "")
     )
     if body.run_id:
-        await _ensure_run_access(
-            service=authz,
-            auth=ctx,
-            run_id=body.run_id,
-        )
+        async with _authorized_run_scope(request, session, ctx, authz, body.run_id):
+            return VfsSignOut(url="/api/v1/vfs/run-content?" + urlencode({"run_id": body.run_id, "path": body.path}))
     else:
         await _ensure_vfs_scope_access(
             request=request,
@@ -448,6 +477,10 @@ async def sign_vfs(
             wf_id=effective_wf_id,
             action=Action.VIEW,
         )
+    if not body.run_id and not workspace_path_visible(body.path, set()) and not workspace_path_visible(
+        body.path, await owned_workspace_chats(session, effective_wf_id, ctx.user_id),
+    ):
+        raise HTTPException(status_code=404, detail='vfs_path_not_found')
     url = sign_vfs_url(
         tenant_id=ctx.tenant_id,
         path=body.path,
@@ -593,6 +626,20 @@ async def gateway_vfs_resource(
         max_bytes=config.storage.vfs_upload_max_bytes,
         range_header=request.headers.get("range"),
     )
+
+
+@router.get("/run-content")
+async def raw_run_content(
+    request: Request, run_id: str, path: str,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    authz: AuthzService = Depends(get_authz_service),
+):
+    _validate_run_path(path)
+    async with _authorized_run_scope(request, session, ctx, authz, run_id) as tenant:
+        response = await _serve_vfs_resource(tenant=tenant, wf_id="", run_id=run_id,
+            path=path, range_header=request.headers.get("range"))
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
 
 
 @router.get("/raw")

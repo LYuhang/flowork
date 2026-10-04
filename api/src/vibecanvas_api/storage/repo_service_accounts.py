@@ -280,18 +280,25 @@ class ServiceAccountsRepo:
             + "ORDER BY resource_type,resource_id"), {"id": service_account_id})).all()
         return tuple((row[0], row[1]) for row in rows)
 
+    async def resource_owners(self, service_account_id: uuid.UUID, *, include_revoked: bool = False) -> dict[tuple[str, str], str]:
+        rows = (await self.session.execute(text(
+            "SELECT resource_type, resource_id::text, resource_tenant_id::text FROM service_account_resources "
+            "WHERE service_account_id=:id " + ("" if include_revoked else "AND revoked_at IS NULL ")
+            + "ORDER BY resource_type,resource_id"), {"id": service_account_id})).all()
+        return {(row[0], row[1]): row[2] for row in rows}
+
     async def bind_resource(self, *, tenant_id: uuid.UUID, service_account_id: uuid.UUID,
-                            resource_type: str, resource_id: uuid.UUID) -> None:
+                            resource_type: str, resource_id: uuid.UUID, resource_tenant_id: uuid.UUID) -> None:
         if resource_type not in {"skill_installation", "mcp_installation"}:
             raise ValueError("Unsupported service account resource")
         # Existing revocations are tombstones: dependency refresh must not
         # silently restore a grant that an administrator explicitly removed.
         await self.session.execute(text("""INSERT INTO service_account_resources
-            (tenant_id,service_account_id,resource_type,resource_id)
-            SELECT :tenant,:account,:kind,:resource FROM service_accounts
+            (tenant_id,service_account_id,resource_type,resource_id,resource_tenant_id)
+            SELECT :tenant,:account,:kind,:resource,:resource_tenant FROM service_accounts
             WHERE service_account_id=:account AND tenant_id=:tenant AND status='active'
             ON CONFLICT DO NOTHING"""), {"tenant": tenant_id, "account": service_account_id,
-                "kind": resource_type, "resource": resource_id})
+                "kind": resource_type, "resource": resource_id, "resource_tenant": resource_tenant_id})
 
     async def revoke_resource(self, *, service_account_id: uuid.UUID,
                               resource_type: str, resource_id: uuid.UUID) -> None:

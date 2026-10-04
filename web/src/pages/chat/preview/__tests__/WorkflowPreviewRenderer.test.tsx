@@ -47,7 +47,7 @@ describe('WorkflowPreviewRenderer', () => {
 
   it('pins the query but links to the latest canvas without changing the global editor', () => {
     render(<WorkflowPreviewRenderer workflowId="wf" version="v2.sv3" />);
-    expect(state.options.queryKey).toEqual(['workflow-preview', 'wf', 'v2.sv3']);
+    expect(state.options.queryKey).toEqual(['workflow-preview', 'wf', 'v2.sv3', undefined, undefined]);
     expect(state.options.refetchOnMount).toBe('always');
     expect(state.flow.nodesDraggable).toBe(false);
     expect(state.flow.nodesConnectable).toBe(false);

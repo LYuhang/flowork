@@ -95,8 +95,11 @@ async def test_custom_skill_registration_is_not_exposed(authed_client):
 
 @pytest.mark.asyncio
 async def test_custom_skill_draft_does_not_move_head_until_version_is_published(
-    authed_client, tmp_path,
+    authed_client, tmp_path, monkeypatch, openfga_allow_all,
 ):
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(openfga_allow_all, "close", AsyncMock(), raising=False)
+    monkeypatch.setattr("vibecanvas_api.authorization.openfga_client.openfga_client_from_config", lambda: openfga_allow_all)
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr("SKILL.md", SKILL_MD)
@@ -134,6 +137,7 @@ async def test_custom_skill_draft_does_not_move_head_until_version_is_published(
     await hydrate_runtime_skills(
         destination=str(runtime_mount),
         tenant_id=identity["tenant_id"],
+        user_id=identity["user_id"],
         skills=[{
             "skill_id": row["id"],
             "name": row["name"],

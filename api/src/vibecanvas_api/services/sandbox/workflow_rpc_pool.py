@@ -50,6 +50,12 @@ class WorkflowRpcPool:
         workflow = deepcopy(workflow)
         destinations = {f"/{name}" for name in session.workspace_folders} | {"/mount"}
         binds = [(dest, src) for dest, src in session._rw_binds if dest in destinations]
+        if session.workflow_run_source is not None:
+            # Canvas chat and execution use the same authorized run source.
+            # Private project folders must also shadow aliases below /run.
+            binds.extend(session._private_run_aliases())
+            if artifacts_root is None:
+                artifacts_root = session.workflow_run_dir
         readonly = [("/skills", session.skills_dir)] if session.skills_dir else []
         pool = cls(
             capacity=capacity,

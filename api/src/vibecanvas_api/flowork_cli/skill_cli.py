@@ -9,23 +9,25 @@ except ImportError:
     import knowledge_cli
 
 READ_OPERATIONS = frozenset({'skill.check', 'skill.download', 'skill.refresh'})
-WRITE_OPERATIONS = frozenset({'skill.create', 'skill.update', 'skill.delete'})
+WRITE_OPERATIONS = frozenset({'skill.create', 'skill.update', 'skill.delete', 'skill.install', 'skill.uninstall'})
 OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS
-ACTIONS = {'check', 'download', 'create', 'refresh', 'publish', 'delete'}
+ACTIONS = {'check', 'download', 'create', 'refresh', 'publish', 'delete', 'install', 'uninstall'}
 
 
 def add_commands(commands):
     descriptions = {
-        'delete': 'Delete your own Skill installation. For catalog Skills, only your installation is removed. Local downloads are preserved. Uses the configured write approval policy.',
+        'install': 'Install an accessible Skill for your own Agent sessions. Sharing alone does not install it. Does not grant edit or management permission.',
+        'uninstall': 'Remove your personal installation and Agent availability. Does not delete the Skill package or affect other users.',
+        'delete': 'Delete the platform Skill package when your current permissions include delete. This affects all recipients; use uninstall to remove only your personal installation. Catalog upstream sources are preserved. Local downloads are preserved. Uses the configured write approval policy.',
         'check': 'Validate ALL files in --source-dir against platform Skill rules. Does not publish a version.',
         'create': 'Validate and publish a new custom Skill from ALL files in --source-dir, including hidden files. Root SKILL.md is required; symlinks are rejected.',
-        'publish': 'Replace the ENTIRE package of your OWN custom Skill with --source-dir. Require --expected-version from download; newer publications or unpublished drafts reject the write. Validate and publish the next version automatically. Absent files are removed. Catalog or other users\' Skills cannot be edited. Inspect get after unknown outcomes before retrying.',
-        'refresh': 'Refresh this Chat sandbox Skill folder from the latest authorized published version. Does not publish or modify the platform Skill.',
-        'download': 'Download the latest authorized Skill package into a NEW directory. Never overwrite existing local edits. Read SKILL.md; edit files, check, then publish your own custom Skill.',
+        'publish': 'Replace the ENTIRE package of an authorized custom Skill with --source-dir. Requires edit/publish permission; shared editor and manager roles are supported. Require --expected-version from download; newer publications or unpublished drafts reject the write. Validate and publish the next version automatically. Absent files are removed. Catalog Skills and read-only shares cannot be edited. Inspect get after unknown outcomes before retrying.',
+        'refresh': 'Refresh an already installed Skill in this Chat sandbox from the latest authorized published version. Does not publish or modify the platform Skill.',
+        'download': 'Download the latest authorized Skill package into a NEW directory. Never overwrite existing local edits. Read SKILL.md; edit files, check, then publish the custom Skill if your current permissions allow editing.',
     }
     for action, description in descriptions.items():
         leaf = commands.add_parser(action, help=description, description=description, allow_abbrev=False)
-        if action in {'download', 'refresh', 'publish', 'delete'}:
+        if action in {'download', 'refresh', 'publish', 'delete', 'install', 'uninstall'}:
             leaf.add_argument('--skill-id', required=True)
         if action in {'check', 'create', 'publish'}:
             leaf.add_argument('--source-dir', required=True)

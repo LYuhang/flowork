@@ -1,4 +1,4 @@
-"""Explicit custom-Skill ownership is stricter than a generic editor grant."""
+"""Authorized custom-Skill editing preserves source and tenant boundaries."""
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -14,17 +14,17 @@ from vibecanvas_api.schemas.skills import SkillDraftSave, SkillVersionCreate
 @pytest.mark.parametrize(('source', 'owner', 'code'), [
     ('openai', 'caller', 'skill_read_only_source'),
     ('anthropic', 'caller', 'skill_read_only_source'),
-    ('custom', 'another-user', 'skill_not_creator'),
 ])
-async def test_editor_grant_cannot_write_catalog_or_another_creators_skill(monkeypatch, action, source, owner, code):
+async def test_editor_grant_cannot_write_catalog_skill(monkeypatch, action, source, owner, code):
     repo = AsyncMock()
     repo.get.return_value = {'source': source, 'user_id': owner}
+    repo._lock_custom_skill.return_value = repo.get.return_value
     monkeypatch.setattr(skills, 'SkillsRepo', lambda session: repo)
-    # Simulate an allowed generic edit/publish grant. Domain ownership must
+    # Simulate an allowed generic edit/publish grant. The package source must
     # still reject the write before loading or modifying any draft files.
     monkeypatch.setattr(skills, '_authorize_skill', AsyncMock())
     route = {'save': skills.save_custom_skill_draft, 'publish': skills.publish_custom_skill_version, 'bundle': skills.update_custom_skill_bundle}[action]
-    body = SkillDraftSave(skill_md='draft') if action == 'save' else SkillVersionCreate(version=2)
+    body = SkillDraftSave(skill_md='draft', expected_hash='a' * 64) if action == 'save' else SkillVersionCreate(version=2, expected_hash="a" * 64)
     with pytest.raises(HTTPException) as error:
         await route(skill_id='6f39f476-a371-449b-86f4-6c85640f7916', **({'bundle': None} if action == 'bundle' else {'body': body}),
                     request=None, ctx=SimpleNamespace(user_id='caller'), session=None, service=None)
@@ -48,6 +48,7 @@ async def test_bundle_validates_all_files_before_publishing_next_version(monkeyp
     repo.get.return_value = current
     repo._lock_custom_skill.return_value = current
     repo.save_draft.return_value = {'draft_hash':'validated'}
+    repo.get_draft.return_value = None
     repo.publish_draft.return_value = {'version':4}
     monkeypatch.setattr(skills, 'SkillsRepo', lambda session: repo)
     monkeypatch.setattr(skills, '_authorize_skill', AsyncMock(return_value=SimpleNamespace(decision=None)))
@@ -61,7 +62,7 @@ async def test_bundle_validates_all_files_before_publishing_next_version(monkeyp
     package.seek(0)
     invoke = lambda: skills.update_custom_skill_bundle(
         skill_id='6f39f476-a371-449b-86f4-6c85640f7916', request=None,
-        bundle=UploadFile(filename='skill.zip', file=package),
+        bundle=UploadFile(filename='skill.zip', file=package), expected_version=3,
         ctx=SimpleNamespace(user_id=user_id, tenant_id=user_id), session=AsyncMock(), service=None,
     )
     if not valid:
@@ -82,7 +83,7 @@ async def test_bundle_validates_all_files_before_publishing_next_version(monkeyp
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(('source','owner','editable'), [
-    ('custom','caller',True), ('custom','other',False),
+    ('custom','caller',True), ('custom','other',True),
     ('openai','caller',False), ('anthropic','caller',False),
 ])
 async def test_effective_access_hides_forbidden_edit_actions(monkeypatch,source,owner,editable):
@@ -105,3 +106,15 @@ async def test_effective_access_hides_forbidden_edit_actions(monkeypatch,source,
     assert Action.DELETE in result.access.capabilities
     # Projection must not mutate the authorization service's original decision.
     assert Action.UPDATE in access.capabilities
+
+
+def test_shared_skill_write_uses_admitted_owner_organization():
+    import uuid
+    owner = "00111111-1111-1111-1111-111111111111"
+    recipient = "00222222-2222-2222-2222-222222222222"
+    request = SimpleNamespace(state=SimpleNamespace(admitted_resource_organization_id=owner))
+    assert skills._skill_write_tenant(request, SimpleNamespace(tenant_id=recipient)) == uuid.UUID(owner)
+
+
+def test_shared_custom_skill_source_guard_allows_authorized_editor():
+    skills._require_custom_skill({"source": "custom", "user_id": "different-creator"})

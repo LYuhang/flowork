@@ -32,6 +32,7 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 
 import structlog
 from vibecanvas_engine.sandbox_bus import (
@@ -45,6 +46,7 @@ from vibecanvas_engine.sandbox_bus import (
 from vibecanvas_api.services.deployment_completion import complete_before_cancelling
 
 from vibecanvas_api.config import config
+from vibecanvas_api.services.sandbox.contracts import WorkflowRunSource
 from vibecanvas_api.services.agent_runtime.codex_account import (
     codex_account_auth_file,
 )
@@ -397,6 +399,14 @@ def _edit_unified_diff(before: str, after: str, path: str) -> str:
     return "\n".join(out)
 
 
+@dataclass(frozen=True)
+class WorkflowRunBinding:
+    """Host-resolved persistent /run source, separate from private workspace identity."""
+    tenant_id: str
+    workflow_id: str
+    directory: str
+
+
 class SandboxSession:
     """One resident Project or Workflow sandbox: provider + persisted mounts + lock.
 
@@ -427,6 +437,7 @@ class SandboxSession:
         materialized_projection_root: str | None = None,
         expose_mount: bool = True,
         workspace_profile: str = "chat",
+        workflow_run_binding: WorkflowRunBinding | None = None,
     ) -> None:
         if workspace_profile not in {"chat", "execution"}:
             raise ValueError("invalid_workspace_profile")
@@ -436,10 +447,14 @@ class SandboxSession:
         self.wf_id = wf_id
         # Chat/workspace-owned host dir. It backs /data, /memory, and /logs.
         self.run_dir = run_dir
-        # `/run` is temporary execution space inside this Chat sandbox. It is not
-        # selected-Workflow state and never changes when Workflow binding changes.
-        self.workflow_run_dir = run_dir if expose_run else None
-        self.workflow_run_id = wf_id if expose_run else None
+        # The private workspace and persistent Workflow /run have independent
+        # owners. Bindings are resolved by the host, never from sandbox paths.
+        if workflow_run_binding is not None and not expose_run:
+            raise ValueError("workflow_run_binding_requires_run_mount")
+        self.workflow_run_dir = (workflow_run_binding.directory if workflow_run_binding else run_dir) if expose_run else None
+        self.workflow_run_id = (workflow_run_binding.workflow_id if workflow_run_binding else wf_id) if expose_run else None
+        self.workflow_run_tenant_id = workflow_run_binding.tenant_id if workflow_run_binding else tenant_id
+        self.workflow_run_source = WorkflowRunSource(tenant_id=workflow_run_binding.tenant_id, workflow_id=workflow_run_binding.workflow_id) if workflow_run_binding else None
         self.lease = lease if lease in {"interactive", "resident"} else "interactive"
         self.overlay_dir = overlay_dir
         self.provider = provider
@@ -891,7 +906,7 @@ class SandboxSession:
                     run_id=f"agent-{self.wf_id}",
                     timeout=timeout_s,
                     extra_ro_binds=self.base_binds,
-                    extra_rw_binds=self._rw_binds,
+                    extra_rw_binds=self._rw_binds + self._private_run_aliases(),
                     network=network,
                     expose_run=self.expose_run,
                 )
@@ -1057,7 +1072,7 @@ class SandboxSession:
                 raise RuntimeError('The originating Agent turn is no longer active')
             count = await refresh_runtime_skill(
                 destination=os.path.join(self.skills_dir, runtime_skill_scope(chat_id), skill_id),
-                tenant_id=self.tenant_id, skill_id=skill_id, revision_id=revision_id, revision_hash=revision_hash,
+                tenant_id=self.tenant_id, user_id=self.user_id, skill_id=skill_id, revision_id=revision_id, revision_hash=revision_hash,
             )
         return {'file_count':count, 'runtime_path':runtime_skill_root(chat_id, skill_id), 'revision_hash':revision_hash}
 
@@ -1082,7 +1097,7 @@ class SandboxSession:
                 raise PermissionError("workflow_skill_tenant_mismatch")
             async with self._workflow_skills_lock:
                 async with session_scope(tenant_id=self.tenant_id) as session:
-                    await materialize_workflow_skills(session=session, root=self.skills_dir, snapshot=snapshot)
+                    await materialize_workflow_skills(root=self.skills_dir, snapshot=snapshot)
                     await reconcile_skill_cache(session=session, root=self.skills_dir, snapshot=snapshot)
             return {"prepared": len(snapshot["skills"])}
         finally:
@@ -1092,6 +1107,12 @@ class SandboxSession:
         """Reclaim inactive/revoked views without keeping a sandbox awake."""
         if self.closed or not self.skills_dir:
             return
+        if self.user_id:
+            from vibecanvas_api.services.runtime_skills import prune_chat_skill_mounts
+            async with self._lock:
+                if not self.closed:
+                    await prune_chat_skill_mounts(root=self.skills_dir,
+                        tenant_id=self.tenant_id, user_id=self.user_id)
         from pathlib import Path
         root = Path(self.skills_dir)
         if not (root.parent / ("." + root.name + "-workflow-leases")).exists():
@@ -1191,7 +1212,7 @@ class SandboxSession:
                     scope = runtime_skill_scope(str(request["chat_id"]))
                     destination = os.path.join(self.skills_dir, scope)
                     await hydrate_runtime_skills(
-                        destination=destination, tenant_id=self.tenant_id,
+                        destination=destination, tenant_id=self.tenant_id, user_id=self.user_id,
                         skills=request.get("skills") or [],
                     )
                     request = {**request, "skills": [
@@ -1516,6 +1537,14 @@ class SandboxSession:
                 except asyncio.CancelledError:
                     pass
 
+    def _private_run_aliases(self) -> list[tuple[str, str]]:
+        # Historical run roots can contain workspace folders. Shadow these
+        # aliases with the current user's private view, never the source user's.
+        if self.workflow_run_source is None or not self.run_dir:
+            return []
+        return [(f"/run/{folder}", os.path.join(self.run_dir, folder))
+                for folder in self.workspace_folders]
+
     def _agent_runtime_launch_spec(
         self,
         *,
@@ -1531,6 +1560,7 @@ class SandboxSession:
         rw_binds = list(self._rw_binds)
         if self.expose_run and self.workflow_run_dir:
             rw_binds.append(("/run", self.workflow_run_dir))
+            rw_binds.extend(self._private_run_aliases())
         ro_binds: list[str | tuple[str, str]] = list(self.base_binds)
         if self.skills_dir:
             ro_binds.append(("/skills", self.skills_dir))
@@ -1834,7 +1864,7 @@ class SandboxSession:
         self._begin_activity()
         try:
             from vibecanvas_api.services.vfs_run_context import clear_run_contents
-            await clear_run_contents(target, self.tenant_id)
+            await clear_run_contents(target, self.workflow_run_tenant_id)
         finally:
             self._end_activity()
 
@@ -2107,6 +2137,7 @@ class SandboxSession:
                 # run/debug-result inspection. Pure Chat sessions intentionally
                 # omit it so the agent only sees clean workspace roots.
                 fileop_binds.append(("/run", self.workflow_run_dir))
+                fileop_binds.extend(self._private_run_aliases())
                 fileop_roots.append("/run")
             # Session-scoped staging in a SIBLING of run_dir (NOT under it): never
             # place fileop inbox/outbox under a user-visible mount.
@@ -2348,9 +2379,9 @@ class SandboxSession:
             if self.workspace_profile == "chat" and self.expose_run and self.workflow_run_dir and self.workflow_run_id:
                 await sync_run_back(
                     self.workflow_run_id,
-                    self.tenant_id,
+                    self.workflow_run_tenant_id,
                     self.workflow_run_dir,
-                    self.wf_id,
+                    self.workflow_run_id,
                 )
         except Exception as exc:
             failures.append(exc)
@@ -2539,6 +2570,16 @@ class SandboxSession:
         elif norm.startswith("/run/") and self.expose_run and self.workflow_run_dir:
             root = self.workflow_run_dir
             relative = norm[len("/run/"):]
+            if self.workflow_run_source is not None:
+                # Match the private child mounts used by the runtime and RPC
+                # worker instead of touching historical source-user files.
+                for folder in self.workspace_folders:
+                    if relative == folder:
+                        return None
+                    if relative.startswith(folder + "/") and self.run_dir:
+                        root = os.path.join(self.run_dir, folder)
+                        relative = relative[len(folder) + 1:]
+                        break
         else:
             for folder in self.workspace_folders:
                 prefix = f"/{folder}/"
@@ -3484,7 +3525,8 @@ class SandboxManager:
                           expose_run: bool = True,
                           expose_runtime: bool = False,
                           lease: str = "interactive", expose_mount: bool = True,
-                          workspace_profile: str = "chat") -> SandboxSession:
+                          workspace_profile: str = "chat",
+                          workflow_run_source: WorkflowRunSource | None = None) -> SandboxSession:
         """Return the resident session for ``(tenant_id, wf_id)``, creating it
         (and evicting the LRU on overflow) on first use.
 
@@ -3497,6 +3539,8 @@ class SandboxManager:
         overlay dir."""
         if workspace_profile not in {"chat", "execution"}:
             raise ValueError("invalid_workspace_profile")
+        if workflow_run_source is not None and (not expose_run or workspace_profile != "chat"):
+            raise ValueError("invalid_workflow_run_source_profile")
         acquire_started = time.perf_counter()
         key = (tenant_id, wf_id)
         # Restore outside the manager-wide registry lock. The Session's own
@@ -3504,6 +3548,9 @@ class SandboxManager:
         # while unrelated Projects remain acquirable during checkpoint I/O.
         async with self._acquisition_lock(key):
             restore_candidate = self._sessions.get(key)
+            if (restore_candidate is not None and not restore_candidate.closed
+                    and (restore_candidate.user_id != user_id or restore_candidate.workflow_run_source != workflow_run_source)):
+                raise RuntimeError("sandbox_workspace_identity_mismatch")
             if key in self._revoked_task_scopes:
                 raise RuntimeError("Task execution scope was revoked.")
             if (
@@ -3522,6 +3569,9 @@ class SandboxManager:
             if key in self._revoked_task_scopes:
                 raise RuntimeError("Task execution scope was revoked.")
             existing = self._sessions.get(key)
+            if (existing is not None and not existing.closed
+                    and (existing.user_id != user_id or existing.workflow_run_source != workflow_run_source)):
+                raise RuntimeError("sandbox_workspace_identity_mismatch")
             if existing is not None and not existing.closed:
                 if getattr(existing, "_requires_rehydrate", False):
                     self._sessions.pop(key, None)
@@ -3587,6 +3637,7 @@ class SandboxManager:
                 expose_runtime=expose_runtime,
                 expose_mount=expose_mount,
                 workspace_profile=workspace_profile,
+                **({"workflow_run_source": workflow_run_source} if workflow_run_source else {}),
             )
             session.lease = lease if lease in {"interactive", "resident"} else "interactive"
             self._sessions[key] = session
@@ -4083,7 +4134,8 @@ class SandboxManager:
                              expose_run: bool = True,
                              expose_runtime: bool = False,
                              expose_mount: bool = True,
-                             workspace_profile: str = "chat") -> SandboxSession:
+                             workspace_profile: str = "chat",
+                             workflow_run_source: WorkflowRunSource | None = None) -> SandboxSession:
         """Materialize Chat/user VFS mounts and construct the session.
 
         ``build_run_context`` (blocking DB+ObjectStore+FS, run off-loop) gives
@@ -4122,6 +4174,7 @@ class SandboxManager:
             pool_runs_root = os.path.dirname(run_dir) if run_dir else None
             store = get_object_store()
             if run_dir and (not isinstance(store, FilesystemObjectStore)
+                            or workflow_run_source is not None
                             or not expose_mount or wf_id.startswith(("schedule-", "batch-", "deployment-"))):
                 # Task execution and no-mount sessions must not see neighbouring
                 # tenant workspaces (or their hydrated mounts) through /runs.
@@ -4243,7 +4296,20 @@ class SandboxManager:
 
         provider = get_sandbox_provider()
         base_binds = _workflow_python_binds()
+        workflow_run_binding = None
+        if workflow_run_source is not None:
+            if not expose_run or workspace_profile != "chat":
+                raise ValueError("invalid_workflow_run_source_profile")
+            source_context = await asyncio.to_thread(
+                build_run_context, workflow_run_source.workflow_id, workflow_run_source.tenant_id,
+            )
+            if not source_context["run_dir"]:
+                raise RuntimeError("workflow_run_source_unavailable")
+            workflow_run_binding = WorkflowRunBinding(
+                workflow_run_source.tenant_id, workflow_run_source.workflow_id, source_context["run_dir"],
+            )
         session = SandboxSession(
+            workflow_run_binding=workflow_run_binding,
             tenant_id=tenant_id,
             wf_id=wf_id,
             run_dir=run_dir,

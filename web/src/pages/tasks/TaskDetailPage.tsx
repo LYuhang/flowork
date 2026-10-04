@@ -1,3 +1,4 @@
+import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 /**
  * `/tasks/:taskId` task detail page.
  *
@@ -397,16 +398,15 @@ export function TaskDetailPage() {
     queryKey: ["task", taskId],
     queryFn: () => getTask(taskId!),
     enabled: !!taskId,
-    // Stop polling once the row reaches a terminal state — nothing
-    // left to refresh and we want to be a good network citizen.
+    // Completed tasks still need to refresh sharing permissions.
     refetchInterval: (q) => {
       const data = q.state.data as Task | undefined;
       if (!data) return POLL_INTERVAL_MS;
       return ACTIVE_STATUSES.includes(data.status)
         ? POLL_INTERVAL_MS
-        : false;
+        : 15_000;
     },
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: 'always',
   });
 
   const scheduledQuery = useQuery({
@@ -708,9 +708,9 @@ export function TaskDetailPage() {
           <span className="min-w-0 break-all font-mono">{t("tasks.col.workflow", "Workflow")}: {task.workflow_id}</span>
           <CopyButton className="shrink-0" value={task.workflow_id} />
         </span>}
-        <WorkflowVersionLink workflowId={linkedWorkflowId} version={linkedVersion}
+        <WorkflowVersionLink source={isScheduledRun && !configuredVersion && selectedExecution ? { type: "execution", id: selectedExecution.id } : { type: "task", id: task.id }} workflowId={linkedWorkflowId} version={linkedVersion}
           inline kind={isScheduledRun ? configuredVersion ? "configured" : "execution" : "snapshot"} />
-        <ResourceProvenanceLine provenance={task.provenance} />
+        <ResourceAccessBadge access={task.access} /><ResourceProvenanceLine provenance={task.provenance} />
       </>)}
       actions={
         <>
@@ -776,7 +776,7 @@ export function TaskDetailPage() {
                       {t("tasks.scheduled.runNow", "Run now")}
                     </Button>
                   ) : null}
-                  {capabilities.has("update") && !(task.payload as Record<string, unknown> | null)?.schedule_completed ? !scheduledQuery.data?.schedule.enabled ? (
+                  {scheduledQuery.data && capabilities.has(scheduledQuery.data.schedule.enabled ? "update" : "resume") && !(task.payload as Record<string, unknown> | null)?.schedule_completed ? !scheduledQuery.data.schedule.enabled ? (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1114,7 +1114,7 @@ export function TaskDetailPage() {
                       {selectedExecution.id.slice(0, 8)}
                     </span>
                     <CopyButton value={selectedExecution.id} />
-                    <WorkflowVersionLink workflowId={selectedExecution.workflow_id} version={selectedExecution.version} kind="execution" />
+                    <WorkflowVersionLink source={{ type: "execution", id: selectedExecution.id }} workflowId={selectedExecution.workflow_id} version={selectedExecution.version} kind="execution" />
                   </div>
                   <DetailSummary className="mt-4 sm:grid-cols-3" items={[
                     { label: t("taskDetail.startedAt", "Started"), value: formatTime(selectedExecution.started_at) },
@@ -1244,7 +1244,7 @@ export function TaskDetailPage() {
         {!isScheduledRun && <TabsContent value="evaluation"><EvaluationTab taskId={task.id} canEdit={capabilities.has("update")} canExecute={capabilities.has("execute")} /></TabsContent>}
       </Tabs>
       <ResourceShareDialog
-        open={shareOpen}
+        open={shareOpen && capabilities.has("manage_access")}
         onOpenChange={setShareOpen}
         resourceKind="task"
         resourceId={task.id}

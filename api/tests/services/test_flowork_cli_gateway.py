@@ -193,7 +193,7 @@ def test_platform_guidance_explains_path_visibility_and_lifetime():
     assert "User-scoped persistent files" in text
     assert "Shared mount in Workflow canvas Chats" in text
     assert "availability in other Chats depends on their entrypoint" in text
-    assert "cross-sandbox synchronization" in text
+    assert "All instances and workers of the same Deployment share its persistent /run" in text
     assert "platform-private runtime state" in text
 
 

@@ -33,9 +33,9 @@ class DirectBindingIn(BaseModel):
         if self.subject_type == "group" and self.subject_relation is None:
             raise ValueError("group binding requires a membership relation")
         if self.subject_type == "organization":
-            if self.subject_relation != "member" or self.relation != "viewer":
+            if self.subject_relation != "member":
                 raise ValueError(
-                    "organization-wide binding supports viewer#member only"
+                    "organization-wide binding requires member relation"
                 )
         if self.subject_type in {"user", "service_account"}:
             if self.subject_relation is not None:
@@ -116,6 +116,7 @@ class SharedResourceOut(BaseModel):
         "task",
         "deployment",
         "knowledge_base",
+        "skill_installation",
     ]
     resource_id: str
     name: str

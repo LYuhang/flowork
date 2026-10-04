@@ -66,6 +66,23 @@ class Skill(Base):
     )
 
 
+class UserSkillInstallation(Base):
+    """An actor's opt-in, independent of the shared package's owning tenant."""
+    __tablename__ = "user_skill_installations"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("skills.skill_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    installed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+
+
 class SkillRevision(Base):
     __tablename__ = "skill_revisions"
 

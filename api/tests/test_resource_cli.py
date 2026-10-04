@@ -43,7 +43,9 @@ def setup_host(monkeypatch):
         yield object()
     monkeypatch.setattr(host, "session_scope", session_scope)
     monkeypatch.setattr(host, "resource_route_params", lambda context, session: {"session": session})
-    return SimpleNamespace(tenant_id="test", chat_id="test-chat")
+    monkeypatch.setattr(host, "admitted_resource_route_params", AsyncMock(return_value={}))
+    monkeypatch.setattr(host, "shared_resource_cards", AsyncMock(return_value=[]))
+    return SimpleNamespace(tenant_id="test", username=str(uuid4()), chat_id="test-chat")
 
 
 @pytest.mark.asyncio
@@ -75,7 +77,7 @@ async def test_skill_metadata_reports_latest_publication_and_runtime_location(mo
     monkeypatch.setattr(host.skills, "_authorize_skill_revision", AsyncMock())
     identifier = str(uuid4())
     repo = SimpleNamespace(
-        get=AsyncMock(side_effect=[{"skill_id": identifier, "name": "Audit", "revision_hash": h} for h in ("a" * 64, "b" * 64)]),
+        get=AsyncMock(side_effect=[{"skill_id": identifier, "name": "Audit", "installed": True, "revision_hash": h} for h in ("a" * 64, "b" * 64)]),
         list_revisions=AsyncMock(return_value=[{"revision_id": "r1", "revision_hash": "a" * 64, "version": 1, "is_latest": False},
                                                 {"revision_id": "r2", "revision_hash": "b" * 64, "version": 2, "is_latest": True}]),
         read_revision_files=AsyncMock(side_effect=[[('SKILL.md', 'text/markdown', b'First')], [('SKILL.md', 'text/markdown', b'Second')]]))
@@ -95,14 +97,22 @@ async def test_skill_metadata_reports_latest_publication_and_runtime_location(mo
 
 
 @pytest.mark.asyncio
-async def test_skill_list_includes_runtime_paths_without_reading_files(monkeypatch):
+@pytest.mark.parametrize("installed", [True, False])
+async def test_skill_list_includes_runtime_paths_without_reading_files(monkeypatch, installed):
     context = setup_host(monkeypatch)
     identifier = str(uuid4())
     monkeypatch.setattr(host.skills, "list_skills", AsyncMock(return_value={"items": [
         {"id": identifier, "name": "Visible", "access": {"capabilities": ["use"]}},
         {"id": str(uuid4()), "name": "Not usable", "access": {"capabilities": ["view"]}},
     ]}))
+    from vibecanvas_api.storage import repo_skill_installations
+    monkeypatch.setattr(repo_skill_installations.SkillInstallationsRepo, "installed_ids",
+                        AsyncMock(return_value={identifier} if installed else set()))
     result = await host.read(context, "skill.list", {})
     assert result["total"] == 1
-    assert result["items"][0]["runtime_path"].endswith("/" + identifier)
+    assert result["items"][0]["installed"] is installed
+    if installed:
+        assert result["items"][0]["runtime_path"].endswith("/" + identifier)
+    else:
+        assert "runtime_path" not in result["items"][0]
     assert "skill refresh" in result["runtime_hint"]

@@ -214,14 +214,14 @@ async def test_xlsx_response_downloaded_through_cli_channel(monkeypatch):
     async def scope(**kwargs):
         yield SimpleNamespace()
     monkeypatch.setattr(cli_tasks, "session_scope", scope)
-    monkeypatch.setattr(cli_tasks, "resource_route_params", lambda ctx, session: {
-        "request": None, "ctx": None, "session": session, "service": None,
-    })
+    monkeypatch.setattr(cli_tasks, "admitted_resource_route_params", AsyncMock(return_value={
+        "request": None, "ctx": None, "session": None, "service": None,
+    }))
     monkeypatch.setattr(cli_tasks.routes, "get_task", AsyncMock(return_value={"task_type": "batch_exec"}))
     data = b"PK" + b"x" * 150_000
     monkeypatch.setattr(cli_tasks.routes, "download_results", AsyncMock(return_value=Response(data)))
     emit = AsyncMock()
-    result = await cli_tasks._read(SimpleNamespace(tenant_id="tenant"), "task.download", {"task_id": str(uuid4()), "task_type": "batch_exec", "format": "xlsx"}, emit)
+    result = await cli_tasks._read(SimpleNamespace(tenant_id="tenant", username="user"), "task.download", {"task_id": str(uuid4()), "task_type": "batch_exec", "format": "xlsx"}, emit)
     assert result["bytes"] == len(data)
     assert emit.await_count == 3
     assert b"".join(base64.b64decode(call.args[0]["progress"]["chunk"]) for call in emit.await_args_list) == data
@@ -319,9 +319,9 @@ async def test_schedule_history_includes_execution_commands_without_exposing_int
     async def scope(**kwargs):
         yield SimpleNamespace()
     monkeypatch.setattr(cli_tasks, "session_scope", scope)
-    monkeypatch.setattr(cli_tasks, "resource_route_params", lambda ctx, session: {
-        "request": None, "ctx": None, "session": session, "service": None,
-    })
+    monkeypatch.setattr(cli_tasks, "admitted_resource_route_params", AsyncMock(return_value={
+        "request": None, "ctx": None, "session": None, "service": None,
+    }))
     monkeypatch.setattr(cli_tasks.routes, "get_task", AsyncMock(return_value={
         "id": task_id, "task_type": "scheduled_run", "status": "failed",
         "payload": {"schedule_id": "private-plan"}, "error": "Last run failed."}))
@@ -330,7 +330,7 @@ async def test_schedule_history_includes_execution_commands_without_exposing_int
     listing = AsyncMock(return_value={"items": [{"id": execution_id, "schedule_id": "private-plan",
         "status": "failed", "error": "Node failed.", "result": {"outcome_unknown": False}}], "total": 1})
     monkeypatch.setattr(cli_tasks.routes, "list_scheduled_run_executions", listing)
-    result = await cli_tasks._read(SimpleNamespace(tenant_id="tenant"), "task.history", {"task_id": task_id, "task_type": "schedule_run"}, AsyncMock())
+    result = await cli_tasks._read(SimpleNamespace(tenant_id="tenant", username="user"), "task.history", {"task_id": task_id, "task_type": "schedule_run"}, AsyncMock())
     assert result["task_id"] == task_id and "plan_status" not in result and "task" not in result and "schedule" not in result
     latest = result["history"][0]
     assert latest["execution_id"] == execution_id and latest["task_id"] == task_id

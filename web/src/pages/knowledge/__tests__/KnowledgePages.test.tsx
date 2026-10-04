@@ -66,6 +66,7 @@ const managerAccess = {
 } satisfies ResourceAccess;
 
 const detail = {
+  created_by_me: true,
   id: 'kb-1',
   name: 'Product handbook',
   description: 'Policies and release notes',
@@ -99,11 +100,24 @@ describe('Knowledge pages', () => {
     vi.mocked(listKbFiles).mockReset();
     vi.mocked(deleteKb).mockReset();
     const snapshot = {name:'Product handbook',description:'Policies and release notes',version:3,base_version:3,latest_version:3,content_hash:'original',has_changes:false,files:['README.md','broken.txt'],readme:'# Handbook',updated_at:''};
-    vi.mocked(getKnowledgeDraft).mockResolvedValue(snapshot);
+    vi.mocked(getKnowledgeDraft).mockReset().mockResolvedValue(snapshot);
     vi.mocked(getKnowledgeVersion).mockResolvedValue(snapshot);
     vi.mocked(getKnowledgeVersions).mockResolvedValue([{version:3,file_count:2,created_at:''}]);
     vi.mocked(getKnowledgeVersionFile).mockResolvedValue(new Blob(['# Handbook\n\nRelease trains run every Tuesday.'], {type:'text/markdown'}));
     vi.mocked(writeKnowledgeDraftFile).mockReset().mockResolvedValue({...snapshot,files:['README.md'],has_changes:true,content_hash:'changed'});
+  });
+
+  it('keeps edit disabled and never requests drafts when a viewer refreshes', async () => {
+    vi.mocked(getKb).mockResolvedValue({...detail, access: {
+      capabilities: ['view_metadata', 'view', 'use'], effective_role: 'viewer', source: 'computed',
+    }});
+    vi.mocked(listKbFiles).mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderPage(<KnowledgeDetailPage />, '/knowledge/kb-1');
+    expect(await screen.findByRole('button', {name:'Edit'})).toBeDisabled();
+    await user.click(screen.getByRole('button', {name:'Refresh'}));
+    await waitFor(() => expect(getKb).toHaveBeenCalledTimes(2));
+    expect(getKnowledgeDraft).not.toHaveBeenCalled();
   });
 
   it('saves metadata only to the captured draft and keeps the published header after leaving edit mode', async () => {

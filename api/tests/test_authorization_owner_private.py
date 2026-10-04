@@ -5,8 +5,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from tests.test_workflow_authorization_integration import _headers, _register as register_browser, _browser_sessions
+from vibecanvas_api.auth.session_security import _cookie_names
 from sqlalchemy import text
 
+from vibecanvas_api.config import config
 from vibecanvas_api.auth.tokens import new_token
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
@@ -14,28 +17,13 @@ from vibecanvas_api.storage.chat_repo import ChatRepo
 from vibecanvas_api.storage.db import session_scope
 
 
-def _headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+async def _register(client):
+    return await register_browser(client, "authz_owner")
 
 
-async def _register(client) -> tuple[str, dict]:
-    email = f"authz_owner_{uuid.uuid4().hex[:12]}@example.com"
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": email,
-            "username": "Resource Owner",
-            "password": "pw12345678",
-        },
-    )
-    assert response.status_code == 201, response.text
-    token = response.json()["session_token"]
-    me = (await client.get("/api/v1/auth/me", headers=_headers(token))).json()
-    return token, me
-
-
-async def _same_org_member_token(app_engine, owner: dict) -> tuple[str, str]:
+async def _same_org_member_token(app_engine, owner: dict) -> tuple[dict[str, str], str]:
     raw, token_hash = new_token()
+    csrf, csrf_hash = new_token()
     user_id = str(uuid.uuid4())
     suffix = uuid.uuid4().hex[:10]
     async with app_engine.begin() as connection:
@@ -66,19 +54,20 @@ async def _same_org_member_token(app_engine, owner: dict) -> tuple[str, str]:
             text(
                 "INSERT INTO sessions("
                 "token_hash, user_id, tenant_id, active_organization_id, "
-                "expires_at"
+                "expires_at, csrf_token_hash"
                 ") VALUES ("
-                ":token_hash, :user_id, :tenant_id, :tenant_id, :expires_at"
+                ":token_hash, :user_id, :tenant_id, :tenant_id, :expires_at, :csrf_hash"
                 ")"
             ),
             {
-                "token_hash": token_hash,
+                "token_hash": token_hash, "csrf_hash": csrf_hash,
                 "user_id": user_id,
                 "tenant_id": owner["tenant_id"],
                 "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
             },
         )
-    return raw, user_id
+    return {"Cookie": f"{_cookie_names('web')[0]}={raw}; {_cookie_names('web')[1]}={csrf}",
+            "X-CSRF-Token": csrf, "Origin": config.public_urls.public_url or "http://testserver"}, user_id
 
 
 async def _seed_private_run(

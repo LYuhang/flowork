@@ -49,6 +49,7 @@ async def test_cli_waits_keeps_worker_and_records_each_execution(pg_engine, monk
         user_id=actor,
         provider=BubblewrapProvider(shutil.which("bwrap")),
         workspace_folders=(),
+        workflow_run_source=None,
         _rw_binds=[],
         skills_dir=None,
         _sync_mount_folder=AsyncMock(),

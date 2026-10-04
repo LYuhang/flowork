@@ -43,6 +43,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, ConfigDict, Field
+from dataclasses import replace
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,6 +179,7 @@ class KbOut(BaseModel):
 
 
 class KbListOut(KbOut):
+    created_by_me: bool = False
     file_count: int = 0
     chunk_count: int = 0
     stored_count: int = 0
@@ -664,6 +666,7 @@ async def list_kbs(
             latest = kb.updated_at
         result.append(KbListOut(
             **base.model_dump(),
+            created_by_me=str(kb.user_id) == str(ctx.user_id),
             file_count=int(stats.get("file_count", 0)),
             chunk_count=int(stats.get("chunk_count", 0)),
             stored_count=int(stats.get("stored_count", 0)),
@@ -673,6 +676,41 @@ async def list_kbs(
             failed_count=int(stats.get("failed_count", 0)),
             latest_updated_at=latest.isoformat(),
         ))
+    from vibecanvas_api.storage.shared_resource_locator import shared_resource_roots
+    seen = {item.id for item in result}
+    roots = await shared_resource_roots(ctx.user_id, active_organization_id=ctx.active_organization_id, resource_type="knowledge_base")
+    original = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one()
+    try:
+        for root in roots:
+            if root.resource_id in seen:
+                continue
+            owner = str(root.owner_tenant_id)
+            scoped = replace(context, admitted_resource_organization_id=owner,
+                admitted_resource_type="knowledge_base", admitted_resource_id=root.resource_id,
+                consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+            resource = ResourceRef(ResourceType.KNOWLEDGE_BASE, root.resource_id, owner)
+            decision = await service.check(principal, Action.VIEW_METADATA, resource, scoped)
+            if not decision.allowed:
+                continue
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": owner})
+            kb = await repo.get_active(uuid.UUID(root.resource_id))
+            if kb is None:
+                continue
+            base = await _kb_to_out(kb, decision, ResourceProvenanceBuilder(session))
+            stats = (await repo.list_file_stats([kb.id])).get(str(kb.id), {})
+            latest = stats.get("latest_updated_at")
+            if not isinstance(latest, datetime) or latest < kb.updated_at:
+                latest = kb.updated_at
+            result.append(KbListOut(**base.model_dump(),
+                created_by_me=str(kb.user_id) == str(ctx.user_id),
+                **{key: int(stats.get(key, 0)) for key in (
+                    "file_count", "chunk_count", "stored_count", "pending_count",
+                    "indexing_count", "indexed_count", "failed_count")},
+                latest_updated_at=latest.isoformat()))
+            seen.add(root.resource_id)
+    finally:
+        await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
+    result.sort(key=lambda item: (item.name.casefold(), item.id))
     return result
 
 
@@ -810,7 +848,7 @@ async def delete_kb(
     )
     coordinator = mutation_coordinator_for_request(
         request,
-        ctx.active_organization_id,
+        str(kb.tenant_id),
     )
     mutation_ids = await enqueue_structural_delta(
         session=session,
@@ -818,7 +856,7 @@ async def delete_kb(
         actor_type="user",
         actor_id=ctx.user_id,
         before=resource_root_edges(
-            organization_id=ctx.active_organization_id,
+            organization_id=str(kb.tenant_id),
             object_type="knowledge_base",
             object_id=str(kb_id),
             owner_relation="manager",
@@ -1100,7 +1138,7 @@ async def delete_file(
         ctx=ctx,
         service=service,
         file_id=file_id,
-        action=Action.DELETE,
+        action=Action.UPDATE,
     )
     repo = KbRepo(session)
     kb = await repo.get_active(kb_id, for_update=True)
@@ -1122,7 +1160,7 @@ async def delete_file(
         ctx=ctx,
         service=service,
         file_id=file_id,
-        action=Action.DELETE,
+        action=Action.UPDATE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
     from vibecanvas_api.services.knowledge_packages import check_package_write
@@ -1536,5 +1574,5 @@ async def publish_knowledge_draft(kb_id: uuid.UUID, body: KnowledgeDraftPublish,
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail='kb_name_conflict') from exc
     await session.commit()
-    await enqueue_package_indexing(tenant_id=ctx.tenant_id, user_id=ctx.user_id, file_ids=pending)
+    await enqueue_package_indexing(tenant_id=str(kb.tenant_id), user_id=ctx.user_id, file_ids=pending)
     return {'version':version, 'indexing_files':len(pending)}

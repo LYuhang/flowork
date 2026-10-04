@@ -130,6 +130,7 @@ ACTION_RELATIONS: Mapping[ResourceType, Mapping[Action, str]] = {
         Action.VIEW: "can_view",
         Action.UPDATE: "can_update",
         Action.DELETE: "can_delete",
+        Action.MANAGE_ACCESS: "can_manage_access",
         Action.USE: "can_use",
         Action.PUBLISH: "can_publish",
     },
@@ -161,6 +162,7 @@ SHAREABLE_RESOURCE_TYPES = frozenset({
     ResourceType.TASK,
     ResourceType.DEPLOYMENT,
     ResourceType.KNOWLEDGE_BASE,
+    ResourceType.SKILL_INSTALLATION,
 })
 
 
@@ -169,35 +171,43 @@ _SERVICE_ACCOUNT = RelationshipSubjectType.SERVICE_ACCOUNT
 _GROUP = RelationshipSubjectType.GROUP
 _ORGANIZATION = RelationshipSubjectType.ORGANIZATION
 
+# One role/subject registry is shared by authorization checks and share UIs.
+# Package content has no separate execute role: readers can use downloaded files.
+SHARE_ROLES: Mapping[ResourceType, tuple[str, ...]] = {
+    resource_type: (
+        ("viewer", "editor", "manager")
+        if resource_type in {ResourceType.SKILL_INSTALLATION, ResourceType.KNOWLEDGE_BASE}
+        else ("viewer", "editor", "operator", "manager")
+    )
+    for resource_type in SHAREABLE_RESOURCE_TYPES
+}
+
+_ROLE_SUBJECTS = {
+    "viewer": frozenset({
+        (_USER, None), (_GROUP, "direct_member"), (_GROUP, "member"),
+        (_ORGANIZATION, "member"),
+    }),
+    "editor": frozenset({
+        (_USER, None), (_GROUP, "direct_member"), (_GROUP, "member"),
+        (_ORGANIZATION, "member"),
+    }),
+    "operator": frozenset({
+        (_USER, None), (_SERVICE_ACCOUNT, None),
+        (_GROUP, "direct_member"), (_GROUP, "member"),
+        (_ORGANIZATION, "member"),
+    }),
+    "manager": frozenset({
+        (_USER, None), (_GROUP, "direct_member"), (_GROUP, "member"),
+        (_ORGANIZATION, "member"),
+    }),
+}
+
 SHARE_RELATION_SUBJECTS: Mapping[
     ResourceType,
     Mapping[str, frozenset[tuple[RelationshipSubjectType, str | None]]],
 ] = {
-    resource_type: {
-        "viewer": frozenset({
-            (_USER, None),
-            (_GROUP, "direct_member"),
-            (_GROUP, "member"),
-            (_ORGANIZATION, "member"),
-        }),
-        "editor": frozenset({
-            (_USER, None),
-            (_GROUP, "direct_member"),
-            (_GROUP, "member"),
-        }),
-        "operator": frozenset({
-            (_USER, None),
-            (_SERVICE_ACCOUNT, None),
-            (_GROUP, "direct_member"),
-            (_GROUP, "member"),
-        }),
-        "manager": frozenset({
-            (_USER, None),
-            (_GROUP, "direct_member"),
-            (_GROUP, "member"),
-        }),
-    }
-    for resource_type in SHAREABLE_RESOURCE_TYPES
+    resource_type: {role: _ROLE_SUBJECTS[role] for role in roles}
+    for resource_type, roles in SHARE_ROLES.items()
 }
 
 ROLE_CAPABILITIES: Mapping[
@@ -281,10 +291,12 @@ ROLE_CAPABILITIES: Mapping[
         "viewer": frozenset({
             Action.VIEW_METADATA,
             Action.VIEW,
+            Action.INSPECT_RUNS,
         }),
         "editor": frozenset({
             Action.VIEW_METADATA,
             Action.VIEW,
+            Action.INSPECT_RUNS,
             Action.UPDATE,
         }),
         "operator": frozenset({
@@ -300,23 +312,13 @@ ROLE_CAPABILITIES: Mapping[
         "manager": frozenset(ACTION_RELATIONS[ResourceType.STORAGE_ROOT]),
     },
     ResourceType.KNOWLEDGE_BASE: {
-        "viewer": frozenset({
-            Action.VIEW_METADATA,
-            Action.VIEW,
-        }),
-        "editor": frozenset({
-            Action.VIEW_METADATA,
-            Action.VIEW,
-            Action.UPDATE,
-        }),
-        "operator": frozenset({
-            Action.VIEW_METADATA,
-            Action.VIEW,
-            Action.USE,
-        }),
+        "viewer": frozenset({Action.VIEW_METADATA, Action.VIEW, Action.USE}),
+        "editor": frozenset({Action.VIEW_METADATA, Action.VIEW, Action.USE, Action.UPDATE}),
         "manager": frozenset(ACTION_RELATIONS[ResourceType.KNOWLEDGE_BASE]),
     },
     ResourceType.SKILL_INSTALLATION: {
+        "viewer": frozenset({Action.VIEW_METADATA, Action.VIEW, Action.USE}),
+        "editor": frozenset({Action.VIEW_METADATA, Action.VIEW, Action.USE, Action.UPDATE, Action.PUBLISH}),
         "manager": frozenset(
             ACTION_RELATIONS[ResourceType.SKILL_INSTALLATION]
         ),

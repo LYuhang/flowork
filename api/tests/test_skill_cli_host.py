@@ -24,7 +24,28 @@ def setup(monkeypatch, operation):
         yield session
     monkeypatch.setattr(host,'session_scope',scope)
     monkeypatch.setattr(host,'resource_route_params',lambda ctx,session:{'session':session,'ctx':SimpleNamespace(user_id=ctx.username)})
+    monkeypatch.setattr(host,'admitted_resource_route_params',AsyncMock(side_effect=lambda ctx,session,*args: host.resource_route_params(ctx,session)))
     return call, ctx, session
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('installed', [True, False])
+async def test_personal_installation_uses_actor_route_not_package_delete(monkeypatch, installed):
+    call, ctx, session = setup(monkeypatch, 'skill.install' if installed else 'skill.uninstall')
+    guard = AsyncMock()
+    monkeypatch.setattr(host, '_require_active_chat_write', guard)
+    handler = AsyncMock()
+    monkeypatch.setattr(host.skills, 'install_skill_for_user' if installed else 'uninstall_skill_for_user', handler)
+    delete = AsyncMock()
+    monkeypatch.setattr(host.skills, 'delete_skill', delete)
+    identifier = str(uuid4())
+    result = await host.execute(call, {'skill_id': identifier})
+    assert result['status'] == 'succeeded'
+    assert result['installed'] is installed
+    guard.assert_awaited_once_with(session, ctx)
+    assert handler.await_args.kwargs['skill_id'] == identifier
+    session.commit.assert_awaited_once()
+    delete.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -79,7 +100,7 @@ async def test_denied_update_never_creates_lease_or_publishes(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('source,own', [('custom',True),('catalog',True),('custom',False),('catalog',False)])
-async def test_delete_authorizes_own_installation_only(monkeypatch,source,own):
+async def test_delete_obeys_resource_permission_instead_of_creator_identity(monkeypatch,source,own):
     user,identifier=uuid4(),uuid4()
     repo=AsyncMock()
     repo.get.return_value={'user_id':user if own else uuid4(),'source':source}
@@ -87,12 +108,7 @@ async def test_delete_authorizes_own_installation_only(monkeypatch,source,own):
     auth=AsyncMock()
     monkeypatch.setattr(host.skills,'_authorize_skill',auth)
     params={'session':object(),'ctx':SimpleNamespace(user_id=user)}
-    if own:
-        await host.authorize(params,identifier,deleting=True)
-    else:
-        with pytest.raises(HTTPException) as caught:
-            await host.authorize(params,identifier,deleting=True)
-        assert caught.value.status_code==403
+    await host.authorize(params,identifier,deleting=True)
     assert auth.await_args.kwargs['action']==host.Action.DELETE
 
 

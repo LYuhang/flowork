@@ -2,7 +2,7 @@
 from vibecanvas_api.authorization.types import Action, ConsistencyPreference
 from vibecanvas_api.flowork_cli.cli import validate_arguments
 from vibecanvas_api.services.agent_resources.authorization import (
-    _decision,
+    _workflow_decision,
     _require_active_chat_write,
     _require_workflow_read,
     _service,
@@ -30,9 +30,7 @@ async def workflow_version_command(ctx, operation: str, arguments: dict) -> dict
                     "versions": [{"major": item["v"], "version": f"v{item['v']}.sv{item['sv']}"} for item in majors]}
         await _require_active_chat_write(session, ctx)
         selection = await resolve_target(session, ctx, workflow_id, arguments["major"], for_update=True)
-        await _decision(ctx=ctx, service=_service(ctx, session), action=Action.UPDATE,
-                        resource=_workflow_resource(ctx, workflow_id),
-                        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+        await _workflow_decision(session, ctx, workflow_id, action=Action.UPDATE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
         major, sub = selection["major"], selection["sub"]
         graph = await repo.get_workflow_at(workflow_id, major, sub)
         new_major = await repo.new_version(workflow_id, graph,

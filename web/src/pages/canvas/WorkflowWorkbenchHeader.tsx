@@ -1,3 +1,5 @@
+import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
+import type { ResourceAccess } from '@/lib/api/organizations';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
@@ -9,9 +11,11 @@ import { Button } from '@/components/ui/button';
 export function WorkflowWorkbenchHeader({
   workflowId,
   readOnlyName,
+  access,
 }: {
   workflowId: string;
   readOnlyName: boolean;
+  access?: ResourceAccess;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -35,6 +39,7 @@ export function WorkflowWorkbenchHeader({
         <div className="min-w-0">
           <EditableWorkflowName wfId={workflowId} readOnly={readOnlyName} />
         </div>
+        {access && <ResourceAccessBadge access={access} />}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         <div className="hidden lg:block"><OrganizationSwitcher /></div>

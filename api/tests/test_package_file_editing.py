@@ -118,19 +118,15 @@ async def test_knowledge_encrypted_history_and_draft_are_independent(pg_engine,m
 
 @pytest.mark.asyncio
 async def test_runtime_refresh_replaces_only_target_skill_and_removes_old_files(tmp_path,monkeypatch):
-    from contextlib import asynccontextmanager
     from vibecanvas_api.services import runtime_skills
-    repo=AsyncMock()
-    repo.read_revision_files.return_value=[('SKILL.md','text/markdown',SKILL_MD),('new.txt','text/plain',b'new')]
-    @asynccontextmanager
-    async def scope(**kwargs):
-        yield None
-    monkeypatch.setattr(runtime_skills,'session_scope',scope)
-    monkeypatch.setattr(runtime_skills,'SkillsRepo',lambda session:repo)
+    identifier = str(uuid4())
+    monkeypatch.setattr(runtime_skills, '_authorized_runtime_packages', AsyncMock(return_value={identifier: [
+        ('SKILL.md','text/markdown',SKILL_MD),('new.txt','text/plain',b'new'),
+    ]}))
     target=tmp_path/'scope'/'target';target.mkdir(parents=True)
     (target/'SKILL.md').write_text('old');(target/'removed.txt').write_text('old')
     sibling=tmp_path/'scope'/'sibling';sibling.mkdir();(sibling/'SKILL.md').write_text('keep')
-    assert await runtime_skills.refresh_runtime_skill(destination=str(target),tenant_id=str(uuid4()),skill_id=str(uuid4()),revision_id=str(uuid4()),revision_hash='hash') == 2
+    assert await runtime_skills.refresh_runtime_skill(destination=str(target),tenant_id=str(uuid4()),user_id=str(uuid4()),skill_id=identifier,revision_id=str(uuid4()),revision_hash='hash') == 2
     assert (target/'SKILL.md').read_bytes() == SKILL_MD
     assert not (target/'removed.txt').exists()
     assert (sibling/'SKILL.md').read_text() == 'keep'
@@ -145,9 +141,34 @@ async def test_refresh_denied_skill_never_reaches_sandbox(monkeypatch):
     async def scope(**kwargs):
         yield None
     monkeypatch.setattr(cli_skills,'session_scope',scope)
-    monkeypatch.setattr(cli_skills,'resource_route_params',lambda ctx,session:{'session':session})
+    monkeypatch.setattr(cli_skills,'admitted_resource_route_params',AsyncMock(return_value={'session':None}))
     monkeypatch.setattr(cli_skills.skills,'_authorize_skill',AsyncMock(side_effect=HTTPException(403)))
     sandbox=AsyncMock();monkeypatch.setattr(_session_fs,'_require_session',sandbox)
     with pytest.raises(HTTPException):
         await cli_skills.refresh(SimpleNamespace(tenant_id='t',username='u'),None,uuid4())
     sandbox.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_runtime_refresh_restores_previous_copy_when_install_fails(tmp_path, monkeypatch):
+    from vibecanvas_api.services import runtime_skills
+    identifier = str(uuid4())
+    monkeypatch.setattr(runtime_skills, '_authorized_runtime_packages', AsyncMock(return_value={
+        identifier: [('SKILL.md', 'text/markdown', SKILL_MD)],
+    }))
+    target = tmp_path / 'skill'
+    target.mkdir()
+    (target / 'SKILL.md').write_text('previous complete copy')
+    original_replace = runtime_skills.os.replace
+
+    def fail_install(source, destination):
+        if str(source).split('/')[-1].startswith('.refresh-') and str(destination) == str(target):
+            raise OSError('simulated install failure')
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(runtime_skills.os, 'replace', fail_install)
+    with pytest.raises(OSError, match='simulated install failure'):
+        await runtime_skills.refresh_runtime_skill(destination=str(target), tenant_id=str(uuid4()),
+            user_id=str(uuid4()), skill_id=identifier, revision_id=str(uuid4()), revision_hash='a' * 64)
+    assert (target / 'SKILL.md').read_text() == 'previous complete copy'
+    assert list(tmp_path.iterdir()) == [target]

@@ -258,3 +258,34 @@ async def test_one_shot_workflow_has_no_implicit_operation_deadline(
         "manager.call", method="run_workflow_once", kwargs={}
     ) == {}
     assert observed["timeout"] is None
+
+
+@pytest.mark.asyncio
+async def test_shared_workflow_run_source_crosses_real_grpc(sandbox_service):
+    from vibecanvas_api.services.sandbox.contracts import WorkflowRunSource
+    from vibecanvas_api.services.sandbox.coordinator import EmbeddedSandboxClient, SandboxCoordinator
+    client = RemoteSandboxManager(sandbox_service.socket_path)
+    source = WorkflowRunSource(tenant_id='owner-tenant', workflow_id='shared-workflow')
+    try:
+        coordinator = SandboxCoordinator(EmbeddedSandboxClient(client))
+        await coordinator.get_session('recipient-tenant', 'private-project', user_id='recipient',
+                                      workflow_run_source=source)
+        options = sandbox_service.manager.last_acquire_options
+        assert options['workflow_run_source'] == source
+        assert options['user_id'] == 'recipient'
+        assert ('recipient-tenant', 'private-project') in sandbox_service.manager.sessions
+        assert ('owner-tenant', 'shared-workflow') not in sandbox_service.manager.sessions
+        await client.get_session('recipient-tenant', 'ordinary-project')
+        assert sandbox_service.manager.last_acquire_options['workflow_run_source'] is None
+    finally:
+        await client.aclose()
+
+
+def test_workflow_run_source_rejects_paths_and_unknown_fields():
+    from pydantic import ValidationError
+    from vibecanvas_api.services.sandbox.contracts import WorkflowRunSource
+    for values in ({'tenant_id':'owner','workflow_id':'../private'},
+                   {'tenant_id':'owner/another','workflow_id':'workflow'},
+                   {'tenant_id':'owner','workflow_id':'workflow','directory':'/host/path'}):
+        with pytest.raises(ValidationError):
+            WorkflowRunSource(**values)

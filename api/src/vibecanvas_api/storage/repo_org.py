@@ -9,7 +9,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.storage.models import User
-from vibecanvas_api.security.identity_protection import decrypt_user_profile
+from vibecanvas_api.security.identity_protection import decrypt_user_profile, profile_email_lookup_digest
 from vibecanvas_api.storage.models_org import (
     Group,
     GroupMembership,
@@ -24,6 +24,38 @@ MAX_GROUP_DEPTH = 8
 class OrganizationRepo:
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def lock_membership_changes(self) -> None:
+        """Serialize role changes so concurrent owners cannot both leave."""
+        organization_id = await self._current_tenant_id()
+        await self.session.execute(
+            select(Organization.tenant_id)
+            .where(Organization.tenant_id == organization_id)
+            .with_for_update()
+        )
+
+    async def add_registered_member(self, *, email: str, invited_by: uuid.UUID) -> OrgMembership:
+        organization = await self.get_current()
+        if organization is None or organization.kind != "business":
+            raise ValueError("business_organization_required")
+        users = list((await self.session.execute(select(User).where(
+            User.profile_email_lookup_hash == profile_email_lookup_digest(email),
+            User.status == "active",
+        ).limit(2))).scalars())
+        if len(users) != 1:
+            raise ValueError("registered_user_not_found")
+        existing = (await self.session.execute(select(OrgMembership).where(
+            OrgMembership.tenant_id == organization.tenant_id,
+            OrgMembership.user_id == users[0].user_id,
+        ))).scalar_one_or_none()
+        if existing is not None:
+            raise ValueError("organization_membership_already_exists")
+        membership = OrgMembership(tenant_id=organization.tenant_id,
+            user_id=users[0].user_id, org_role="member", status="active",
+            invited_by=invited_by, source="native")
+        self.session.add(membership)
+        await self.session.flush()
+        return membership
 
     async def _current_tenant_id(self) -> uuid.UUID | None:
         """Read the server-bound organization scope for explicit predicates.
@@ -62,7 +94,6 @@ class OrganizationRepo:
             await self.session.execute(
                 select(OrgMembership, User)
                 .join(User, User.user_id == OrgMembership.user_id)
-                .where(OrgMembership.status != "revoked")
                 .order_by(
                     OrgMembership.created_at,
                     OrgMembership.membership_id,
@@ -89,7 +120,7 @@ class OrganizationRepo:
             })
         return result
 
-    async def get_member(self, user_id: uuid.UUID) -> OrgMembership | None:
+    async def get_member(self, user_id: uuid.UUID, *, include_revoked: bool = False) -> OrgMembership | None:
         tenant_id = await self._current_tenant_id()
         if tenant_id is None:
             return None
@@ -98,7 +129,7 @@ class OrganizationRepo:
                 select(OrgMembership).where(
                     OrgMembership.user_id == user_id,
                     OrgMembership.tenant_id == tenant_id,
-                    OrgMembership.status != "revoked",
+                    True if include_revoked else OrgMembership.status != "revoked",
                 )
             )
         ).scalar_one_or_none()
@@ -181,6 +212,8 @@ class OrganizationRepo:
         status: str,
     ) -> OrgMembership:
         """Update one membership while preserving an active organization owner."""
+        await self.lock_membership_changes()
+        await self.session.refresh(membership)
         if membership.source == "scim":
             raise ValueError("scim_managed_membership_read_only")
         removes_active_owner = (

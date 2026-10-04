@@ -241,7 +241,7 @@ class SharedResourceProjection(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "resource_type IN ('workflow','task','deployment','knowledge_base')",
+            "resource_type IN ('workflow','task','deployment','knowledge_base','skill_installation')",
             name="ck_shared_resource_projection_type",
         ),
         CheckConstraint(

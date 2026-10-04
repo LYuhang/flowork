@@ -34,6 +34,7 @@ from vibecanvas_api.authorization.types import (
     Action,
     AuthzRequestContext,
     Decision,
+    ConsistencyPreference,
     PrincipalRef,
     PrincipalType,
     ResourceRef,
@@ -41,10 +42,12 @@ from vibecanvas_api.authorization.types import (
 )
 from vibecanvas_api.services.kb_indexer import IndexingError, KbIndexer
 from vibecanvas_api.services.object_store import get_object_store
+from vibecanvas_api.storage.models import User
 from vibecanvas_api.storage.models_kb import KbFile
 from vibecanvas_api.storage.models_org import OrgMembership
 from vibecanvas_api.storage.repo_kb import KbRepo
 from vibecanvas_api.storage.sync_session import (
+    short_admin_session,
     current_sync_tenant_id,
     run_in_short_session,
 )
@@ -71,23 +74,28 @@ async def _require_captured_user_update(
             decision=Decision(False, reason_code="resource_not_found"),
         )
     captured_user_id = user_id or str(file_row.user_id)
-    membership = (
-        await session.execute(
-            select(OrgMembership).where(
-                OrgMembership.tenant_id == uuid.UUID(tenant_id),
-                OrgMembership.user_id == uuid.UUID(captured_user_id),
+    # Resolve identity separately from the file's storage organization. A
+    # cross-personal editor need not join the resource owner's organization.
+    async with short_admin_session() as identity_session:
+        user = await identity_session.get(User, uuid.UUID(captured_user_id))
+        membership = None
+        if user is not None and user.status == "active":
+            membership = (await identity_session.execute(
+                select(OrgMembership).where(
+                    OrgMembership.user_id == user.user_id,
+                    OrgMembership.status == "active",
+                ).order_by(
+                    (OrgMembership.tenant_id == uuid.UUID(tenant_id)).desc(),
+                    OrgMembership.membership_id,
+                ).limit(1)
+            )).scalar_one_or_none()
+        if membership is None:
+            raise AuthorizationDeniedError(
+                decision=Decision(False, reason_code="inactive_organization_membership"),
             )
-        )
-    ).scalar_one_or_none()
-    if membership is None or membership.status != "active":
-        raise AuthorizationDeniedError(
-            decision=Decision(
-                False,
-                reason_code="inactive_organization_membership",
-            ),
-        )
-    membership_role = membership.org_role
-    membership_status = membership.status
+        actor_organization_id = str(membership.tenant_id)
+        membership_role = membership.org_role
+        membership_status = membership.status
     client = openfga_client_from_config()
     try:
         service = authz_service_for_session(
@@ -104,7 +112,11 @@ async def _require_captured_user_update(
                 tenant_id,
             ),
             AuthzRequestContext(
-                active_organization_id=tenant_id,
+                active_organization_id=actor_organization_id,
+                admitted_resource_organization_id=tenant_id,
+                admitted_resource_type=ResourceType.KNOWLEDGE_BASE.value,
+                admitted_resource_id=str(file_row.kb_id),
+                consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
                 membership_role=membership_role,
                 membership_status=membership_status,
             ),

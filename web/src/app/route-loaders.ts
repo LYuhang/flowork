@@ -11,6 +11,7 @@ export const loadAppLayout = () => import('@/app/AppLayout');
 export const loadChatPage = () => import('@/pages/chat/ChatPage');
 export const loadEmbedChatPage = () => import('@/pages/embed/EmbedChatPage');
 export const loadStandalonePreviewPage = () => import('@/pages/preview/StandalonePreviewPage');
+export const loadPermissionsPage = () => import('@/pages/settings/PermissionsPage');
 export const loadSettingsPage = () => import('@/pages/settings/SettingsPage');
 export const loadLoginPage = () => import('@/pages/auth/LoginPage');
 export const loadSignupPage = () => import('@/pages/auth/SignupPage');
@@ -50,6 +51,7 @@ const NAV_ROUTE_LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
   '/knowledge/:kbId': loadKnowledgeDetailPage,
   '/workflow/:wfId': loadCanvasPage,
   '/settings': loadSettingsPage,
+  '/permissions': loadPermissionsPage,
   '/management': loadPlatformManagementPage,
 };
 

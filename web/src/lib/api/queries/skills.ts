@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import {
   deleteSkill,
+  setSkillInstalled,
   getSkillDraft,
   getSkill,
   getSkillVersion,
@@ -17,6 +18,13 @@ import {
 import type { SkillCatalogSource } from '@/lib/api/skills';
 
 const LIST_KEY = ['skills', 'list'] as const;
+export const useSetSkillInstalled = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, installed }: { id: string; installed: boolean }) => setSkillInstalled(id, installed),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['skills'] }); },
+  });
+};
 const itemKey = (id: string) => ['skills', 'item', id] as const;
 const draftKey = (id: string) => ['skills', 'draft', id] as const;
 const versionsKey = (id: string) => ['skills', 'versions', id] as const;
@@ -37,6 +45,9 @@ export const useSkill = (id: string | undefined) =>
     queryKey: itemKey(id ?? ''),
     queryFn: () => getSkill(id as string),
     enabled: !!id,
+    // Access can change while this resource remains open.
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: 'always',
   });
 
 export const useSkillDraft = (id: string | undefined, enabled = true) =>

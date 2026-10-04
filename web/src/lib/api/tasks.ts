@@ -110,6 +110,7 @@ export interface TaskEvent {
 }
 
 export interface ListTasksParams {
+  source?: "all" | "created" | "shared";
   status?: TaskStatus[];
   task_type?: TaskType[];
   workflow_id?: string;
@@ -262,6 +263,7 @@ async function authedFetch(
 
 function buildListQuery(p: ListTasksParams): string {
   const params = new URLSearchParams();
+  if (p.source) params.set("source", p.source);
   for (const s of p.status ?? []) params.append('status', s);
   for (const t of p.task_type ?? []) params.append('task_type', t);
   if (p.workflow_id) params.set('workflow_id', p.workflow_id);
@@ -286,8 +288,9 @@ export async function listTasks(
   return (await resp.json()) as TaskListResponse;
 }
 
-export async function getTaskSummary(params: { task_type?: TaskType[]; workflow_id?: string } = {}): Promise<TaskSummary> {
+export async function getTaskSummary(params: { task_type?: TaskType[]; workflow_id?: string; source?: "all" | "created" | "shared" } = {}): Promise<TaskSummary> {
   const query = new URLSearchParams();
+  if (params.source) query.set("source", params.source);
   if (params.workflow_id) query.set("workflow_id", params.workflow_id);
   for (const type of params.task_type ?? []) query.append('task_type', type);
   const suffix = query.toString() ? `?${query.toString()}` : '';

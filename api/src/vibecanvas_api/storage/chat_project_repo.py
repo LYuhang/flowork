@@ -91,7 +91,7 @@ class ChatProjectRepo:
         self._session.add(project)
         await self._session.flush()
         files = VfsRepo(self._session, object_store=get_object_store())
-        scope_id = project_workspace_scope_id(project.project_id, workflow_id=project.workflow_id)
+        scope_id = project_workspace_scope_id(project.project_id)
         for folder in ("data", "logs", "chats"):
             await files.upsert_internal_artifact_bytes(
                 wf_id=scope_id, tenant=str(project.tenant_id),
@@ -114,17 +114,21 @@ class ChatProjectRepo:
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
             {"key": f"workflow-chat-project:{tenant_id}:{self._user_id}:{workflow_id}"},
         )
-        project = (await self._session.execute(select(ChatProject).where(
-            ChatProject.workflow_id == workflow_id,
-            ChatProject.creator_user_id == self._user_id,
-            ChatProject.deleted_at.is_(None),
-        ))).scalar_one_or_none()
+        project = await self.find_for_workflow(workflow_id)
         if project is None:
             created = await self.create(name="Workflow chats", workflow_id=workflow_id)
             project = await self.get(created["project_id"])
         if project is None:
             raise RuntimeError("Workflow Chat Project was not persisted")
         return project
+
+    async def find_for_workflow(self, workflow_id: str) -> ChatProject | None:
+        """Resolve an existing private workspace without creating resources."""
+        return (await self._session.execute(select(ChatProject).where(
+            ChatProject.workflow_id == workflow_id,
+            ChatProject.creator_user_id == self._user_id,
+            ChatProject.deleted_at.is_(None),
+        ))).scalar_one_or_none()
 
     async def get(self, project_id: str, *, for_update: bool = False) -> ChatProject | None:
         query = select(ChatProject).where(

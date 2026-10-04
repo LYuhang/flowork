@@ -126,6 +126,7 @@ async def test_privileged_support_two_person_activation_scope_and_revocation(
         lambda: email_sender,
     )
     monkeypatch.setattr(config, "web_session_cookie_enabled", True)
+    monkeypatch.setattr(config, "web_session_cookie_secure", False)
     monkeypatch.setattr(config.public_urls, "public_url", "")
     app = build_app()
     app.state.openfga_client = openfga_allow_all

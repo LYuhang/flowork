@@ -1,12 +1,4 @@
-"""Executions router smoke. Full SSE streaming gate lives in T17.
-
-Auth: the legacy ``VIBECANVAS_API_DEV_TOKEN`` + sync ``TestClient`` +
-``Bearer tok`` harness is DEAD (dev-token auth was removed from the app).
-These route-contract tests now use the conftest async ``client`` fixture +
-a real ``register → session_token`` (the same pattern as
-``test_routes_vfs.py``). The 404 / empty-list contracts only need auth to
-work — no execution is driven here.
-"""
+"""Execution HTTP contracts using browser Cookie/CSRF authentication."""
 
 from __future__ import annotations
 
@@ -15,22 +7,16 @@ import uuid
 import pytest
 
 
-async def _register(client) -> str:
-    """Register a fresh user, return its bearer session token. Email is
-    unique per call (uuid) so it never collides with another test's row
-    (the conftest truncates between tests, but within a test we may
-    register several users)."""
-    email = f"exec_{uuid.uuid4().hex[:12]}@example.com"
-    r = await client.post(
-        "/api/v1/auth/register",
-        json={"email": email, "username": "Test User", "password": "pw12345678"},
-    )
-    assert r.status_code in (200, 201), r.text
-    return r.json()["session_token"]
+from tests.test_workflow_authorization_integration import _browser_sessions, _register as _register_user
 
 
-def _hdr(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
+async def _register(client) -> dict:
+    headers, _ = await _register_user(client, 'execution')
+    return headers
+
+
+def _hdr(headers: dict) -> dict:
+    return headers
 
 
 @pytest.mark.asyncio

@@ -1,3 +1,4 @@
+import { useSkill } from '@/lib/api/queries/skills';
 /**
  * SP2-T6 — `SkillDetailPage` smoke test.
  *
@@ -11,7 +12,7 @@
  *   - a Back link to `/skills` exists
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
@@ -104,6 +105,7 @@ vi.mock('@/lib/api/queries/skills', () => ({
     refetch: vi.fn(async () => ({})),
     isLoading: false,
   })),
+  useSetSkillInstalled: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useDeleteSkill: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useSaveSkillDraft: vi.fn(() => ({ mutateAsync: mutations.saveDraft, isPending: false })),
   usePublishSkillVersion: vi.fn(() => ({ mutateAsync: mutations.publish, isPending: false })),
@@ -152,6 +154,16 @@ describe('<SkillDetailPage>', () => {
     vi.mocked(writeSkillDraftFile).mockReset().mockResolvedValue({} as never);
     mutations.saveDraft.mockReset().mockResolvedValue({});
     mutations.publish.mockReset().mockResolvedValue({});
+  });
+
+  it('offers sharing for an authorized custom Skill manager', async () => {
+    const result = vi.mocked(useSkill)(SKILL_ID);
+    vi.mocked(useSkill).mockReturnValueOnce({
+      ...result,
+      data: { ...result.data!, access: { ...result.data!.access, capabilities: ['view', 'manage_access'] } },
+    } as ReturnType<typeof useSkill>);
+    renderAt(SKILL_ID);
+    expect(await screen.findByRole('button', { name: 'Share' })).toBeInTheDocument();
   });
 
   it('renders name, SKILL.md body, allowed-tools chips, and a Back link', async () => {
@@ -229,6 +241,25 @@ describe('<SkillDetailPage>', () => {
     expect(screen.getByRole('heading', { name: 'Invoice Parser v1' })).toBeInTheDocument();
     expect(screen.getByText('Historical instructions')).toBeInTheDocument();
     expect(screen.getByText('Historical version')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^edit$/i })).toBeDisabled();
+  });
+
+  it('closes the publish dialog when edit permission is revoked', async () => {
+    const user = userEvent.setup();
+    const original = vi.mocked(useSkill)(SKILL_ID);
+    renderAt(SKILL_ID, '?edit=1');
+    await user.click(screen.getByRole('button', { name: /new version/i }));
+    const versionInput = screen.getByLabelText(/^version$/i);
+    try {
+      vi.mocked(useSkill).mockReturnValue({ ...original, data: { ...original.data!,
+        access: { ...original.data!.access, capabilities: ['view', 'use'] },
+      } } as ReturnType<typeof useSkill>);
+      fireEvent.change(versionInput, { target: { value: '4' } });
+      await waitFor(() => expect(screen.queryByRole('button', { name: /^publish$/i })).not.toBeInTheDocument());
+      expect(screen.getByRole('button', { name: /^edit$/i })).toBeDisabled();
+      expect(mutations.publish).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(useSkill).mockReturnValue(original);
+    }
   });
 });

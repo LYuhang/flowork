@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import asynccontextmanager
+
+from sqlalchemy import text
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,7 +124,10 @@ async def get_authz_service(
 ) -> AuthzService:
     service = authz_service_for_session(
         session=session,
-        organization_id=auth.active_organization_id,
+        organization_id=(
+            getattr(request.state, "admitted_resource_organization_id", None)
+            or auth.active_organization_id
+        ),
         openfga_client=getattr(request.app.state, "openfga_client", None),
     )
     return scope_authz_service(
@@ -218,3 +224,36 @@ def require_resource(
         )
 
     return dependency
+
+
+@asynccontextmanager
+async def authorized_resource_scope(*, request, auth, session, resource_type,
+                                    resource_id, action,
+                                    consistency=ConsistencyPreference.HIGHER_CONSISTENCY):
+    """Temporarily admit one dependency without changing the actor or owner.
+
+    The copied request prevents admission leaking into the outer operation.
+    A savepoint restores RLS on failure; on success restore it explicitly.
+    Callers must not commit inside this scope.
+    """
+    from vibecanvas_api.auth.deps import _admit_shared_resource
+
+    scoped_request = Request({**request.scope,
+        "path_params": {"resource_type": resource_type.value, "resource_id": str(resource_id)},
+        "state": {key: value for key, value in request.scope.get("state", {}).items()
+                  if not key.startswith("admitted_resource_")},
+    })
+    async with session.begin_nested():
+        previous = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar_one() or ""
+        await _admit_shared_resource(scoped_request, auth, session)
+        from .parent_resolvers import collaboration_root_exists
+        resource = ResourceRef(resource_type, str(resource_id), auth.active_organization_id)
+        if not await collaboration_root_exists(session, resource):
+            raise HTTPException(status_code=404, detail="resource_not_found")
+        scoped_service = await get_authz_service(scoped_request, auth, session)
+        decision = await scoped_service.check(principal_for_auth(auth), action,
+            resource, context_for_auth(auth, scoped_request, consistency=consistency))
+        if not decision.allowed:
+            raise HTTPException(status_code=404, detail="resource_not_found")
+        yield scoped_request, scoped_service
+        await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": previous})

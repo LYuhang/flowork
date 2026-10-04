@@ -15,14 +15,14 @@ from sqlalchemy import text
 from vibecanvas_api.agents.tools.decorator import ToolError
 from vibecanvas_api.auth.deps import require_recent_step_up
 from vibecanvas_api.auth.repo import AuthRepo
-from vibecanvas_api.authorization.types import Action
+from vibecanvas_api.authorization.types import Action, ResourceType
 from vibecanvas_api.config import config
 from vibecanvas_api.flowork_cli.cli import error, uncertain_result
 from vibecanvas_api.flowork_cli.deployment_cli import WRITE_OPERATIONS
 from vibecanvas_api.routes import deployments as routes
 from vibecanvas_api.services.agent_resources import context as agent_context
 from vibecanvas_api.services.agent_resources.authorization import _require_active_chat_write
-from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params
+from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params, admitted_resource_route_params, visible_resource_rows
 from vibecanvas_api.services.deployment_snapshots import resolve_workflow
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_deployments import DeploymentsRepo
@@ -160,15 +160,23 @@ def test_finished(task):
 
 
 async def read(ctx, operation, args):
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
-        params = resource_route_params(ctx, session)
-        if operation == "deployment.list":
-            result = await routes.list_deployments(**params, trigger_type=None, enabled=None,
-                workflow_id=args.get("workflow_id"), q=None, limit=args.get("limit", 20), offset=args.get("offset", 0))
-            items = [{key: deployment_status(item)[key] for key in ("deployment_id", "name", "workflow_id", "trigger_type", "status")} for item in result["items"]]
-            offset = args.get("offset", 0) + len(items)
-            return {"deployments": items, "next_offset": offset if offset < result.get("total", offset) else None,
-                    "message": "Authorized deployments listed. Use info for configuration."}
+    if operation == "deployment.list":
+        async def page(params, offset):
+            return await routes.list_deployments(**params, trigger_type=None, enabled=None,
+                workflow_id=None, q=None, limit=100, offset=offset)
+        rows = await visible_resource_rows(ctx, "deployment", list_page=page, get_resource=routes.get_deployment)
+        rows = [row for row in rows if not args.get("workflow_id") or row.get("wf_id") == args["workflow_id"]]
+        rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row["id"])), reverse=True)
+        offset, limit = args.get("offset", 0), args.get("limit", 20)
+        items = [{key: deployment_status(row)[key] for key in
+                  ("deployment_id", "name", "workflow_id", "trigger_type", "status")}
+                 for row in rows[offset:offset + limit]]
+        return {"deployments": items, "next_offset": offset + limit if offset + limit < len(rows) else None,
+                "message": "Authorized deployments listed. Use info for configuration."}
+    dep_id = uuid.UUID(args["deployment_id"]) if "deployment_id" in args else None
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
+        params = (await admitted_resource_route_params(ctx, session, "deployment", dep_id)
+                if dep_id else resource_route_params(ctx, session))
         dep_id = uuid.UUID(args["deployment_id"])
         dep = await routes.get_deployment(dep_id, **params)
         if operation == "deployment.info":
@@ -230,8 +238,9 @@ async def execute(call, args):
         dep_id = uuid.UUID(args["deployment_id"]) if "deployment_id" in args else None
         action = {"deployment.delete": Action.DELETE, "deployment.rotate_key": Action.MANAGE_SECRET,
                   "deployment.run": Action.EXECUTE}.get(operation, Action.UPDATE)
-        async with session_scope(tenant_id=ctx.tenant_id) as session:
-            params = resource_route_params(ctx, session)
+        async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
+            params = (await admitted_resource_route_params(ctx, session, "deployment", dep_id)
+                if dep_id else resource_route_params(ctx, session))
             auth_params = {k: v for k, v in params.items() if k != "session"}
             current = None
             if dep_id:
@@ -243,11 +252,18 @@ async def execute(call, args):
                     raise ToolError("unsupported_trigger_type", "rotate_key supports API deployments only. No changes were made.")
             else:
                 await routes._authorize_organization_create(**auth_params)
-                await routes._authorize_workflow_deploy(workflow_id=args["workflow_id"], **auth_params)
+                from vibecanvas_api.authorization.dependencies import authorized_resource_scope
+                async with authorized_resource_scope(
+                    request=params["request"], auth=params["ctx"], session=session,
+                    resource_type=ResourceType.WORKFLOW,
+                    resource_id=args["workflow_id"], action=Action.DEPLOY,
+                ):
+                    pass
             if operation in {"deployment.create", "deployment.rotate_key"}:
                 await step_up(params)
             if cap.approval_mode not in {"agent", "always_ask", "always_allow"}:
                 raise ToolError("invalid_approval_mode", "Unknown approval mode.")
+        async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
             await session.execute(text("""INSERT INTO deployment_cli_leases(call_id,tenant_id,run_id,operation,expires_at)
                 VALUES (:id,CAST(:tenant AS uuid),:run,:operation,now()+interval '30 seconds')"""),
                 {"id": call.call_id, "tenant": cap.tenant_id, "run": cap.turn_id, "operation": operation})
@@ -267,8 +283,13 @@ async def execute(call, args):
             await _require_active_chat_write(session, ctx)
             if not (await session.execute(text("SELECT 1 FROM deployment_cli_leases WHERE call_id=:id AND expires_at>now()"), {"id": call.call_id})).first():
                 raise ToolError("approval_cancelled", "The CLI command is no longer active.")
-            params = resource_route_params(ctx, session)
+            params = (await admitted_resource_route_params(ctx, session, "deployment", dep_id)
+                if dep_id else resource_route_params(ctx, session))
             if dep_id:
+                await routes._authorize_deployment(
+                    deployment_id=dep_id, action=action,
+                    **{key: value for key, value in params.items() if key != "session"},
+                )
                 await session.execute(text("SELECT id FROM deployments WHERE id=:id FOR UPDATE"), {"id": dep_id})
                 fresh = await DeploymentsRepo(session).get(dep_id)
                 keys = ("updated_at", "enabled", "version_pin", "pinned_major", "pinned_sub", "mount_enabled", "rate_limit_qps", "timeout_seconds", "worker_count", "worker_concurrency")
@@ -305,8 +326,9 @@ async def execute(call, args):
         # A live test owns its session independently of the shell's observer.
         # Interrupting observation must not leave history stuck at running.
         async def test():
-            async with session_scope(tenant_id=ctx.tenant_id) as session:
-                params = resource_route_params(ctx, session)
+            async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
+                params = (await admitted_resource_route_params(ctx, session, "deployment", dep_id)
+                    if dep_id else resource_route_params(ctx, session))
                 params["request"].state.cli_deployment_progress = call.emit
                 params["request"].state.cli_deployment_snapshot = snapshot
                 return await routes.test_invoke(dep_id, args.get("inputs", {}), **params)

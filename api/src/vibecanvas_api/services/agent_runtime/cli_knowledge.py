@@ -23,7 +23,7 @@ from vibecanvas_api.services.knowledge_packages import (
 )
 from vibecanvas_api.services.agent_resources import context as agent_context
 from vibecanvas_api.services.agent_resources.authorization import _require_active_chat_write
-from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params
+from vibecanvas_api.services.agent_runtime.resource_routes import resource_route_params, admitted_resource_route_params, shared_resource_cards
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_kb import KbRepo
 from vibecanvas_api.services.knowledge_metadata import package_metadata, with_metadata
@@ -52,17 +52,32 @@ async def version(session, kb_id):
     return (await session.execute(text("SELECT package_version FROM knowledge_bases WHERE id=:id AND deleted_at IS NULL"), {"id": kb_id})).scalar_one_or_none()
 
 
+async def _route_params(ctx, session, kb_id):
+    if kb_id is None:
+        return resource_route_params(ctx, session)
+    return await admitted_resource_route_params(ctx, session, "knowledge_base", kb_id)
+
+
 async def read(ctx, operation, args):
-    async with session_scope(tenant_id=ctx.tenant_id) as session:
+    async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
         params = resource_route_params(ctx, session)
         if operation == "knowledge.list":
             rows = await routes.list_kbs(**params)
-            rows = sorted(rows, key=lambda row: (row.latest_updated_at, str(row.id)), reverse=True)
+            entries = {str(row.id): (row.latest_updated_at, metadata(row)) for row in rows}
+            for card in await shared_resource_cards(ctx, session, "knowledge_base"):
+                if card.resource_id not in entries:
+                    entries[card.resource_id] = (card.updated_at.isoformat(), {
+                        "knowledge_id": card.resource_id, "name": card.name,
+                        "description": card.description, "updated_at": card.updated_at.isoformat(),
+                        "capabilities": list(card.access.capabilities),
+                    })
+            ordered = sorted(entries.items(), key=lambda item: (item[1][0], item[0]), reverse=True)
             start, limit = args["offset"], args["limit"]
-            return {"status": "succeeded", "knowledge": [metadata(row) for row in rows[start:start + limit]],
-                "total": len(rows), "next_offset": start + limit if start + limit < len(rows) else None,
+            return {"status": "succeeded", "knowledge": [entry[1][1] for entry in ordered[start:start + limit]],
+                "total": len(ordered), "next_offset": start + limit if start + limit < len(ordered) else None,
                 "message": "Discoverable Knowledge packages. Check capabilities before reading or writing."}
         kb_id = uuid.UUID(args["knowledge_id"])
+        params = await _route_params(ctx, session, kb_id)
         if operation == "knowledge.get":
             row = await routes.get_kb(kb_id, **params)
             files = await routes.list_files(kb_id, file_status=None, **params)
@@ -128,8 +143,9 @@ async def execute(call, arguments):
         action = Action.DELETE if operation == "knowledge.delete" else Action.UPDATE
         if cap.approval_mode not in {"agent", "always_ask", "always_allow"}:
             raise ToolError("invalid_approval_mode", "Unknown approval mode. No changes were made.")
-        async with session_scope(tenant_id=ctx.tenant_id) as session:
-            await authorize(resource_route_params(ctx, session), kb_id, action)
+        async with session_scope(tenant_id=ctx.tenant_id, user_id=ctx.username) as session:
+            await authorize(await _route_params(ctx, session, kb_id), kb_id, action)
+            await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": str(ctx.tenant_id)})
             await session.execute(text("""INSERT INTO knowledge_cli_leases(call_id,tenant_id,run_id,operation,expires_at)
                 VALUES (:id,CAST(:tenant AS uuid),:run,:operation,now()+interval '30 seconds')"""),
                 {"id": call.call_id, "tenant": cap.tenant_id, "run": cap.turn_id, "operation": operation})
@@ -149,7 +165,7 @@ async def execute(call, arguments):
             await _require_active_chat_write(session, ctx)
             if not (await session.execute(text("SELECT 1 FROM knowledge_cli_leases WHERE call_id=:id AND expires_at>now()"), {"id": call.call_id})).first():
                 raise ToolError("approval_cancelled", "The CLI command is no longer active.")
-            params = resource_route_params(ctx, session)
+            params = await _route_params(ctx, session, kb_id)
             request = params["request"]
             request.state.cli_knowledge = True
             await authorize(params, kb_id, action)
@@ -162,10 +178,11 @@ async def execute(call, arguments):
                 await routes.delete_kb(kb_id, **params)
                 return {"status": "succeeded", "knowledge_id": str(kb_id), "message": "Knowledge package deleted. Local downloads were not removed."}
             await call.emit({"progress": {"status": "publishing", "knowledge_id": str(kb_id), "message": "Publishing the complete package snapshot."}})
+            owner_organization_id = str(getattr(request.state, "admitted_resource_organization_id", None) or ctx.tenant_id)
             number, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(cap.user_id), expected_version=args["expected_version"], files=files, protect_draft=True)
             await session.commit()
             committed = publication(kb_id, number, files, pending=bool(pending))
-        await enqueue_package_indexing(tenant_id=cap.tenant_id, user_id=cap.user_id, file_ids=pending)
+        await enqueue_package_indexing(tenant_id=owner_organization_id, user_id=cap.user_id, file_ids=pending)
         return committed
     except WriteConflict as exc:
         return exc.cli_result()

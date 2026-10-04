@@ -1,3 +1,4 @@
+import type { InstanceWorkflowSource } from './instance-workflow';
 import { appendPreviewOrigin, type PreviewOrigin } from './context-origin';
 import { getBasePath } from '@/lib/base-path';
 import type { FileRefV1 } from '@/lib/preview/protocol';
@@ -7,17 +8,24 @@ export interface StandalonePreviewTarget {
   fileType: string;
 }
 
-export function standaloneWorkflowPreviewHref(workflowId: string, version: string, origin?: PreviewOrigin | null): string {
+export function standaloneWorkflowPreviewHref(workflowId: string, version: string, origin?: PreviewOrigin | null, source?: InstanceWorkflowSource): string {
   const query = new URLSearchParams({ type: 'workflow', workflowId, version });
+  if (source) { query.set("instanceType", source.type); query.set("instanceId", source.id); }
   appendPreviewOrigin(query, origin);
   return `${getBasePath()}/preview?${query}`;
 }
 
-export function standaloneWorkflowPreviewTarget(search: URLSearchParams): { workflowId: string; version: string } | null {
+export function standaloneWorkflowPreviewTarget(search: URLSearchParams): { workflowId: string; version: string; source?: InstanceWorkflowSource } | null {
   if (search.get('type') !== 'workflow') return null;
   const workflowId = search.get('workflowId')?.trim() ?? '';
   const version = search.get('version') ?? '';
   if (!workflowId || !/^v[1-9]\d*\.sv\d+$/.test(version)) return null;
+  const type = search.get('instanceType');
+  const id = search.get('instanceId')?.trim();
+  if (type !== null || id !== undefined) {
+    if (!id || !['task', 'deployment', 'execution'].includes(type ?? '')) return null;
+    return { workflowId, version, source: { type: type as InstanceWorkflowSource['type'], id } };
+  }
   return { workflowId, version };
 }
 

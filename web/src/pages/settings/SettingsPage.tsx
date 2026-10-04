@@ -61,15 +61,12 @@ import {
   codexAccountUsageQueryKey,
   runtimeCapabilitiesPrefix,
 } from '@/lib/api/queries/agent-runtime';
-import { OrganizationSettingsPanel } from '@/pages/settings/OrganizationSettingsPanel';
 import { PasskeySecuritySection } from '@/pages/settings/PasskeySecuritySection';
 import { CodexAccountUsagePanel } from '@/pages/settings/CodexAccountUsagePanel';
 import { ExtensionSettingsPanel } from '@/pages/settings/ExtensionSettingsPanel';
 import { CredentialsSettingsPanel } from '@/pages/credentials/CredentialsPage';
 import { ActionableError } from '@/components/presentation/ActionableError';
 import { SectionBlock } from '@/components/layout/section-block';
-import { organizationsQueryKey } from '@/lib/api/organization-query-keys';
-import { listOrganizations } from '@/lib/api/organizations';
 import { getApiBase } from '@/lib/base-path';
 
 interface LanguageOption {
@@ -633,27 +630,10 @@ export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { openrouterState } = useParams<{ openrouterState?: string }>();
   const active = (i18n.resolvedLanguage ?? i18n.language) as Locale;
-  const activeOrganizationId = useAuthStore((state) => state.user?.tenant_id ?? '');
-  const organizations = useQuery({
-    queryKey: organizationsQueryKey,
-    queryFn: listOrganizations,
-    enabled: Boolean(activeOrganizationId),
-  });
-  const activeOrganization = organizations.data?.items.find(
-    (item) => item.organization_id === activeOrganizationId,
-  );
-  const showOrganization = activeOrganization?.kind === 'business';
-  const organizationLabel = activeOrganization?.role === 'member'
-    || activeOrganization?.role === 'guest'
-    ? t('settings_tab_my_organization', 'My organization')
-    : t('settings_tab_organization', 'Organization');
-
   const requestedTab = openrouterState
     ? 'api-keys'
     : searchParams.get('tab') ?? DEFAULT_TAB;
-  const visibleTabs = showOrganization
-    ? ['preferences', 'runtime', 'api-keys', 'extensions', 'organization', 'account']
-    : ['preferences', 'runtime', 'api-keys', 'extensions', 'account'];
+  const visibleTabs = ['preferences', 'runtime', 'api-keys', 'extensions', 'account'];
   const currentTab = visibleTabs.includes(requestedTab)
     ? requestedTab
     : DEFAULT_TAB;
@@ -687,7 +667,6 @@ export function SettingsPage() {
               <SelectItem value="runtime">{t('settings_tab_runtime', 'Agent runtime')}</SelectItem>
               <SelectItem value="api-keys">{t('settings_tab_api_keys', 'API keys')}</SelectItem>
               <SelectItem value="extensions">{t('settings_tab_extensions', 'Extensions')}</SelectItem>
-              {showOrganization ? <SelectItem value="organization">{organizationLabel}</SelectItem> : null}
               <SelectItem value="account">{t('settings_tab_account', 'Account')}</SelectItem>
             </SelectContent>
           </Select>
@@ -740,15 +719,7 @@ export function SettingsPage() {
             >
               {t('settings_tab_extensions', 'Extensions')}
             </TabsTrigger>
-            {showOrganization ? (
-              <TabsTrigger
-                value="organization"
-                className="w-full justify-start"
-                data-testid="settings-tab-organization"
-              >
-                {organizationLabel}
-              </TabsTrigger>
-            ) : null}
+
             <TabsTrigger
               value="account"
               className="w-full justify-start"
@@ -881,22 +852,7 @@ export function SettingsPage() {
                 <ExtensionSettingsPanel />
               </TabsContent>
 
-              {showOrganization ? (
-                <TabsContent
-                  value="organization"
-                  className="mt-0 flex w-full min-w-0 flex-col gap-6"
-                >
-                  <header className="min-w-0">
-                    <h2 className="text-base font-medium">{organizationLabel}</h2>
-                    <p className="mt-0.5 max-w-[65ch] text-sm text-muted-foreground">
-                      {activeOrganization?.role === 'member' || activeOrganization?.role === 'guest'
-                        ? t('organization.mySettingsDescription', 'Review your company membership, role, and assigned teams.')
-                        : t('organization.settingsDescription', 'Manage company people, departments, identity, and operational accounts according to your role.')}
-                    </p>
-                  </header>
-                  <OrganizationSettingsPanel />
-                </TabsContent>
-              ) : null}
+
 
               <TabsContent
                 value="account"

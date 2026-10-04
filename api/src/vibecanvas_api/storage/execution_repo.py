@@ -2,7 +2,7 @@
 """Workflow-page run state repository.
 
 This is deliberately not an execution-history store. It keeps one current
-interactive run per workflow for the workflow page: node execution, whole
+interactive run per user and workflow for the workflow page: node execution, whole
 workflow execution, refresh recovery, and cancellation. Agent tools do not use
 this repo; they write only their VFS outputs.
 """
@@ -13,11 +13,12 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.security.content_encryption import content_encryption_service
 from vibecanvas_api.storage import stop_registry
+from vibecanvas_api.storage.db import temporary_tenant_scope
 from vibecanvas_api.storage.models import Workflow, WorkflowRunEvent, WorkflowRunState
 
 _SIGNAL_LOCK = threading.RLock()
@@ -67,16 +68,6 @@ def _record_dict(e: WorkflowRunState) -> dict:
         "run_kind": e.run_kind,
         "cancel_requested": e.cancel_requested,
     }
-
-
-def running_execution_ids(wf_id: str) -> list[str]:
-    """Return process-local cancellable turn ids for a workflow.
-
-    The durable running state is in Postgres. This helper is intentionally only
-    for sandbox shutdown code that needs to signal local in-flight tasks.
-    """
-    ev = stop_registry.get(wf_id)
-    return [wf_id] if ev is not None and not ev.is_set() else []
 
 
 class ExecutionRepo:
@@ -130,7 +121,8 @@ class ExecutionRepo:
 
     async def _state_for_turn(self, exec_id: str, *, for_update: bool = False) -> WorkflowRunState | None:
         stmt = select(WorkflowRunState).where(
-            or_(WorkflowRunState.turn_id == exec_id, WorkflowRunState.wf_id == exec_id)
+            or_(WorkflowRunState.turn_id == exec_id, WorkflowRunState.wf_id == exec_id),
+            WorkflowRunState.creator_user_id == self._user_id
         )
         if for_update:
             stmt = stmt.with_for_update()
@@ -139,7 +131,8 @@ class ExecutionRepo:
         )
 
     async def _state_for_workflow(self, wf_id: str, *, for_update: bool = False) -> WorkflowRunState | None:
-        stmt = select(WorkflowRunState).where(WorkflowRunState.wf_id == wf_id)
+        stmt = select(WorkflowRunState).where(WorkflowRunState.wf_id == wf_id,
+                                                     WorkflowRunState.creator_user_id == self._user_id)
         if for_update:
             stmt = stmt.with_for_update()
         return await self._materialize_state(
@@ -171,6 +164,7 @@ class ExecutionRepo:
             wf_id=state.wf_id,
             seq=state.seq,
             tenant_id=state.tenant_id,
+            creator_user_id=state.creator_user_id,
             event_type=event_type,
             payload_ciphertext=encrypted.ciphertext,
             payload_nonce=encrypted.nonce,
@@ -190,6 +184,7 @@ class ExecutionRepo:
         target_node_id: Optional[str] = None,
         is_single_node: Optional[bool] = None,
         use_mp_event: bool = False,
+        workflow_tenant_id: str | None = None,
     ) -> None:
         if target_node_id is None and is_single_node:
             target_node_id = "__single__"
@@ -199,22 +194,23 @@ class ExecutionRepo:
             raise RuntimeError(f"workflow {workflow_id} already has a running execution")
 
         await self._session.execute(
-            delete(WorkflowRunEvent).where(WorkflowRunEvent.wf_id == workflow_id)
+            delete(WorkflowRunEvent).where(WorkflowRunEvent.wf_id == workflow_id,
+                                           WorkflowRunEvent.creator_user_id == self._user_id)
         )
         now = _now()
         if state is None:
-            tenant_id = (
-                await self._session.execute(
-                    select(Workflow.tenant_id).where(
-                        Workflow.wf_id == workflow_id
-                    )
-                )
-            ).scalar_one_or_none()
-            if tenant_id is None:
+            tenant_id = await self._session.scalar(text("SELECT current_setting('app.tenant_id')::uuid"))
+            source_tenant_id = workflow_tenant_id or str(tenant_id)
+            async with temporary_tenant_scope(self._session, source_tenant_id):
+                source_exists = await self._session.scalar(select(Workflow.wf_id).where(
+                    Workflow.wf_id == workflow_id, Workflow.deleted_at.is_(None),
+                ))
+            if source_exists is None:
                 raise LookupError(f"workflow {workflow_id} not found")
             state = WorkflowRunState(
                 wf_id=workflow_id,
                 tenant_id=tenant_id,
+                workflow_tenant_id=source_tenant_id,
                 creator_user_id=self._user_id,
             )
         state.creator_user_id = self._user_id

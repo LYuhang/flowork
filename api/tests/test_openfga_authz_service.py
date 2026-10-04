@@ -314,3 +314,36 @@ async def test_grant_uses_only_durable_mutation_coordinator():
         "desired_present": True,
         "idempotency_key": "share-request-1",
     }]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["custom", "catalog", None])
+async def test_skill_grant_requires_custom_source_after_authorization(source):
+    from types import SimpleNamespace
+    client = _FakeClient({"can_manage_access", "can_view_metadata", "can_view"})
+    coordinator = _FakeCoordinator()
+    service = _service(client, coordinator)
+
+    class Session:
+        async def execute(self, statement):
+            return SimpleNamespace(scalar_one_or_none=lambda: source)
+
+    service._session = Session()
+
+    async def known_subject(binding):
+        return None
+
+    service._validate_binding_subject = known_subject
+    binding = RelationshipBinding(
+        subject=RelationshipSubject(RelationshipSubjectType.USER, "recipient"),
+        relation="viewer",
+        resource=ResourceRef(ResourceType.SKILL_INSTALLATION, "00000000-0000-0000-0000-000000000001", "org-1"),
+    )
+    actor = PrincipalRef(PrincipalType.USER, "manager-1")
+    if source == "custom":
+        assert await service.grant(actor, binding, _context(), idempotency_key="custom-grant") == binding
+        assert len(coordinator.calls) == 1
+    else:
+        with pytest.raises(ValueError, match="only custom Skills"):
+            await service.grant(actor, binding, _context(), idempotency_key="catalog-grant")
+        assert coordinator.calls == []

@@ -73,7 +73,7 @@ def service(monkeypatch):
     monkeypatch.setattr(ops, "session_scope", scope)
     monkeypatch.setattr(ops, "_require_active_chat_write", AsyncMock())
     monkeypatch.setattr(ops, "resolve_target", selection)
-    monkeypatch.setattr(ops, "_decision", AsyncMock())
+    monkeypatch.setattr(ops, "_workflow_decision", AsyncMock())
     monkeypatch.setattr(ops, "_service", lambda *_: object())
     monkeypatch.setattr(ops, "_workflow_resource", lambda *_: object())
     monkeypatch.setattr(ops, "WorkflowRepo", lambda *_: repo)

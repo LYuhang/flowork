@@ -1272,3 +1272,18 @@ Skill 安装记录仍由用户独立持有。空间切换只改变包的可见�
 
 
 文件补测完成：个人空间对话 `158bdf1b-f912-4344-b2cc-7a20f3e516c6` 与公司空间对话 `c81c615c-2202-402d-b311-a48bb9d79982` 均已结束。核对工具原始返回：本空间 Skill/Knowledge 下载成功并读到副本，另一空间的准确 ID 下载返回 `resource_unavailable`；未安装或修改平台资源。两个 QA Project 保留供复核，详细历史仅存于私有验收目录，不提交仓库。
+
+## 最新隔离规则下的实际执行补验（2026-10-05）
+
+本轮在真实服务上使用 test2 作为接收者，补验“正确空间内有执行权限的共享资源能够真正运行”。不是仅凭列表可见或提交 HTTP 成功认定通过。
+
+- 个人分享：共享 Workflow 运行、共享定时 Task 的单次手动执行、共享 Deployment 调用均成功。
+- 公司部门分享：上述三类执行均成功。另建了三节点的公司测试 Workflow，避免用此前空图角色样例冒充执行验收。
+- Task/Deployment 执行阶段没有给接收者单独开放其底层 Workflow，仍能通过实例自己的运行身份成功执行；未向接收者共享创建者凭据。
+- 六次执行均核对终态、实际输出和持久化节点事件；浏览器打开六个执行详情，画布与节点信息正常展示。接口报告 `shared-execution-workspaces-live.json` 共 78 次检查（含准备/清理），页面报告为 `shared-execution-trace-browser.json`。
+- 公司空间真实 Terra Agent 自主发现 CLI 命令和参数，实际执行 Workflow 与 Deployment 成功，核对了输出和日志。其同轮 Task 执行 `d4486e6c-c3f7-402a-b9e1-3b17bd1c243f` 因驻留沙盒容量已满失败，工作流未启动；没有把该次算成成功。
+- 仅停用本轮临时 Deployment 释放资源后，Agent 新发起单独 Task 执行 `d967e795-6eb0-4cf5-8cef-c80852902065` 成功，输入、输出均为 `company-shared-result`，三个节点成功、无执行错误。原失败记录保留，宿主机再次读取持久化状态核对两次不同结论。报告为 `shared-execution-agent-verified.json`，工具记录保存在私有验收目录。
+
+公司空间保留 `QA company shared execution verification` Workflow/Task/Deployment 样例：Workflow `a0b2539d99ae`、Task `25fdc108-8c33-4fc6-aac5-a5836a837537`、Deployment `9e669386-5558-45dd-a577-9a04383643ef`。临时 operator 授权结束后撤销，恢复 viewer 样例；定时计划保持暂停，临时部署停用，不修改已有常驻部署。
+
+结论：当前所测分享执行链路通过；本轮没有发现需要修改业务代码的分享鉴权缺陷。实际观察到的容量上限仍可能拒绝新的 Task，本次未修改容量或排队策略，也不据此宣称并发容量验收通过。

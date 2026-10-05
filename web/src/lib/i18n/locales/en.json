@@ -3966,5 +3966,7 @@
   "skills.deleteResourceHint": "This deletes the resource for all recipients. To remove only your installation, use Uninstall.",
   "skills.resourceDeleted": "Skill deleted",
   "skills.noAccessible": "No accessible Skills yet.",
-  "skills.loadAllHint": "Check your connection, then reload Skills."
+  "skills.loadAllHint": "Check your connection, then reload Skills.",
+  "nav.group.management": "Management",
+  "nav.platformManagement": "Platform overview"
 }

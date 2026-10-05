@@ -3966,5 +3966,7 @@
   "skills.deleteResourceHint": "删除资源将影响所有接收者。若仅取消自己的安装，请使用卸载。",
   "skills.resourceDeleted": "技能已删除",
   "skills.noAccessible": "暂无可访问的技能。",
-  "skills.loadAllHint": "请检查网络连接，然后重新加载技能。"
+  "skills.loadAllHint": "请检查网络连接，然后重新加载技能。",
+  "nav.group.management": "管理",
+  "nav.platformManagement": "平台概览"
 }

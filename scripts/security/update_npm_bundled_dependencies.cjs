@@ -1,12 +1,14 @@
 // npm 11.19 bundles vulnerable dependencies even after npm install overrides.
-// Replace only these two packages with verified, compatible upstream releases.
-// Remove this step once npm ships both fixes; scans still cover the build stage.
+// Replace only these reviewed packages with verified, compatible upstream releases.
+// Remove this step once npm ships all fixes; scans still cover the build stage.
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { createHash } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const packages = [
+  ['ip-address', '10.5.0', '35e23227dfeca9179f03f899a9e3a21faf542a8079821bce95d5620642d75873'],
+  ['tar', '7.5.22', 'b792c2d1c7fc770910522ca1ffc29eee02ee38de4fa3a01e7832eb705879c6c6'],
   ['brace-expansion', '5.0.11', '67bb5a1b4d4a8ff497d845a0b891ffe6b7233aea2202641315cec88d0fff15eb'],
   ['undici', '6.28.1', 'e18191aac9c0ff43dac7fe9b10b7041a22d07addb7b66a6e8ac14a52a5b69b74'],
 ];

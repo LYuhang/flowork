@@ -775,5 +775,5 @@ Run the last two commands only on a prepared installation, as its service user.
 for login, sandbox startup, file preview and Workflow execution acceptance.
 
 The native installer and Node container build stages pin npm 11.19.0 and apply
-checksum-verified upstream fixes for its bundled `brace-expansion` and `undici`
-packages. Application dependencies continue to use their committed lockfiles.
+checksum-verified upstream fixes for its bundled `brace-expansion`, `undici`,
+`ip-address`, and `tar` packages. Application dependencies continue to use their committed lockfiles.

@@ -1074,7 +1074,12 @@ export function ChatComposer({
         {goalPickerOpen && <div role="dialog" aria-label={t('goal.details')} className="absolute bottom-full left-0 right-0 z-50 mb-2 rounded-xl border bg-popover p-2 shadow-lg" onKeyDown={event => { if (event.key === 'Escape') { setGoalPickerOpen(false); textareaRef.current?.focus(); } }}>
           {(['new', 'resume', 'status', 'edit', 'clear'] as const).map(action => <button key={action} type="button" className="block w-full rounded-lg p-2 text-left text-sm hover:bg-accent" onClick={() => {
             setValue(action === 'new' ? '/goal ' : `/goal:${action} `); setGoalPickerOpen(false); setMenuDismissed(true);
-            requestAnimationFrame(() => { const input = textareaRef.current; input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); });
+            requestAnimationFrame(() => {
+            const input = textareaRef.current;
+            // A newly opened picker or another control owns focus now.
+            if (document.activeElement !== document.body && document.activeElement !== input) return;
+            input?.focus(); input?.setSelectionRange(input.value.length, input.value.length);
+          });
           }}>{action === 'new' ? <><span className="block">{t('goal.noSubcommand')}</span><span className="block text-xs text-muted-foreground">{t('goal.enterObjective')}</span></> : t(`goal.${action}`)}</button>)}
         </div>}
         {skillPickerOpen && <SkillUsePicker onClose={() => { setSkillPickerOpen(false); setMenuDismissed(false); textareaRef.current?.focus(); }} onSelect={(skill) => {
@@ -1083,7 +1088,12 @@ export function ChatComposer({
           setValue(`/skill-use:[${skill.name}] ${task}`);
           setSkillPickerOpen(false);
           setMenuDismissed(true);
-          requestAnimationFrame(() => { const input = textareaRef.current; input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); });
+          requestAnimationFrame(() => {
+            const input = textareaRef.current;
+            // A newly opened picker or another control owns focus now.
+            if (document.activeElement !== document.body && document.activeElement !== input) return;
+            input?.focus(); input?.setSelectionRange(input.value.length, input.value.length);
+          });
         }} />}
         {menuOpen && !skillPickerOpen && !goalPickerOpen && (
           <div

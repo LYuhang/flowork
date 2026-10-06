@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -298,11 +298,20 @@ describe('chat attachments', () => {
     const input=screen.getByRole('textbox');
     fireEvent.change(input,{target:{value:trigger}});
     await userEvent.click(await screen.findByRole('option',{name:/\/skill-use/}));
+    const frames: FrameRequestCallback[] = [];
+    const animation = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
     await userEvent.click(await screen.findByRole('button',{name:/research/}));
     expect(input).toHaveValue('/skill-use:[research] ');
     expect(useChatStreamStore.getState().runtimes[CHAT]?.state).not.toBe('streaming');
     fireEvent.change(input,{target:{value:'/skill'}});
     await userEvent.click(await screen.findByRole('option',{name:/\/skill-use/}));
+    // Reopen before the previous selection's delayed focus callback runs.
+    animation.mockRestore();
+    act(() => { for (const callback of frames) callback(0); });
+    expect(screen.getByRole('textbox', {name:'Search Skills'})).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     expect(input).toHaveValue('/skill');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

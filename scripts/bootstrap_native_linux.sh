@@ -198,6 +198,7 @@ const expected = {
   "fast-uri": "4.2.1",
   "hono": "4.13.9",
   "qs": "6.16.0",
+  "proxy-addr": "2.0.8",
 };
 for (const [name, version] of Object.entries(expected)) {
   const actual = require(`${root}/node_modules/${name}/package.json`).version;

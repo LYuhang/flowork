@@ -18,7 +18,9 @@ document is intended for contributors working on the Web package.
 The Web application owns:
 
 - authenticated navigation and route-level product experiences;
-- Workflow editing, Chat interaction, execution progress, and file previews;
+- Workflow editing, canvas-context Chat with private conversation history, execution progress, and file previews;
+- Goal status and controls above the Chat composer;
+- resource-source filters, sharing controls, and capability-aware read-only/editable views;
 - typed REST requests and browser-side session/CSRF handling;
 - live Chat, Workflow, Task, background-job, and preview updates over SSE;
 - client-side drafts, selection, layout, theme, and language preferences; and

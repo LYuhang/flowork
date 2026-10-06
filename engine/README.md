@@ -103,6 +103,17 @@ Built-in node classes are registered when
 | Data processing | `CodeNode`, `TransformNode`, `TemplateNode` | Compute, transform, and format values |
 | External interaction | `HTTPRequestNode`, `TableReadNode`, `TableWriteNode` | Exchange data through controlled runtime interfaces |
 | Model execution | `PromptNode`, `SubAgentNode` | Invoke configured model or sub-agent capabilities |
+| Human interaction | `HumanApprovalNode` | Suspend this execution for a reviewer decision or approval timeout |
+
+Human approval requires the platform's approval broker. Approval and rejection
+both produce the boolean `approved` field and continue to the child; use a
+Condition node to choose the next branch. An approval timeout ends the execution
+with `approval_timeout` and no business output. It is not an automatic rejection.
+
+Prompt and SubAgent nodes expose a `retry` count for transient model-call
+failures. Retries do not repair invalid configuration or an insufficient output
+budget. SubAgent completion requires a valid `set_output` tool call; ordinary
+final prose is not a successful structured result.
 
 The registry in [`register.py`](src/vibecanvas_engine/register.py) maps stable
 `node_type` names to implementations without dynamic evaluation. Custom node

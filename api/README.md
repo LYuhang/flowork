@@ -17,7 +17,7 @@ The API package owns:
 
 - versioned HTTP contracts, authentication, request validation, and streaming;
 - Agent Runtime orchestration and model/MCP brokering;
-- application persistence, database migrations, and object-store integration;
+- application persistence, database migrations, POSIX workspaces, and encrypted object-store integration;
 - tenant authorization through OpenFGA;
 - durable delivery and scheduling through DBOS/PostgreSQL, plus execution
   ownership and recovery for batch and scheduled Tasks; and
@@ -39,10 +39,19 @@ standalone web server:
 | **API** | Serves HTTP and streaming requests, validates access, coordinates Agent Runtime operations, and submits durable work |
 | **DBOS background worker** | Consumes durable queues, runs periodic jobs, and reconciles Task worker ownership and interrupted executions |
 | **`sandboxd`** | Owns isolated execution processes and lifecycle through the selected gVisor or bubblewrap provider; API and worker processes use the sandbox service contract |
-| **PostgreSQL** | Stores application state, DBOS delivery/schedule state, Task worker ownership, authorization projections, execution records, and Agent Runtime checkpoints |
+| **PostgreSQL** | Stores application state, DBOS delivery/schedule state, Task worker ownership, authorization projections, execution records, and conversation/Goal metadata |
 | **Redis-compatible service** | Valkey in Compose, Redis in native setup; provides transient event fanout, counters, rate limits, and locks |
 | **OpenFGA** | Evaluates tenant and resource authorization from the pinned model |
-| **Object store** | Stores encrypted file and content payloads shared across backend processes |
+| **Workspace backend** | Stores mutable Project/Chat files and Workflow, Task, and Deployment run directories; selects POSIX shared filesystems or the object-backed implementation |
+| **Object store** | Stores encrypted Skill/Knowledge packages and other blobs independently of workspace selection |
+
+`WORKSPACE_STORAGE_BACKEND=posix` selects shared filesystem workspaces. It does
+not replace authorization, resource ownership, or the encrypted object store.
+All participating services must use the same workspace root and backend;
+changing the variable alone does not migrate existing data. Native Agent
+runtime files persist in the workspace, while user-visible messages and prepared
+Runtime input snapshots are stored in the database. See
+[workspace setup and migration](../docs/installation.md#persistent-posix-workspaces).
 
 The supported local launchers create and connect these components. Starting
 only the FastAPI process is useful for focused backend development, but it does

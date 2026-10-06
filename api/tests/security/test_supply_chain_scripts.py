@@ -30,7 +30,7 @@ _PYTHON_SYNC = _ROOT / "scripts/sync_python_env.sh"
 
 def _deployment_image_references() -> set[str]:
     references: set[str] = set()
-    for relative_path in ("api/Dockerfile", "engine/Dockerfile", "web/Dockerfile", "postgres/Dockerfile"):
+    for relative_path in ("api/Dockerfile", "engine/Dockerfile", "web/Dockerfile", "postgres/Dockerfile", "postgres/openfga.Dockerfile", "docker/clamav.Dockerfile"):
         text = (_ROOT / relative_path).read_text(encoding="utf-8")
         references.update(
             re.findall(r"^FROM\s+(\S+@sha256:[0-9a-f]{64})", text, re.MULTILINE)
@@ -51,12 +51,9 @@ def test_every_pinned_deployment_image_is_scanned() -> None:
     scanner = _SCANNER.read_text(encoding="utf-8")
     scanned = set(re.findall(r"'[^'|]+\|(\S+@sha256:[0-9a-f]{64})'", scanner))
     live_gate = _CLAMAV_LIVE.read_text(encoding="utf-8")
-    clamav_match = re.search(
-        r'clamav_image="(\S+@sha256:[0-9a-f]{64})"',
-        live_gate,
-    )
-    assert clamav_match is not None
-    assert scanned == _deployment_image_references() | {clamav_match.group(1)}
+    assert '"$repo_root/docker/clamav.Dockerfile"' in live_gate
+    assert scanned == _deployment_image_references()
+
 
 
 def test_actual_application_images_are_built_and_scanned() -> None:
@@ -68,7 +65,7 @@ def test_actual_application_images_are_built_and_scanned() -> None:
     assert "flowork-sandboxd:security-scan -m pip --version" in scanner
     assert "build_image web web/Dockerfile ." in scanner
     assert "build_image engine engine/Dockerfile ." in scanner
-    for image in ("api", "sandboxd", "web", "engine", "postgres"):
+    for image in ("api", "sandboxd", "web", "engine", "postgres", "openfga-postgres"):
         assert f"'{image}|flowork-{image}:security-scan'" in scanner
 
 
@@ -266,9 +263,11 @@ def test_release_compose_uses_a_separate_verified_sandbox_builder_image() -> Non
         "api",
         "background_worker",
     }
-    assert set(services) == api_consumers | {"web", "sandboxd", "postgres", "openfga_erasure_bootstrap"}
+    assert set(services) == api_consumers | {"web", "sandboxd", "postgres", "openfga_postgres", "openfga_erasure_bootstrap"}
     assert services["postgres"]["image"].startswith("${VIBECANVAS_POSTGRES_IMAGE:?")
     assert services["postgres"]["pull_policy"] == "always"
+    assert services["openfga_postgres"]["image"].startswith("${VIBECANVAS_OPENFGA_POSTGRES_IMAGE:?")
+    assert services["openfga_postgres"]["pull_policy"] == "always"
     assert services["openfga_erasure_bootstrap"]["image"] == services["postgres"]["image"]
     assert services["openfga_erasure_bootstrap"]["pull_policy"] == "always"
     assert services["sandboxd"]["image"].startswith("${VIBECANVAS_SANDBOX_IMAGE:?")
@@ -350,13 +349,13 @@ def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
     assert "--predicate-type https://spdx.dev/Document/v2.3" in calls[1]
 
 
-@pytest.mark.parametrize("postgres_image,expected", [
-    (None, "VIBECANVAS_POSTGRES_IMAGE is required"),
-    ("ghcr.io/example/other-postgres@sha256:" + "a" * 64,
-     "Postgres image must use the postgres release repository"),
+@pytest.mark.parametrize("variable,label,message", [
+    ("VIBECANVAS_POSTGRES_IMAGE", "postgres", "Postgres"),
+    ("VIBECANVAS_OPENFGA_POSTGRES_IMAGE", "openfga-postgres", "OpenFGA Postgres"),
 ])
-def test_production_gate_requires_its_reviewed_postgres_image(
-    tmp_path: Path, postgres_image: str | None, expected: str,
+@pytest.mark.parametrize("missing", [True, False])
+def test_production_gate_requires_its_reviewed_postgres_images(
+    tmp_path: Path, variable: str, label: str, message: str, missing: bool,
 ) -> None:
     docker = tmp_path / "docker"
     docker.write_text("#!/usr/bin/env bash\nexit 0\n")
@@ -364,15 +363,20 @@ def test_production_gate_requires_its_reviewed_postgres_image(
     env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
            "RELEASE_REPOSITORY": "Example/flowork", "RELEASE_SHA": "b" * 40,
            "RELEASE_REF": "refs/tags/v1.2.3", "PRODUCTION_EVIDENCE_MANIFEST": "unused"}
-    for name, label in (("API", "api"), ("SANDBOX", "sandboxd"), ("WEB", "web")):
-        env[f"VIBECANVAS_{name}_IMAGE"] = f"ghcr.io/example/flowork-{label}@sha256:{'a' * 64}"
-    env.pop("VIBECANVAS_POSTGRES_IMAGE", None)
-    if postgres_image is not None:
-        env["VIBECANVAS_POSTGRES_IMAGE"] = postgres_image
+    for name, image_label in (("API", "api"), ("SANDBOX", "sandboxd"), ("WEB", "web"),
+                              ("POSTGRES", "postgres"), ("OPENFGA_POSTGRES", "openfga-postgres")):
+        env[f"VIBECANVAS_{name}_IMAGE"] = f"ghcr.io/example/flowork-{image_label}@sha256:{'a' * 64}"
+    if missing:
+        env.pop(variable)
+        expected = f"{variable} is required"
+    else:
+        env[variable] = f"ghcr.io/example/other-{label}@sha256:{'a' * 64}"
+        expected = f"{message} image must use the {label} release repository"
     result = subprocess.run(["bash", str(_PRODUCTION_RELEASE), "verify"],
                             env=env, capture_output=True, text=True)
     assert result.returncode != 0
     assert expected in result.stderr
+
 
 
 def test_release_attestation_gate_rejects_tags_and_unknown_images(

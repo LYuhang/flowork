@@ -175,6 +175,8 @@ def test_bootstrap_installs_locked_local_npm_dependencies_and_supported_tools():
     assert '"hono": "4.13.9"' in source
     assert '"qs": "6.16.0"' in source
     assert "umask 022; exec npm install" in source
+    assert "update_npm_bundled_dependencies.cjs" in source
+    assert "install_public_npm_package npm@11.19.0" in source
     assert 'UV_VERSION="${UV_VERSION:-0.12.23}"' in source
     for runtime in ("drawio-runtime",):
         assert f'npm --prefix "$REPO_ROOT/api/{runtime}" ci --ignore-scripts' in source

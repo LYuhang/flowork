@@ -61,7 +61,10 @@ services:
   # OpenFGA has its own datastore and credentials. Relationship metadata is
   # never mixed into the application database or exposed to sandboxes.
   openfga_postgres:
-    image: postgres:17.11-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    build:
+      context: .
+      dockerfile: postgres/openfga.Dockerfile
+    image: flowork-openfga-postgres:dev
     environment:
       POSTGRES_DB: openfga
       POSTGRES_USER: openfga

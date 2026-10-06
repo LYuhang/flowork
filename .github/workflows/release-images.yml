@@ -39,6 +39,9 @@ jobs:
           - label: engine
             dockerfile: engine/Dockerfile
             context: .
+          - label: openfga-postgres
+            dockerfile: postgres/openfga.Dockerfile
+            context: .
           - label: postgres
             dockerfile: postgres/Dockerfile
             context: .

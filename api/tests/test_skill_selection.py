@@ -118,7 +118,7 @@ async def test_selection_uses_the_same_chat_scoped_path_as_sandbox_mount(monkeyp
     from vibecanvas_api.authorization.types import AuthzRequestContext, ConsistencyPreference, PrincipalRef, PrincipalType
     identifier=uuid4()
     repo=SimpleNamespace(list_authorized=AsyncMock(return_value=[{
-        'skill_id':identifier,'name':'research','revision_hash':'a'*64,
+        'skill_id':identifier,'name':'research','revision_hash':'a'*64,'installed':True,
     }]))
     monkeypatch.setattr(runtime_skills,'SkillsRepo',lambda session:repo)
     service=SimpleNamespace(list_authorized_ids=AsyncMock(return_value=[identifier]))

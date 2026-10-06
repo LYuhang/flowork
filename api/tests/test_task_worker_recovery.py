@@ -150,6 +150,7 @@ async def test_recovery_stop_is_strict_and_revokes_scope(monkeypatch):
     handle = SimpleNamespace(proc=SimpleNamespace(poll=Mock(return_value=None)))
     pool = SimpleNamespace(_handles=[handle], stop=Mock())
     session = SimpleNamespace(tenant_id="tenant", wf_id=scope,
+        user_id=None, workflow_run_source=None, task_run_source=None,
         closed=False, _lifecycle_state="warm", _fileop_pool=pool,
         _transition_lifecycle=Mock())
     manager._sessions[("tenant", scope)] = session

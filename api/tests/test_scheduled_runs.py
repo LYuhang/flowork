@@ -16,6 +16,7 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
 ):
     from vibecanvas_api.background_tasks import scheduled_runs as worker
     from vibecanvas_api.services.task_worker import WorkerClaim
+    from vibecanvas_api.services.sandbox.contracts import TaskRunSource
     from vibecanvas_api.services import service_account_resources, workflow_resources
 
     task_id, schedule_id, execution_id, tenant, user = [uuid.uuid4() for _ in range(5)]
@@ -57,7 +58,7 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
     monkeypatch.setattr(worker, "execute_history_workflow", execute)
     await worker._execute_scheduled_run(task_id=task_id, schedule_id=schedule_id,
         execution_id=execution_id, tenant_id=str(tenant), user_id=str(user), workflow_id="wf-original")
-    manager.get_session.assert_awaited_once_with(str(tenant), scope, user_id=str(user),
+    manager.get_session.assert_awaited_once_with(str(tenant), scope, task_run_source=TaskRunSource(task_id=task_id), user_id=str(user),
         expose_run=True, expose_mount=mount_enabled, lease="resident")
     manager.close_session.assert_awaited_once_with(str(tenant), scope)
     assert updates[-1]["status"] == ("failed" if outcome in {"empty", "error"} else "succeeded")

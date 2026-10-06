@@ -39,11 +39,18 @@ external database and Valkey URLs through the verified release entry point.
 | Build, scan, and publish release images | Implemented in GitHub Actions |
 | Generate provenance and SPDX SBOM attestations | Implemented |
 | Verify independently reviewed production evidence | Implemented |
-| Require digest-pinned API, sandboxd, Web, and PostgreSQL images | Implemented |
+| Require digest-pinned API, sandboxd, Web, application PostgreSQL, and OpenFGA PostgreSQL images | Implemented |
 | Validate the production security profile at process startup | Implemented |
 | Configure compliant external PostgreSQL and Valkey through the release overlay | Not yet implemented |
 | Automatically provision TLS, KMS, S3, audit, backup, and monitoring services | Operator responsibility |
 | Distribute sandbox ownership across multiple `sandboxd` instances | Not implemented |
+
+The container gate retains SBOMs and vulnerability reports for every pinned
+upstream image as provenance. Blocking checks apply to the patched Node build
+stages, all seven built images (including the optional ClamAV scanner), and
+directly deployed Valkey and OpenFGA images. A clean final image does not waive a finding in a build tool stage.
+Upstream-layer findings remain visible in the artifacts; security updates are
+verified in the actual derived images rather than claimed to modify upstream.
 
 ## Production architecture
 
@@ -128,7 +135,7 @@ protected `production-release` GitHub environment.
 
 For each release, the workflow:
 
-1. builds the API, sandboxd, Web, Engine, and PostgreSQL images from the tagged commit;
+1. builds the API, sandboxd, Web, Engine, application PostgreSQL, and OpenFGA PostgreSQL images from the tagged commit;
 2. generates Syft SBOMs;
 3. rejects High or Critical vulnerabilities according to the reviewed policy;
 4. publishes immutable commit-tagged images to GitHub Container Registry;
@@ -147,7 +154,7 @@ The published images target **Linux amd64**; this release pipeline does not
 publish an ARM64 manifest. Native/source architecture support does not imply
 that a prebuilt image exists for that architecture.
 
-The production Compose deployment uses the API, sandboxd, Web, and PostgreSQL image digests
+The production Compose deployment uses the API, sandboxd, Web, application PostgreSQL, and OpenFGA PostgreSQL image digests
 recorded in the manifest. sandboxd has its own image built with
 `VIBECANVAS_RUNTIME_ENV_BUILDER=1`, retaining pip to build Workflow dependency
 environments. API and background workers use the installer-free API image.
@@ -211,8 +218,8 @@ The deployment host needs:
 - access to the reviewed evidence manifest and production environment file.
 
 The GitHub CLI must be able to verify attestations for the release repository.
-The Docker daemon must be able to pull all four deployment images (API,
-sandbox service, Web, and PostgreSQL) by digest.
+The Docker daemon must be able to pull all five deployment images (API,
+sandbox service, Web, application PostgreSQL, and OpenFGA PostgreSQL) by digest.
 
 ### Environment file
 
@@ -252,6 +259,7 @@ export VIBECANVAS_API_IMAGE='ghcr.io/owner/repository-api@sha256:...'
 export VIBECANVAS_SANDBOX_IMAGE='ghcr.io/owner/repository-sandboxd@sha256:...'
 export VIBECANVAS_WEB_IMAGE='ghcr.io/owner/repository-web@sha256:...'
 export VIBECANVAS_POSTGRES_IMAGE='ghcr.io/owner/repository-postgres@sha256:...'
+export VIBECANVAS_OPENFGA_POSTGRES_IMAGE='ghcr.io/owner/repository-openfga-postgres@sha256:...'
 export RELEASE_REPOSITORY='owner/repository'
 export RELEASE_SHA='0123456789abcdef0123456789abcdef01234567'
 export RELEASE_REF='refs/tags/v1.0.0'
@@ -286,7 +294,7 @@ Run the release gate without changing the running deployment:
 The command:
 
 1. validates all required release metadata;
-2. verifies provenance and SPDX attestations for the API, sandboxd, Web, and PostgreSQL images;
+2. verifies provenance and SPDX attestations for the API, sandboxd, Web, application PostgreSQL, and OpenFGA PostgreSQL images;
 3. verifies that production evidence matches the repository, commit, and tag;
    and
 4. validates the merged Compose configuration.

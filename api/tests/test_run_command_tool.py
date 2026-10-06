@@ -70,7 +70,7 @@ data['name'] = "quote' and double\\"quote"
 data['count'] += 1
 p.write_text(json.dumps(data))
 """
-    _content, result = await bash("python -c " + shlex.quote(script), cwd=str(tmp_path))
+    _content, result = await bash("python3 -c " + shlex.quote(script), cwd=str(tmp_path))
     assert result["exit_code"] == 0, result
     _content, result = await bash("grep count input.json", cwd=str(tmp_path))
     assert json.loads(result["stdout"]) == {"name": "quote' and double\"quote", "count": 2}
@@ -82,7 +82,7 @@ p.write_text(json.dumps(data))
 @pytest.mark.asyncio
 async def test_bash_large_output_is_complete_on_disk(tmp_path):
     from pathlib import Path
-    _content, result = await bash("python -c \"import sys; print('x'*40000); print('y'*30000, file=sys.stderr)\"", cwd=str(tmp_path))
+    _content, result = await bash("python3 -c \"import sys; print('x'*40000); print('y'*30000, file=sys.stderr)\"", cwd=str(tmp_path))
     assert result["stdout_truncated"] and result["stderr_truncated"]
     assert Path(result["stdout_file"]).read_text() == "x" * 40000 + "\n"
     assert Path(result["stderr_file"]).read_text() == "y" * 30000 + "\n"

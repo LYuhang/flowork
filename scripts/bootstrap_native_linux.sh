@@ -156,6 +156,11 @@ install_public_npm_package() {
   # Otherwise multi-install hosts install into one prefix and verify another.
   sudo env "PATH=$PATH" bash -c 'umask 022; exec npm install --global --ignore-scripts --no-audit --no-fund "$@"' bash "$@"
 }
+if [[ "$(npm --version)" != "11.19.0" ]]; then
+  install_public_npm_package npm@11.19.0
+fi
+sudo env "PATH=$PATH" bash -c 'umask 022; exec node "$@"' bash \
+  "$REPO_ROOT/scripts/security/update_npm_bundled_dependencies.cjs" "$(npm root --global)/npm"
 if command -v corepack >/dev/null; then
   sudo env "PATH=$PATH" corepack enable
   corepack prepare pnpm@10.34.4 --activate

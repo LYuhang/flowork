@@ -47,7 +47,7 @@ async def test_insert_list_read_softdelete(pg_engine):
     )
     draft_body = b"draft-secret-marker-55c9b406"
 
-    async with session_scope(tenant_id=str(tenant_id)) as s:
+    async with session_scope(tenant_id=str(tenant_id), user_id=str(user_id)) as s:
         repo = SkillsRepo(s)
         sid = await repo.insert(
             tenant_id=str(tenant_id), user_id=str(user_id),
@@ -92,7 +92,7 @@ async def test_insert_list_read_softdelete(pg_engine):
     assert draft_body.decode() not in draft_ciphertext
     assert plaintext_columns == 0
 
-    async with session_scope(tenant_id=str(tenant_id)) as s:
+    async with session_scope(tenant_id=str(tenant_id), user_id=str(user_id)) as s:
         repo = SkillsRepo(s)
         rows = await repo.list_for_user(user_id)
         assert any(r["name"] == "greet" for r in rows)
@@ -103,6 +103,6 @@ async def test_insert_list_read_softdelete(pg_engine):
         await repo.soft_delete(sid)
         await s.commit()
 
-    async with session_scope(tenant_id=str(tenant_id)) as s:
+    async with session_scope(tenant_id=str(tenant_id), user_id=str(user_id)) as s:
         repo = SkillsRepo(s)
         assert all(r["name"] != "greet" for r in await repo.list_for_user(user_id))

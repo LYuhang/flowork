@@ -23,9 +23,14 @@ ARG DRAWIO_DESKTOP_ARM64_SHA256=62a9ea636accada76076bd5a20f61b707e0e8093d3fd28c6
 # the Codex or draw.io dependency caches.
 FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS node-runtime-base
 ARG NPM_VERSION
+COPY scripts/security/update_npm_bundled_dependencies.cjs /tmp/update_npm_bundled_dependencies.cjs
 RUN set -eux; \
+    apt-get update; apt-get upgrade -y --no-install-recommends; \
+    rm -rf /var/lib/apt/lists/*; \
     npm install --global --ignore-scripts --no-audit --no-fund "npm@${NPM_VERSION}"; \
-    test "$(npm --version)" = "${NPM_VERSION}"
+    test "$(npm --version)" = "${NPM_VERSION}"; \
+    node /tmp/update_npm_bundled_dependencies.cjs /usr/local/lib/node_modules/npm; \
+    rm /tmp/update_npm_bundled_dependencies.cjs
 
 FROM node-runtime-base AS codex-assets
 ARG CODEX_CLI_VERSION

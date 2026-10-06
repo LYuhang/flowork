@@ -16,6 +16,13 @@ Production deployments have different security and release requirements. Do
 not expose the local stack directly to the Internet; use the
 [production deployment guide](../DEPLOY.md) instead.
 
+The Compose stack builds separate application PostgreSQL 15 and OpenFGA
+PostgreSQL 17 images. The optional ClamAV overlay also builds a patched image.
+These images apply distribution security updates during the build;
+their existing data volumes and major versions remain independent. Attested
+production deployments also require `VIBECANVAS_OPENFGA_POSTGRES_IMAGE`; see
+[the production release procedure](../DEPLOY.md).
+
 ## Docker Compose
 
 ### Prerequisites
@@ -766,3 +773,7 @@ python3 scripts/verify_dependency_locks.py
 Run the last two commands only on a prepared installation, as its service user.
 `check-runtime` checks executable/browser availability; it is not a replacement
 for login, sandbox startup, file preview and Workflow execution acceptance.
+
+The native installer and Node container build stages pin npm 11.19.0 and apply
+checksum-verified upstream fixes for its bundled `brace-expansion` and `undici`
+packages. Application dependencies continue to use their committed lockfiles.

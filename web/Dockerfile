@@ -11,7 +11,14 @@
 # convention and keep room for future sibling assets.
 
 # ---------- Stage 1: build the static bundle ----------
-FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS build
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS node-build-base
+COPY scripts/security/update_npm_bundled_dependencies.cjs /tmp/update_npm_bundled_dependencies.cjs
+RUN apk upgrade --no-cache && \
+    npm install --global --ignore-scripts --no-audit --no-fund npm@11.19.0 && \
+    node /tmp/update_npm_bundled_dependencies.cjs /usr/local/lib/node_modules/npm && \
+    rm /tmp/update_npm_bundled_dependencies.cjs
+
+FROM node-build-base AS build
 
 WORKDIR /app
 
@@ -49,7 +56,7 @@ RUN pnpm codegen:api:offline && pnpm build
 # Build the companion browser extension from its independent frozen graph.
 # The public Web origin is compiled into the MV3 allowlist, so deployments
 # reached through a non-local origin must pass the same canonical URL here.
-FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS extension-build
+FROM node-build-base AS extension-build
 
 WORKDIR /app/extension
 RUN corepack enable && corepack prepare pnpm@10.34.4 --activate

@@ -3,7 +3,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { DateTimePicker } from './date-time-picker';
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: string) => fallback, i18n: { resolvedLanguage: 'en' } }) }));
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (_key: string, fallback: string) => fallback, i18n: { resolvedLanguage: 'en' } }) }));
 
 function Form() {
   const [value, setValue] = useState('2026-10-05T09:30:17');

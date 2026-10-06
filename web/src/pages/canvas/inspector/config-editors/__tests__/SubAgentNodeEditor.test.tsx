@@ -13,7 +13,8 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // `t('key','fallback')` → fallback (i18n not initialised in tests).
-vi.mock('react-i18next', () => ({
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()),
   useTranslation: () => ({
     t: (_key: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : _key,
   }),

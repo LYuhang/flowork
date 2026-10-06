@@ -69,10 +69,10 @@ export function CanvasPage() {
     const route = `${wfId}:${vKey ?? ""}`;
     if (resolvedRouteRef.current === route) return;
     resolvedRouteRef.current = route;
-    if (match && (head.data.major !== v || head.data.sub !== sv)) return;
+    if (isPinned && (head.data.major !== v || head.data.sub !== sv)) return;
     if (useWorkflowEditStore.getState().isDirty()) return;
     navigate(`/workflow/${wfId}/version/v${head.data.major}`, { replace: true });
-  }, [head.data, head.isFetchedAfterMount, followsMajor, fixedSnapshot, v, sv, wfId, vKey, navigate]);
+  }, [head.data, head.isFetchedAfterMount, followsMajor, fixedSnapshot, isPinned, v, sv, wfId, vKey, navigate]);
 
   const setDraft = useWorkflowEditStore((s) => s.setDraft);
   const applyServerMeta = useWorkflowEditStore((s) => s.applyServerMeta);

@@ -6,6 +6,9 @@ forget to expose a schema?" before either breaks frontend code generation.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from vibecanvas_api.app import build_app
 from vibecanvas_api.config import config
@@ -84,3 +87,11 @@ def test_production_app_hides_interactive_api_docs(monkeypatch):
     assert "/docs" not in paths
     assert "/redoc" not in paths
     assert "/openapi.json" not in paths
+
+
+def test_committed_openapi_matches_current_backend(spec):
+    snapshot = Path(__file__).resolve().parents[2] / "web/openapi.json"
+    assert json.loads(snapshot.read_text()) == spec, (
+        "Regenerate web/openapi.json with vibecanvas_api.cli dump-openapi, "
+        "then regenerate schema.d.ts with pnpm codegen:api:offline."
+    )

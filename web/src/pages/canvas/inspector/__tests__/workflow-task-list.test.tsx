@@ -4,7 +4,8 @@ import { MemoryRouter } from 'react-router';
 import { WorkflowTaskList } from '../WorkflowTaskList';
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/api/queries/tasks', () => ({ useWorkflowTasks: query }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: string) => fallback || _key }) }));
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (_key: string, fallback: string) => fallback || _key }) }));
 describe('related workflow tasks', () => {
   it.each(['batch_exec', 'scheduled_run'] as const)('shows pinned versions and copies/links the exact task ID for %s', async taskType => {
     const writeText = vi.fn().mockResolvedValue(undefined);

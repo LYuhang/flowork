@@ -23,7 +23,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache License 2.0"></a>
   <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Project status: alpha">
   <img src="https://img.shields.io/badge/Python-3.11.16-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11.16">
-  <img src="https://img.shields.io/badge/Node.js-22.23.3-5FA04E.svg?logo=nodedotjs&logoColor=white" alt="Node.js 22.23.3">
+  <img src="https://img.shields.io/badge/Node.js-24.21.0-5FA04E.svg?logo=nodedotjs&logoColor=white" alt="Node.js 24.21.0">
 </p>
 
 <p align="center">

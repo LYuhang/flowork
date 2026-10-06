@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ResourceAction } from '@/lib/api/organizations';
 import { ResourceAccessBadge } from '../ResourceAccessBadge';
 
-vi.mock('react-i18next', () => ({useTranslation: () => ({t: (key: string) => key})}));
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()),useTranslation: () => ({t: (key: string) => key})}));
 
 describe('ResourceAccessBadge', () => {
   it.each<[ResourceAction[], string]>([

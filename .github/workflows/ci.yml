@@ -61,7 +61,7 @@ jobs:
           PATH="$PWD/.venv/bin:$PATH" RUNSC_PATH="$runsc_path" \
             .venv/bin/python -c 'from vibecanvas_api.services.sandbox import _gvisor_runnable; print(f"rootless_gvisor_full_profile={_gvisor_runnable()}")'
           PATH="$PWD/.venv/bin:$PATH" RUNSC_PATH="$runsc_path" \
-            .venv/bin/python -m pytest -q api/tests \
+            .venv/bin/python -m pytest -q api/tests --maxfail=20 \
             --junitxml="$RUNNER_TEMP/python-test-reports/api.xml" \
             2>&1 | tee "$RUNNER_TEMP/python-test-reports/api.log"
       - name: Upload Python test diagnostics
@@ -96,14 +96,23 @@ jobs:
       - name: Run Web quality gates
         working-directory: web
         run: |
-          pnpm lint
-          pnpm lint:visual
-          pnpm lint:routes
-          pnpm lint:locales
-          pnpm lint:retired-ui
-          pnpm test
-          pnpm build
-          pnpm lint:bundle
+          set -o pipefail
+          pnpm lint 2>&1 | tee -a "$RUNNER_TEMP/web-quality.log"
+          pnpm lint:visual 2>&1 | tee -a "$RUNNER_TEMP/web-quality.log"
+          pnpm lint:routes 2>&1 | tee -a "$RUNNER_TEMP/web-quality.log"
+          pnpm lint:locales 2>&1 | tee -a "$RUNNER_TEMP/web-quality.log"
+          pnpm lint:retired-ui 2>&1 | tee -a "$RUNNER_TEMP/web-quality.log"
+          pnpm test 2>&1 | tee -a "$RUNNER_TEMP/web-quality.log"
+          pnpm build 2>&1 | tee -a "$RUNNER_TEMP/web-quality.log"
+          pnpm lint:bundle 2>&1 | tee -a "$RUNNER_TEMP/web-quality.log"
+      - name: Retain Web test and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-quality-${{ github.sha }}
+          path: ${{ runner.temp }}/web-quality.log
+          if-no-files-found: warn
+          retention-days: 14
 
   extension:
     name: Browser extension tests and build

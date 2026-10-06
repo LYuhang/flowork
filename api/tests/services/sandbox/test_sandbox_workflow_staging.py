@@ -13,8 +13,9 @@ from vibecanvas_api.services.sandbox.manager import SandboxSession
 
 
 @pytest.mark.asyncio
-async def test_vfs_hydration_isolates_folder_transactions_and_skips_unsafe_paths(
-    tmp_path, monkeypatch,
+@pytest.mark.parametrize("read_failure", [False, True])
+async def test_vfs_hydration_rejects_failed_reads_and_skips_unsafe_paths(
+    tmp_path, monkeypatch, read_failure,
 ) -> None:
     from vibecanvas_api.services.sandbox import manager as manager_module
 
@@ -36,7 +37,7 @@ async def test_vfs_hydration_isolates_folder_transactions_and_skips_unsafe_paths
         async def ls(self, *, wf_id: str, prefix: str):
             assert wf_id == "workflow-1"
             queried.append((self.index, prefix))
-            if self.index == 0:
+            if read_failure:
                 raise RuntimeError("simulated failed transaction")
             if prefix == "/memory/":
                 return [SimpleNamespace(path="/memory/../escaped.txt")]
@@ -48,6 +49,12 @@ async def test_vfs_hydration_isolates_folder_transactions_and_skips_unsafe_paths
     monkeypatch.setattr(manager_module, "session_scope", fake_session_scope)
     monkeypatch.setattr(manager_module, "VfsRepo", FakeRepo)
     monkeypatch.setattr(manager_module, "get_object_store", lambda: object())
+
+    if read_failure:
+        with pytest.raises(RuntimeError, match="simulated failed transaction"):
+            await manager_module._hydrate_run_folders(str(tmp_path / "run"), "workflow-1", "tenant-a")
+        assert queried == [(0, "/data/")]
+        return
 
     written = await manager_module._hydrate_run_folders(
         str(tmp_path / "run"), "workflow-1", "tenant-a"
@@ -276,12 +283,12 @@ async def test_task_workspace_is_private_and_mount_is_opt_in(tmp_path, monkeypat
     (root.parent / "other-chat.mount").mkdir()
     class LocalStore:
         pass
-    hydrate = AsyncMock(return_value=0)
+    hydrate = AsyncMock(return_value=str(tmp_path / "mount"))
     monkeypatch.setattr(module, "FilesystemObjectStore", LocalStore)
     monkeypatch.setattr(module, "get_object_store", LocalStore)
     monkeypatch.setattr(module, "build_run_context", lambda *args: {"run_dir": str(root)})
     monkeypatch.setattr(module, "_hydrate_run_folders", AsyncMock(return_value=0))
-    monkeypatch.setattr(module, "hydrate_user_mount", hydrate)
+    monkeypatch.setattr(module, "create_user_mount", hydrate)
     monkeypatch.setattr(module, "get_sandbox_provider", lambda: object())
     monkeypatch.setattr(module, "_workflow_python_binds", lambda: [])
     monkeypatch.setattr(module.config, "agent_overlay_root", str(tmp_path / "overlay"))

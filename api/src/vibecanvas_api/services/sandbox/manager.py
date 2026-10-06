@@ -4302,7 +4302,7 @@ class SandboxManager:
             # Boot-hydrate: the run dir is fresh per (re)build, but the durable VFS
             # holds the agent's prior /data /memory /logs. Re-materialize them so an
             # LRU evict + rebuild does NOT lose the working FS (inverse of the run
-            # write-back). Fail-soft — never block session creation. DB reads stay on
+            # write-back). Failed reads must block session creation. DB reads stay on
             # the loop; blocking writes are offloaded inside the helper.
             try:
                 stage_started = time.perf_counter()

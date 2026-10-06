@@ -11,7 +11,8 @@ import { cancelActiveTurn } from '@/lib/api/cancel-turn';
 const browserHistory = vi.hoisted(() => ({ empty: false }));
 
 vi.mock('next-themes', () => ({ useTheme: () => ({ resolvedTheme: 'light' }) }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: string) => fallback }) }));
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (_key: string, fallback: string) => fallback }) }));
 vi.mock('@/lib/extension', () => ({ extensionOrigin: () => 'chrome-extension://test' }));
 vi.mock('@/lib/api/browser', () => ({ mintBrowserToken: vi.fn().mockResolvedValue('scoped-token') }));
 vi.mock('@/lib/api/cancel-turn', () => ({ cancelActiveTurn: vi.fn() }));

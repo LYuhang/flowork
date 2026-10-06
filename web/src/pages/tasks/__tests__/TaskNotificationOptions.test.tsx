@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TaskNotificationOptions } from '../TaskNotificationOptions';
 import { emptyNotifications, notificationsValid } from '../task-notifications';
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: string) => fallback }) }));
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (_key: string, fallback: string) => fallback }) }));
 function Form() {
   const [value, onChange] = useState(emptyNotifications);
   return <><TaskNotificationOptions value={value} onChange={onChange} /><button disabled={!notificationsValid(value)}>Submit</button></>;

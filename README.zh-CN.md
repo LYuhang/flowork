@@ -144,12 +144,12 @@ cd flowork
 | 功能模块 | 用户可以做什么 | 演示 |
 | --- | --- | --- |
 | **Projects（项目）** | 创建一个命名项目，再在其中一键新建 Chat。项目内的对话共享文件和沙盒，各自持有独立的 Codex 会话，可并发运行、单独取消。Agent 可构建 Workflow、生成文档和图表、整理文件，并在对话旁提供预览。项目沙盒按需启动、空闲回收，文件独立持久化。 | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
-| **Workflow** | 在可视化画布上添加、连接和配置节点，检查工作流结构并执行整个流程或单个节点。运行结果、生成文件和历史版本可以集中查看，工作流也支持批量执行以及 JSON 导入和导出。 | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
-| **Task** | 使用表格文件批量运行 Workflow，或者按指定时间和间隔创建定时任务。Task Center 会持续显示排队和执行进度、事件、输出与异常，并允许用户暂停、取消或恢复适用的任务。 | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
-| **Deployment** | 将验证通过的 Workflow 发布为 API 或 Webhook，供外部系统调用。每个 Deployment 都提供调用信息、代码示例、在线测试、流量控制、凭据、运行历史与健康指标；如需按周期或指定日历时间执行 Workflow，请创建定时 Task。 | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
+| **Workflow** | 编辑带版本的流程图，可在节点或连线上发起上下文对话，让 Agent 修改流程。支持全流程／单节点执行；图和输入未变时可从上次失败位置继续，并可从画布创建批量任务、定时任务及部署。 | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
+| **Task** | 使用表格文件批量运行 Workflow，或者按指定时间和间隔创建定时任务。Task Center 提供进度、结果表格、逐样本 Trace 和 Python 评估指标，并允许用户暂停、取消或恢复适用的任务。 | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
+| **Deployment** | 将验证通过的 Workflow 发布为 API 或 Webhook，供外部系统调用。Deployment 固定到具体 Workflow 版本，提供调用超时、Worker／并发设置、人工审批异步工单、完整结果查询与持久化 Trace；如需按周期或指定日历时间执行 Workflow，请创建定时 Task。 | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
 | **Knowledge** | 将可复用笔记与多模态资料整理为带版本的文件资料包。每个资料包以 README 为入口，Agent 可通过 `/knowledge` 渐进式读取、修改并发布。详见[知识资料包](docs/knowledge.zh-CN.md)。 | <video src="https://github.com/user-attachments/assets/288b1595-eb1d-4d81-b03b-d75b80e77fea" controls></video> |
 | **MCP Server** | 从官方注册表或 Smithery 查找外部工具，也可以通过 URL 或命令接入自定义服务。安装前检查来源、访问范围和凭据要求；连接成功后按 Project 选择启用的服务，项目内 Chat 共享选择，每轮操作仍单独鉴权和审批。 | <video src="https://github.com/user-attachments/assets/621cdb1b-28f0-4e50-ad07-eeb13ab58a33" controls></video> |
-| **Skills** | 查找并安装 OpenAI、Anthropic 等来源提供的可复用指令包，或导入自定义 Skill。安装前可以查看指令、附带文件、工具要求和来源，安装后由 Agent 按需加载。 | <video src="https://github.com/user-attachments/assets/178f664e-0715-475e-9db5-c8d672742ea9" controls></video> |
+| **Skills** | 查找并安装 OpenAI、Anthropic 等来源提供的可复用指令包，或导入自定义 Skill。自定义包支持草稿编辑、发布新版本及分享；接收者安装后才供 Agent 使用。 | <video src="https://github.com/user-attachments/assets/178f664e-0715-475e-9db5-c8d672742ea9" controls></video> |
 | **Storage** | 按共享挂载、Workflow、Project 和 Task 浏览平台文件；Project 内包含共享目录和各个 Chat 的持久工作目录。用户可以搜索、排序、上传和下载文件，并在权限允许时创建目录、重命名、删除或直接预览和编辑受支持的内容。 | <video src="https://github.com/user-attachments/assets/e7d7d418-7ad8-4dbe-97fc-0adeef7896ea" controls></video> |
 
 #### 资源归属与共享

@@ -372,13 +372,13 @@ Built-in render tool schemas and invocation logic live in
 Canvas or /workflow
     │
     ▼
-Validate graph and node references
+Apply the edit atomically against its expected version
     │
     ▼
-Save workflow and version state
+Save a new subversion (incomplete drafts are allowed)
     │
     ▼
-Submit a workflow or node execution
+Validate and submit a workflow or node execution
     │
     ▼
 Run through sandboxd and vibecanvas-engine

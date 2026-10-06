@@ -103,9 +103,11 @@ def test_compose_can_deploy_from_images_without_source_mounts() -> None:
     for name, service in services.items():
         assert service.get("image"), f"{name} requires a reusable image name"
         for volume in service.get("volumes", []):
+            if name == "sandboxd" and volume == "/sys/fs/cgroup:/sys/fs/cgroup:rw":
+                continue  # Runtime resource controls require the host cgroup tree, not source files.
             assert isinstance(volume, str) and not volume.startswith((".", "/", "~")), name
     postgres = (REPO_ROOT / "postgres/Dockerfile").read_text()
-    assert "COPY scripts/postgres-init/ /docker-entrypoint-initdb.d/" in postgres
+    assert "COPY --chmod=0644 scripts/postgres-init/ /docker-entrypoint-initdb.d/" in postgres
     assert "scripts/security/openfga_erasure.sql /opt/flowork/" in postgres
 
 

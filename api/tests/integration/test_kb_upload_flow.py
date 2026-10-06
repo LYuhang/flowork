@@ -193,6 +193,7 @@ async def test_upload_to_indexed_to_search(pg_engine, pg_url):
             r1 = await upload_file(
                 kb_id=kb_id, request=_StubRequest(), file=up,
                 ctx=ctx, session=s, service=_AllowAuthz(),
+                expected_version=1,
             )
     assert r1["status"] == "pending"
     file_id = r1["file_id"]

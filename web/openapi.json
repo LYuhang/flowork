@@ -1680,6 +1680,61 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "summary": "Add Organization Member",
+        "operationId": "add_organization_member_api_v1_organizations__organization_id__members_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Organization Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddOrganizationMemberBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationMemberOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/organizations/{organization_id}/service-accounts": {
@@ -2934,6 +2989,71 @@
         }
       }
     },
+    "/api/v1/workflows/{wf_id}/head": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Get Workflow Head",
+        "description": "Lightweight branch tip; never materializes graphs or version history.",
+        "operationId": "get_workflow_head_api_v1_workflows__wf_id__head_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "wf_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Wf Id"
+            }
+          },
+          {
+            "name": "major",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Major"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowHeadOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workflows/{wf_id}/at/v{v}.sv{sv}": {
       "get": {
         "tags": [
@@ -3252,7 +3372,7 @@
           "workflows"
         ],
         "summary": "Commit Workflow",
-        "description": "Full-content commit (when the client wants to bypass incremental ops).\n\nUX-5: ``body.target_major`` (optional) lands the commit under a specific\n(historical) major instead of the active one — see ``repo.commit``. A\nstale / nonexistent major surfaces as 404.",
+        "description": "Full-content commit (when the client wants to bypass incremental ops).\n\nUX-5: ``body.target_major`` (optional) lands the commit under a specific\n(historical) major instead of the active one \u2014 see ``repo.commit``. A\nstale / nonexistent major surfaces as 404.",
         "operationId": "commit_workflow_api_v1_workflows__wf_id__commits_post",
         "security": [
           {
@@ -3733,6 +3853,61 @@
         }
       }
     },
+    "/api/v1/workflows/{wf_id}/execution/resume-check": {
+      "post": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "Check Workflow Resume",
+        "operationId": "check_workflow_resume_api_v1_workflows__wf_id__execution_resume_check_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "wf_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Wf Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workflows/{wf_id}/executions": {
       "post": {
         "tags": [
@@ -3863,7 +4038,7 @@
           "executions"
         ],
         "summary": "Execute Node",
-        "description": "Execute one node for interactive debugging.\n\nRuns ONE node — the UNSAVED *draft* ``node_dict`` carried in the\nrequest body (NOT ``get_current_workflow``) — with the supplied\n``input`` directly (no reference resolution). Streams the synthesized\n``running`` → ``completed`` / ``error`` frames via the SAME SSE\nmachinery (``run_turn`` / ``format_event``) so the frontend consumes\nthem identically to a workflow run.\n\nTenant-scoped: the wf-existence check runs on the request's\ntenant-bound ``WorkflowRepo`` (RLS isolates by tenant), so a node\ncannot be debug-run against a workflow the caller can't see. The node\nitself is supplied by the caller, so debug-execute is allowed even on\na pinned/read-only version. Its terminal result is persisted in the\nworkflow's fixed run-tier so debug inputs and output survive a refresh.",
+        "description": "Execute one node for interactive debugging.\n\nRuns ONE node \u2014 the UNSAVED *draft* ``node_dict`` carried in the\nrequest body (NOT ``get_current_workflow``) \u2014 with the supplied\n``input`` directly (no reference resolution). Streams the synthesized\n``running`` \u2192 ``completed`` / ``error`` frames via the SAME SSE\nmachinery (``run_turn`` / ``format_event``) so the frontend consumes\nthem identically to a workflow run.\n\nTenant-scoped: the wf-existence check runs on the request's\ntenant-bound ``WorkflowRepo`` (RLS isolates by tenant), so a node\ncannot be debug-run against a workflow the caller can't see. The node\nitself is supplied by the caller, so debug-execute is allowed even on\na pinned/read-only version. Its terminal result is persisted in the\nworkflow's fixed run-tier so debug inputs and output survive a refresh.",
         "operationId": "execute_node_api_v1_workflows__wf_id__nodes__node_id__execute_post",
         "security": [
           {
@@ -3975,7 +4150,7 @@
           "executions"
         ],
         "summary": "Cancel Execution",
-        "description": "Request cancellation. Sets both the asyncio stop event (so the SSE\nproducer can exit) and the process-shared threading stop event (so\nthe engine's sync worker thread sees it via\nExecutionRepo.get_stop_event — risk #3, shared module-level\nregistry).",
+        "description": "Request cancellation. Sets both the asyncio stop event (so the SSE\nproducer can exit) and the process-shared threading stop event (so\nthe engine's sync worker thread sees it via\nExecutionRepo.get_stop_event \u2014 risk #3, shared module-level\nregistry).",
         "operationId": "cancel_execution_api_v1_executions__exec_id__cancel_post",
         "security": [
           {
@@ -4092,6 +4267,366 @@
             "schema": {
               "type": "string",
               "title": "Wf Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-executions": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "History",
+        "operationId": "history_api_v1_workflow_executions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "workflow",
+                "task",
+                "deployment"
+              ],
+              "type": "string",
+              "title": "Source Type"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Statuses"
+            }
+          },
+          {
+            "name": "mine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Mine"
+            }
+          },
+          {
+            "name": "before_time",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Time"
+            }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-executions/{execution_id}": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "Detail",
+        "operationId": "detail_api_v1_workflow_executions__execution_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Execution Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-executions/{execution_id}/events": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "Events",
+        "operationId": "events_api_v1_workflow_executions__execution_id__events_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Execution Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-executions/{execution_id}/approvals/{approval_id}": {
+      "post": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "Decide",
+        "operationId": "decide_api_v1_workflow_executions__execution_id__approvals__approval_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Execution Id"
+            }
+          },
+          {
+            "name": "approval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Approval Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-executions/{execution_id}/cancel": {
+      "post": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "Cancel",
+        "operationId": "cancel_api_v1_workflow_executions__execution_id__cancel_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Execution Id"
             }
           }
         ],
@@ -7030,7 +7565,7 @@
           "tasks"
         ],
         "summary": "List Tasks",
-        "description": "Paginated, RLS-scoped task listing.\n\nFilters compose with AND:\n  * ``status`` — multi-value (``?status=queued&status=running``).\n  * ``task_type`` — multi-value.\n  * ``workflow_id`` — single value (or omitted to mean ``any``).\n\nOrdering is newest-first by ``submitted_at`` (see\n``TasksRepo.list_for_tenant``). Empty filter lists collapse to\n``None`` so the SQL stays index-friendly.",
+        "description": "Paginated, RLS-scoped task listing.\n\nFilters compose with AND:\n  * ``status`` \u2014 multi-value (``?status=queued&status=running``).\n  * ``task_type`` \u2014 multi-value.\n  * ``workflow_id`` \u2014 single value (or omitted to mean ``any``).\n\nOrdering is newest-first by ``submitted_at`` (see\n``TasksRepo.list_for_tenant``). Empty filter lists collapse to\n``None`` so the SQL stays index-friendly.",
         "operationId": "list_tasks_api_v1_tasks_get",
         "security": [
           {
@@ -7078,6 +7613,21 @@
                 }
               ],
               "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "created",
+                "shared"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Source"
             }
           },
           {
@@ -7155,6 +7705,37 @@
           }
         ],
         "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "created",
+                "shared"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Source"
+            }
+          },
           {
             "name": "task_type",
             "in": "query",
@@ -7573,7 +8154,7 @@
           "tasks"
         ],
         "summary": "Get Task",
-        "description": "Return a single task row (RLS-scoped to caller's tenant).\n\nCross-tenant rows are RLS-filtered to invisible — both ``not found``\nand ``foreign tenant`` collapse to 404 so we don't leak existence.",
+        "description": "Return a single task row (RLS-scoped to caller's tenant).\n\nCross-tenant rows are RLS-filtered to invisible \u2014 both ``not found``\nand ``foreign tenant`` collapse to 404 so we don't leak existence.",
         "operationId": "get_task_api_v1_tasks__task_id__get",
         "security": [
           {
@@ -8111,13 +8692,77 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/workflow-preview": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Preview Task Workflow",
+        "operationId": "preview_task_workflow_api_v1_tasks__task_id__workflow_preview_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "workflow_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/cancel": {
       "post": {
         "tags": [
           "tasks"
         ],
         "summary": "Cancel Task",
-        "description": "Branch on the task's current status.\n\nOrder of operations within each branch:\n  1. UPDATE the row (so the DB state is the source of truth).\n  2. Emit a ``task_events`` row (audit trail; SSE stream in T13\n     consumes this).\n  3. Commit the business state so every worker checkpoint sees the cancel.\n  4. Defensive DBOS cancellation — best-effort. The durable business\n     state remains authoritative and the batch body also polls it.",
+        "description": "Branch on the task's current status.\n\nOrder of operations within each branch:\n  1. UPDATE the row (so the DB state is the source of truth).\n  2. Emit a ``task_events`` row (audit trail; SSE stream in T13\n     consumes this).\n  3. Commit the business state so every worker checkpoint sees the cancel.\n  4. Defensive DBOS cancellation \u2014 best-effort. The durable business\n     state remains authoritative and the batch body also polls it.",
         "operationId": "cancel_task_api_v1_tasks__task_id__cancel_post",
         "security": [
           {
@@ -8344,6 +8989,23 @@
               "default": "desc",
               "title": "Order"
             }
+          },
+          {
+            "name": "execution_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Execution Id"
+            }
           }
         ],
         "responses": {
@@ -8374,7 +9036,7 @@
           "tasks"
         ],
         "summary": "Stream Task Events",
-        "description": "Server-Sent Events stream of ``task_events`` for one task.\n\nResume contract: clients send ``Last-Event-ID`` (a ``task_events.id``\ninteger) to resume after a known cursor; the stream replays any\nrows with id > that cursor in id order before switching to the\nlive tail. Absent / unparsable header is treated as ``0`` (replay\neverything).\n\nOrdering: ``task_events.id`` is BIGSERIAL — strictly monotonic\nper row insertion. The SELECT-replay is ``ORDER BY id``; the\nlive tail dedupes on the same id; the worker publishes to\nRedis with the same id. End-to-end: strict, gap-free ordering.\n\nTenant binding: the pre-check uses the request's tenant-bound DI\nsession (RLS) — cross-tenant or absent tasks surface as 404. The\nstream then opens its own short ``session_scope(tenant_id=...)``\nsessions inside the generator so RLS keeps applying for every\npoll cycle.",
+        "description": "Server-Sent Events stream of ``task_events`` for one task.\n\nResume contract: clients send ``Last-Event-ID`` (a ``task_events.id``\ninteger) to resume after a known cursor; the stream replays any\nrows with id > that cursor in id order before switching to the\nlive tail. Absent / unparsable header is treated as ``0`` (replay\neverything).\n\nOrdering: ``task_events.id`` is BIGSERIAL \u2014 strictly monotonic\nper row insertion. The SELECT-replay is ``ORDER BY id``; the\nlive tail dedupes on the same id; the worker publishes to\nRedis with the same id. End-to-end: strict, gap-free ordering.\n\nTenant binding: the pre-check uses the request's tenant-bound DI\nsession (RLS) \u2014 cross-tenant or absent tasks surface as 404. The\nstream then opens its own short ``session_scope(tenant_id=...)``\nsessions inside the generator so RLS keeps applying for every\npoll cycle.",
         "operationId": "stream_task_events_api_v1_tasks__task_id__stream_get",
         "security": [
           {
@@ -8477,13 +9139,213 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/results/query": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Query Results",
+        "operationId": "query_results_api_v1_tasks__task_id__results_query_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResultQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/evaluation": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Evaluation",
+        "operationId": "get_evaluation_api_v1_tasks__task_id__evaluation_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Save Evaluation",
+        "operationId": "save_evaluation_api_v1_tasks__task_id__evaluation_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Start Evaluation",
+        "operationId": "start_evaluation_api_v1_tasks__task_id__evaluation_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/deployments": {
       "post": {
         "tags": [
           "deployments"
         ],
         "summary": "Create Deployment",
-        "description": "Create an API or webhook deployment. Returns ``{id, ...one-shot\nplaintext credentials...}``. Subsequent GETs (T5) MUST NOT include\nthe plaintext credentials.\n\nResolution rules for ``pinned_major`` / ``pinned_sub``:\n* ``version_pin='head'`` → both forced to ``None`` (the row tracks\n  the workflow's HEAD pointer; invocation resolves it at run time).\n* ``version_pin='specific'`` + both supplied → trust the caller (FK\n  / CHECK constraint will reject an invalid pair at INSERT time).\n* ``version_pin='specific'`` + either missing → default to the\n  workflow's current HEAD. 404 if the workflow has no versions yet\n  (a workflow with zero rows in ``workflow_versions`` is not deployable).\n\n409 on IntegrityError: global partial UNIQUE on ``slug WHERE\ndeleted_at IS NULL`` (migration 088) OR the ``wf_id`` FK to\n``workflows`` (a missing / foreign-tenant workflow). Both collapse\nto a single user-facing message so we don't leak existence.",
+        "description": "Create an API or webhook deployment. Returns ``{id, ...one-shot\nplaintext credentials...}``. Subsequent GETs (T5) MUST NOT include\nthe plaintext credentials.\n\nExplicit pins require both major and subversion and are validated before\ncreating credentials. Legacy HEAD/major input is resolved once and stored as\na specific pin. No created deployment follows later workflow edits.\n\n409 on IntegrityError: global partial UNIQUE on ``slug WHERE\ndeleted_at IS NULL`` (migration 088) OR the ``wf_id`` FK to\n``workflows`` (a missing / foreign-tenant workflow). Both collapse\nto a single user-facing message so we don't leak existence.",
         "operationId": "create_deployment_api_v1_deployments_post",
         "security": [
           {
@@ -8571,6 +9433,21 @@
             }
           },
           {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "created",
+                "shared"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Source"
+            }
+          },
+          {
             "name": "workflow_id",
             "in": "query",
             "required": false,
@@ -8624,6 +9501,70 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/deployments/{dep_id}/workflow-preview": {
+      "get": {
+        "tags": [
+          "deployments"
+        ],
+        "summary": "Preview Deployment Workflow",
+        "operationId": "preview_deployment_workflow_api_v1_deployments__dep_id__workflow_preview_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dep_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dep Id"
+            }
+          },
+          {
+            "name": "workflow_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version"
             }
           }
         ],
@@ -8797,7 +9738,7 @@
           "deployments"
         ],
         "summary": "Rotate Key",
-        "description": "Mint a fresh ``api_key`` plaintext + overwrite the stored hash.\n\nSingle UPDATE replaces ``api_key_hash`` — the old key is destroyed\natomically and the resolver immediately stops matching it.\n400 if the deployment is not ``trigger_type='api'`` (webhook secrets\naren't rotated through this path; deletes the deployment + creates\na new webhook deployment instead). 404 on missing / soft-deleted.",
+        "description": "Mint a fresh ``api_key`` plaintext + overwrite the stored hash.\n\nSingle UPDATE replaces ``api_key_hash`` \u2014 the old key is destroyed\natomically and the resolver immediately stops matching it.\n400 if the deployment is not ``trigger_type='api'`` (webhook secrets\naren't rotated through this path; deletes the deployment + creates\na new webhook deployment instead). 404 on missing / soft-deleted.",
         "operationId": "rotate_key_api_v1_deployments__dep_id__rotate_key_post",
         "security": [
           {
@@ -9036,7 +9977,7 @@
           "deployments"
         ],
         "summary": "Test Invoke",
-        "description": "Spec §6 — test invoke from the dashboard. Same execution path as\n``/invoke`` (load pinned version → run engine → drain stream), but the\nauth surface is the user's session cookie/bearer (resolved by\n``current_user``) and the DB session is RLS-bound to their tenant.\n\nForeign-tenant ``dep_id`` → repo returns ``None`` (RLS filtered) → 404.\nDisabled deployment → 404 (same status as the public ``/invoke`` to\nmatch operator expectations).",
+        "description": "Session-authenticated invocation with the same sync/async contract as /invoke.\n\nOnly actual human approval switches a synchronous call to HTTP 202. The admitted\nexecution continues independently; links use session-authorized history.\n\nForeign-tenant ``dep_id`` \u2192 repo returns ``None`` (RLS filtered) \u2192 404.\nDisabled deployment \u2192 404 (same status as the public ``/invoke`` to\nmatch operator expectations).",
         "operationId": "test_invoke_api_v1_deployments__dep_id__test_invoke_post",
         "security": [
           {
@@ -9308,13 +10249,131 @@
         }
       }
     },
+    "/api/v1/deployments/{slug}/runs/{invocation_id}": {
+      "get": {
+        "tags": [
+          "deployments-invoke"
+        ],
+        "summary": "Get Invocation Result",
+        "description": "An authorized poll returns 200 even when the execution itself failed.",
+        "operationId": "get_invocation_result_api_v1_deployments__slug__runs__invocation_id__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "invocation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Invocation Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/deployments/{slug}/webhook/runs/{invocation_id}": {
+      "get": {
+        "tags": [
+          "deployments-invoke"
+        ],
+        "summary": "Get Webhook Invocation Result",
+        "description": "Read with the current webhook secret, signing timestamp + '.GET ' + path.\n\nBind the signature to method, deployment and invocation; a signed POST body\nor another invocation's polling signature cannot authorize this lookup.",
+        "operationId": "get_webhook_invocation_result_api_v1_deployments__slug__webhook_runs__invocation_id__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "invocation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Invocation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/deployments/{slug}/invoke": {
       "post": {
         "tags": [
           "deployments-invoke"
         ],
         "summary": "Invoke Sync",
-        "description": "Spec §6.1 — true sync invoke. Runs the workflow IN the API process\nvia :py:meth:`Workflow.astream`. There is no background queue hop or\nintermediate ``tasks`` row — the caller blocks until completion.\n\nReturns ``{\"outputs\": ..., \"exec_time_ms\": ...}`` on success.\nReturns 502 ``{\"errors\": ..., \"exec_time_ms\": ...}`` when the\nworkflow finished but at least one node produced an error.\n\nWhy every \"not authorized\" case is 404 (not 403 / 401):\napi_key, slug, enabled, and trigger_type are all *existence* axes\nof the same row — leaking which one failed would let an attacker\nprobe slugs by trying random keys against them. The single 404\nresponse collapses them all.",
+        "description": "Run synchronously until completion, human approval or the HTTP wait limit.",
         "operationId": "invoke_sync_api_v1_deployments__slug__invoke_post",
         "parameters": [
           {
@@ -9341,6 +10400,24 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional per-deployment operation key (1\u2013256 visible ASCII characters). Reusing a key with identical input returns the same invocation; changed input returns 409. Shared by /invoke and /runs; retained with history.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Optional per-deployment operation key (1\u2013256 visible ASCII characters). Reusing a key with identical input returns the same invocation; changed input returns 409. Shared by /invoke and /runs; retained with history."
           }
         ],
         "requestBody": {
@@ -9383,7 +10460,7 @@
           "deployments-invoke"
         ],
         "summary": "Invoke Async",
-        "description": "Spec §6.2 — async submit. Enqueues a durable ``deployment_invoke``\nworkflow and returns its opaque invocation id immediately.\n\nAuth model is identical to ``invoke_sync`` — Bearer plaintext\napi_key, all \"not authorized\" cases collapse to 404 to avoid\nleaking which axis (api_key / enabled / trigger_type / slug)\nfailed without revealing whether the deployment exists.\n\nThe session remains tenant-bound so future Deployment-specific invocation\nlogs can be written without changing the route boundary.",
+        "description": "Spec \u00a76.2 \u2014 async submit. Enqueues a durable ``deployment_invoke``\nworkflow and returns its opaque invocation id immediately.\n\nAuth model is identical to ``invoke_sync`` \u2014 Bearer plaintext\napi_key, all \"not authorized\" cases collapse to 404 to avoid\nleaking which axis (api_key / enabled / trigger_type / slug)\nfailed without revealing whether the deployment exists.\n\nThe session remains tenant-bound so future Deployment-specific invocation\nlogs can be written without changing the route boundary.",
         "operationId": "invoke_async_api_v1_deployments__slug__runs_post",
         "parameters": [
           {
@@ -9410,6 +10487,24 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional per-deployment operation key (1\u2013256 visible ASCII characters). Reusing a key with identical input returns the same invocation; changed input returns 409. Shared by /invoke and /runs; retained with history.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Optional per-deployment operation key (1\u2013256 visible ASCII characters). Reusing a key with identical input returns the same invocation; changed input returns 409. Shared by /invoke and /runs; retained with history."
           }
         ],
         "requestBody": {
@@ -9452,7 +10547,7 @@
           "deployments-invoke"
         ],
         "summary": "Webhook",
-        "description": "Spec §6.3 — webhook receiver with HMAC verification + size guard.\n\nNo Bearer auth: trust comes from a valid signature over\n``timestamp + \".\" + raw_body`` using the deployment's ``hmac_secret``.\nReturns 202 + ``task_id`` once the durable workflow is enqueued.\n\nOrder of checks (rejects cheapest first):\n\n1. ``Content-Type`` must be ``application/json`` → 415 otherwise.\n   (We refuse to even sniff non-JSON.)\n2. ``Content-Length`` header is required and capped at 1 MiB → 413\n   otherwise. This is only a cheap pre-filter; the actual streamed bytes\n   are independently capped, so a false header cannot bypass the limit.\n3. The actual streamed bytes are capped before any database/KMS lookup.\n4. ``resolve_deployment_and_bind_tenant`` admin-lookup by globally unique\n   active slug → 404 on miss / disabled / non-webhook trigger_type.\n5. ``X-Vibecanvas-Timestamp`` window check (±300s) → 401 otherwise.\n   This bounds clock skew and receipt retention; it is not by itself a\n   replay defense.\n6. HMAC-SHA256 of ``timestamp + \".\" + raw_body`` with the row's\n   ``hmac_secret`` must match ``X-Vibecanvas-Signature`` (``sha256=``\n   prefix). Compared with ``hmac.compare_digest`` (constant time).\n   Mismatch → 401.\n7. JSON parse of body → 400 on malformed JSON. (Done AFTER HMAC\n   so an attacker can't probe parse errors to differentiate\n   routes — though the size/timestamp/sig layers already\n   neutralise that.)\n8. A durable signature receipt atomically maps the authenticated request\n   to one invocation id. Replays within the timestamp window return the\n   original id and never enqueue a second workflow.",
+        "description": "Spec \u00a76.3 \u2014 webhook receiver with HMAC verification + size guard.\n\nNo Bearer auth: trust comes from a valid signature over\n``timestamp + \".\" + raw_body`` using the deployment's ``hmac_secret``.\nReturns 202 with invocation_id, task_id and a signed-query result URL.\n\nOrder of checks (rejects cheapest first):\n\n1. ``Content-Type`` must be ``application/json`` \u2192 415 otherwise.\n   (We refuse to even sniff non-JSON.)\n2. ``Content-Length`` header is required and capped at 1 MiB \u2192 413\n   otherwise. This is only a cheap pre-filter; the actual streamed bytes\n   are independently capped, so a false header cannot bypass the limit.\n3. The actual streamed bytes are capped before any database/KMS lookup.\n4. ``resolve_deployment_and_bind_tenant`` admin-lookup by globally unique\n   active slug \u2192 404 on miss / disabled / non-webhook trigger_type.\n5. ``X-Vibecanvas-Timestamp`` window check (\u00b1300s) \u2192 401 otherwise.\n   This bounds clock skew and receipt retention; it is not by itself a\n   replay defense.\n6. HMAC-SHA256 of ``timestamp + \".\" + raw_body`` with the row's\n   ``hmac_secret`` must match ``X-Vibecanvas-Signature`` (``sha256=``\n   prefix). Compared with ``hmac.compare_digest`` (constant time).\n   Mismatch \u2192 401.\n7. JSON parse of body \u2192 400 on malformed JSON. (Done AFTER HMAC\n   so an attacker can't probe parse errors to differentiate\n   routes \u2014 though the size/timestamp/sig layers already\n   neutralise that.)\n8. A durable signature receipt atomically maps the authenticated request\n   to one invocation id. Replays within the timestamp window return the\n   original id and never enqueue a second workflow.",
         "operationId": "webhook_api_v1_deployments__slug__webhook_post",
         "parameters": [
           {
@@ -9493,7 +10588,7 @@
           "mcp-servers"
         ],
         "summary": "Dry Run Handshake",
-        "description": "Dry-run handshake. Does NOT persist. Used by the Settings UI Add\nwizard's \"Test connection\" button.\n\nReturns ``{ok: True, tool_count, tool_names}`` on success, or\n``{ok: False, error}`` on any handshake failure (timeout, auth\nrejected, transport error, etc.). The response shape is deliberately\ndifferent from the create response — this endpoint never returns a\nserver row, so the frontend treats it as a strict probe result.\n\nNo DB write happens here; we don't even need the tenant-bound\nsession. ``current_user`` still gates the route so anonymous callers\ncan't use us as a free MCP-server port scanner.",
+        "description": "Dry-run handshake. Does NOT persist. Used by the Settings UI Add\nwizard's \"Test connection\" button.\n\nReturns ``{ok: True, tool_count, tool_names}`` on success, or\n``{ok: False, error}`` on any handshake failure (timeout, auth\nrejected, transport error, etc.). The response shape is deliberately\ndifferent from the create response \u2014 this endpoint never returns a\nserver row, so the frontend treats it as a strict probe result.\n\nNo DB write happens here; we don't even need the tenant-bound\nsession. ``current_user`` still gates the route so anonymous callers\ncan't use us as a free MCP-server port scanner.",
         "operationId": "dry_run_handshake_api_v1_mcp_servers_test_post",
         "requestBody": {
           "content": {
@@ -9561,7 +10656,7 @@
           "mcp-servers"
         ],
         "summary": "Create Mcp Server",
-        "description": "Create an MCP server registration for the current tenant.\n\nFlow:\n  1. Probe the endpoint via ``handshake_one`` (10s timeout from\n     ``config.mcp.handshake_timeout_s``).\n  2. If reachable (``status='ok'``):\n     a. Conflict pre-check: any prefixed tool name (``{prefix}__{name}``)\n        colliding with a built-in tool name OR another live + enabled\n        server's tool names → 409. Catching this BEFORE insert avoids\n        leaving a row that the loader would silently drop.\n     b. Per-server tool cap: if ``tool_count > per_server_tool_cap``,\n        409 (avoid blowing the agent prompt budget). The per-TENANT\n        cap is enforced lazily at load time (loader skips overflow\n        servers); we only gate per-server here.\n  3. If unreachable (``status='error: ...'``): skip the conflict\n     pre-check (we have no tool names to compare) and accept the\n     row anyway. ``last_handshake_status`` records the failure so the\n     UI can flag \"unreachable — fix endpoint or auth\"; the row is\n     enabled so a later retry / PATCH-and-refresh can recover it\n     without a recreate.\n  4. ``McpServersRepo.insert`` writes the row under the tenant-bound\n     session (RLS applies). The partial UNIQUE indexes\n     ``(tenant_id, name)`` and ``(tenant_id, tool_prefix)`` (migration\n     006) surface as IntegrityError → 409.\n\nReturns the row with secrets scrubbed (HTTP 201).",
+        "description": "Create an MCP server registration for the current tenant.\n\nFlow:\n  1. Probe the endpoint via ``handshake_one`` (10s timeout from\n     ``config.mcp.handshake_timeout_s``).\n  2. If reachable (``status='ok'``):\n     a. Conflict pre-check: any prefixed tool name (``{prefix}__{name}``)\n        colliding with a built-in tool name OR another live + enabled\n        server's tool names \u2192 409. Catching this BEFORE insert avoids\n        leaving a row that the loader would silently drop.\n     b. Per-server tool cap: if ``tool_count > per_server_tool_cap``,\n        409 (avoid blowing the agent prompt budget). The per-TENANT\n        cap is enforced lazily at load time (loader skips overflow\n        servers); we only gate per-server here.\n  3. If unreachable (``status='error: ...'``): skip the conflict\n     pre-check (we have no tool names to compare) and accept the\n     row anyway. ``last_handshake_status`` records the failure so the\n     UI can flag \"unreachable \u2014 fix endpoint or auth\"; the row is\n     enabled so a later retry / PATCH-and-refresh can recover it\n     without a recreate.\n  4. ``McpServersRepo.insert`` writes the row under the tenant-bound\n     session (RLS applies). The partial UNIQUE indexes\n     ``(tenant_id, name)`` and ``(tenant_id, tool_prefix)`` (migration\n     006) surface as IntegrityError \u2192 409.\n\nReturns the row with secrets scrubbed (HTTP 201).",
         "operationId": "create_mcp_server_api_v1_mcp_servers_post",
         "requestBody": {
           "content": {
@@ -9922,7 +11017,7 @@
           "mcp-servers"
         ],
         "summary": "Patch Mcp Server",
-        "description": "Patch an existing MCP server.\n\nFlow:\n  1. Load existing row; 404 if missing.\n  2. ``model_dump(exclude_unset=True)`` — note Pydantic v2 already\n     converts nested ``AuthConfig`` → dict, so no manual coercion.\n  3. If ``endpoint`` OR ``auth_config`` changed → re-handshake using\n     the WOULD-BE-NEW values (falling back to existing for whichever\n     wasn't patched). ``tool_prefix`` + ``transport`` are immutable\n     and reuse the existing row's values.\n  4. On a successful re-handshake, re-run the cross-server conflict\n     pre-check via ``list_other_tool_names(exclude_id=server_id)``.\n     Passing ``exclude_id`` is LOAD-BEARING: without it, the row's\n     OWN previous ``last_tool_names`` would be in the comparison set\n     and any unchanged tool would falsely 409.\n  5. Either way (ok or error), always write the fresh\n     ``last_handshake_*`` snapshot — the UI's status badge needs to\n     reflect the most recent probe.\n  6. ``repo.update`` (no-op if ``fields`` is empty after step 3).\n  7. Return scrubbed updated row.",
+        "description": "Patch an existing MCP server.\n\nFlow:\n  1. Load existing row; 404 if missing.\n  2. ``model_dump(exclude_unset=True)`` \u2014 note Pydantic v2 already\n     converts nested ``AuthConfig`` \u2192 dict, so no manual coercion.\n  3. If ``endpoint`` OR ``auth_config`` changed \u2192 re-handshake using\n     the WOULD-BE-NEW values (falling back to existing for whichever\n     wasn't patched). ``tool_prefix`` + ``transport`` are immutable\n     and reuse the existing row's values.\n  4. On a successful re-handshake, re-run the cross-server conflict\n     pre-check via ``list_other_tool_names(exclude_id=server_id)``.\n     Passing ``exclude_id`` is LOAD-BEARING: without it, the row's\n     OWN previous ``last_tool_names`` would be in the comparison set\n     and any unchanged tool would falsely 409.\n  5. Either way (ok or error), always write the fresh\n     ``last_handshake_*`` snapshot \u2014 the UI's status badge needs to\n     reflect the most recent probe.\n  6. ``repo.update`` (no-op if ``fields`` is empty after step 3).\n  7. Return scrubbed updated row.",
         "operationId": "patch_mcp_server_api_v1_mcp_servers__server_id__patch",
         "security": [
           {
@@ -9977,7 +11072,7 @@
           "mcp-servers"
         ],
         "summary": "Delete Mcp Server",
-        "description": "Soft-delete an MCP server. The repo flips ``enabled=FALSE`` AND\nsets ``deleted_at=now()`` in the same UPDATE so the loader's\nenabled-only scan stops yielding it immediately. Idempotent —\ndeleting an already-deleted row 404s (the WHERE filters it from the\npre-load lookup).",
+        "description": "Soft-delete an MCP server. The repo flips ``enabled=FALSE`` AND\nsets ``deleted_at=now()`` in the same UPDATE so the loader's\nenabled-only scan stops yielding it immediately. Idempotent \u2014\ndeleting an already-deleted row 404s (the WHERE filters it from the\npre-load lookup).",
         "operationId": "delete_mcp_server_api_v1_mcp_servers__server_id__delete",
         "security": [
           {
@@ -10116,7 +11211,7 @@
           "mcp-servers"
         ],
         "summary": "Refresh Mcp Server",
-        "description": "Manual re-handshake without changing any config. Reuses the\nexisting endpoint / auth / transport / prefix and writes back the\nlatest ``last_handshake_*`` snapshot. The frontend \"Refresh\"\nbutton on the Settings tab calls this.\n\nUnlike PATCH, this does NOT re-run the cross-server conflict\npre-check — the prefix and other immutable identifiers are\nunchanged, so any conflict here means we're already in a bad\nstate that the loader would handle (idempotent re-discovery on\neach run).",
+        "description": "Manual re-handshake without changing any config. Reuses the\nexisting endpoint / auth / transport / prefix and writes back the\nlatest ``last_handshake_*`` snapshot. The frontend \"Refresh\"\nbutton on the Settings tab calls this.\n\nUnlike PATCH, this does NOT re-run the cross-server conflict\npre-check \u2014 the prefix and other immutable identifiers are\nunchanged, so any conflict here means we're already in a bad\nstate that the loader would handle (idempotent re-discovery on\neach run).",
         "operationId": "refresh_mcp_server_api_v1_mcp_servers__server_id__refresh_post",
         "security": [
           {
@@ -10469,6 +11564,84 @@
         ]
       }
     },
+    "/api/v1/skills/{skill_id}/installation": {
+      "put": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Install Skill For User",
+        "operationId": "install_skill_for_user_api_v1_skills__skill_id__installation_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Uninstall Skill For User",
+        "operationId": "uninstall_skill_for_user_api_v1_skills__skill_id__installation_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/skills/{skill_id}/draft": {
       "get": {
         "tags": [
@@ -10547,6 +11720,187 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDraftOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skills/{skill_id}/draft/files/{path}": {
+      "get": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Get Skill Draft File",
+        "operationId": "get_skill_draft_file_api_v1_skills__skill_id__draft_files__path__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Put Skill Draft File",
+        "operationId": "put_skill_draft_file_api_v1_skills__skill_id__draft_files__path__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_put_skill_draft_file_api_v1_skills__skill_id__draft_files__path__put"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDraftOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Delete Skill Draft File",
+        "operationId": "delete_skill_draft_file_api_v1_skills__skill_id__draft_files__path__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          },
+          {
+            "name": "expected_hash",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Expected Hash"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -10683,7 +12037,7 @@
           "skills"
         ],
         "summary": "Update Custom Skill Bundle",
-        "description": "Replace an owned custom package and publish its next version atomically.",
+        "description": "Replace an authorized custom package and publish its next version atomically.",
         "operationId": "update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put",
         "security": [
           {
@@ -10993,6 +12347,195 @@
         }
       }
     },
+    "/api/v1/skills/{skill_id}/access": {
+      "get": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "List Skill Access",
+        "operationId": "list_skill_access_api_v1_skills__skill_id__access_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          },
+          {
+            "name": "continuation_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Continuation Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectBindingListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Grant Skill Access",
+        "operationId": "grant_skill_access_api_v1_skills__skill_id__access_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectBindingGrantIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectBindingOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "skills"
+        ],
+        "summary": "Revoke Skill Access",
+        "operationId": "revoke_skill_access_api_v1_skills__skill_id__access_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Skill Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectBindingIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectBindingOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/llm-credentials/openrouter/status": {
       "get": {
         "tags": [
@@ -11142,7 +12685,7 @@
           "llm-credentials"
         ],
         "summary": "List Credentials",
-        "description": "List every live credential for the current tenant. PUBLIC projection\nonly (id/name/description/provider) — this is the surface PromptNode /\nagent pickers consume; it MUST NOT leak model_name / api_url / api_key.",
+        "description": "List every live credential for the current tenant. PUBLIC projection\nonly (id/name/description/provider) \u2014 this is the surface PromptNode /\nagent pickers consume; it MUST NOT leak model_name / api_url / api_key.",
         "operationId": "list_credentials_api_v1_llm_credentials_get",
         "responses": {
           "200": {
@@ -11171,7 +12714,7 @@
           "llm-credentials"
         ],
         "summary": "Create Credential",
-        "description": "Create a credential for the current tenant. Returns the owner view —\nthe plaintext key is NOT echoed back. The partial UNIQUE index on\n``(tenant_id, name) WHERE deleted_at IS NULL`` surfaces as an\nIntegrityError → 409.",
+        "description": "Create a credential for the current tenant. Returns the owner view \u2014\nthe plaintext key is NOT echoed back. The partial UNIQUE index on\n``(tenant_id, name) WHERE deleted_at IS NULL`` surfaces as an\nIntegrityError \u2192 409.",
         "operationId": "create_credential_api_v1_llm_credentials_post",
         "requestBody": {
           "content": {
@@ -11350,7 +12893,7 @@
           "llm-credentials"
         ],
         "summary": "Delete Credential",
-        "description": "Soft-delete a credential (sets ``deleted_at`` + ``enabled=FALSE``).\nIdempotent — deleting an already-deleted / cross-tenant row 404s (RLS +\nthe WHERE filter hide it from the pre-load lookup).",
+        "description": "Soft-delete a credential (sets ``deleted_at`` + ``enabled=FALSE``).\nIdempotent \u2014 deleting an already-deleted / cross-tenant row 404s (RLS +\nthe WHERE filter hide it from the pre-load lookup).",
         "operationId": "delete_credential_api_v1_llm_credentials__credential_id__delete",
         "security": [
           {
@@ -11611,7 +13154,7 @@
           "kb"
         ],
         "summary": "Update Kb",
-        "description": "Patch ``name`` / ``description``. 404 if missing; 409 on\nduplicate name.",
+        "description": "Save metadata into the shared README draft; publication is explicit.",
         "operationId": "update_kb_api_v1_kb__kb_id__patch",
         "security": [
           {
@@ -11645,9 +13188,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/KbOut"
-                }
+                "schema": {}
               }
             }
           },
@@ -11668,7 +13209,7 @@
           "kb"
         ],
         "summary": "Delete Kb",
-        "description": "Soft-delete a KB (Tier 1; the GC sweeper hard-deletes 30 days later).\n\nReject the delete with 409 if ANY file is currently indexing — the\nindexer would race a CASCADE that hasn't fired yet, and the partial\nchunk writes would be orphaned (spec sec 10).",
+        "description": "Soft-delete a KB (Tier 1; the GC sweeper hard-deletes 30 days later).\n\nReject the delete with 409 if ANY file is currently indexing \u2014 the\nindexer would race a CASCADE that hasn't fired yet, and the partial\nchunk writes would be orphaned (spec sec 10).",
         "operationId": "delete_kb_api_v1_kb__kb_id__delete",
         "security": [
           {
@@ -11890,7 +13431,7 @@
           "kb"
         ],
         "summary": "Delete File",
-        "description": "Soft-delete one file. Chunks remain physically present until the\nGC sweeper hard-deletes 30 days later (spec sec 4.6); the search SQL\nfilters ``deleted_at IS NULL`` so the file disappears from results\nimmediately.\n\nPre-checks the file exists + belongs to ``kb_id`` (RLS already enforces\ntenant scope, but cross-KB ownership is application-layer). Missing or\nforeign file → 404 ``kb_file_not_found``.",
+        "description": "Soft-delete one file. Chunks remain physically present until the\nGC sweeper hard-deletes 30 days later (spec sec 4.6); the search SQL\nfilters ``deleted_at IS NULL`` so the file disappears from results\nimmediately.\n\nPre-checks the file exists + belongs to ``kb_id`` (RLS already enforces\ntenant scope, but cross-KB ownership is application-layer). Missing or\nforeign file \u2192 404 ``kb_file_not_found``.",
         "operationId": "delete_file_api_v1_kb__kb_id__files__file_id__delete",
         "security": [
           {
@@ -12181,6 +13722,398 @@
             "HTTPBearer": []
           }
         ]
+      }
+    },
+    "/api/v1/kb/{kb_id}/draft": {
+      "get": {
+        "tags": [
+          "kb"
+        ],
+        "summary": "Get Knowledge Draft",
+        "operationId": "get_knowledge_draft_api_v1_kb__kb_id__draft_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Kb Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/kb/{kb_id}/versions": {
+      "get": {
+        "tags": [
+          "kb"
+        ],
+        "summary": "List Knowledge Versions",
+        "operationId": "list_knowledge_versions_api_v1_kb__kb_id__versions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Kb Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "kb"
+        ],
+        "summary": "Publish Knowledge Draft",
+        "operationId": "publish_knowledge_draft_api_v1_kb__kb_id__versions_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Kb Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeDraftPublish"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/kb/{kb_id}/versions/{version}": {
+      "get": {
+        "tags": [
+          "kb"
+        ],
+        "summary": "Get Knowledge Version",
+        "operationId": "get_knowledge_version_api_v1_kb__kb_id__versions__version__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Kb Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/kb/{kb_id}/versions/{version}/files/{path}": {
+      "get": {
+        "tags": [
+          "kb"
+        ],
+        "summary": "Get Knowledge Version File",
+        "operationId": "get_knowledge_version_file_api_v1_kb__kb_id__versions__version__files__path__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Kb Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/kb/{kb_id}/draft/files/{path}": {
+      "put": {
+        "tags": [
+          "kb"
+        ],
+        "summary": "Put Knowledge Draft File",
+        "operationId": "put_knowledge_draft_file_api_v1_kb__kb_id__draft_files__path__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Kb Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_put_knowledge_draft_file_api_v1_kb__kb_id__draft_files__path__put"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "kb"
+        ],
+        "summary": "Delete Knowledge Draft File",
+        "operationId": "delete_knowledge_draft_file_api_v1_kb__kb_id__draft_files__path__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Kb Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          },
+          {
+            "name": "expected_hash",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Expected Hash"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/audit": {
@@ -12607,7 +14540,7 @@
           "vfs"
         ],
         "summary": "Sign Vfs",
-        "description": "Mint a short-lived signed URL for ``/api/v1/vfs/raw`` so the frontend can\nrender a VFS media file via ``<img src>`` / ``<video src>`` WITHOUT an\nAuthorization header. The tenant baked into the signature comes from the\nAUTH context (never the client) — the raw endpoint scopes its read to it.",
+        "description": "Mint a short-lived signed URL for ``/api/v1/vfs/raw`` so the frontend can\nrender a VFS media file via ``<img src>`` / ``<video src>`` WITHOUT an\nAuthorization header. The tenant baked into the signature comes from the\nAUTH context (never the client) \u2014 the raw endpoint scopes its read to it.",
         "operationId": "sign_vfs_api_v1_vfs_sign_post",
         "requestBody": {
           "content": {
@@ -12706,13 +14639,67 @@
         }
       }
     },
+    "/api/v1/vfs/run-content": {
+      "get": {
+        "tags": [
+          "vfs"
+        ],
+        "summary": "Raw Run Content",
+        "operationId": "raw_run_content_api_v1_vfs_run_content_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/vfs/raw": {
       "get": {
         "tags": [
           "vfs"
         ],
         "summary": "Raw Vfs",
-        "description": "Serve raw VFS file BYTES authorized SOLELY by the signature (NO Bearer).\n\nThe signed ``tenant`` is the read scope: we open a tenant-bound session for\nexactly that tenant (so RLS confines the lookup to its rows) and read the\nobject bytes. Bad/forged/expired signature → 403. Allowlisted media types\nare served inline; anything else is forced to octet-stream + attachment, and\nevery response carries ``X-Content-Type-Options: nosniff`` so this endpoint\ncan never become an HTML/JS host (XSS) or a MIME-sniffing vector.",
+        "description": "Serve raw VFS file BYTES authorized SOLELY by the signature (NO Bearer).\n\nThe signed ``tenant`` is the read scope: we open a tenant-bound session for\nexactly that tenant (so RLS confines the lookup to its rows) and read the\nobject bytes. Bad/forged/expired signature \u2192 403. Allowlisted media types\nare served inline; anything else is forced to octet-stream + attachment, and\nevery response carries ``X-Content-Type-Options: nosniff`` so this endpoint\ncan never become an HTML/JS host (XSS) or a MIME-sniffing vector.",
         "operationId": "raw_vfs_api_v1_vfs_raw_get",
         "parameters": [
           {
@@ -13316,7 +15303,8 @@
                     "workflow",
                     "task",
                     "deployment",
-                    "knowledge_base"
+                    "knowledge_base",
+                    "skill_installation"
                   ],
                   "type": "string"
                 },
@@ -15753,71 +17741,6 @@
           }
         }
       }
-    },
-    "/api/v1/workflows/{wf_id}/head": {
-      "get": {
-        "tags": [
-          "workflows"
-        ],
-        "summary": "Get Workflow Head",
-        "description": "Lightweight branch tip; never materializes graphs or version history.",
-        "operationId": "get_workflow_head_api_v1_workflows__wf_id__head_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "wf_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Wf Id"
-            }
-          },
-          {
-            "name": "major",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Major"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowHeadOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -15917,6 +17840,20 @@
           "created_at"
         ],
         "title": "ActiveAgentRun"
+      },
+      "AddOrganizationMemberBody": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "AddOrganizationMemberBody"
       },
       "AgentRuntimeOptionOut": {
         "properties": {
@@ -16086,7 +18023,21 @@
         },
         "type": "object",
         "title": "AgentSettings",
-        "description": "Per-turn \"Agent settings\" override (the sidebar gear). All optional —\nomitting the block (or every field) keeps the platform-default agent LLM.\n\n``model_id`` is an opaque id returned by the bound runtime's capabilities\nendpoint. The API resolves it to SDK-specific config; the client never\nsends credentials or provider secrets. Hyperparameters are forwarded to\nthe selected runtime when supported."
+        "description": "Per-turn \"Agent settings\" override (the sidebar gear). All optional \u2014\nomitting the block (or every field) keeps the platform-default agent LLM.\n\n``model_id`` is an opaque id returned by the bound runtime's capabilities\nendpoint. The API resolves it to SDK-specific config; the client never\nsends credentials or provider secrets. Hyperparameters are forwarded to\nthe selected runtime when supported."
+      },
+      "ApprovalDecision": {
+        "properties": {
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "approved"
+        ],
+        "title": "ApprovalDecision"
       },
       "ArtifactResource": {
         "properties": {
@@ -16242,7 +18193,7 @@
           "type"
         ],
         "title": "AuthConfig",
-        "description": "Auth configuration block stored on ``mcp_servers.auth_config``.\n\n``type='none'`` ⇒ no HTTP header; the token field is ignored.\n``type='bearer'`` ⇒ ``Authorization: Bearer <token>`` per request.\nThe token format is restricted to printable ASCII (no whitespace)\nbecause it ends up in an HTTP header — a literal newline / NUL would\nlet a malicious paste smuggle an extra header (CRLF injection). The\n1024-char cap is a sanity bound; real MCP bearers are <200 chars."
+        "description": "Auth configuration block stored on ``mcp_servers.auth_config``.\n\n``type='none'`` \u21d2 no HTTP header; the token field is ignored.\n``type='bearer'`` \u21d2 ``Authorization: Bearer <token>`` per request.\nThe token format is restricted to printable ASCII (no whitespace)\nbecause it ends up in an HTTP header \u2014 a literal newline / NUL would\nlet a malicious paste smuggle an extra header (CRLF injection). The\n1024-char cap is a sanity bound; real MCP bearers are <200 chars."
       },
       "AuthenticationResponseIn": {
         "properties": {
@@ -16516,6 +18467,14 @@
       },
       "BatchSubmitBody": {
         "properties": {
+          "notification_policy": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Notification Policy"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/EvaluationConfig"
+          },
           "data_source": {
             "additionalProperties": true,
             "type": "object",
@@ -16589,7 +18548,7 @@
           "column_mapping"
         ],
         "title": "BatchSubmitBody",
-        "description": "Atomic-submit body. ``extra='ignore'`` so a client cannot smuggle\n``tenant_id`` / ``user_id`` / ``background_job_id`` into the row — those are\nderived from the authenticated context, never from the request."
+        "description": "Atomic-submit body. ``extra='ignore'`` so a client cannot smuggle\n``tenant_id`` / ``user_id`` / ``background_job_id`` into the row \u2014 those are\nderived from the authenticated context, never from the request."
       },
       "Body_create_custom_skill_api_v1_skills_custom_post": {
         "properties": {
@@ -16669,6 +18628,54 @@
           "name"
         ],
         "title": "Body_import_kb_api_v1_kb_import_post"
+      },
+      "Body_put_knowledge_draft_file_api_v1_kb__kb_id__draft_files__path__put": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "expected_hash": {
+            "type": "string",
+            "title": "Expected Hash"
+          },
+          "create": {
+            "type": "boolean",
+            "title": "Create",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "expected_hash"
+        ],
+        "title": "Body_put_knowledge_draft_file_api_v1_kb__kb_id__draft_files__path__put"
+      },
+      "Body_put_skill_draft_file_api_v1_skills__skill_id__draft_files__path__put": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "expected_hash": {
+            "type": "string",
+            "title": "Expected Hash"
+          },
+          "create": {
+            "type": "boolean",
+            "title": "Create",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "expected_hash"
+        ],
+        "title": "Body_put_skill_draft_file_api_v1_skills__skill_id__draft_files__path__put"
       },
       "Body_update_custom_skill_bundle_api_v1_skills__skill_id__bundle_put": {
         "properties": {
@@ -16797,7 +18804,7 @@
         },
         "type": "object",
         "title": "CancelBody",
-        "description": "Cancel request body. ``extra='ignore'`` so unknown fields are\ndropped silently (defence in depth — the only knob we honour is\n``mode``)."
+        "description": "Cancel request body. ``extra='ignore'`` so unknown fields are\ndropped silently (defence in depth \u2014 the only knob we honour is\n``mode``)."
       },
       "CancelDeleteAccountIn": {
         "properties": {
@@ -17292,6 +19299,18 @@
       },
       "ChatStateOut": {
         "properties": {
+          "goal": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
           "todo_items": {
             "items": {
               "$ref": "#/components/schemas/TodoItem"
@@ -17869,7 +19888,7 @@
           "auth_config"
         ],
         "title": "CreateBody",
-        "description": "Body schema for ``POST /api/v1/mcp-servers`` AND ``POST /test``.\n\n``ConfigDict(extra='forbid')`` rejects unknown fields with 422 — a\nclient CANNOT smuggle ``tenant_id`` / ``user_id`` / ``id`` /\n``enabled`` / ``last_*`` fields. Identity columns come ONLY from\n``AuthContext``; the handshake snapshot columns are written from\nthe handshake result. This is the same G4b trust boundary\nDeployments T4 enforces.\n\n``tool_prefix`` matches the DB CHECK constraint\n``^[a-z][a-z0-9_]{0,30}$`` (migration via the model declaration);\nre-validating here gives a friendlier 422 instead of a 500 on\nIntegrityError."
+        "description": "Body schema for ``POST /api/v1/mcp-servers`` AND ``POST /test``.\n\n``ConfigDict(extra='forbid')`` rejects unknown fields with 422 \u2014 a\nclient CANNOT smuggle ``tenant_id`` / ``user_id`` / ``id`` /\n``enabled`` / ``last_*`` fields. Identity columns come ONLY from\n``AuthContext``; the handshake snapshot columns are written from\nthe handshake result. This is the same G4b trust boundary\nDeployments T4 enforces.\n\n``tool_prefix`` matches the DB CHECK constraint\n``^[a-z][a-z0-9_]{0,30}$`` (migration via the model declaration);\nre-validating here gives a friendlier 422 instead of a 500 on\nIntegrityError."
       },
       "CreateDeploymentBody": {
         "properties": {
@@ -17921,6 +19940,13 @@
             ],
             "title": "Pinned Sub"
           },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "default": 30
+          },
           "rate_limit_qps": {
             "type": "integer",
             "title": "Rate Limit Qps",
@@ -17944,11 +19970,6 @@
             "minimum": 128.0,
             "title": "Memory Mb",
             "default": 256
-          },
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
           },
           "worker_count": {
             "anyOf": [
@@ -17977,6 +19998,11 @@
             ],
             "title": "Worker Concurrency",
             "default": -1
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
           }
         },
         "type": "object",
@@ -17988,7 +20014,7 @@
           "version_pin"
         ],
         "title": "CreateDeploymentBody",
-        "description": "Body schema for ``POST /api/v1/deployments``.\n\n``ConfigDict(extra='ignore')`` drops every unknown field — a client\nCANNOT smuggle ``tenant_id`` / ``user_id`` / ``api_key_hash`` /\n``hmac_secret`` / ``id`` into the row. The handler derives those\nfrom ``AuthContext`` or the secret-generator. This is the trust\ntransaction boundary used by invocation authorization."
+        "description": "Body schema for ``POST /api/v1/deployments``.\n\n``ConfigDict(extra='ignore')`` drops every unknown field \u2014 a client\nCANNOT smuggle ``tenant_id`` / ``user_id`` / ``api_key_hash`` /\n``hmac_secret`` / ``id`` into the row. The handler derives those\nfrom ``AuthContext`` or the secret-generator. This is the trust\ntransaction boundary used by invocation authorization."
       },
       "CreateGroupBody": {
         "properties": {
@@ -18293,7 +20319,7 @@
           "updated_at"
         ],
         "title": "CredentialOwnerOut",
-        "description": "Owner management / edit view. Exposes the non-secret config\n(model_name, api_url) plus an ``api_key_set`` flag — but NEVER the\nplaintext key."
+        "description": "Owner management / edit view. Exposes the non-secret config\n(model_name, api_url) plus an ``api_key_set`` flag \u2014 but NEVER the\nplaintext key."
       },
       "CredentialPublicOut": {
         "properties": {
@@ -19028,7 +21054,24 @@
           "enums"
         ],
         "title": "EnumsOut",
-        "description": "Shape mirrors what legacy enums.get_frontend_enums() returns —\nkeys vary so use dict-as-payload."
+        "description": "Shape mirrors what legacy enums.get_frontend_enums() returns \u2014\nkeys vary so use dict-as-payload."
+      },
+      "EvaluationConfig": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "script": {
+            "type": "string",
+            "maxLength": 65536,
+            "title": "Script",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "EvaluationConfig"
       },
       "ExecutionListItem": {
         "properties": {
@@ -19075,6 +21118,18 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Input"
+          },
+          "resume_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume From"
           }
         },
         "type": "object",
@@ -19085,6 +21140,17 @@
           "exec_id": {
             "type": "string",
             "title": "Exec Id"
+          },
+          "history_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History Id"
           },
           "wf_id": {
             "type": "string",
@@ -19536,6 +21602,42 @@
           "access"
         ],
         "title": "GroupOut"
+      },
+      "GuardedCommitRequest": {
+        "properties": {
+          "workflow": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Workflow"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "target_major": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Major"
+          },
+          "expected_version": {
+            "type": "string",
+            "pattern": "^v[1-9]\\d*\\.sv\\d+$",
+            "title": "Expected Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow",
+          "expected_version"
+        ],
+        "title": "GuardedCommitRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -20595,6 +22697,11 @@
           "provenance": {
             "$ref": "#/components/schemas/ResourceProvenanceOut"
           },
+          "created_by_me": {
+            "type": "boolean",
+            "title": "Created By Me",
+            "default": false
+          },
           "file_count": {
             "type": "integer",
             "title": "File Count",
@@ -20722,6 +22829,10 @@
       },
       "KbUpdate": {
         "properties": {
+          "expected_hash": {
+            "type": "string",
+            "title": "Expected Hash"
+          },
           "name": {
             "anyOf": [
               {
@@ -20750,8 +22861,25 @@
         },
         "additionalProperties": false,
         "type": "object",
+        "required": [
+          "expected_hash"
+        ],
         "title": "KbUpdate",
         "description": "Body for ``PATCH /kb/:id``. All fields optional + ``extra='forbid'``\nso the same trust boundary applies."
+      },
+      "KnowledgeDraftPublish": {
+        "properties": {
+          "expected_hash": {
+            "type": "string",
+            "title": "Expected Hash"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_hash"
+        ],
+        "title": "KnowledgeDraftPublish"
       },
       "LoginIn": {
         "properties": {
@@ -21042,7 +23170,7 @@
           "node"
         ],
         "title": "NodeExecutionRequest",
-        "description": "Body for single-node debug execution.\n\nThe node comes from the request body — the UNSAVED *draft* node the\nuser is editing in the inspector, NOT ``get_current_workflow`` (the\ncommitted snapshot). Node-debug is on the in-flight node, so the\nfrontend ships the full ``node_dict`` it has locally. ``input`` is the\nnode's inputs supplied directly (``run_node`` does no reference\nresolution — this is the isolated node-debug surface)."
+        "description": "Body for single-node debug execution.\n\nThe node comes from the request body \u2014 the UNSAVED *draft* node the\nuser is editing in the inspector, NOT ``get_current_workflow`` (the\ncommitted snapshot). Node-debug is on the in-flight node, so the\nfrontend ships the full ``node_dict`` it has locally. ``input`` is the\nnode's inputs supplied directly (``run_node`` does no reference\nresolution \u2014 this is the isolated node-debug surface)."
       },
       "OAuthStartBody": {
         "properties": {
@@ -21905,7 +24033,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "PatchBody",
-        "description": "Body schema for ``PATCH /api/v1/mcp-servers/{server_id}``.\n\nOnly mutable columns. ``transport`` / ``tool_prefix`` are absent on\npurpose — they identify the server in the prefixed-name surface and\ncannot change without breaking already-bound agent tool references.\n``extra='forbid'`` turns a smuggled immutable field into a 422.\n\nAll fields default to ``None`` so a partial body (e.g. just\n``{\"enabled\": false}``) is valid; ``model_dump(exclude_unset=True)``\nin the handler distinguishes \"client said null\" from \"client omitted\"."
+        "description": "Body schema for ``PATCH /api/v1/mcp-servers/{server_id}``.\n\nOnly mutable columns. ``transport`` / ``tool_prefix`` are absent on\npurpose \u2014 they identify the server in the prefixed-name surface and\ncannot change without breaking already-bound agent tool references.\n``extra='forbid'`` turns a smuggled immutable field into a 422.\n\nAll fields default to ``None`` so a partial body (e.g. just\n``{\"enabled\": false}``) is valid; ``model_dump(exclude_unset=True)``\nin the handler distinguishes \"client said null\" from \"client omitted\"."
       },
       "PatchDeploymentBody": {
         "properties": {
@@ -21930,6 +24058,19 @@
               }
             ],
             "title": "Enabled"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3600.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
           },
           "rate_limit_qps": {
             "anyOf": [
@@ -22045,7 +24186,7 @@
         },
         "type": "object",
         "title": "PatchDeploymentBody",
-        "description": "Partial update of a deployment. ``extra='ignore'`` so a client\ncannot patch ``tenant_id`` / ``user_id`` / ``api_key_hash`` /\n``hmac_secret`` / ``wf_id`` / ``trigger_type`` / ``slug`` /\n``deleted_at`` — those are either immutable or owned by a dedicated\npath (rotate-key for secrets, soft_delete for ``deleted_at``)."
+        "description": "Partial update of a deployment. ``extra='ignore'`` so a client\ncannot patch ``tenant_id`` / ``user_id`` / ``api_key_hash`` /\n``hmac_secret`` / ``wf_id`` / ``trigger_type`` / ``slug`` /\n``deleted_at`` \u2014 those are either immutable or owned by a dedicated\npath (rotate-key for secrets, soft_delete for ``deleted_at``)."
       },
       "PlatformEligibilityIn": {
         "properties": {
@@ -23213,6 +25354,72 @@
         ],
         "title": "ResourceType"
       },
+      "ResultQuery": {
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 100
+          },
+          "search": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Search",
+            "default": ""
+          },
+          "row_status": {
+            "type": "string",
+            "title": "Row Status",
+            "default": ""
+          },
+          "sort": {
+            "type": "string",
+            "title": "Sort",
+            "default": "index"
+          },
+          "descending": {
+            "type": "boolean",
+            "title": "Descending",
+            "default": false
+          },
+          "filters": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Filters"
+          }
+        },
+        "type": "object",
+        "title": "ResultQuery"
+      },
+      "ResumeCheckRequest": {
+        "properties": {
+          "workflow": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Workflow"
+          },
+          "input": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow"
+        ],
+        "title": "ResumeCheckRequest"
+      },
       "RunFileRefV1": {
         "properties": {
           "schemaVersion": {
@@ -23561,6 +25768,18 @@
             "title": "Schedule Type",
             "default": "interval"
           },
+          "run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run At"
+          },
           "interval_seconds": {
             "anyOf": [
               {
@@ -23691,6 +25910,18 @@
               }
             ],
             "title": "Schedule Type"
+          },
+          "run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run At"
           },
           "interval_seconds": {
             "anyOf": [
@@ -24076,7 +26307,8 @@
               "workflow",
               "task",
               "deployment",
-              "knowledge_base"
+              "knowledge_base",
+              "skill_installation"
             ],
             "title": "Resource Type"
           },
@@ -24164,6 +26396,16 @@
           "version": {
             "type": "integer",
             "title": "Version"
+          },
+          "installed": {
+            "type": "boolean",
+            "title": "Installed",
+            "default": false
+          },
+          "created_by_me": {
+            "type": "boolean",
+            "title": "Created By Me",
+            "default": false
           },
           "source": {
             "anyOf": [
@@ -24412,6 +26654,16 @@
           "version": {
             "type": "integer",
             "title": "Version"
+          },
+          "installed": {
+            "type": "boolean",
+            "title": "Installed",
+            "default": false
+          },
+          "created_by_me": {
+            "type": "boolean",
+            "title": "Created By Me",
+            "default": false
           },
           "source": {
             "anyOf": [
@@ -25580,7 +27832,7 @@
           "path"
         ],
         "title": "VfsRenameOut",
-        "description": "Result of ``POST /api/v1/vfs/rename`` — the new path."
+        "description": "Result of ``POST /api/v1/vfs/rename`` \u2014 the new path."
       },
       "VfsRunEntryOut": {
         "properties": {
@@ -25617,7 +27869,7 @@
           "capabilities"
         ],
         "title": "VfsRunEntryOut",
-        "description": "RE-4 — run-tier list entry. Exposes path/content_type/size_bytes ONLY:\nno object_key (storage detail) and no agent-VFS fields (kind/abstract/\nlast_access/stale don't apply to the ephemeral run tier)."
+        "description": "RE-4 \u2014 run-tier list entry. Exposes path/content_type/size_bytes ONLY:\nno object_key (storage detail) and no agent-VFS fields (kind/abstract/\nlast_access/stale don't apply to the ephemeral run tier)."
       },
       "VfsRunListOut": {
         "properties": {
@@ -25830,6 +28082,130 @@
         ],
         "title": "WebResource"
       },
+      "WorkflowChatBinding": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Workflow Id"
+          },
+          "major_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Major Version"
+          },
+          "initial_subversion": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Initial Subversion"
+          },
+          "target": {
+            "$ref": "#/components/schemas/WorkflowChatTarget"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "major_version",
+          "initial_subversion"
+        ],
+        "title": "WorkflowChatBinding",
+        "description": "Persisted in private Chat metadata; major never follows global HEAD."
+      },
+      "WorkflowChatTarget": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "workflow",
+              "node",
+              "edge"
+            ],
+            "title": "Kind",
+            "default": "workflow"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "source_handle": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Handle"
+          },
+          "target_handle": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Handle"
+          },
+          "condition_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Index"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "WorkflowChatTarget"
+      },
       "WorkflowCreate": {
         "properties": {
           "name": {
@@ -25855,8 +28231,40 @@
         ],
         "title": "WorkflowCreate"
       },
+      "WorkflowHeadOut": {
+        "properties": {
+          "major": {
+            "type": "integer",
+            "title": "Major"
+          },
+          "sub": {
+            "type": "integer",
+            "title": "Sub"
+          },
+          "tree_revision": {
+            "type": "number",
+            "title": "Tree Revision"
+          },
+          "access": {
+            "$ref": "#/components/schemas/ResourceAccessOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "major",
+          "sub",
+          "tree_revision",
+          "access"
+        ],
+        "title": "WorkflowHeadOut"
+      },
       "WorkflowMetaOut": {
         "properties": {
+          "created_by_me": {
+            "type": "boolean",
+            "title": "Created By Me",
+            "default": false
+          },
           "wf_id": {
             "type": "string",
             "title": "Wf Id"
@@ -26034,193 +28442,6 @@
           "meta"
         ],
         "title": "WorkflowSnapshotOut"
-      },
-      "GuardedCommitRequest": {
-        "properties": {
-          "workflow": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Workflow"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note",
-            "default": ""
-          },
-          "target_major": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Major"
-          },
-          "expected_version": {
-            "type": "string",
-            "pattern": "^v[1-9]\\d*\\.sv\\d+$",
-            "title": "Expected Version"
-          }
-        },
-        "type": "object",
-        "required": [
-          "workflow",
-          "expected_version"
-        ],
-        "title": "GuardedCommitRequest"
-      },
-      "WorkflowHeadOut": {
-        "properties": {
-          "major": {
-            "type": "integer",
-            "title": "Major"
-          },
-          "sub": {
-            "type": "integer",
-            "title": "Sub"
-          },
-          "tree_revision": {
-            "type": "number",
-            "title": "Tree Revision"
-          },
-          "access": {
-            "$ref": "#/components/schemas/ResourceAccessOut"
-          }
-        },
-        "type": "object",
-        "required": [
-          "major",
-          "sub",
-          "tree_revision",
-          "access"
-        ],
-        "title": "WorkflowHeadOut"
-      },
-      "WorkflowChatBinding": {
-        "properties": {
-          "workflow_id": {
-            "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Workflow Id"
-          },
-          "major_version": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Major Version"
-          },
-          "initial_subversion": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Initial Subversion"
-          },
-          "target": {
-            "$ref": "#/components/schemas/WorkflowChatTarget"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "workflow_id",
-          "major_version",
-          "initial_subversion"
-        ],
-        "title": "WorkflowChatBinding",
-        "description": "Persisted in private Chat metadata; major never follows global HEAD."
-      },
-      "WorkflowChatTarget": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "workflow",
-              "node",
-              "edge"
-            ],
-            "title": "Kind",
-            "default": "workflow"
-          },
-          "node_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Node Id"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
-          },
-          "target": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target"
-          },
-          "source_handle": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Handle"
-          },
-          "target_handle": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Handle"
-          },
-          "condition_index": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Condition Index"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "WorkflowChatTarget"
       }
     },
     "securitySchemes": {

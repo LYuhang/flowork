@@ -6,7 +6,8 @@ const queries = vi.hoisted(() => ({
   skills: { data: [] as Array<Record<string, unknown>>, isSuccess: true, isError: false, refetch: vi.fn() },
   mcp: { data: [] as Array<Record<string, unknown>>, isSuccess: true, isError: false, refetch: vi.fn() },
 }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({
   t: (key: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : key,
 }) }));
 vi.mock('@/lib/api/queries/skills', () => ({ useSkills: () => queries.skills }));

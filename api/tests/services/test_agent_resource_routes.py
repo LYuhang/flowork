@@ -23,7 +23,7 @@ from vibecanvas_api.storage.repo_tasks import TasksRepo
 
 
 KNOWLEDGE_FORMAT_FIXTURES = {
-    "README.md": b"# Format matrix\n\nAuthoritative package fixtures.",
+    "README.md": b"---\nname: Format matrix\ndescription: ''\n---\n# Format matrix\n\nAuthoritative package fixtures.",
     "docs/report.pdf": b"%PDF-1.7\nknowledge-pdf\n%%EOF",
     "slides/deck.pptx": b"PK\x03\x04knowledge-pptx",
     "images/diagram.png": b"\x89PNG\r\n\x1a\nknowledge-image",
@@ -86,7 +86,7 @@ def _context(me: dict, *, authorization_client):
     )
 
 
-async def _publish(context, files, *, name=None, knowledge_id=None):
+async def _publish(context, files, *, name=None, knowledge_id=None, expected_version=None):
     """Exercise shared route policies and package storage without a retired Tool.
 
     Full CLI approval/live-run fencing is covered by test_knowledge_cli. These
@@ -105,7 +105,7 @@ async def _publish(context, files, *, name=None, knowledge_id=None):
         await cli_knowledge.authorize(params, identifier, kb.Action.UPDATE)
         number, _ = await replace_package(
             session, kb_id=identifier, actor_user_id=uuid.UUID(context.username),
-            expected_version=None, files=package,
+            expected_version=expected_version, files=package,
         )
         return {"id": knowledge_id, "package_version": number, "file_count": len(package)}
 
@@ -144,9 +144,7 @@ async def test_knowledge_cli_reads_authorized_database(
     assert materialized["knowledge_id"] == knowledge_base_id
     assert materialized["package_version"] == 1
     readme = next(item for item in materialized["files"] if item["path"] == "README.md")
-    assert base64.b64decode(readme["data"]).startswith(b"# Platform knowledge")
-    result = await cli_knowledge.read(context, "knowledge.search", {"knowledge_id": [knowledge_base_id], "query": "anything", "limit": 5})
-    assert result["results"] == []
+    assert b"\n# Platform knowledge\n" in base64.b64decode(readme["data"])
     _, stranger = await _register(client)
     other = _context(stranger, authorization_client=context.authorization_client)
     assert (await cli_knowledge.read(other, "knowledge.list", {"offset": 0, "limit": 20}))["knowledge"] == []
@@ -184,10 +182,10 @@ async def test_knowledge_package_create_upload_download_uses_latest_version(clie
         }
 
         files["notes/findings.md"] = b"Updated finding."
-        updated = await _publish(context, files, knowledge_id=created["id"])
+        updated = await _publish(context, files, knowledge_id=created["id"], expected_version=1)
         assert updated["package_version"] == 2
-        # No expected_version parameter: another successful upload creates v3.
-        repeated = await _publish(context, files, knowledge_id=created["id"])
+        # A subsequent publication supplies the version returned by the previous write.
+        repeated = await _publish(context, files, knowledge_id=created["id"], expected_version=2)
         assert repeated["package_version"] == 3
         reopened = await cli_knowledge.read(context, "knowledge.download", {"knowledge_id": created["id"]})
         assert reopened["package_version"] == 3
@@ -238,7 +236,7 @@ async def test_knowledge_format_matrix_create_update_snapshot_and_raw_preview(
             path: data + b"\nrevision-two"
             for path, data in KNOWLEDGE_FORMAT_FIXTURES.items()
         }
-        updated = await _publish(context, revision_two, knowledge_id=created["id"])
+        updated = await _publish(context, revision_two, knowledge_id=created["id"], expected_version=1)
         assert updated["package_version"] == 2
 
         updated_list = await client.get(

@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SkillUsePicker } from './SkillUsePicker';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: unknown) => typeof fallback === 'string' ? fallback : 'Details' }) }));
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (_key: string, fallback: unknown) => typeof fallback === 'string' ? fallback : 'Details' }) }));
 vi.mock('@/lib/api/queries/skills', () => ({ useSkills: () => ({
   data: [
     { id: 'id-one', name: 'research', source: 'custom', access: { capabilities: ['use'] } },

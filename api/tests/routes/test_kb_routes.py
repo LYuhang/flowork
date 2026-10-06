@@ -204,6 +204,7 @@ async def test_upload_duplicate_content_as_distinct_files(pg_engine):
             r1 = await upload_file(
                 kb_id=uuid.UUID(kb.id), request=_StubRequest(), file=up1,
                 ctx=ctx, session=s, service=_AllowAuthz(),
+                expected_version=1,
             )
         assert r1["status"] == "pending"
         assert "file_id" in r1
@@ -214,6 +215,7 @@ async def test_upload_duplicate_content_as_distinct_files(pg_engine):
             r2 = await upload_file(
                 kb_id=uuid.UUID(kb.id), request=_StubRequest(), file=up2,
                 ctx=ctx, session=s, service=_AllowAuthz(),
+                expected_version=2,
             )
 
     assert r2["status"] == "pending"
@@ -275,6 +277,7 @@ async def test_package_rejects_duplicate_path_and_root_readme_delete(pg_engine):
                 kb_id=uuid.UUID(kb.id), request=_StubRequest(),
                 file=_make_upload("readme.MD", b"replacement", "text/markdown"),
                 ctx=ctx, session=s, service=_AllowAuthz(),
+                expected_version=1,
             )
     assert duplicate.value.status_code == 409
     assert duplicate.value.detail == "knowledge_package_path_exists"
@@ -289,6 +292,7 @@ async def test_package_rejects_duplicate_path_and_root_readme_delete(pg_engine):
                 kb_id=uuid.UUID(kb.id), file_id=readme.id,
                 request=_StubRequest(), ctx=ctx, session=s,
                 service=_AllowAuthz(),
+                expected_version=1,
             )
     assert required.value.status_code == 409
     assert required.value.detail == "knowledge_root_readme_required"
@@ -317,6 +321,7 @@ async def test_upload_too_large_413(pg_engine):
             await upload_file(
                 kb_id=uuid.UUID(kb.id), request=_StubRequest(), file=up,
                 ctx=ctx, session=s, service=_AllowAuthz(),
+                expected_version=1,
             )
 
     assert exc_info.value.status_code == 413
@@ -348,6 +353,7 @@ async def test_unindexed_type_is_stored(pg_engine):
             result = await upload_file(
                 kb_id=uuid.UUID(kb.id), request=_StubRequest(), file=up,
                 ctx=ctx, session=s, service=_AllowAuthz(),
+                expected_version=1,
             )
     assert result["status"] == "stored"
     assert result["task_id"] is None

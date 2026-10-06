@@ -721,7 +721,9 @@ that filesystem. Configure mount failure handling in the mount service.
 ### Docker Compose
 
 Prepare an encrypted host filesystem and give container UID/GID `10001:10001`
-write access to the workspace directory (sandboxd also requires access). Set
+write access to the workspace directory (sandboxd also requires access).
+Use ownership `10001:10001` and mode `2770` on the dedicated root so newly
+created directories inherit the shared service group. Do not grant world access. Set
 `WORKSPACE_STORAGE_HOST_ROOT` to its absolute path in `.env`, then add the
 POSIX override to every Compose invocation:
 

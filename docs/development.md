@@ -40,7 +40,7 @@ is available in
 The supported toolchain is:
 
 - Python 3.11.16 in `.venv/`;
-- Node.js 24.21.0 for native installation, CI, and container builds and pnpm 10.34.4;
+- Node.js 24.21.0 and pnpm 10.34.4 across native installation, CI and containers;
 - PostgreSQL server binaries, a Redis-compatible local server, and bubblewrap; and
 - OpenFGA, started automatically with the local stack.
 
@@ -299,12 +299,17 @@ Generated files are committed so Web builds do not depend on a running backend
 or local generator. Regenerate the relevant contract in the same change as its
 source.
 
-After changing the public API schema, start the API and refresh both the OpenAPI
-snapshot and TypeScript definitions:
+After changing the public API schema, refresh both generated files without
+starting a server (run with this checkout's prepared environment):
 
 ```bash
-pnpm --dir web codegen:snapshot
+.venv/bin/python -m vibecanvas_api.cli dump-openapi --output web/openapi.json
+(cd web && pnpm codegen:api:offline)
 ```
+
+The OpenAPI regression test compares the committed snapshot with the current
+backend. Do not patch only `schema.d.ts`: container builds regenerate it from
+`openapi.json` and would discard that manual change.
 
 After changing the backend interactive-view schema, refresh the frontend
 validator:

@@ -15,7 +15,8 @@ vi.mock('@xyflow/react', () => ({
   getNodesBounds: () => ({x: 1000, y: 0, width: 224, height: 500}),
   getViewportForBounds: graph.bounds,
 }));
-vi.mock('react-i18next', () => ({useTranslation: () => ({t: (key: string, fallback?: string) => fallback ?? key})}));
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()),useTranslation: () => ({t: (key: string, fallback?: string) => fallback ?? key})}));
 describe('find existing canvas nodes', () => {
   beforeEach(() => {
     graph.setNodes.mockClear(); graph.setViewport.mockClear(); graph.bounds.mockClear();

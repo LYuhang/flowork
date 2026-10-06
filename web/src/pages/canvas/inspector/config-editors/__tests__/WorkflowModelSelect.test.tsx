@@ -8,7 +8,8 @@ const state = vi.hoisted(() => ({
   isPending: false, isError: false, refetch: vi.fn(),
 }));
 vi.mock('@/lib/api/queries/llm-credentials', () => ({ useWorkflowModels: () => state }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_: string, fallback: string) => fallback }) }));
+vi.mock('react-i18next', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (_: string, fallback: string) => fallback }) }));
 
 beforeEach(() => {
   state.data = { models: { 'manual-openrouter': { provider: 'openrouter' } } };

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PreviewOriginProvider } from '@/lib/preview/context-origin';
+import { PreviewOriginProvider } from '@/lib/preview/PreviewOriginProvider';
 import { BackgroundJobsPreview } from '../BackgroundJobsPreview';
 
 const mocks = vi.hoisted(() => ({

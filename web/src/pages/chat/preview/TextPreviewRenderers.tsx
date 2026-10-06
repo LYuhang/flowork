@@ -399,7 +399,11 @@ function TextDocumentRenderer({
     // Rendered Markdown offsets are not source offsets.
     setQuoteSelection({ text: selection.toString() });
   };
-  useEffect(() => setQuoteSelection(null), [descriptor.revision]);
+  const [quoteRevision, setQuoteRevision] = useState(descriptor.revision);
+  if (quoteRevision !== descriptor.revision) {
+    setQuoteRevision(descriptor.revision);
+    setQuoteSelection(null);
+  }
   const [savedSource, setSavedSource] = useState('');
   const [mode, setMode] = useState<DisplayMode>(kind === 'text' ? 'source' : 'preview');
   const [editing, setEditing] = useState(false);

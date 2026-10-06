@@ -1,9 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 
-export type TaskNotifications = { enabled: boolean; on: string[]; email: string };
-export const emptyNotifications = (): TaskNotifications => ({ enabled: false, on: [], email: '' });
-export const notificationsValid = (value: TaskNotifications) => !value.enabled || value.email.trim().length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email.trim());
+import type { TaskNotifications } from './task-notifications';
 
 export function TaskNotificationOptions({ value, onChange, disabled = false }: {
   value: TaskNotifications; onChange: (value: TaskNotifications) => void; disabled?: boolean;
@@ -22,7 +20,7 @@ export function TaskNotificationOptions({ value, onChange, disabled = false }: {
     </div>
     {value.enabled && <label className="block space-y-2 text-sm">
       <span>{t('tasks.notifications.email', 'Notification recipient email')}</span>
-      <Input type="email" maxLength={254} required value={value.email} placeholder="user@example.com"
+      <Input type="email" maxLength={254} required value={value.email} placeholder={t('tasks.notifications.emailPlaceholder')}
         onChange={e => onChange({ ...value, email: e.target.value })} />
     </label>}
   </fieldset>;

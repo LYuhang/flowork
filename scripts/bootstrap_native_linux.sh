@@ -10,7 +10,7 @@ umask 077
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PREPARE_ONLY=0
 UV_VERSION="${UV_VERSION:-0.12.19}"
-NODE_VERSION="${NODE_VERSION:-22.23.3}"
+NODE_VERSION="${NODE_VERSION:-24.21.0}"
 NODE_MAJOR="${NODE_VERSION%%.*}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.157.1}"
 PLAYWRIGHT_CORE_VERSION="${PLAYWRIGHT_CORE_VERSION:-1.63.0-alpha-2026-08-05}"
@@ -62,7 +62,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   binutils build-essential ca-certificates clang cmake curl file git gnupg jq libpq-dev libssl-dev pkg-config openssh-client \
   openssl patch postgresql postgresql-contrib procps redis-server ripgrep rsync \
   tar unzip util-linux zip \
-  bubblewrap \
+  bubblewrap gocryptfs fuse3 nfs-common \
   fonts-dejavu-core fonts-noto-cjk fonts-wqy-zenhei \
   xvfb xauth \
   libreoffice-writer-nogui libreoffice-impress-nogui libreoffice-calc-nogui \
@@ -246,6 +246,9 @@ WEB_PORT="${WEB_PORT:-9001}"
 VIBECANVAS_PUBLIC_URL="${VIBECANVAS_PUBLIC_URL:-http://localhost:${WEB_PORT}/}"
 SANDBOX_RUNTIME="${SANDBOX_RUNTIME:-bubblewrap}"
 SANDBOX_TYPE="${SANDBOX_TYPE:-rootless-warm}"
+# Select posix after preparing the persistent volume (see docs/installation.md).
+WORKSPACE_STORAGE_BACKEND="${WORKSPACE_STORAGE_BACKEND:-object_store}"
+WORKSPACE_STORAGE_ROOT="${WORKSPACE_STORAGE_ROOT:-$HOME/.vibecanvas/workspaces}"
 ENABLE_TEST_USER="${ENABLE_TEST_USER:-false}"
 ENTERPRISE_SSO_ENABLED="${ENTERPRISE_SSO_ENABLED:-false}"
 AGENT_RUNTIME_TYPES="${AGENT_RUNTIME_TYPES:-codex}"

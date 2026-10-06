@@ -68,7 +68,6 @@ from ..authorization.projection import (
 from ..authorization.service import (
     AuthorizationDeniedError,
     AuthzService,
-    batch_resource_decisions,
 )
 from ..authorization.mutations import AuthzMutationError
 from ..authorization.types import (

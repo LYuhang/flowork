@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import fcntl
 import json
 import os
@@ -12,7 +11,6 @@ import socket
 import stat
 import sys
 import tempfile
-from uuid import uuid4
 
 try:
     from . import task_cli, deployment_cli, knowledge_cli, document_cli, diagram_cli, browser_cli, resource_cli, skill_cli

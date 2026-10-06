@@ -18,16 +18,17 @@ def quote(value: str, *, command: bool = False) -> str:
     return '"' + (escaped.replace('$', '$$') if command else escaped) + '"'
 
 
-def render(repo: Path, user: str, home: str, launch_env: Path) -> str:
+def render(repo: Path, user: str, home: str, launch_env: Path, workspace_root: Path | None = None) -> str:
     python = repo / '.venv/bin/python'
     launcher = repo / 'launch.sh'
     wrapper = repo / 'scripts/with_cgroup_delegation.py'
     search_path = f'{home}/.local/bin:{home}/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+    mounts = f'RequiresMountsFor={quote(str(workspace_root))}\n' if workspace_root else ''
     return f'''[Unit]
 Description=Flowork native application
 Wants=network-online.target
 After=network-online.target postgresql.service redis-server.service
-
+{mounts}
 [Service]
 Type=oneshot
 RemainAfterExit=yes
@@ -53,6 +54,7 @@ def main():
     parser.add_argument('--user', required=True, help='Unprivileged service account')
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--launch-env', type=Path)
+    parser.add_argument('--workspace-root', type=Path, help='Mounted POSIX workspace directory; order startup after its mount')
     parser.add_argument('--unit', default='flowork')
     parser.add_argument('--print', action='store_true', dest='print_only')
     args = parser.parse_args()
@@ -65,7 +67,9 @@ def main():
         parser.error('Run the application as an unprivileged user')
     repo = args.repo.resolve()
     launch_env = (args.launch_env or repo / '.env.launch.local').resolve()
-    unit = render(repo, args.user, account.pw_dir, launch_env)
+    if args.workspace_root and not args.workspace_root.is_absolute():
+        parser.error('--workspace-root must be absolute')
+    unit = render(repo, args.user, account.pw_dir, launch_env, args.workspace_root)
     if args.print_only:
         print(unit, end='')
         return

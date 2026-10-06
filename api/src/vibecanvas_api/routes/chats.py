@@ -786,7 +786,7 @@ async def start_project_sandbox(
     project_repo=Depends(get_chat_project_repo),
     auth: AuthContext = Depends(current_user),
 ) -> dict:
-    project = await _require_project(project_repo, project_id)
+    await _require_project(project_repo, project_id)
     scope_id = _project_workspace_scope_id(project_id)
     sandbox = await get_sandbox_manager().get_session(
         auth.tenant_id, scope_id, user_id=auth.user_id, expose_run=True,

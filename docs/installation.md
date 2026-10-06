@@ -672,3 +672,95 @@ service. After it succeeds, drain active work and restart the existing service.
 Use the actual deployment checkout, not a staging directory whose `node_modules`
 is a symlink into a different checkout; pnpm records both its package store and
 virtual-store locations. Do not install into a service-owned checkout as root.
+
+## Persistent POSIX workspaces
+
+The current POSIX backend covers Project/Chat files and private runtime state,
+Workflow `/run` and chats, Task `/run` and result files, Deployment `/run`, and
+user mounts. It does not replace PostgreSQL or the encrypted object store:
+resource metadata, authorization, logs and traces still use the database, and
+other blobs still require the object-store/KMS configuration. Sharing remains
+host-authorized; never expose the workspace root directly to end users.
+
+Select `WORKSPACE_STORAGE_BACKEND=posix` and one absolute
+`WORKSPACE_STORAGE_ROOT` consistently in API, background worker and sandboxd.
+POSIX is a filesystem interface, not an NFS server: use an encrypted local
+volume on one host or mount the same shared filesystem on every runtime host.
+The existing default `object_store` is a separate supported backend; changing
+the environment variable does not migrate existing files.
+
+### Fresh native installation
+
+The bootstrap installs `gocryptfs`, `fuse3` and `nfs-common`. Prepare dependencies
+first, then prepare the encrypted volume before starting services:
+
+```bash
+./scripts/bootstrap_native_linux.sh --prepare-only
+sudo .venv/bin/python scripts/security/install_encrypted_workspace_volume.py \
+  --root /var/lib/flowork/workspaces --user "$(id -un)"
+```
+
+Set these values in `.env.launch.local`:
+
+```bash
+WORKSPACE_STORAGE_BACKEND=posix
+WORKSPACE_STORAGE_ROOT=/var/lib/flowork/workspaces
+```
+
+Then install/start the service as described above. The volume installer adds a
+`flowork.service` dependency and stops that service if its encrypted volume
+stops. Back up both the encrypted directory and its private mount key; losing
+the key loses access to the data. Never commit the key.
+
+For an existing encrypted NFS/block mount, use its normal mount service instead
+of the gocryptfs helper. Give the application service account access, keep the
+namespace root inaccessible to other users, and install the application unit
+with `--workspace-root /absolute/mount/path` so systemd orders startup after
+that filesystem. Configure mount failure handling in the mount service.
+
+### Docker Compose
+
+Prepare an encrypted host filesystem and give container UID/GID `10001:10001`
+write access to the workspace directory (sandboxd also requires access). Set
+`WORKSPACE_STORAGE_HOST_ROOT` to its absolute path in `.env`, then add the
+POSIX override to every Compose invocation:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.posix.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.posix.yml up -d --build
+```
+
+The override bind-mounts the same directory into API, worker and sandboxd,
+without creating a missing host directory. Ensure the host mount is active
+before starting containers and stop containers before unmounting it. A bind
+mount alone does not encrypt data. Keep object-store, database and credential
+volumes and their backup configuration in place.
+
+### Existing data
+
+Stop/drain writers before migration. With the application's database,
+object-store and KMS environment loaded, run the existing
+`inventory_posix_workspaces.py`, `plan_posix_workspace_migration.py` and
+`apply_posix_workspace_migration.py` tools under `scripts/security/` (see each
+`--help`). Review conflicts before applying; the apply step requires
+`--writers-stopped` and validates copied file hashes. Keep the original store
+until verification and backups are complete, then switch all services together.
+Do not delete old files merely because the environment variable was changed.
+
+### Dependency verification
+
+Python 3.11.16, uv 0.12.19, Node.js 24.21.0, pnpm 10.34.4 and Codex CLI
+0.157.1 are the current installation pins. The native bootstrap and container
+builds install the runtime used by Goal and app-server conversations. After
+updating dependency manifests, regenerate all three hashed runtime locks
+(root, Engine and sandbox), then run:
+
+```bash
+python3 scripts/verify_dependency_locks.py
+./scripts/sync_python_env.sh
+./scripts/native_dev_up.sh check-runtime
+```
+
+Run the last two commands only on a prepared installation, as its service user.
+`check-runtime` checks executable/browser availability; it is not a replacement
+for login, sandbox startup, file preview and Workflow execution acceptance.

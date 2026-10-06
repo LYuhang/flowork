@@ -51,7 +51,10 @@ if (!manifest.viewports.some((viewport) => viewport.width === 560)) {
   failures.push('inventory must include the required 560px viewport');
 }
 if (routeIds.size !== manifest.routes.length) failures.push('route ids must be unique');
-if (manifest.routes.length !== 27) failures.push(`expected 27 routes, found ${manifest.routes.length}`);
+const expectedRouteIds = [...routeAudit.matchAll(/\['[^']+', '([^']+)'\]/g)].map(match => match[1]);
+for (const id of expectedRouteIds) {
+  if (!routeIds.has(id)) failures.push(`route missing from locale inventory: ${id}`);
+}
 
 for (const route of manifest.routes) {
   if (!routeAudit.includes(`'${route.id}'`)) {

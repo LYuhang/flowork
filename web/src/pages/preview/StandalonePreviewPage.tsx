@@ -1,5 +1,6 @@
 import { parseWorkflowFocus } from '@/lib/preview/workflow-reference';
-import { PreviewOriginProvider, previewOriginFromSearch, originChatHref } from '@/lib/preview/context-origin';
+import { PreviewOriginProvider } from '@/lib/preview/PreviewOriginProvider';
+import { previewOriginFromSearch, originChatHref } from '@/lib/preview/context-origin';
 import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { ArrowLeft, FileText, Network, X } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router';

@@ -13,7 +13,6 @@ from vibecanvas_api.services.agent_resources.authorization import (
     _require_active_chat_write,
     _require_workflow_read,
     _service,
-    _workflow_resource,
 )
 from vibecanvas_api.services.agent_resources.workflow_graph import (
     _auto_tidy_workflow,

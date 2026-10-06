@@ -450,9 +450,7 @@ export function EmbedChatPage() {
   }, [binding, extensionAuthenticated, seeded]);
 
   // Renewing a capability must preserve the mounted chat, draft and settings.
-  useEffect(() => {
-    if (!binding && extensionAuthenticated && wf) setShellReady(true);
-  }, [binding, extensionAuthenticated, wf]);
+  if (!shellReady && !binding && extensionAuthenticated && wf) setShellReady(true);
 
   const retryBinding = useCallback(() => {
     setBinding(true);

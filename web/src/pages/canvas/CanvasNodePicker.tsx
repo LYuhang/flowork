@@ -35,13 +35,16 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
   const { viewportCenterFlowPos } = useCanvasViewport();
   const input = useRef<HTMLInputElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  useEffect(() => { if (readOnly) setOpen(false); }, [readOnly]);
+  if (readOnly && open) setOpen(false);
   useEffect(() => {
     if (!pendingId || !nodes.some((node) => node.id === pendingId)) return;
-    setNodes((items) => items.map((node) => ({ ...node, selected: node.id === pendingId })));
-    useUIStore.getState().requestInspectorTab('auto', 'node');
-    useUIStore.getState().setInspectorOpen(true);
-    setPendingId(null);
+    const frame = requestAnimationFrame(() => {
+      setNodes((items) => items.map((node) => ({ ...node, selected: node.id === pendingId })));
+      useUIStore.getState().requestInspectorTab('auto', 'node');
+      useUIStore.getState().setInspectorOpen(true);
+      setPendingId(null);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [nodes, pendingId, setNodes]);
   const show = (anchor?: NodePickerPoint) => {
     if (readOnly || useUIStore.getState().canvasReadOnly) return;
@@ -69,7 +72,7 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
     const description = t(nodeDescKey(type), '');
     return <CommandItem key={prefix + type} value={prefix + type} keywords={[type, label, description, NODE_LABELS[type], NODE_SEARCH_ALIASES[type] ?? '']}
       data-node-picker-type={type} onSelect={() => insert(type)} className="cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5">
-      <span className="mt-0.5 rounded-md p-1.5" style={{ color: NODE_COLORS[type], backgroundColor: `${NODE_COLORS[type] ?? '#64748b'}12` }}><Icon className="h-4 w-4" aria-hidden="true" /></span>
+      <span className="mt-0.5 rounded-md p-1.5" style={{ color: NODE_COLORS[type], backgroundColor: `color-mix(in srgb, ${NODE_COLORS[type] ?? 'var(--muted-foreground)'} 7%, transparent)` }}><Icon className="h-4 w-4" aria-hidden="true" /></span>
       <span className="min-w-0"><span className="block text-[13px] font-medium">{label}</span><span className="block text-xs leading-5 text-muted-foreground">{description}</span></span>
     </CommandItem>;
   };

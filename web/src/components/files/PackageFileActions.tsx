@@ -100,7 +100,7 @@ export function PackageFileActions({ path, mimeType, required = false, operation
         </DialogHeader>
         {mode !== 'delete' && <div className="space-y-3 min-w-0">
           <div className="space-y-1.5"><Label htmlFor="package-file-path">{t('files.manage.path')}</Label>
-            <Input id="package-file-path" value={name} disabled={pending || mode === 'edit' || mode === 'replace'} placeholder="references/notes.md" onChange={e => setName(e.target.value)} />
+            <Input id="package-file-path" value={name} disabled={pending || mode === 'edit' || mode === 'replace'} placeholder={t('files.manage.pathPlaceholder')} onChange={e => setName(e.target.value)} />
           </div>
           {textMode ? <div className="space-y-1.5"><Label htmlFor="package-file-content">{t('files.manage.content')}</Label>
             <Textarea id="package-file-content" spellCheck={false} className="h-[50vh] min-h-48 resize-y font-mono text-xs leading-5" value={value} disabled={pending || !readable} onChange={e => setValue(e.target.value)} />

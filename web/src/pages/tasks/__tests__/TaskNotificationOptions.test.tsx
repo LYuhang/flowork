@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { TaskNotificationOptions, emptyNotifications, notificationsValid } from '../TaskNotificationOptions';
+import { TaskNotificationOptions } from '../TaskNotificationOptions';
+import { emptyNotifications, notificationsValid } from '../task-notifications';
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: string) => fallback }) }));
 function Form() {
   const [value, onChange] = useState(emptyNotifications);

@@ -37,7 +37,7 @@ export function DateTimePicker({ value, onChange, disabled }: {
   const firstDay = new Date(year, month, 1).getDay();
   const days = new Date(year, month + 1, 0).getDate();
   return <div className="flex gap-1.5">
-    <Input aria-label={t('tasks.scheduled.runAt', 'Run once at')} type="text" placeholder="YYYY-MM-DD HH:mm:ss"
+    <Input aria-label={t('tasks.scheduled.runAt', 'Run once at')} type="text" placeholder={t('dateTime.placeholder')}
       value={value.replace('T', ' ')} disabled={disabled} onChange={event => onChange(event.target.value.replace(' ', 'T'))} />
     <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger asChild>

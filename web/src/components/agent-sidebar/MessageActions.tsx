@@ -100,7 +100,7 @@ export function MessageActions({ chatId, messageId, content, timestamp }: {
       {timeLabel && timestamp !== undefined && <time
         dateTime={new Date(timestamp * 1000).toISOString()}
         title={formatTime(timestamp, { dateStyle: 'long', timeStyle: 'long' })}
-        className="ml-2 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+        className="ml-2 whitespace-nowrap text-xs tabular-nums text-muted-foreground"
       >{timeLabel}</time>}
       <span role="status" className="sr-only">{copied ? t('chat.actions.copied', 'Copied') : ''}</span>
     </div>

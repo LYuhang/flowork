@@ -57,7 +57,6 @@ from vibecanvas_api.authorization.projection import (
 from vibecanvas_api.authorization.service import (
     AuthorizationDeniedError,
     AuthzService,
-    batch_resource_decisions,
 )
 from vibecanvas_api.authorization.stream_guard import (
     authorization_lease_is_valid,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /** Mount message bodies only on demand; page long runs to bound DOM work. */
@@ -6,7 +6,12 @@ export function ExecutionTraces({ messages }: { messages: unknown[] }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState(20);
-  useEffect(() => { setCount(20); setOpen(false); }, [messages]);
+  const [previousMessages, setPreviousMessages] = useState(messages);
+  if (previousMessages !== messages) {
+    setPreviousMessages(messages);
+    setCount(20);
+    setOpen(false);
+  }
   return <details open={open} className="rounded-md border p-2 text-xs" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary className="cursor-pointer font-medium">
       {t('inspector.node.execution_traces', 'Execution traces')} <code>__traces__</code> · {messages.length}

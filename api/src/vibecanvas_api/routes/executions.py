@@ -1227,7 +1227,6 @@ async def _produce_node_execution(
         if stop.is_set():
             yield "EXEC_UPDATE", await _record_cancelled()
             return
-        workflow_run_id = wf_id
         session = await _acquire_canvas_execution_session(
             tenant_id, creator_user_id, wf_id, workflow_tenant_id,
         )

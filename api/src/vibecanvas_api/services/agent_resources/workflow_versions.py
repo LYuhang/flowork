@@ -5,8 +5,6 @@ from vibecanvas_api.services.agent_resources.authorization import (
     _workflow_decision,
     _require_active_chat_write,
     _require_workflow_read,
-    _service,
-    _workflow_resource,
 )
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo

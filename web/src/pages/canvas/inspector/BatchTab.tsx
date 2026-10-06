@@ -19,7 +19,8 @@
  *      A no-batch-yet empty state when the list is empty.
  */
 import { EvaluationEditor } from '@/pages/tasks/EvaluationEditor';
-import { TaskNotificationOptions, emptyNotifications, notificationsValid } from '@/pages/tasks/TaskNotificationOptions';
+import { TaskNotificationOptions } from '@/pages/tasks/TaskNotificationOptions';
+import { emptyNotifications, notificationsValid } from '@/pages/tasks/task-notifications';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

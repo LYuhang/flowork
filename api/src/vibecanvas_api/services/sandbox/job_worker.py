@@ -40,7 +40,7 @@ def run_job(job: dict) -> dict:
     from vibecanvas_api.sandbox_entry import run_one
 
     if job.get("kind") == "prewarm":
-        from vibecanvas_engine.workflow import Workflow
+        from vibecanvas_engine.workflow import Workflow  # noqa: F401 -- load engine before accepting work
         return {"status": "success"}
 
     try:

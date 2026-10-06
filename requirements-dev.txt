@@ -81,7 +81,7 @@ langchain-protocol==0.0.18
 langgraph==1.2.10
 langgraph-checkpoint==4.1.1
 langgraph-prebuilt==1.1.0
-langgraph-sdk==0.4.2
+langgraph-sdk==0.4.5
 langsmith==0.9.3
 lupa==2.8
 lxml==6.1.1
@@ -143,9 +143,9 @@ pydantic-settings==2.14.2
 pydantic_core==2.46.4
 pyee==13.0.1
 Pygments==2.20.0
-PyJWT==2.13.0
+PyJWT==2.15.1
 pyOpenSSL==26.4.0
-pypdf==6.16.1
+pypdf==6.19.0
 pyperclip==1.11.0
 pyproject_hooks==1.2.0
 pytest==9.0.3
@@ -191,7 +191,7 @@ typing_extensions==4.15.0
 tzdata==2026.2
 tzlocal==5.3.1
 uncalled-for==0.3.2
-urllib3==2.7.0
+urllib3==2.8.0
 uuid_utils==0.15.0
 uvicorn==0.46.0
 uvloop==0.22.1

@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { PreviewContextMenu } from './preview/PreviewContextMenu';
-import { PreviewOriginProvider } from '@/lib/preview/context-origin';
-import { lazy, Suspense, useCallback, useRef, useState } from 'react';
+import { PreviewOriginProvider } from '@/lib/preview/PreviewOriginProvider';
+import { lazy, Suspense, useCallback, useState } from 'react';
 import { ChevronDown, MessageSquare, PanelRightClose, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -68,18 +68,22 @@ export function ChatPreviewPane({
     : null;
   const isFullPanePreview = activeInteractive?.artifact.component_type === 'url_preview'
     || activeInteractive?.artifact.component_type === 'workflow_preview';
-  const fileViewerRef = useRef<ChatFilePreviewHandle>(null);
+  const [fileViewer, setFileViewer] = useState<ChatFilePreviewHandle | null>(null);
   const runWithActiveLeaveGuard = useCallback((action: () => void) => {
-    if (active?.resource.kind === 'file' && fileViewerRef.current) {
-      fileViewerRef.current.requestLeave(action);
+    if (active?.resource.kind === 'file' && fileViewer) {
+      fileViewer.requestLeave(action);
       return;
     }
     action();
-  }, [active]);
+  }, [active, fileViewer]);
   const openFileWithActiveLeaveGuard = useCallback((path: string) => {
     if (!onOpenInteractiveFile) return;
     runWithActiveLeaveGuard(() => onOpenInteractiveFile(path));
   }, [onOpenInteractiveFile, runWithActiveLeaveGuard]);
+
+  const openResourceWithActiveLeaveGuard = useCallback((item: ChatPreviewItem) => {
+    if (item.id !== active?.id) runWithActiveLeaveGuard(() => onOpenResource(item));
+  }, [active?.id, runWithActiveLeaveGuard, onOpenResource]);
 
   if (!open) return null;
 
@@ -125,8 +129,7 @@ export function ChatPreviewPane({
                 key={item.id}
                 className="min-w-0"
                 onClick={() => {
-                  if (item.id === active?.id) return;
-                  runWithActiveLeaveGuard(() => onOpenResource(item));
+                  openResourceWithActiveLeaveGuard(item);
                 }}
               >
                 <span className="min-w-0 flex-1 truncate">{item.title}</span>
@@ -178,7 +181,7 @@ export function ChatPreviewPane({
         ) : active.resource.kind === 'file' ? (
           <Suspense fallback={<AsyncState kind="loading" title={t('chat.preview.loadingFile', 'Loading file...')} />}>
             <ChatFilePreview
-              ref={fileViewerRef}
+              ref={setFileViewer}
               fileRef={active.resource.fileRef}
               onOpenFile={openFileWithActiveLeaveGuard}
             />

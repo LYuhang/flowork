@@ -9,7 +9,7 @@ import { copyText } from '@/lib/api/chat-engagement';
 
 type QuoteAttachment = components['schemas']['QuoteContextAttachment'];
 
-export function buildMessageQuote(chatId: string, messageId: string, text: string, label: string): QuoteAttachment {
+function buildMessageQuote(chatId: string, messageId: string, text: string, label: string): QuoteAttachment {
   if (!text.trim()) throw new Error('empty_quote');
   if (text.length > 32768) throw new Error('quote_too_large');
   return {schema_version:1,id:crypto.randomUUID(),type:'quote',label,

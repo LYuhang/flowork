@@ -1,7 +1,7 @@
 name: Flowork authorization model
 model_file: ./fga.mod
 tuples:
-  # Organization roles are deliberately disjoint. In particular, guests are
+  # Owners and admins inherit membership. Guests are
   # not organization#member subjects and receive only explicit shares.
   - user: user:alice
     relation: owner
@@ -271,7 +271,7 @@ tests:
         object: workflow:org-visible
         assertions:
           can_view_metadata: true
-          can_view: false
+          can_view: true
 
   - name: guest auditor and admin matrix for content resources
     check:
@@ -629,4 +629,5 @@ tests:
             - workflow:guest-explicit
             - workflow:org-visible
             - workflow:shared
-          can_view: []
+          can_view:
+            - workflow:org-visible

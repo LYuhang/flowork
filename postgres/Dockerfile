@@ -70,7 +70,7 @@ RUN set -eux; \
 
 FROM postgres-runtime
 COPY --from=vector-build /out/ /
-COPY scripts/postgres-init/ /docker-entrypoint-initdb.d/
+COPY --chmod=0644 scripts/postgres-init/ /docker-entrypoint-initdb.d/
 COPY scripts/security/bootstrap_openfga_erasure.sh scripts/security/openfga_erasure.sql /opt/flowork/
 RUN chmod 0755 /opt/flowork/bootstrap_openfga_erasure.sh
 VOLUME /var/lib/postgresql/data

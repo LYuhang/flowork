@@ -1,4 +1,5 @@
-import { TaskNotificationOptions, emptyNotifications, notificationsValid } from './TaskNotificationOptions';
+import { TaskNotificationOptions } from './TaskNotificationOptions';
+import { emptyNotifications, notificationsValid } from './task-notifications';
 import { ScheduleTimeError, zonedWallClockToIso } from '@/lib/schedule-time';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';

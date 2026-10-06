@@ -224,7 +224,7 @@ jobs:
       - name: Install narrow Python client dependency
         run: |
           python3 -m venv "$RUNNER_TEMP/openfga-test"
-          "$RUNNER_TEMP/openfga-test/bin/python" -m pip install "httpx==0.28.1"
+          "$RUNNER_TEMP/openfga-test/bin/python" -m pip install "httpx==0.28.1" "structlog==25.5.0"
       - name: Verify pinned OpenFGA against independent PostgreSQL
         env:
           VIBECANVAS_PYTHON: ${{ runner.temp }}/openfga-test/bin/python

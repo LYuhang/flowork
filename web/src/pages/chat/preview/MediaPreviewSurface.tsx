@@ -1,5 +1,5 @@
 import { PreviewToolbar } from './PreviewToolbar';
-import { useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -29,7 +29,8 @@ export function MediaPreviewSurface({
   const [zoom, setZoom] = useState(1);
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const [ready, setReady] = useState(false);
-  const reference = renderTimeReference?.(() => mediaRef.current?.currentTime ?? 0, ready);
+  const getTime = useCallback(() => mediaRef.current?.currentTime ?? 0, []);
+  const reference = renderTimeReference ? <TimeReferenceSlot render={renderTimeReference} getTime={getTime} ready={ready} /> : null;
 
   if (kind === 'image') {
     return (
@@ -121,4 +122,8 @@ export function MediaPreviewSurface({
       </div>
     </div>
   );
+}
+
+function TimeReferenceSlot({ render, getTime, ready }: { render: NonNullable<MediaPreviewSurfaceProps['renderTimeReference']>; getTime: () => number; ready: boolean }) {
+  return render(getTime, ready);
 }

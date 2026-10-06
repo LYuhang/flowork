@@ -10,7 +10,7 @@ Contract:
 
 from __future__ import annotations
 
-import inspect
+import threading
 
 import pytest
 
@@ -43,16 +43,28 @@ def test_codenode_declares_thread_bridge():
     )
 
 
-def test_dispatch_has_no_codenode_special_case():
-    """The dispatcher routes CodeNode through the generic REQUIRES_THREAD_BRIDGE
-    branch — no ``node_type == 'CodeNode'`` / ``call_async`` special-case."""
-    from vibecanvas_engine.nodes import exec as exec_mod
+@pytest.mark.asyncio
+async def test_dispatch_runs_code_off_loop_and_prepares_pool_on_loop():
+    """Code stays off-loop while its pool is owned before execution starts."""
+    from vibecanvas_engine.nodes.exec import dispatch_node_call
 
-    src = inspect.getsource(exec_mod)
-    assert "call_async" not in src, (
-        "nodes/exec.py still references call_async — CodeNode special-case not removed"
-    )
-    assert 'node.node_type == "CodeNode"' not in src, (
-        "nodes/exec.py must not special-case CodeNode by node_type"
-    )
-    assert "REQUIRES_THREAD_BRIDGE" in src
+    loop_thread = threading.get_ident()
+    calls = []
+
+    class CodeProbe:
+        node_type = "CodeNode"
+        REQUIRES_THREAD_BRIDGE = True
+
+        def _get_run_pool(self, extra):
+            calls.append(("pool", threading.get_ident()))
+            return None
+
+        def __call__(self, inputs, previous_outputs, *, extra):
+            calls.append(("call", threading.get_ident()))
+            return {"status": "success", "output": inputs}
+
+    result = await dispatch_node_call(CodeProbe(), {"answer": 42}, {})
+    assert result["output"] == {"answer": 42}
+    assert calls[0] == ("pool", loop_thread)
+    assert calls[1][0] == "call"
+    assert calls[1][1] != loop_thread

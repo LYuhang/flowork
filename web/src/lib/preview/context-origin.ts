@@ -1,5 +1,5 @@
 import { getBasePath } from '@/lib/base-path';
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext } from 'react';
 
 /** The conversation that opened this preview; never inferred from resource ownership. */
 export interface PreviewOrigin {
@@ -7,11 +7,8 @@ export interface PreviewOrigin {
   messageId?: string;
   artifactId?: string;
 }
-const Context = createContext<PreviewOrigin | null>(null);
-export const usePreviewOrigin = () => useContext(Context);
-export function PreviewOriginProvider({ origin, children }: { origin: PreviewOrigin | null; children: ReactNode }) {
-  return <Context.Provider value={origin}>{children}</Context.Provider>;
-}
+export const PreviewOriginContext = createContext<PreviewOrigin | null>(null);
+export const usePreviewOrigin = () => useContext(PreviewOriginContext);
 export function previewOriginFromSearch(search: URLSearchParams): PreviewOrigin | null {
   const chatId = search.get('originChatId')?.trim();
   if (!chatId || chatId.length > 512) return null;

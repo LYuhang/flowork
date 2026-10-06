@@ -48,6 +48,9 @@ interface RouteFixture {
 
 const ROUTES: readonly RouteFixture[] = [
   { id: 'root', path: () => '/' },
+  { id: 'workflow-execution-error', path: () => `/workflow-executions/${MISSING_UUID}`, screenshot: true, expectedNotFound: true },
+  { id: 'chat-open-error', path: () => `/chat/open/${MISSING_UUID}`, screenshot: true, expectedNotFound: true },
+  { id: 'permissions', path: () => '/permissions', screenshot: true },
   { id: 'chat', path: () => '/chat', screenshot: true },
   { id: 'shared-chat-error', path: () => '/share/missing', screenshot: true, expectedNotFound: true },
   { id: 'standalone-preview-error', path: () => '/preview', screenshot: true },

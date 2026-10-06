@@ -2,7 +2,7 @@ import '@/lib/i18n';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { expect, it, vi } from 'vitest';
-import { PreviewOriginProvider } from '@/lib/preview/context-origin';
+import { PreviewOriginProvider } from '@/lib/preview/PreviewOriginProvider';
 import { PreviewContextMenu } from '../PreviewContextMenu';
 const {add,get}=vi.hoisted(()=>({add:vi.fn(),get:vi.fn()}));
 vi.mock('@/lib/api/context-draft',()=>({addContextToChat:add,fetchContextDraft:get}));

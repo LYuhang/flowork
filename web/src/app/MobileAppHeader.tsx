@@ -34,9 +34,11 @@ export function MobileAppHeader() {
   const section = location.pathname.split('/').filter(Boolean)[0] ?? 'chat';
   const label = SECTION_LABELS[section] ?? { key: 'ws_title', fallback: 'Flowork' };
 
-  useEffect(() => {
+  const [locationKey, setLocationKey] = useState(location.key);
+  if (locationKey !== location.key) {
+    setLocationKey(location.key);
     setOpen(false);
-  }, [location.key]);
+  }
 
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 768px)');

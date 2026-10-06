@@ -1,8 +1,8 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { useContext, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-/** Renderer actions share the file toolbar instead of adding another header. */
-export const PreviewToolbarHost = createContext<HTMLElement | null | undefined>(undefined);
+import { PreviewToolbarHost } from './preview-toolbar-context';
+
 export function PreviewToolbar({ children }: { children: ReactNode }) {
   const host = useContext(PreviewToolbarHost);
   const content = <div className="flex shrink-0 items-center gap-1" data-role="preview-renderer-actions">{children}</div>;

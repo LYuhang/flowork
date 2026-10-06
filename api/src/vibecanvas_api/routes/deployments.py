@@ -72,7 +72,6 @@ from vibecanvas_api.authorization.projection import (
 from vibecanvas_api.authorization.service import (
     AuthorizationDeniedError,
     AuthzService,
-    batch_resource_decisions,
 )
 from vibecanvas_api.authorization.types import (
     Action,

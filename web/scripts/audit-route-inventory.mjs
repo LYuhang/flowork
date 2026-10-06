@@ -6,6 +6,9 @@ const visualMatrix = await readFile(resolve('e2e/15-route-visual-matrix.spec.ts'
 
 const inventory = [
   ['/', 'root'],
+  ['workflow-executions/:executionId', 'workflow-execution-error'],
+  ['chat/open/:chatId', 'chat-open-error'],
+  ['permissions', 'permissions'],
   ['embed/chat', 'embed-chat'],
   ['login', 'login'],
   ['signup', 'signup'],

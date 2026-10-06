@@ -1,117 +1,1126 @@
 {
   "version": 2,
-  "locales": ["en", "zh"],
+  "locales": [
+    "en",
+    "zh"
+  ],
   "viewports": [
-    { "id": "desktop", "width": 1440, "height": 900 },
-    { "id": "narrow", "width": 560, "height": 900 }
+    {
+      "id": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "id": "narrow",
+      "width": 560,
+      "height": 900
+    }
   ],
   "routes": [
-    { "id": "root", "path": "/" },
-    { "id": "embed-chat", "path": "/embed/chat" },
-    { "id": "login", "path": "/login" },
-    { "id": "signup", "path": "/signup" },
-    { "id": "reset-password", "path": "/reset-password" },
-    { "id": "chat", "path": "/chat" },
-    { "id": "standalone-preview-error", "path": "/preview" },
-    { "id": "workspace", "path": "/workspace" },
-    { "id": "management", "path": "/management" },
-    { "id": "tasks", "path": "/tasks" },
-    { "id": "task-detail-error", "path": "/tasks/:taskId" },
-    { "id": "task-results-error", "path": "/tasks/:taskId/results" },
-    { "id": "deployments", "path": "/deployments" },
-    { "id": "deployment-detail-error", "path": "/deployments/:depId" },
-    { "id": "credentials", "path": "/credentials" },
-    { "id": "mcp-servers", "path": "/mcp-servers" },
-    { "id": "mcp-catalog-detail-error", "path": "/mcp-servers/discover/:source" },
-    { "id": "mcp-detail-error", "path": "/mcp-servers/:id" },
-    { "id": "skills", "path": "/skills" },
-    { "id": "skill-catalog-detail-error", "path": "/skills/discover/:source" },
-    { "id": "skill-detail-error", "path": "/skills/:id" },
-    { "id": "storage", "path": "/storage" },
-    { "id": "knowledge", "path": "/knowledge" },
-    { "id": "knowledge-detail-error", "path": "/knowledge/:kbId" },
-    { "id": "workflow", "path": "/workflow/:wfId" },
-    { "id": "workflow-version", "path": "/workflow/:wfId/version/:vKey" },
-    { "id": "settings", "path": "/settings" },
-    { "id": "openrouter-callback-error", "path": "/settings/openrouter/callback/:openrouterState" }
+    {
+      "id": "root",
+      "path": "/"
+    },
+    {
+      "id": "workflow-execution-error",
+      "path": "/workflow-executions/:executionId"
+    },
+    {
+      "id": "chat-open-error",
+      "path": "/chat/open/:chatId"
+    },
+    {
+      "id": "permissions",
+      "path": "/permissions"
+    },
+    {
+      "id": "embed-chat",
+      "path": "/embed/chat"
+    },
+    {
+      "id": "login",
+      "path": "/login"
+    },
+    {
+      "id": "signup",
+      "path": "/signup"
+    },
+    {
+      "id": "reset-password",
+      "path": "/reset-password"
+    },
+    {
+      "id": "chat",
+      "path": "/chat"
+    },
+    {
+      "id": "shared-chat-error",
+      "path": "/share/:token"
+    },
+    {
+      "id": "standalone-preview-error",
+      "path": "/preview"
+    },
+    {
+      "id": "workspace",
+      "path": "/workspace"
+    },
+    {
+      "id": "management",
+      "path": "/management"
+    },
+    {
+      "id": "tasks",
+      "path": "/tasks"
+    },
+    {
+      "id": "task-detail-error",
+      "path": "/tasks/:taskId"
+    },
+    {
+      "id": "task-results-error",
+      "path": "/tasks/:taskId/results"
+    },
+    {
+      "id": "deployments",
+      "path": "/deployments"
+    },
+    {
+      "id": "deployment-detail-error",
+      "path": "/deployments/:depId"
+    },
+    {
+      "id": "credentials",
+      "path": "/credentials"
+    },
+    {
+      "id": "mcp-servers",
+      "path": "/mcp-servers"
+    },
+    {
+      "id": "mcp-catalog-detail-error",
+      "path": "/mcp-servers/discover/:source"
+    },
+    {
+      "id": "mcp-detail-error",
+      "path": "/mcp-servers/:id"
+    },
+    {
+      "id": "skills",
+      "path": "/skills"
+    },
+    {
+      "id": "skill-catalog-detail-error",
+      "path": "/skills/discover/:source"
+    },
+    {
+      "id": "skill-detail-error",
+      "path": "/skills/:id"
+    },
+    {
+      "id": "storage",
+      "path": "/storage"
+    },
+    {
+      "id": "knowledge",
+      "path": "/knowledge"
+    },
+    {
+      "id": "knowledge-detail-error",
+      "path": "/knowledge/:kbId"
+    },
+    {
+      "id": "workflow",
+      "path": "/workflow/:wfId"
+    },
+    {
+      "id": "workflow-version",
+      "path": "/workflow/:wfId/version/:vKey"
+    },
+    {
+      "id": "settings",
+      "path": "/settings"
+    },
+    {
+      "id": "openrouter-callback-error",
+      "path": "/settings/openrouter/callback/:openrouterState"
+    }
   ],
   "childTabs": [
-    { "id": "login-methods", "routeId": "login", "source": "src/pages/auth/LoginPage.tsx", "tabs": ["email", "sso"], "evidence": "visible-browser" },
-    { "id": "embed-sections", "routeId": "embed-chat", "source": "src/pages/embed/EmbedShell.tsx", "tabs": ["chat", "settings"], "selectorPrefix": "embed-tab-", "requiresFixture": true, "evidence": "visible-browser", "note": "The production browserOnly embed renders Chat and Settings. Execution is not a reachable product tab." },
-    { "id": "chat-debug-views", "routeId": "chat", "source": "src/pages/chat/ChatPage.tsx", "tabs": ["activity", "context", "state", "raw"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "chat-example-categories", "routeId": "chat", "source": "src/pages/chat/EmptyChatExamples.tsx", "tabs": ["office", "diagram", "workflow", "operations", "knowledge"], "requiresFixture": true, "evidence": "focused-component" },
-    { "id": "management-sections", "routeId": "management", "source": "src/pages/management/PlatformManagementPage.tsx", "tabs": ["overview", "audit"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "management-audit-categories", "routeId": "management", "source": "src/pages/management/PlatformManagementPage.tsx", "tabs": ["identity", "access_security", "resources", "data_lifecycle", "runtime_operations"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "settings-sections", "routeId": "settings", "source": "src/pages/settings/SettingsPage.tsx", "tabs": ["preferences", "runtime", "api-keys", "extensions", "organization", "account"], "conditionalTabs": ["organization"], "fixtureTabs": ["organization", "account"], "selectorPrefix": "settings-tab-", "evidence": "automated" },
-    { "id": "organization-sections", "routeId": "settings", "source": "src/pages/settings/OrganizationSettingsPanel.tsx", "tabs": ["overview", "people", "teams", "identity", "operations"], "conditionalTabs": ["people", "identity", "operations"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "task-types", "routeId": "tasks", "source": "src/pages/tasks/TasksListPage.tsx", "tabs": ["batch_exec", "scheduled_run"], "evidence": "automated" },
-    { "id": "task-detail-sections", "routeId": "task-detail-error", "source": "src/pages/tasks/TaskDetailPage.tsx", "tabs": ["overview", "logs"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "deployment-sections", "routeId": "deployment-detail-error", "source": "src/pages/deployments/DeploymentDetailPage.tsx", "tabs": ["overview", "usage", "activity", "settings"], "conditionalTabs": ["activity", "settings"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "deployment-code-examples", "routeId": "deployment-detail-error", "source": "src/pages/deployments/DeploymentDetailPage.tsx", "tabs": ["curl", "python", "javascript"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "mcp-sections", "routeId": "mcp-servers", "source": "src/pages/mcp-servers/McpServersPage.tsx", "tabs": ["installed", "discover"], "evidence": "automated" },
-    { "id": "mcp-catalog-sections", "routeId": "mcp-catalog-detail-error", "source": "src/pages/mcp-servers/McpCatalogDetailPage.tsx", "tabs": ["overview", "setup", "connection", "security"], "conditionalTabs": ["setup", "connection"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "mcp-detail-sections", "routeId": "mcp-detail-error", "source": "src/pages/mcp-servers/McpServerDetailPage.tsx", "tabs": ["basic", "brief", "connection", "tools", "security", "config"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "skill-sections", "routeId": "skills", "source": "src/pages/skills/SkillsPage.tsx", "tabs": ["installed", "discover", "custom"], "evidence": "automated" },
-    { "id": "skill-detail-sections", "routeId": "skill-detail-error", "source": "src/pages/skills/SkillDetailPage.tsx", "tabs": ["overview", "instructions", "files", "requirements"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "skill-catalog-sections", "routeId": "skill-catalog-detail-error", "source": "src/pages/skills/SkillCatalogDetailPage.tsx", "tabs": ["overview", "instructions", "files", "requirements"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-inspector", "routeId": "workflow", "source": "src/pages/canvas/inspector/RightInspector.tsx", "tabs": ["node", "run-node", "info", "run", "batch"], "conditionalTabs": ["run-node"], "selectorPrefix": "inspector-tab-", "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-batch-source", "routeId": "workflow", "source": "src/pages/canvas/inspector/BatchTab.tsx", "tabs": ["upload", "data"], "requiresFixture": true, "evidence": "focused-component" },
-    { "id": "workflow-settings", "routeId": "workflow", "source": "src/pages/canvas/WorkflowSettingsModal.tsx", "tabs": ["timeouts", "code", "egress"], "selectorPrefix": "settings-tab-", "requiresFixture": true, "evidence": "visible-browser" }
+    {
+      "id": "login-methods",
+      "routeId": "login",
+      "source": "src/pages/auth/LoginPage.tsx",
+      "tabs": [
+        "email",
+        "sso"
+      ],
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "embed-sections",
+      "routeId": "embed-chat",
+      "source": "src/pages/embed/EmbedShell.tsx",
+      "tabs": [
+        "chat",
+        "settings"
+      ],
+      "selectorPrefix": "embed-tab-",
+      "requiresFixture": true,
+      "evidence": "visible-browser",
+      "note": "The production browserOnly embed renders Chat and Settings. Execution is not a reachable product tab."
+    },
+    {
+      "id": "chat-debug-views",
+      "routeId": "chat",
+      "source": "src/pages/chat/ChatDebugPanel.tsx",
+      "tabs": [
+        "activity",
+        "context",
+        "state",
+        "raw"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "chat-example-categories",
+      "routeId": "chat",
+      "source": "src/pages/chat/EmptyChatExamples.tsx",
+      "tabs": [
+        "office",
+        "diagram",
+        "workflow",
+        "operations",
+        "knowledge"
+      ],
+      "requiresFixture": true,
+      "evidence": "focused-component"
+    },
+    {
+      "id": "management-sections",
+      "routeId": "management",
+      "source": "src/pages/management/PlatformManagementPage.tsx",
+      "tabs": [
+        "overview",
+        "audit"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "management-audit-categories",
+      "routeId": "management",
+      "source": "src/pages/management/PlatformManagementPage.tsx",
+      "tabs": [
+        "identity",
+        "access_security",
+        "resources",
+        "data_lifecycle",
+        "runtime_operations"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "settings-sections",
+      "routeId": "settings",
+      "source": "src/pages/settings/SettingsPage.tsx",
+      "tabs": [
+        "preferences",
+        "runtime",
+        "api-keys",
+        "extensions",
+        "organization",
+        "account"
+      ],
+      "conditionalTabs": [
+        "organization"
+      ],
+      "fixtureTabs": [
+        "organization",
+        "account"
+      ],
+      "selectorPrefix": "settings-tab-",
+      "evidence": "automated"
+    },
+    {
+      "id": "organization-sections",
+      "routeId": "settings",
+      "source": "src/pages/settings/OrganizationSettingsPanel.tsx",
+      "tabs": [
+        "overview",
+        "people",
+        "teams",
+        "identity",
+        "operations"
+      ],
+      "conditionalTabs": [
+        "people",
+        "identity",
+        "operations"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "task-types",
+      "routeId": "tasks",
+      "source": "src/pages/tasks/TasksListPage.tsx",
+      "tabs": [
+        "batch_exec",
+        "scheduled_run"
+      ],
+      "evidence": "automated"
+    },
+    {
+      "id": "task-detail-sections",
+      "routeId": "task-detail-error",
+      "source": "src/pages/tasks/TaskDetailPage.tsx",
+      "tabs": [
+        "overview",
+        "logs",
+        "settings",
+        "evaluation"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser",
+      "conditionalTabs": [
+        "evaluation"
+      ]
+    },
+    {
+      "id": "deployment-sections",
+      "routeId": "deployment-detail-error",
+      "source": "src/pages/deployments/DeploymentDetailPage.tsx",
+      "tabs": [
+        "overview",
+        "usage",
+        "activity",
+        "terminal",
+        "settings"
+      ],
+      "conditionalTabs": [
+        "activity",
+        "terminal"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "deployment-code-examples",
+      "routeId": "deployment-detail-error",
+      "source": "src/pages/deployments/DeploymentDetailPage.tsx",
+      "tabs": [
+        "curl",
+        "python",
+        "javascript"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "mcp-sections",
+      "routeId": "mcp-servers",
+      "source": "src/pages/mcp-servers/McpServersPage.tsx",
+      "tabs": [
+        "installed",
+        "discover"
+      ],
+      "evidence": "automated"
+    },
+    {
+      "id": "mcp-catalog-sections",
+      "routeId": "mcp-catalog-detail-error",
+      "source": "src/pages/mcp-servers/McpCatalogDetailPage.tsx",
+      "tabs": [
+        "overview",
+        "setup",
+        "connection",
+        "security"
+      ],
+      "conditionalTabs": [
+        "setup",
+        "connection"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "mcp-detail-sections",
+      "routeId": "mcp-detail-error",
+      "source": "src/pages/mcp-servers/McpServerDetailPage.tsx",
+      "tabs": [
+        "basic",
+        "brief",
+        "connection",
+        "tools",
+        "security",
+        "config"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "skill-sections",
+      "routeId": "skills",
+      "source": "src/pages/skills/SkillsPage.tsx",
+      "tabs": [
+        "all",
+        "discover"
+      ],
+      "evidence": "automated"
+    },
+    {
+      "id": "skill-detail-sections",
+      "routeId": "skill-detail-error",
+      "source": "src/pages/skills/SkillDetailPage.tsx",
+      "tabs": [
+        "files",
+        "overview"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "skill-catalog-sections",
+      "routeId": "skill-catalog-detail-error",
+      "source": "src/pages/skills/SkillCatalogDetailPage.tsx",
+      "tabs": [
+        "overview",
+        "instructions",
+        "files",
+        "requirements"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-inspector",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/inspector/RightInspector.tsx",
+      "tabs": [
+        "node",
+        "run-node",
+        "info",
+        "run",
+        "batch",
+        "schedule",
+        "deploy"
+      ],
+      "conditionalTabs": [
+        "run-node",
+        "deploy"
+      ],
+      "selectorPrefix": "inspector-tab-",
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-batch-source",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/inspector/BatchTab.tsx",
+      "tabs": [
+        "upload",
+        "data"
+      ],
+      "requiresFixture": true,
+      "evidence": "focused-component"
+    },
+    {
+      "id": "workflow-settings",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/WorkflowSettingsModal.tsx",
+      "tabs": [
+        "timeouts",
+        "code",
+        "egress"
+      ],
+      "selectorPrefix": "settings-tab-",
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "readonly-node-details",
+      "routeId": "workflow-execution-error",
+      "source": "src/pages/canvas/inspector/ReadOnlyNodeDetails.tsx",
+      "tabs": [
+        "node",
+        "run-node"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser",
+      "note": "Acceptance surface inventory; requires browser fixture, not a claim of a completed test."
+    },
+    {
+      "id": "knowledge-details",
+      "routeId": "knowledge-detail-error",
+      "source": "src/pages/knowledge/KnowledgeDetailPage.tsx",
+      "tabs": [
+        "files",
+        "overview"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser",
+      "note": "Acceptance surface inventory; requires browser fixture, not a claim of a completed test."
+    }
   ],
   "modals": [
-    { "id": "chat-share", "routeIds": ["chat", "embed-chat"], "source": "src/components/agent-sidebar/ChatShareDialog.tsx", "dialogCount": 1, "variants": ["share-chat-snapshot"], "requiresFixture": true, "evidence": "focused-component" },
-    { "id": "shell-chat-actions", "routeId": "chat", "source": "src/app/AppSidebar.tsx", "dialogCount": 2, "variants": ["rename-chat", "delete-chat"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "command-palette", "routeId": "root", "source": "src/components/command-palette/CommandPalette.tsx", "dialogCount": 0, "variants": ["command-palette"], "wrappedBy": "src/components/ui/command.tsx", "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "agent-settings", "routeId": "chat", "source": "src/components/agent-sidebar/AgentSettingsModal.tsx", "dialogCount": 1, "variants": ["agent-settings"], "requiresFixture": true, "reachable": false, "evidence": "focused-component", "note": "The only production mount is EmbedShell, which intentionally passes showEmbeddedSettingsButton=false. Restore an explicit product entry point before visible acceptance." },
-    { "id": "step-up-authentication", "routeId": "root", "source": "src/components/auth/StepUpDialog.tsx", "dialogCount": 1, "variants": ["passkey-step-up"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "prompt-diff", "routeId": "workflow", "source": "src/components/modals/PromptDiffDialog.tsx", "dialogCount": 1, "variants": ["prompt-version-diff"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "resource-share", "routeIds": ["workspace", "tasks", "task-detail-error", "deployments", "deployment-detail-error", "knowledge-detail-error"], "source": "src/components/modals/ResourceShareDialog.tsx", "dialogCount": 1, "variants": ["share-resource"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-check", "routeId": "workflow", "source": "src/components/modals/WorkflowCheckDialog.tsx", "dialogCount": 1, "variants": ["workflow-check"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-toolbar-dialogs", "routeId": "workflow", "source": "src/pages/canvas/CanvasToolbar.tsx", "dialogCount": 2, "variants": ["close-sandbox", "confirm-upload"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-unsaved", "routeId": "workflow", "source": "src/pages/canvas/UnsavedChangesDialog.tsx", "dialogCount": 1, "variants": ["unsaved-changes"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-settings", "routeId": "workflow", "source": "src/pages/canvas/WorkflowSettingsModal.tsx", "dialogCount": 1, "variants": ["workflow-settings"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-file-actions", "routeId": "workflow", "source": "src/pages/canvas/explorer/VfsItemMenu.tsx", "dialogCount": 3, "variants": ["rename", "replace-existing-file", "delete"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-field-editor", "routeId": "workflow", "source": "src/pages/canvas/inspector/FieldValueWidget.tsx", "dialogCount": 1, "variants": ["expanded-field-value"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-code-editor", "routeId": "workflow", "source": "src/pages/canvas/inspector/config-editors/ExpandedCodeMirrorDialog.tsx", "dialogCount": 1, "variants": ["expanded-code-editor"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "chat-close-sandbox", "routeId": "chat", "source": "src/pages/chat/ChatPage.tsx", "dialogCount": 1, "variants": ["close-sandbox"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "chat-file-preview", "routeId": "chat", "source": "src/pages/chat/preview/ChatFilePreview.tsx", "dialogCount": 1, "variants": ["discard-preview-edits"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "credential-form", "routeId": "settings", "source": "src/pages/credentials/CredentialFormDialog.tsx", "dialogCount": 1, "variants": ["create-or-edit-credential"], "path": "/settings?tab=api-keys", "trigger": "[data-testid=cred-add-button]", "dialog": "[role=dialog]", "evidence": "automated" },
-    { "id": "credential-actions", "routeId": "settings", "source": "src/pages/credentials/CredentialsPage.tsx", "dialogCount": 1, "variants": ["delete-credential"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "deployment-create", "routeId": "deployments", "source": "src/pages/deployments/CreateDeploymentModal.tsx", "dialogCount": 1, "variants": ["create-deployment"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "deployment-detail-actions", "routeId": "deployment-detail-error", "source": "src/pages/deployments/DeploymentDetailPage.tsx", "dialogCount": 2, "variants": ["rotate-key-confirm", "one-time-key"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "deployment-list-actions", "routeId": "deployments", "source": "src/pages/deployments/DeploymentsListPage.tsx", "dialogCount": 2, "variants": ["delete-deployment", "enable-or-disable-deployment"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "knowledge-detail-actions", "routeId": "knowledge-detail-error", "source": "src/pages/knowledge/KnowledgeDetailPage.tsx", "dialogCount": 1, "variants": ["rename-knowledge"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "knowledge-create", "routeId": "knowledge", "source": "src/pages/knowledge/KnowledgeListPage.tsx", "dialogCount": 2, "variants": ["create-knowledge", "import-knowledge-folder"], "trigger": "button", "dialog": "[role=dialog]", "evidence": "automated" },
-    { "id": "mcp-catalog-install", "routeId": "mcp-catalog-detail-error", "source": "src/pages/mcp-servers/McpCatalogInstallDialog.tsx", "dialogCount": 1, "variants": ["install-catalog-mcp"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "mcp-detail-actions", "routeId": "mcp-detail-error", "source": "src/pages/mcp-servers/McpServerDetailPage.tsx", "dialogCount": 1, "variants": ["uninstall-mcp"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "mcp-form", "routeId": "mcp-servers", "source": "src/pages/mcp-servers/McpServerFormDialog.tsx", "dialogCount": 1, "variants": ["create-or-edit-mcp"], "trigger": "[data-testid=mcp-add-button]", "dialog": "[role=dialog]", "evidence": "automated" },
-    { "id": "mcp-list-actions", "routeId": "mcp-servers", "source": "src/pages/mcp-servers/McpServersPage.tsx", "dialogCount": 1, "variants": ["uninstall-mcp"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "enterprise-identity-actions", "routeId": "settings", "source": "src/pages/settings/EnterpriseIdentityPanel.tsx", "dialogCount": 3, "variants": ["add-identity-provider", "oidc-client-auth", "issued-scim-token"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "organization-actions", "routeId": "settings", "source": "src/pages/settings/OrganizationSettingsPanel.tsx", "dialogCount": 3, "variants": ["service-account-action", "create-group", "add-group-member"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "passkey-actions", "routeId": "settings", "source": "src/pages/settings/PasskeySecuritySection.tsx", "dialogCount": 2, "variants": ["add-passkey", "remove-passkey"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "settings-account-actions", "routeId": "settings", "source": "src/pages/settings/SettingsPage.tsx", "dialogCount": 2, "variants": ["disconnect-codex", "delete-account"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "skill-catalog-install", "routeId": "skill-catalog-detail-error", "source": "src/pages/skills/SkillCatalogInstallDialog.tsx", "dialogCount": 1, "variants": ["install-catalog-skill"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "skill-detail-actions", "routeId": "skill-detail-error", "source": "src/pages/skills/SkillDetailPage.tsx", "dialogCount": 3, "variants": ["unsaved-skill", "uninstall-skill", "publish-version"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "skill-list-actions", "routeId": "skills", "source": "src/pages/skills/SkillsPage.tsx", "dialogCount": 2, "variants": ["uninstall-skill", "upload-skill-package"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "storage-actions", "routeId": "storage", "source": "src/pages/storage/StoragePage.tsx", "dialogCount": 4, "variants": ["discard-preview-edits", "new-folder", "rename", "delete"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "task-list-actions", "routeId": "tasks", "source": "src/pages/tasks/TasksListPage.tsx", "dialogCount": 1, "variants": ["cancel-task"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-create", "routeId": "workspace", "source": "src/pages/workspace/CreateWorkflowDialog.tsx", "dialogCount": 1, "variants": ["create-workflow"], "trigger": "button", "dialog": "[role=dialog]", "evidence": "automated" },
-    { "id": "workflow-delete", "routeId": "workspace", "source": "src/pages/workspace/DeleteWorkflowDialog.tsx", "dialogCount": 1, "variants": ["delete-workflow"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-duplicate", "routeId": "workspace", "source": "src/pages/workspace/DuplicateWorkflowDialog.tsx", "dialogCount": 1, "variants": ["duplicate-workflow"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-edit-info", "routeId": "workspace", "source": "src/pages/workspace/EditWorkflowInfoDialog.tsx", "dialogCount": 1, "variants": ["edit-workflow-info"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "workflow-row-actions", "routeId": "workspace", "source": "src/pages/workspace/WorkflowRow.tsx", "dialogCount": 1, "variants": ["close-workflow-sandbox"], "requiresFixture": true, "evidence": "visible-browser" }
+    {
+      "id": "chat-share",
+      "routeIds": [
+        "chat",
+        "embed-chat"
+      ],
+      "source": "src/components/agent-sidebar/ChatShareDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "share-chat-snapshot"
+      ],
+      "requiresFixture": true,
+      "evidence": "focused-component"
+    },
+    {
+      "id": "shell-chat-actions",
+      "routeId": "chat",
+      "source": "src/app/AppSidebar.tsx",
+      "dialogCount": 6,
+      "variants": [
+        "release-project",
+        "create-project",
+        "rename-project",
+        "delete-project",
+        "rename-chat",
+        "delete-chat"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "command-palette",
+      "routeId": "root",
+      "source": "src/components/command-palette/CommandPalette.tsx",
+      "dialogCount": 0,
+      "variants": [
+        "command-palette"
+      ],
+      "wrappedBy": "src/components/ui/command.tsx",
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "agent-settings",
+      "routeId": "chat",
+      "source": "src/components/agent-sidebar/AgentSettingsModal.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "agent-settings"
+      ],
+      "requiresFixture": true,
+      "reachable": false,
+      "evidence": "focused-component",
+      "note": "The only production mount is EmbedShell, which intentionally passes showEmbeddedSettingsButton=false. Restore an explicit product entry point before visible acceptance."
+    },
+    {
+      "id": "step-up-authentication",
+      "routeId": "root",
+      "source": "src/components/auth/StepUpDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "passkey-step-up"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "prompt-diff",
+      "routeId": "workflow",
+      "source": "src/components/modals/PromptDiffDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "prompt-version-diff"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "resource-share",
+      "routeIds": [
+        "workspace",
+        "tasks",
+        "task-detail-error",
+        "deployments",
+        "deployment-detail-error",
+        "knowledge-detail-error"
+      ],
+      "source": "src/components/modals/ResourceShareDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "share-resource"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-check",
+      "routeId": "workflow",
+      "source": "src/components/modals/WorkflowCheckDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "workflow-check"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-toolbar-dialogs",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/CanvasToolbar.tsx",
+      "dialogCount": 3,
+      "variants": [
+        "close-sandbox",
+        "confirm-upload",
+        "new-version"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-unsaved",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/UnsavedChangesDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "unsaved-changes"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-settings",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/WorkflowSettingsModal.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "workflow-settings"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-file-actions",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/explorer/VfsItemMenu.tsx",
+      "dialogCount": 3,
+      "variants": [
+        "rename",
+        "replace-existing-file",
+        "delete"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-field-editor",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/inspector/FieldValueWidget.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "expanded-field-value"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-code-editor",
+      "routeId": "workflow",
+      "source": "src/pages/canvas/inspector/config-editors/ExpandedCodeMirrorDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "expanded-code-editor"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "chat-file-preview",
+      "routeId": "chat",
+      "source": "src/pages/chat/preview/ChatFilePreview.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "discard-preview-edits"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "credential-form",
+      "routeId": "settings",
+      "source": "src/pages/credentials/CredentialFormDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "create-or-edit-credential"
+      ],
+      "path": "/settings?tab=api-keys",
+      "trigger": "[data-testid=cred-add-button]",
+      "dialog": "[role=dialog]",
+      "evidence": "automated"
+    },
+    {
+      "id": "credential-actions",
+      "routeId": "settings",
+      "source": "src/pages/credentials/CredentialsPage.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "delete-credential"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "deployment-create",
+      "routeId": "deployments",
+      "source": "src/pages/deployments/CreateDeploymentModal.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "create-deployment"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "deployment-detail-actions",
+      "routeId": "deployment-detail-error",
+      "source": "src/pages/deployments/DeploymentDetailPage.tsx",
+      "dialogCount": 3,
+      "variants": [
+        "review-settings",
+        "rotate-key-confirm",
+        "one-time-key"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "deployment-list-actions",
+      "routeId": "deployments",
+      "source": "src/pages/deployments/DeploymentsListPage.tsx",
+      "dialogCount": 2,
+      "variants": [
+        "delete-deployment",
+        "enable-or-disable-deployment"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "knowledge-detail-actions",
+      "routeId": "knowledge-detail-error",
+      "source": "src/pages/knowledge/KnowledgeDetailPage.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "rename-knowledge"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "knowledge-create",
+      "routeId": "knowledge",
+      "source": "src/pages/knowledge/KnowledgeListPage.tsx",
+      "dialogCount": 2,
+      "variants": [
+        "create-knowledge",
+        "import-knowledge-folder"
+      ],
+      "trigger": "button",
+      "dialog": "[role=dialog]",
+      "evidence": "automated"
+    },
+    {
+      "id": "mcp-catalog-install",
+      "routeId": "mcp-catalog-detail-error",
+      "source": "src/pages/mcp-servers/McpCatalogInstallDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "install-catalog-mcp"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "mcp-detail-actions",
+      "routeId": "mcp-detail-error",
+      "source": "src/pages/mcp-servers/McpServerDetailPage.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "uninstall-mcp"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "mcp-form",
+      "routeId": "mcp-servers",
+      "source": "src/pages/mcp-servers/McpServerFormDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "create-or-edit-mcp"
+      ],
+      "trigger": "[data-testid=mcp-add-button]",
+      "dialog": "[role=dialog]",
+      "evidence": "automated"
+    },
+    {
+      "id": "mcp-list-actions",
+      "routeId": "mcp-servers",
+      "source": "src/pages/mcp-servers/McpServersPage.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "uninstall-mcp"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "enterprise-identity-actions",
+      "routeId": "settings",
+      "source": "src/pages/settings/EnterpriseIdentityPanel.tsx",
+      "dialogCount": 3,
+      "variants": [
+        "add-identity-provider",
+        "oidc-client-auth",
+        "issued-scim-token"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "organization-actions",
+      "routeId": "settings",
+      "source": "src/pages/settings/OrganizationSettingsPanel.tsx",
+      "dialogCount": 4,
+      "variants": [
+        "service-account-action",
+        "create-group",
+        "add-group-member",
+        "add-company-member"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "passkey-actions",
+      "routeId": "settings",
+      "source": "src/pages/settings/PasskeySecuritySection.tsx",
+      "dialogCount": 2,
+      "variants": [
+        "add-passkey",
+        "remove-passkey"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "settings-account-actions",
+      "routeId": "settings",
+      "source": "src/pages/settings/SettingsPage.tsx",
+      "dialogCount": 2,
+      "variants": [
+        "disconnect-codex",
+        "delete-account"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "skill-catalog-install",
+      "routeId": "skill-catalog-detail-error",
+      "source": "src/pages/skills/SkillCatalogInstallDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "install-catalog-skill"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "skill-detail-actions",
+      "routeId": "skill-detail-error",
+      "source": "src/pages/skills/SkillDetailPage.tsx",
+      "dialogCount": 2,
+      "variants": [
+        "publish-version",
+        "delete-skill"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "skill-list-actions",
+      "routeId": "skills",
+      "source": "src/pages/skills/SkillsPage.tsx",
+      "dialogCount": 2,
+      "variants": [
+        "uninstall-skill",
+        "upload-skill-package"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "storage-actions",
+      "routeId": "storage",
+      "source": "src/pages/storage/StoragePage.tsx",
+      "dialogCount": 4,
+      "variants": [
+        "discard-preview-edits",
+        "new-folder",
+        "rename",
+        "delete"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "task-list-actions",
+      "routeId": "tasks",
+      "source": "src/pages/tasks/TasksListPage.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "cancel-task"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-create",
+      "routeId": "workspace",
+      "source": "src/pages/workspace/CreateWorkflowDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "create-workflow"
+      ],
+      "trigger": "button",
+      "dialog": "[role=dialog]",
+      "evidence": "automated"
+    },
+    {
+      "id": "workflow-delete",
+      "routeId": "workspace",
+      "source": "src/pages/workspace/DeleteWorkflowDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "delete-workflow"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-duplicate",
+      "routeId": "workspace",
+      "source": "src/pages/workspace/DuplicateWorkflowDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "duplicate-workflow"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-edit-info",
+      "routeId": "workspace",
+      "source": "src/pages/workspace/EditWorkflowInfoDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "edit-workflow-info"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "workflow-row-actions",
+      "routeId": "workspace",
+      "source": "src/pages/workspace/WorkflowRow.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "close-workflow-sandbox"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "context-attachment",
+      "routeId": "chat",
+      "source": "src/components/agent-sidebar/ContextAttachmentCard.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "inspect-context"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser",
+      "note": "Acceptance surface inventory; requires browser fixture, not a claim of a completed test."
+    },
+    {
+      "id": "package-files",
+      "routeId": "skill-detail-error",
+      "source": "src/components/files/PackageFileActions.tsx",
+      "dialogCount": 2,
+      "variants": [
+        "manage-file",
+        "discard-file-edits"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser",
+      "note": "Acceptance surface inventory; requires browser fixture, not a claim of a completed test."
+    }
   ],
   "modalPrimitives": [
-    { "source": "src/components/ui/command.tsx", "reason": "Wrapped by the inventoried command palette surface." },
-    { "source": "src/components/ui/confirmation-dialog.tsx", "reason": "Reusable primitive; product call sites are represented by their owning route surfaces." }
+    {
+      "source": "src/components/ui/command.tsx",
+      "reason": "Wrapped by the inventoried command palette surface."
+    },
+    {
+      "source": "src/components/ui/confirmation-dialog.tsx",
+      "reason": "Reusable primitive; product call sites are represented by their owning route surfaces."
+    }
   ],
   "dynamicStates": [
-    { "id": "loading", "routeIds": ["workspace", "tasks", "deployments", "mcp-servers", "skills", "storage", "knowledge"], "componentSpecs": ["src/pages/workspace/__tests__/WorkspacePage.test.tsx", "src/pages/tasks/__tests__/TasksListPage.test.tsx", "src/pages/deployments/__tests__/DeploymentsListPage.test.tsx", "src/pages/mcp-servers/__tests__/McpServersPage.test.tsx", "src/pages/skills/__tests__/SkillsPage.test.tsx", "src/pages/storage/StoragePage.test.tsx", "src/pages/knowledge/__tests__/KnowledgePages.test.tsx"], "evidence": "focused-component" },
-    { "id": "empty", "routeIds": ["workspace", "tasks", "deployments", "mcp-servers", "skills", "storage", "knowledge"], "componentSpecs": ["src/pages/workspace/__tests__/WorkspacePage.test.tsx", "src/pages/tasks/__tests__/TasksListPage.test.tsx", "src/pages/deployments/__tests__/DeploymentsListPage.test.tsx", "src/pages/mcp-servers/__tests__/McpServersPage.test.tsx", "src/pages/skills/__tests__/SkillsPage.test.tsx", "src/pages/storage/StoragePage.test.tsx", "src/pages/knowledge/__tests__/KnowledgePages.test.tsx"], "evidence": "automated" },
-    { "id": "error", "routeIds": ["standalone-preview-error", "task-detail-error", "deployment-detail-error", "mcp-catalog-detail-error", "mcp-detail-error", "skill-catalog-detail-error", "skill-detail-error", "knowledge-detail-error"], "componentSpecs": ["src/pages/chat/preview/__tests__/PreviewErrorState.test.tsx", "src/pages/tasks/__tests__/TaskDetailPage.test.tsx", "src/pages/deployments/__tests__/DeploymentDetailPage.test.tsx", "src/pages/mcp-servers/__tests__/McpServerDetailPage.test.tsx", "src/pages/skills/__tests__/SkillDetailPage.test.tsx", "src/pages/knowledge/__tests__/KnowledgePages.test.tsx"], "evidence": "automated" },
-    { "id": "permission-denied", "routeIds": ["management", "task-detail-error", "deployment-detail-error", "mcp-detail-error", "skill-detail-error", "knowledge-detail-error"], "componentSpecs": ["src/pages/settings/__tests__/OrganizationSettingsPanel.roles.test.tsx", "src/pages/workspace/__tests__/WorkflowRow.authorization.test.tsx", "src/components/modals/__tests__/ResourceShareDialog.test.tsx"], "requiresFixture": true, "evidence": "visible-browser" },
-    { "id": "disconnected", "routeIds": ["chat", "embed-chat", "mcp-servers", "settings"], "variants": ["chat-sse-interrupted", "embed-chat-sse-interrupted", "mcp-oauth-connection-state", "runtime-account-connection-state"], "componentSpecs": ["src/components/agent-sidebar/__tests__/agent-sidebar-redesign.test.tsx", "src/pages/mcp-servers/__tests__/McpServerDetailPage.test.tsx", "src/pages/settings/__tests__/SettingsPage.test.tsx"], "requiresFixture": true, "evidence": "visible-browser", "note": "Disconnected is not one shared page state. Each variant is driven by a different live transport or account connection and must be accepted independently." },
-    { "id": "destructive-action", "routeIds": ["chat", "workspace", "workflow", "tasks", "deployments", "mcp-servers", "skills", "storage", "knowledge", "settings"], "componentSpecs": ["src/pages/workspace/__tests__/WorkflowRow.authorization.test.tsx", "src/pages/tasks/__tests__/TasksListPage.test.tsx", "src/pages/deployments/__tests__/DeploymentDetailPage.test.tsx", "src/pages/deployments/__tests__/DeploymentsListPage.test.tsx", "src/pages/mcp-servers/__tests__/McpServersPage.test.tsx", "src/pages/skills/__tests__/SkillsPage.test.tsx", "src/pages/knowledge/__tests__/KnowledgePages.test.tsx", "src/pages/storage/StoragePage.test.tsx", "src/pages/settings/__tests__/SettingsPage.test.tsx"], "requiresFixture": true, "evidence": "visible-browser" }
+    {
+      "id": "loading",
+      "routeIds": [
+        "workspace",
+        "tasks",
+        "deployments",
+        "mcp-servers",
+        "skills",
+        "storage",
+        "knowledge"
+      ],
+      "componentSpecs": [
+        "src/pages/workspace/__tests__/WorkspacePage.test.tsx",
+        "src/pages/tasks/__tests__/TasksListPage.test.tsx",
+        "src/pages/deployments/__tests__/DeploymentsListPage.test.tsx",
+        "src/pages/mcp-servers/__tests__/McpServersPage.test.tsx",
+        "src/pages/skills/__tests__/SkillsPage.test.tsx",
+        "src/pages/storage/StoragePage.test.tsx",
+        "src/pages/knowledge/__tests__/KnowledgePages.test.tsx"
+      ],
+      "evidence": "focused-component"
+    },
+    {
+      "id": "empty",
+      "routeIds": [
+        "workspace",
+        "tasks",
+        "deployments",
+        "mcp-servers",
+        "skills",
+        "storage",
+        "knowledge"
+      ],
+      "componentSpecs": [
+        "src/pages/workspace/__tests__/WorkspacePage.test.tsx",
+        "src/pages/tasks/__tests__/TasksListPage.test.tsx",
+        "src/pages/deployments/__tests__/DeploymentsListPage.test.tsx",
+        "src/pages/mcp-servers/__tests__/McpServersPage.test.tsx",
+        "src/pages/skills/__tests__/SkillsPage.test.tsx",
+        "src/pages/storage/StoragePage.test.tsx",
+        "src/pages/knowledge/__tests__/KnowledgePages.test.tsx"
+      ],
+      "evidence": "automated"
+    },
+    {
+      "id": "error",
+      "routeIds": [
+        "standalone-preview-error",
+        "task-detail-error",
+        "deployment-detail-error",
+        "mcp-catalog-detail-error",
+        "mcp-detail-error",
+        "skill-catalog-detail-error",
+        "skill-detail-error",
+        "knowledge-detail-error"
+      ],
+      "componentSpecs": [
+        "src/pages/chat/preview/__tests__/PreviewErrorState.test.tsx",
+        "src/pages/tasks/__tests__/TaskDetailPage.test.tsx",
+        "src/pages/deployments/__tests__/DeploymentDetailPage.test.tsx",
+        "src/pages/mcp-servers/__tests__/McpServerDetailPage.test.tsx",
+        "src/pages/skills/__tests__/SkillDetailPage.test.tsx",
+        "src/pages/knowledge/__tests__/KnowledgePages.test.tsx"
+      ],
+      "evidence": "automated"
+    },
+    {
+      "id": "permission-denied",
+      "routeIds": [
+        "management",
+        "task-detail-error",
+        "deployment-detail-error",
+        "mcp-detail-error",
+        "skill-detail-error",
+        "knowledge-detail-error"
+      ],
+      "componentSpecs": [
+        "src/pages/settings/__tests__/OrganizationSettingsPanel.roles.test.tsx",
+        "src/pages/workspace/__tests__/WorkflowRow.authorization.test.tsx",
+        "src/components/modals/__tests__/ResourceShareDialog.test.tsx"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    },
+    {
+      "id": "disconnected",
+      "routeIds": [
+        "chat",
+        "embed-chat",
+        "mcp-servers",
+        "settings"
+      ],
+      "variants": [
+        "chat-sse-interrupted",
+        "embed-chat-sse-interrupted",
+        "mcp-oauth-connection-state",
+        "runtime-account-connection-state"
+      ],
+      "componentSpecs": [
+        "src/components/agent-sidebar/__tests__/agent-sidebar-redesign.test.tsx",
+        "src/pages/mcp-servers/__tests__/McpServerDetailPage.test.tsx",
+        "src/pages/settings/__tests__/SettingsPage.test.tsx"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser",
+      "note": "Disconnected is not one shared page state. Each variant is driven by a different live transport or account connection and must be accepted independently."
+    },
+    {
+      "id": "destructive-action",
+      "routeIds": [
+        "chat",
+        "workspace",
+        "workflow",
+        "tasks",
+        "deployments",
+        "mcp-servers",
+        "skills",
+        "storage",
+        "knowledge",
+        "settings"
+      ],
+      "componentSpecs": [
+        "src/pages/workspace/__tests__/WorkflowRow.authorization.test.tsx",
+        "src/pages/tasks/__tests__/TasksListPage.test.tsx",
+        "src/pages/deployments/__tests__/DeploymentDetailPage.test.tsx",
+        "src/pages/deployments/__tests__/DeploymentsListPage.test.tsx",
+        "src/pages/mcp-servers/__tests__/McpServersPage.test.tsx",
+        "src/pages/skills/__tests__/SkillsPage.test.tsx",
+        "src/pages/knowledge/__tests__/KnowledgePages.test.tsx",
+        "src/pages/storage/StoragePage.test.tsx",
+        "src/pages/settings/__tests__/SettingsPage.test.tsx"
+      ],
+      "requiresFixture": true,
+      "evidence": "visible-browser"
+    }
   ],
   "componentSpecs": [
     "src/pages/auth/__tests__/LoginPage.test.tsx",

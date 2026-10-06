@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 
 
-from .task_notifications import DEFAULT_NOTIFICATION_POLICY, normalize_notification_policy
+from .task_notifications import normalize_notification_policy
 
 
 def utc_now() -> datetime:

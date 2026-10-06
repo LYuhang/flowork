@@ -5,7 +5,7 @@ from vibecanvas_api.authorization.types import Action, ConsistencyPreference
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
-from .authorization import _workflow_decision, _require_active_chat_write, _service, _workflow_resource
+from .authorization import _workflow_decision, _require_active_chat_write
 from .workflow_graph import _auto_tidy_workflow
 from .workflow_target import resolve_target
 

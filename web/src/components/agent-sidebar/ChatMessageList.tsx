@@ -767,8 +767,8 @@ export function ChatMessageList({
       .find(element => element.dataset.quotableMessage === focusMessageId);
     if (target) {
       shouldStickToBottomRef.current = false;
-      setShowJumpToBottom(true);
       const frame = requestAnimationFrame(() => {
+        setShowJumpToBottom(true);
         focusedKey.current = focusKey;
         container.querySelectorAll('[data-reference-highlight]').forEach(element => element.removeAttribute('data-reference-highlight'));
         target.setAttribute('data-reference-highlight', 'true');
@@ -782,7 +782,8 @@ export function ChatMessageList({
       Promise.resolve(onLoadOlderHistory()).catch(() => setFocusErrorKey(focusKey))
         .finally(() => { focusLoading.current = false; });
     } else if (historyItems.length > 0) {
-      setFocusErrorKey(focusKey);
+      const frame = requestAnimationFrame(() => setFocusErrorKey(focusKey));
+      return () => cancelAnimationFrame(frame);
     }
   }, [focusMessageId, focusKey, focusErrorKey, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems]);
 

@@ -1,4 +1,4 @@
-import { PreviewToolbarHost } from './PreviewToolbar';
+import { PreviewToolbarHost } from './preview-toolbar-context';
 import { PreviewContextMenu } from './PreviewContextMenu';
 import { usePreviewOrigin } from '@/lib/preview/context-origin';
 import {

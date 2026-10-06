@@ -33,7 +33,11 @@ export function DeploymentTerminal({ dep }: { dep: Deployment }) {
       const term = new Terminal({
         cursorBlink: true, fontSize: 13, scrollback: 2000,
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        theme: { background: '#111827', foreground: '#e5e7eb', cursor: '#e5e7eb' },
+        theme: {
+          background: getComputedStyle(container.current).backgroundColor,
+          foreground: getComputedStyle(container.current).color,
+          cursor: getComputedStyle(container.current).color,
+        },
         allowProposedApi: false,
       });
       const fit = new FitAddon();

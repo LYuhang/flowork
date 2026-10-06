@@ -1,0 +1,30 @@
+# Use with docker-compose.yml after preparing the encrypted host mount.
+# This replaces the named workspace volume with the same host path in all services.
+services:
+  api:
+    environment:
+      WORKSPACE_STORAGE_BACKEND: posix
+    volumes:
+      - type: bind
+        source: ${WORKSPACE_STORAGE_HOST_ROOT:?Set an existing absolute POSIX workspace mount}
+        target: /var/lib/vibecanvas/workspaces
+        bind:
+          create_host_path: false
+  background_worker:
+    environment:
+      WORKSPACE_STORAGE_BACKEND: posix
+    volumes:
+      - type: bind
+        source: ${WORKSPACE_STORAGE_HOST_ROOT:?Set an existing absolute POSIX workspace mount}
+        target: /var/lib/vibecanvas/workspaces
+        bind:
+          create_host_path: false
+  sandboxd:
+    environment:
+      WORKSPACE_STORAGE_BACKEND: posix
+    volumes:
+      - type: bind
+        source: ${WORKSPACE_STORAGE_HOST_ROOT:?Set an existing absolute POSIX workspace mount}
+        target: /var/lib/vibecanvas/workspaces
+        bind:
+          create_host_path: false

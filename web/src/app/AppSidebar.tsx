@@ -567,7 +567,7 @@ export function AppSidebar({
                           <Folder className="size-4 shrink-0" />
                           <span className="min-w-0 truncate">{project.name}</span>
                         </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground" title={sandboxLabel}>
+                        <span className="mt-0.5 flex items-center gap-1.5 text-xs font-normal text-muted-foreground" title={sandboxLabel}>
                           <StatusDot status={sandboxTone} pulse={sandboxBusy || sandboxTone === 'running'} />
                           <span className="truncate">{project.runtime_type === 'codex' ? 'Codex' : project.runtime_type} · {sandboxLabel}</span>
                         </span>

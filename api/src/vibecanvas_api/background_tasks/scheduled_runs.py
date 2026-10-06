@@ -36,7 +36,6 @@ from vibecanvas_api.services.task_worker import (
 )
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 from vibecanvas_api.storage.models_tasks import (
-    ScheduledRunExecution,
     TaskSchedule,
 )
 from vibecanvas_api.storage.repo_service_accounts import (

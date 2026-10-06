@@ -8,7 +8,6 @@ from pathlib import Path
 import random
 import shutil
 import subprocess
-import sys
 import time
 
 HERE = Path(__file__).resolve().parent

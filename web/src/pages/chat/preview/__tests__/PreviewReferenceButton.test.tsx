@@ -4,7 +4,7 @@ import '@/lib/i18n';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
-import { PreviewOriginProvider } from '@/lib/preview/context-origin';
+import { PreviewOriginProvider } from '@/lib/preview/PreviewOriginProvider';
 import { PreviewReferenceButton } from '../PreviewReferenceButton';
 import { fetchContextDraft, mutateContextDraft } from '@/lib/api/context-draft';
 import type { ChatAttachment } from '@/components/agent-sidebar/chat-attachments';

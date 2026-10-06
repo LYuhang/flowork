@@ -9,6 +9,10 @@ cleanup() { docker rm -fv "$container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker run -d --name "$container" --network none \
   -e POSTGRES_PASSWORD="$(openssl rand -hex 24)" \
+  -e POSTGRES_DB=vibecanvas \
+  -e VIBECANVAS_APP_PASSWORD="$(openssl rand -hex 24)" \
+  -e VIBECANVAS_MIGRATOR_PASSWORD="$(openssl rand -hex 24)" \
+  -e VIBECANVAS_MAINTENANCE_PASSWORD="$(openssl rand -hex 24)" \
   "$image" >/dev/null
 wait_ready() {
   local attempt

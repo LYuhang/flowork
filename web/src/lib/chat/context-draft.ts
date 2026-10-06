@@ -21,7 +21,7 @@ function canonical(value: unknown): unknown {
 }
 function semanticKey(item: ChatAttachment): string {
   if (!('schema_version' in item)) return contextAttachmentKey(item);
-  const { id: _id, label: _label, ...rest } = item;
+  const rest = Object.fromEntries(Object.entries(item).filter(([key]) => key !== 'id' && key !== 'label'));
   return JSON.stringify(canonical(rest));
 }
 

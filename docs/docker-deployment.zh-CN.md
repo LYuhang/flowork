@@ -17,7 +17,7 @@ docker compose build
 小内存机器建议逐个构建，避免多个大型构建阶段同时占用内存：
 
 ```bash
-for service in api sandboxd postgres web; do
+for service in api sandboxd postgres openfga_postgres web; do
   docker compose build "$service"
 done
 ```
@@ -28,8 +28,9 @@ done
 | `flowork-sandbox:local` | `api/Dockerfile`，构建参数 `VIBECANVAS_RUNTIME_ENV_BUILDER=1` | sandboxd 和受控的 Workflow 依赖安装 |
 | `flowork-web:local` | `web/Dockerfile` | Nginx 静态前端、API 代理、该域名的浏览器插件下载包 |
 | `flowork-postgres:local` | `postgres/Dockerfile` | PostgreSQL 15、pgvector、角色及授权清理初始化脚本 |
+| `flowork-openfga-postgres:local` | `postgres/openfga.Dockerfile` | OpenFGA 独立 PostgreSQL 17，含发行版安全更新 |
 
-Compose 还会拉取固定版本的 OpenFGA、其独立 PostgreSQL 和 Valkey 镜像。
+Compose 还会拉取固定版本的 OpenFGA 和 Valkey 镜像。
 无须在宿主机安装 Python、Node、pnpm、runsc 或 bubblewrap。
 
 当前主要版本：Python 3.11.17、容器 Node 24.21.0、pnpm 10.34.4、
@@ -53,13 +54,14 @@ Valkey 用于临时通知和协调。没有 Celery worker/beat 进程。
 
 ### 在另一台机器部署，无需源码
 
-将四个构建结果推送到自己的镜像仓库，在部署用 `.env` 中设置：
+将五个构建结果推送到自己的镜像仓库，在部署用 `.env` 中设置：
 
 ```dotenv
 FLOWORK_API_IMAGE=registry.example/flowork-api:release-tag
 FLOWORK_SANDBOX_IMAGE=registry.example/flowork-sandbox:release-tag
 FLOWORK_WEB_IMAGE=registry.example/flowork-web:release-tag
 FLOWORK_POSTGRES_IMAGE=registry.example/flowork-postgres:release-tag
+FLOWORK_OPENFGA_POSTGRES_IMAGE=registry.example/flowork-openfga-postgres:release-tag
 ```
 
 部署目录只需 `docker-compose.yml` 和已生成的 `.env`。保持 `.env` 权限为
@@ -70,7 +72,7 @@ docker compose pull
 docker compose up -d --no-build --wait
 ```
 
-也可用 `docker save` / `docker load` 离线传输四个自建镜像。其他第三方镜像
+也可用 `docker save` / `docker load` 离线传输五个自建镜像。其他第三方镜像
 仍需拉取，或一起离线传输。`local_server.sh` 是源码环境的辅助工具，
 纯镜像部署不依赖它。严格生产发布的镜像签名、TLS 数据服务、KMS/S3 等
 要求另外见 [DEPLOY.md](../DEPLOY.md)。
@@ -150,7 +152,7 @@ docker compose down
 
 2026-09-28 在 Ubuntu 24.04 amd64、2 vCPU / 2 GiB RAM、1 GiB swap 上完成：
 
-- 四个自建镜像实际构建成功；整套 Compose 启动成功。
+- 五个自建镜像实际构建成功；整套 Compose 启动成功。
 - 数据库迁移、API/Web 健康检查、bubblewrap 沙盒预热通过。
 - 注册登录、一个 Project 创建两个 Chat、共享文件目录、OpenRouter 回调 URL 通过。
 - Workflow 在容器沙盒中执行并完成。

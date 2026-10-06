@@ -64,7 +64,7 @@ services:
     build:
       context: .
       dockerfile: postgres/openfga.Dockerfile
-    image: flowork-openfga-postgres:dev
+    image: ${FLOWORK_OPENFGA_POSTGRES_IMAGE:-flowork-openfga-postgres:local}
     environment:
       POSTGRES_DB: openfga
       POSTGRES_USER: openfga

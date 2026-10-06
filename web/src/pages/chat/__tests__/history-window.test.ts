@@ -51,3 +51,10 @@ describe('mergeHistoryWindow', () => {
     expect(merged.items[0]?.content).toBe('done');
   });
 });
+
+it('does not treat an empty pre-Turn checkpoint as loaded older history', () => {
+  const merged = mergeHistoryWindow({ items: [], total: 0, limit: 30, offset: 0 }, {
+    items: [chunk('recent')], total: 61, limit: 30, offset: 31,
+  });
+  expect(merged.offset).toBe(31);
+});

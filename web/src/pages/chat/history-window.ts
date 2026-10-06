@@ -15,7 +15,9 @@ export function mergeHistoryWindow(
   page: ChatHistoryPage,
 ): ChatHistoryWindow {
   const pageItems = page.items as RawChunk[];
-  if (!previous) return { ...page, items: pageItems };
+  // An empty pre-Turn checkpoint covers no history. Its zero offset must
+  // not hide pagination when the first completed Turn exceeds one page.
+  if (!previous || previous.total === 0) return { ...page, items: pageItems };
 
   // A smaller offset is an older page and must be prepended. A same/newer
   // offset is a refreshed tail and must be appended so its canonical rows win

@@ -48,3 +48,17 @@ it('does not borrow retained history from another Chat or workspace', () => {
  rerender({scope:'s1',chat:'a'});
  expect(result.current.items).toHaveLength(10);
 });
+
+it('offers older history after the first long Turn and loads it to the beginning', async () => {
+ state.page = { items: [], total: 0, offset: 0, limit: 30 };
+ const { result, rerender } = renderHook(() => useConversationHistory('browser-scope','long-turn',true));
+ state.page = page(32,61,61); rerender();
+ expect(result.current.hasOlder).toBe(true);
+ state.older = page(2,31,61);
+ await act(async () => { await result.current.loadOlder(); });
+ expect(result.current.hasOlder).toBe(true);
+ state.older = page(1,1,61);
+ await act(async () => { await result.current.loadOlder(); });
+ expect(result.current.hasOlder).toBe(false);
+ expect(result.current.items?.map(m=>m.id)).toEqual(Array.from({length:61},(_,i)=>String(i+1)));
+});

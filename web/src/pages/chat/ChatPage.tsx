@@ -787,17 +787,21 @@ export function ChatPage() {
       ? mergeHistoryWindow(retained, activeHistory.data)
       : retained;
   }, [activeHistory.data, activeHistoryKey, historyWindows]);
-  // Retain every displayed durable page, not only explicitly loaded older
-  // pages. A new Turn changes the query key; its pending query must never
-  // replace the visible transcript with an empty window or a shorter tail.
-  useEffect(() => {
-    if (!activeHistoryKey || !activeHistory.data) return;
+  // Retain every displayed durable page before a new Turn changes the query
+  // key. Conditional render-time adjustment avoids an effect-driven commit.
+  const [historyCheckpoint, setHistoryCheckpoint] = useState<{
+    key: string; page: typeof activeHistory.data;
+  } | null>(null);
+  if (activeHistoryKey && activeHistory.data && (
+    historyCheckpoint?.key !== activeHistoryKey || historyCheckpoint.page !== activeHistory.data
+  )) {
+    setHistoryCheckpoint({ key: activeHistoryKey, page: activeHistory.data });
     setHistoryWindows(current => retainHistoryWindow(
       current,
       activeHistoryKey,
       mergeHistoryWindow(current[activeHistoryKey], activeHistory.data),
     ));
-  }, [activeHistoryKey, activeHistory.data]);
+  }
   const olderHistoryLoadingRef = useRef(false);
   const [olderHistoryLoading, setOlderHistoryLoading] = useState(false);
   const hasOlderHistory = !!activeHistoryWindow && activeHistoryWindow.offset > 0;

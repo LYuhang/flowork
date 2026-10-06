@@ -86,12 +86,14 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     drawio_lock = json.loads((API_ROOT / "drawio-runtime/package-lock.json").read_text())
     assert drawio_package["overrides"] == {
         "fast-uri": "4.2.1",
+        "proxy-addr": "2.0.8",
         "hono": "4.13.9",
         "qs": "6.16.0",
     }
     assert drawio_lock["packages"]["node_modules/fast-uri"]["version"] == "4.2.1"
     assert drawio_lock["packages"]["node_modules/hono"]["version"] == "4.13.9"
     assert drawio_lock["packages"]["node_modules/qs"]["version"] == "6.16.0"
+    assert drawio_lock["packages"]["node_modules/proxy-addr"]["version"] == "2.0.8"
     assert "github.com/jgraph/drawio-desktop/releases/download" in text
     assert 'dpkg-deb -f' in text
     assert 'sha256sum -c -' in text

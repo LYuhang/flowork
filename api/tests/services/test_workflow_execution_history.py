@@ -151,7 +151,8 @@ async def test_completed_canvas_run_syncs_source_folder_separately_from_private_
     monkeypatch.setattr(module, 'WorkflowExecutionDriver', Driver)
     monkeypatch.setattr(module, 'short_session_scope', db_scope)
     monkeypatch.setattr(module.WorkflowHistoryRepo, 'get', AsyncMock(return_value={'status': 'succeeded'}))
-    session = SimpleNamespace(tenant_id='actor-org', workflow_run_source=object() if shared else None,
+    session = SimpleNamespace(tenant_id='actor-org', persistent_run_binding=None,
+        workflow_run_source=object() if shared else None,
         workflow_run_id='workflow', workflow_run_tenant_id='owner-org',
         workflow_run_dir='/tmp/shared-workflow-run', workspace_folders=('data', 'memory', 'logs', 'chats'),
         _sync_mount_folder=AsyncMock())

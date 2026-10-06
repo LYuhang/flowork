@@ -72,6 +72,7 @@ async def test_session_warm_file_api_roundtrip(_fs_object_store):
     tenant_id, wf_id = await _seed_committed_workflow()
 
     token = current_sync_tenant_id.set(tenant_id)
+    session = None
     try:
         mgr = get_sandbox_manager()
         session = await mgr.get_session(tenant_id, wf_id)
@@ -120,7 +121,8 @@ async def test_session_warm_file_api_roundtrip(_fs_object_store):
             assert f.read() == "bye"
     finally:
         current_sync_tenant_id.reset(token)
-        await session.close()
+        if session is not None:
+            await session.close()
 
 
 @gvisor
@@ -130,6 +132,7 @@ async def test_session_edit_not_unique(_fs_object_store):
     tenant_id, wf_id = await _seed_committed_workflow()
 
     token = current_sync_tenant_id.set(tenant_id)
+    session = None
     try:
         mgr = get_sandbox_manager()
         session = await mgr.get_session(tenant_id, wf_id)
@@ -149,7 +152,8 @@ async def test_session_edit_not_unique(_fs_object_store):
         assert "diff" in e3, e3
     finally:
         current_sync_tenant_id.reset(token)
-        await session.close()
+        if session is not None:
+            await session.close()
 
 
 @gvisor
@@ -161,6 +165,7 @@ async def test_session_grep_context_and_glob(_fs_object_store):
     tenant_id, wf_id = await _seed_committed_workflow()
 
     token = current_sync_tenant_id.set(tenant_id)
+    session = None
     try:
         mgr = get_sandbox_manager()
         session = await mgr.get_session(tenant_id, wf_id)
@@ -182,7 +187,8 @@ async def test_session_grep_context_and_glob(_fs_object_store):
         assert all(m.startswith("/data/a.md") for m in g2["matches"]), g2
     finally:
         current_sync_tenant_id.reset(token)
-        await session.close()
+        if session is not None:
+            await session.close()
 
 
 @gvisor
@@ -194,6 +200,7 @@ async def test_session_read_write_bytes_roundtrip(_fs_object_store):
     tenant_id, wf_id = await _seed_committed_workflow()
 
     token = current_sync_tenant_id.set(tenant_id)
+    session = None
     try:
         mgr = get_sandbox_manager()
         session = await mgr.get_session(tenant_id, wf_id)
@@ -210,7 +217,8 @@ async def test_session_read_write_bytes_roundtrip(_fs_object_store):
         assert miss == {"ok": False, "error": "not_found"}, miss
     finally:
         current_sync_tenant_id.reset(token)
-        await session.close()
+        if session is not None:
+            await session.close()
 
 
 @gvisor
@@ -222,6 +230,7 @@ async def test_session_reads_run_tier_results(_fs_object_store):
     tenant_id, wf_id = await _seed_committed_workflow()
 
     token = current_sync_tenant_id.set(tenant_id)
+    session = None
     try:
         mgr = get_sandbox_manager()
         session = await mgr.get_session(tenant_id, wf_id)
@@ -244,4 +253,5 @@ async def test_session_reads_run_tier_results(_fs_object_store):
         assert bad.get("error") in ("not_found", "path_outside_roots"), bad
     finally:
         current_sync_tenant_id.reset(token)
-        await session.close()
+        if session is not None:
+            await session.close()

@@ -550,6 +550,27 @@ async def _isolate_global_engine():
     await dispose_engine()
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _isolate_sandbox_manager(_truncate_between_tests, _isolate_global_engine, monkeypatch):
+    """Drain resident processes on their owning loop, before database teardown.
+
+    Unlike the application lifespan, ASGITransport does not shut down the
+    process singleton. Keeping it across pytest event loops leaves leases and
+    pending writebacks attached to closed loops and exhausts resident capacity.
+    """
+    from vibecanvas_api.services.sandbox import manager as module
+
+    assert module.get_existing_sandbox_manager() is None
+    yield
+    manager = module.get_existing_sandbox_manager()
+    try:
+        if isinstance(manager, module.SandboxManager):
+            await manager.shutdown()
+            assert not manager._failed_closes, "test left sandbox processes that failed to close"
+    finally:
+        module.clear_sandbox_manager(expected=manager)
+
+
 @pytest_asyncio.fixture
 async def vfs_run_repo(app_engine, tmp_path):
     """RE-1 — shared by test_vfs_run_repo (T3) and test_vfs_run_release (T4).

@@ -15,7 +15,6 @@ import base64
 import hashlib
 import hmac
 import json
-import tempfile
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -23,6 +22,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import text
 
@@ -33,13 +33,9 @@ from vibecanvas_api.storage.repo_deployments import DeploymentsRepo
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 
 
-@pytest.fixture
-def _sandbox_fs_store(monkeypatch):
-    """The deployment invoke path (``invoke_sync`` / ``test_invoke``) is now
-    sandbox-only (P2 cutover): it materializes a per-run ``/run`` dir from the
-    object store and bind-mounts it into gVisor. The in-memory store cannot be
-    bind-mounted, so a real (filesystem) object store is required. Mirrors
-    ``test_execution_e2e_pg._sandbox_oneshot_fs``."""
+@pytest_asyncio.fixture
+async def _sandbox_fs_store(monkeypatch, tmp_path):
+    """Exercise deployment admission through the real sandboxd RPC transport."""
     from vibecanvas_api.config import config as _cfg
     from vibecanvas_api.services.sandbox import _gvisor_runnable
 
@@ -48,7 +44,7 @@ def _sandbox_fs_store(monkeypatch):
     monkeypatch.setattr(_cfg.object_store, "provider", "filesystem",
                         raising=False)
     monkeypatch.setattr(_cfg.object_store, "fs_root",
-                        tempfile.mkdtemp(prefix="vc-os-"), raising=False)
+                        str(tmp_path / "objects"), raising=False)
     monkeypatch.setattr(
         _cfg,
         "kms_provider",
@@ -61,6 +57,24 @@ def _sandbox_fs_store(monkeypatch):
         base64.urlsafe_b64encode(b"deployment-gate-kms-key-material"[:32]).decode(),
         raising=False,
     )
+
+    from vibecanvas_api.services.sandbox.service import SandboxDaemon, RemoteSandboxManager
+    from vibecanvas_api.services.sandbox import manager as manager_module
+
+    endpoint = f"unix://{tmp_path / 'sandboxd.sock'}"
+    monkeypatch.setattr(_cfg, "sandbox_service_mode", "service")
+    monkeypatch.setattr(_cfg, "sandbox_service_endpoint", endpoint)
+    daemon = SandboxDaemon(endpoint)
+    await daemon.start()
+    try:
+        yield
+    finally:
+        client = manager_module.get_existing_sandbox_manager()
+        if isinstance(client, RemoteSandboxManager):
+            await client.aclose()
+            manager_module.clear_sandbox_manager(expected=client)
+        await daemon.stop()
+        assert not daemon.manager._failed_closes
 
 
 # --- Minimal workflow content used by tests that need a real execution path.
@@ -313,7 +327,7 @@ async def test_g2_invoke_short_returns_outputs(
     )
     if not isinstance(resp, dict):
         pytest.fail(resp.body.decode("utf-8"))
-    assert "outputs" in resp
+    assert resp["outputs"] == {"y": 5}
     assert "exec_time_ms" in resp
 
 
@@ -614,13 +628,15 @@ async def test_g13_test_invoke_via_user_session(
     tenant_id, user_id, _, dep_id, _, _, _ = await _seed_full(
         pg_engine, app_engine, trigger="api",
     )
+    from tests.test_deployment_invoke_sync import _activate_test_revision
+    await _activate_test_revision(tenant_id, dep_id)
     ctx = _Ctx(tenant_id, user_id)
     async with session_scope(tenant_id=str(tenant_id)) as s:
         resp = await test_invoke(
             dep_id=dep_id, body={"x": 3}, request=_StubRequest(), ctx=ctx,
             session=s, service=_AllowAuthz(),
         )
-    assert "outputs" in resp
+    assert resp["outputs"] == {"y": 3}
 
 
 # ---------- G14: rotate-key invalidates old key ----------

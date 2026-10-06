@@ -9,9 +9,9 @@ httpx ASGI ``client`` fixture + ``pg_engine`` — the legacy
 ``VIBECANVAS_API_DEV_TOKEN`` Bearer harness is dead. SSE is consumed via
 ``client.stream``.
 
-Every run goes through the unified gVisor sandbox path. The fixture selects a
+Every run goes through the default bubblewrap sandbox path. The fixture selects a
 filesystem object store because the in-memory store cannot materialize the
-per-run ``/run`` directory. ``RUNSC_PATH`` must point at a usable runsc binary.
+per-run ``/run`` directory. The complete bubblewrap profile must be available.
 """
 
 from __future__ import annotations
@@ -41,10 +41,10 @@ def _sandbox_oneshot_fs(monkeypatch):
     sandbox-only canvas-Run path works under the lifespan-less conftest
     ``client`` (which defaults to the warm backend + inmemory store)."""
     from vibecanvas_api.config import config as _cfg
-    from vibecanvas_api.services.sandbox import _gvisor_runnable
+    from vibecanvas_api.services.sandbox import _bubblewrap_runnable
 
-    if not _gvisor_runnable():
-        pytest.skip("full rootless gVisor profile is unavailable")
+    if not _bubblewrap_runnable():
+        pytest.skip("bubblewrap profile is unavailable")
     monkeypatch.setattr(_cfg.object_store, "provider", "filesystem",
                         raising=False)
     monkeypatch.setattr(_cfg.object_store, "fs_root",
@@ -373,7 +373,7 @@ async def test_high_frame_loop_run_does_not_falsely_fail(
     r = await client.get(
         f"/api/v1/workflows/{wf_id}/execution/status", headers=hdr,
     )
-    assert r.json()["status"] == "completed"
+    assert r.json()["status"] == "completed", r.json()
 
 
 @pytest.mark.asyncio

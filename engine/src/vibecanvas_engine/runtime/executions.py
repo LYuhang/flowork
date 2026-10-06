@@ -81,6 +81,7 @@ class Execution:
     approvals: ApprovalBroker | None = None
     result: dict | None = None
     buffered_bytes: int = 0
+    buffer_released: asyncio.Event = field(default_factory=asyncio.Event)
     context: dict = field(default_factory=dict, repr=False)
     private_tokens: set[str] = field(default_factory=set, repr=False)
     active_nodes: set[str] = field(default_factory=set)
@@ -210,8 +211,25 @@ class WorkflowRuntime:
         # Freeze business inputs/outputs without changing their structure.
         event = json.loads(json.dumps(event, ensure_ascii=False, default=str, allow_nan=False))
         size = len(json.dumps(event, ensure_ascii=False).encode())
-        if e.buffered_bytes + size > self.max_buffer_bytes and event.get("type") != "result":
-            raise RuntimeError("execution_event_buffer_exceeded")
+        if event.get("type") != "result":
+            if size > self.max_buffer_bytes:
+                raise RuntimeError("execution_event_too_large")
+            while e.buffered_bytes + size > self.max_buffer_bytes:
+                # ACK follows durable persistence. A slow consumer must apply
+                # backpressure rather than fail an otherwise valid workflow.
+                # Terminal frames bypass this wait so cancellation can finish
+                # even when the consumer has disconnected.
+                e.buffer_released.clear()
+                released = asyncio.create_task(e.buffer_released.wait())
+                stopped = asyncio.create_task(e.stop.wait())
+                try:
+                    await asyncio.wait((released, stopped), return_when=asyncio.FIRST_COMPLETED)
+                    if e.stop.is_set():
+                        raise asyncio.CancelledError
+                finally:
+                    released.cancel()
+                    stopped.cancel()
+                    await asyncio.gather(released, stopped, return_exceptions=True)
         async with e.changed:
             e.seq += 1
             frame = {**event, "invocation_id": e.invocation_id, "generation": self.generation, "seq": e.seq}
@@ -356,6 +374,7 @@ class WorkflowRuntime:
         while e.events and e.events[0][0]["seq"] <= through:
             _, size = e.events.popleft()
             e.buffered_bytes -= size
+        e.buffer_released.set()
         if e.status in self.TERMINAL and through == e.seq and e.task.done():
             self.completed[invocation_id] = (e.fingerprint, e.status)
             del self.executions[invocation_id]

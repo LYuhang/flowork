@@ -17,9 +17,9 @@ Auth: the legacy ``VIBECANVAS_API_DEV_TOKEN`` + sync ``TestClient`` +
 ``client`` + a real ``register → session_token`` (the
 ``test_routes_vfs.py`` pattern), with SSE consumed via ``client.stream``.
 
-The execution runs through the unified gVisor sandbox path. The fixture selects
+The execution runs through the default bubblewrap sandbox path. The fixture selects
 a filesystem object store because the in-memory store cannot materialize the
-per-run ``/run`` directory. ``RUNSC_PATH`` must point at a usable runsc binary.
+per-run ``/run`` directory. The complete bubblewrap profile must be available.
 """
 
 from __future__ import annotations
@@ -54,10 +54,10 @@ def _sandbox_oneshot_fs(monkeypatch):
     a filesystem object store rooted at a tmpdir so the per-run ``/run``
     dir can be materialized."""
     from vibecanvas_api.config import config as _cfg
-    from vibecanvas_api.services.sandbox import _gvisor_runnable
+    from vibecanvas_api.services.sandbox import _bubblewrap_runnable
 
-    if not _gvisor_runnable():
-        pytest.skip("full rootless gVisor profile is unavailable")
+    if not _bubblewrap_runnable():
+        pytest.skip("bubblewrap profile is unavailable")
     monkeypatch.setattr(_cfg.object_store, "provider", "filesystem",
                         raising=False)
     monkeypatch.setattr(_cfg.object_store, "fs_root",

@@ -37,10 +37,10 @@ from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 async def _sandbox_fs_store(monkeypatch, tmp_path):
     """Exercise deployment admission through the real sandboxd RPC transport."""
     from vibecanvas_api.config import config as _cfg
-    from vibecanvas_api.services.sandbox import _gvisor_runnable
+    from vibecanvas_api.services.sandbox import _bubblewrap_runnable
 
-    if not _gvisor_runnable():
-        pytest.skip("full rootless gVisor profile is unavailable")
+    if not _bubblewrap_runnable():
+        pytest.skip("bubblewrap profile is unavailable")
     monkeypatch.setattr(_cfg.object_store, "provider", "filesystem",
                         raising=False)
     monkeypatch.setattr(_cfg.object_store, "fs_root",
@@ -83,15 +83,16 @@ _MIN_WF = {
     "node_1": {
         "node_id": "node_1", "node_type": "StartNode", "node_name": "__start__",
         "node_description": "",
-        "input_fields": {"x": {"type": "int", "value": 0, "reference": None}},
-        "output_fields": {"x": {"type": "int", "description": ""}},
+        "input_fields": {"x": {"type": "integer", "value": 0, "reference": ""}},
+        "output_fields": {"x": {"type": "integer", "description": ""}},
         "node_config": {}, "children": ["node_2"], "__attributes__": {"x": 0, "y": 0},
     },
     "node_2": {
         "node_id": "node_2", "node_type": "EndNode", "node_name": "__end__",
         "node_description": "",
-        "input_fields": {"y": {"type": "int", "value": 0, "reference": "__start__.x"}},
-        "output_fields": {}, "node_config": {}, "children": [],
+        "input_fields": {"y": {"type": "integer", "value": 0, "reference": "__start__.x"}},
+        "output_fields": {"y": {"type": "integer", "description": "Echo"}},
+        "node_config": {}, "children": [],
         "__attributes__": {"x": 200, "y": 0},
     },
     "__meta__": {"workflow_name": "min", "workflow_description": ""},

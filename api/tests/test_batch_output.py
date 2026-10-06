@@ -28,6 +28,25 @@ _OUT_ROWS = [
 _COLS = ["index", "status", "attempt", "input", "output", "error", "execution_time"]
 
 
+def test_posix_output_is_visible_in_workspace_without_database(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from vibecanvas_api.services import batch_output
+    from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage, WorkspaceIdentity
+
+    monkeypatch.setattr(batch_output.app_config, 'workspace_storage_backend', 'posix')
+    monkeypatch.setattr(batch_output.app_config, 'workspace_storage_root', str(tmp_path))
+    monkeypatch.setattr(batch_output, 'run_in_short_session', Mock(side_effect=AssertionError('no DB write')))
+    monkeypatch.setattr(batch_output, 'get_object_store', Mock(side_effect=AssertionError('no object copy')))
+    sink = VfsDataOutputSink(wf_id='workflow', tenant_id='tenant', path='/data/results.jsonl')
+    assert sink.write_rows(_OUT_ROWS) == '/data/results.jsonl'
+    storage = PosixWorkspaceStorage(str(tmp_path))
+    identity = WorkspaceIdentity('tenant', 'workflow', 'workflow')
+    result = b''.join(storage.iter_bytes(identity, 'data/results.jsonl'))
+    assert result == serialize_results(_OUT_ROWS, path=sink.path)[0]
+    sink.write_rows(_OUT_ROWS[:1])
+    assert len(b''.join(storage.iter_bytes(identity, 'data/results.jsonl')).splitlines()) == 1
+
+
 class TestNormalizeDataOutputPath:
     def test_keeps_a_valid_data_path(self):
         assert normalize_data_output_path("/data/out.csv", default_name="r.csv") == "/data/out.csv"

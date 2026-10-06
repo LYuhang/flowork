@@ -1,6 +1,8 @@
 """Background tasks for user-facing scheduled workflow runs."""
 from __future__ import annotations
 
+from vibecanvas_api.services.sandbox.contracts import TaskRunSource
+
 import asyncio
 import json
 import uuid
@@ -371,6 +373,7 @@ async def _execute_owned_scheduled_run(
         session = await manager.get_session(
             tenant_id,
             execution_scope,
+            task_run_source=TaskRunSource(task_id=task_id),
             user_id=user_id,
             expose_run=True,
             expose_mount=mount_enabled,

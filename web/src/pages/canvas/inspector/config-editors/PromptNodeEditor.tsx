@@ -1,3 +1,4 @@
+import { ModelRetryField } from './ModelRetryField';
 /** PromptNode editor. Models are restricted to authorized manually added APIs. */
 import { Label } from '@/components/ui/label';
 import {
@@ -205,6 +206,8 @@ export function PromptNodeEditor({
             onChange(updated);
           }} />
       </div>
+
+      <ModelRetryField value={config.retry} readOnly={!!readOnly} onChange={next => onChange({ ...config, retry: next })} />
 
       <div className="space-y-1.5">
         <Label className="text-xs font-medium">inference_config</Label>

@@ -1966,6 +1966,22 @@ class AppConfig:
             or raw.get("vfs_volume_root")
             or self.agent_runtime_root
         )
+        self.workspace_storage_backend: str = str(
+            os.environ.get("WORKSPACE_STORAGE_BACKEND")
+            or raw.get("workspace_storage_backend")
+            or "object_store"
+        ).strip().lower()
+        if self.workspace_storage_backend not in {"object_store", "posix"}:
+            raise ValueError("workspace_storage_backend must be object_store or posix")
+        self.workspace_storage_root: str = str(
+            os.environ.get("WORKSPACE_STORAGE_ROOT")
+            or raw.get("workspace_storage_root")
+            or ""
+        ).strip()
+        if self.workspace_storage_backend == "posix" and (
+            not self.workspace_storage_root or not os.path.isabs(self.workspace_storage_root)
+        ):
+            raise ValueError("posix workspace storage requires an absolute WORKSPACE_STORAGE_ROOT")
         # Official Codex CLI used by the Codex runtime adapter and account-aware
         # capability discovery. An explicit path is important for services whose
         # PATH differs from the interactive shell (systemd, containers, workers).

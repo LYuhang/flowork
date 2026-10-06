@@ -89,6 +89,9 @@ from vibecanvas_api.storage.models import (
     VfsRun,
 )
 from vibecanvas_api.storage.vfs_store import VfsRepo
+from vibecanvas_api.config import config
+from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage, WorkspaceIdentity
+from vibecanvas_api.services.workspace_vfs import WorkspaceFileMetadata, workspace_file_metadata, workspace_metadata_from_stat, workspace_scope
 from vibecanvas_api.streaming.sse import format_event
 
 router = APIRouter(prefix="/api/v1/previews", tags=["previews"])
@@ -132,9 +135,28 @@ EDITABLE_CONTENT_TYPES = {
 @dataclass(slots=True)
 class _ResolvedFile:
     file_ref: FileRefV1
-    row: VfsArtifact | VfsRun
+    row: VfsArtifact | VfsRun | WorkspaceFileMetadata
     scope_id: str
     run_id: str
+    workspace_identity: WorkspaceIdentity | None = None
+    relative_path: str = ""
+
+
+async def _resolve_workspace_file(file_ref, auth, session, scope_id) -> _ResolvedFile:
+    if not workspace_path_visible(file_ref.path, set()) and not workspace_path_visible(
+        file_ref.path, await owned_workspace_chats(session, scope_id, auth.user_id),
+    ):
+        raise HTTPException(status_code=404, detail="preview_file_not_found")
+    identity, prefix = workspace_scope(auth.tenant_id, scope_id, auth.user_id)
+    if not file_ref.path.startswith(prefix):
+        raise HTTPException(status_code=404, detail="preview_file_not_found")
+    relative = file_ref.path[len(prefix):]
+    try:
+        metadata = await asyncio.to_thread(
+            workspace_file_metadata, PosixWorkspaceStorage(config.workspace_storage_root), identity, relative)
+    except (FileNotFoundError, NotADirectoryError, ValueError) as error:
+        raise HTTPException(status_code=404, detail="preview_file_not_found") from error
+    return _ResolvedFile(file_ref, metadata, scope_id, "", identity, relative)
 
 
 def _file_resource(file_ref: FileRefV1, auth: AuthContext) -> ResourceRef:
@@ -188,6 +210,8 @@ async def _resolve_file(
         if project is None:
             raise HTTPException(status_code=404, detail="preview_file_not_found")
         scope_id = project_workspace_scope_id(project.project_id)
+        if config.workspace_storage_backend == "posix":
+            return await _resolve_workspace_file(file_ref, auth, session, scope_id)
         query = select(VfsArtifact).where(
             VfsArtifact.scope_id == scope_id,
             VfsArtifact.path == file_ref.path,
@@ -198,6 +222,8 @@ async def _resolve_file(
         run_id = ""
     elif isinstance(file_ref, MountFileRefV1):
         scope_id = mount_scope_id(auth.user_id)
+        if config.workspace_storage_backend == "posix":
+            return await _resolve_workspace_file(file_ref, auth, session, scope_id)
         query = select(VfsArtifact).where(
             VfsArtifact.scope_id == scope_id,
             VfsArtifact.path == file_ref.path,
@@ -208,6 +234,16 @@ async def _resolve_file(
         run_id = ""
     elif isinstance(file_ref, RunFileRefV1):
         scope_id = ""
+        if config.workspace_storage_backend == "posix":
+            from vibecanvas_api.services.run_workspace_resolution import resolve_run_workspace, run_relative_path
+            try:
+                identity = await resolve_run_workspace(session, file_ref.run_id)
+                relative = run_relative_path(identity, file_ref.path)
+                metadata = await asyncio.to_thread(
+                    workspace_file_metadata, PosixWorkspaceStorage(config.workspace_storage_root), identity, relative)
+            except (FileNotFoundError, NotADirectoryError, ValueError) as error:
+                raise HTTPException(status_code=404, detail="preview_file_not_found") from error
+            return _ResolvedFile(file_ref, metadata, "", file_ref.run_id, identity, relative)
         query = select(VfsRun).where(
             VfsRun.run_id == file_ref.run_id,
             VfsRun.path == file_ref.path,
@@ -534,6 +570,23 @@ def _object_prefix(object_key: str, size_bytes: int, limit: int) -> bytes:
     )
 
 
+def _source_prefix(resolved: _ResolvedFile, limit: int) -> bytes:
+    if resolved.workspace_identity is None:
+        return _object_prefix(resolved.row.object_key, int(resolved.row.size_bytes), limit)
+    storage = PosixWorkspaceStorage(config.workspace_storage_root)
+    if limit <= 0:
+        return b""
+    with storage.open_read(resolved.workspace_identity, resolved.relative_path) as source:
+        current = workspace_metadata_from_stat(resolved.relative_path, os.fstat(source.fileno()))
+        if current.content_revision != resolved.row.content_revision:
+            raise HTTPException(status_code=409, detail="preview_revision_conflict")
+        data = source.read(limit)
+        after = workspace_metadata_from_stat(resolved.relative_path, os.fstat(source.fileno()))
+        if after.content_revision != current.content_revision:
+            raise HTTPException(status_code=409, detail="preview_revision_conflict")
+        return data
+
+
 def _event_file_ref(
     *,
     scope: Literal["project", "mount", "run"],
@@ -808,25 +861,21 @@ async def resolve_preview(
         session=session,
     )
     size = int(resolved.row.size_bytes)
-    prefix = _object_prefix(resolved.row.object_key, size, DETECTION_BYTES)
+    prefix = _source_prefix(resolved, DETECTION_BYTES)
     detected, _content_type = _detect(
         resolved.file_ref.path,
         resolved.row.content_type,
         prefix,
     )
     if detected == "drawio":
-        data = _object_prefix(
-            resolved.row.object_key,
-            size,
-            MAX_DRAWIO_SOURCE_BYTES + 1,
-        )
+        data = _source_prefix(resolved, MAX_DRAWIO_SOURCE_BYTES + 1)
     elif detected in {"text", "markdown", "html", "csv", "tsv", "jsonl"}:
         # Full strict UTF-8 validation is required for bounded text and
         # structured-table previews. Source-like text remains editable up to
         # the explicit editor limit; larger files use a bounded read-only
         # sample so Preview remains responsive.
         limit = size if size <= EDITABLE_TEXT_BYTES else LARGE_TEXT_SAMPLE_BYTES
-        data = _object_prefix(resolved.row.object_key, size, limit)
+        data = _source_prefix(resolved, limit)
     elif (
         detected in {"docx", "pptx"}
         and size <= OFFICE_MANUAL_BYTES
@@ -835,7 +884,7 @@ async def resolve_preview(
         and size <= SPREADSHEET_MAX_BYTES
     ):
         # OOXML preflight must inspect the complete bounded ZIP.
-        data = get_object_store().fetch_bytes(resolved.row.object_key)
+        data = _source_prefix(resolved, int(resolved.row.size_bytes))
     else:
         data = prefix
     descriptor = _descriptor(resolved=resolved, auth=auth, data=data)
@@ -885,7 +934,7 @@ async def office_preview_rendition(
     size = int(resolved.row.size_bytes)
     if size > OFFICE_MANUAL_BYTES:
         raise HTTPException(status_code=413, detail="file_too_large")
-    data = get_object_store().fetch_bytes(resolved.row.object_key)
+    data = _source_prefix(resolved, int(resolved.row.size_bytes))
     detected, _content_type = _detect(
         resolved.file_ref.path,
         resolved.row.content_type,
@@ -957,7 +1006,7 @@ async def create_preview_resource_session(
     if is_html or is_markdown:
         size_bytes = int(resolved.row.size_bytes or 0)
         sample_size = min(size_bytes, 2 * 1024 * 1024)
-        source = _object_prefix(resolved.row.object_key, size_bytes, sample_size).decode(
+        source = _source_prefix(resolved, sample_size).decode(
             "utf-8", "replace"
         )
         if is_html:
@@ -1086,7 +1135,7 @@ async def write_preview_file(
         raise HTTPException(status_code=409, detail="preview_revision_conflict")
     if int(resolved.row.size_bytes) > EDITABLE_TEXT_BYTES:
         raise HTTPException(status_code=413, detail="preview_text_too_large")
-    original = get_object_store().fetch_bytes(resolved.row.object_key)
+    original = _source_prefix(resolved, int(resolved.row.size_bytes))
     detected, _detected_content_type = _detect(
         body.file_ref.path,
         resolved.row.content_type,
@@ -1112,6 +1161,21 @@ async def write_preview_file(
         raise HTTPException(status_code=413, detail="preview_text_too_large")
     if metadata.bom:
         data = b"\xef\xbb\xbf" + data
+    if resolved.workspace_identity is not None:
+        storage = PosixWorkspaceStorage(config.workspace_storage_root)
+        current = await asyncio.to_thread(
+            workspace_file_metadata, storage, resolved.workspace_identity, resolved.relative_path)
+        if vfs_row_revision(current) != body.expected_revision:
+            raise HTTPException(status_code=409, detail="preview_revision_conflict")
+        await asyncio.to_thread(storage.write_file, resolved.workspace_identity,
+                                resolved.relative_path, io.BytesIO(data))
+        updated = await asyncio.to_thread(
+            workspace_file_metadata, storage, resolved.workspace_identity, resolved.relative_path)
+        await session.commit()
+        return PreviewFileWriteOut(
+            fileRef=body.file_ref, revision=vfs_row_revision(updated),
+            sizeBytes=len(data), contentType=requested_content_type,
+        )
     repo = VfsRepo(session, object_store=get_object_store())
     await repo.upsert_artifact_bytes(
         wf_id=resolved.scope_id,

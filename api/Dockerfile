@@ -244,6 +244,7 @@ RUN groupadd --gid 10001 vibecanvas && \
       /var/lib/vibecanvas/lib-overlay \
       /var/lib/vibecanvas/agent-runtime \
       /var/lib/vibecanvas/vfs-volumes \
+      /var/lib/vibecanvas/workspaces \
       /run/vibecanvas-openfga \
       /run/vibecanvas-sandbox
 

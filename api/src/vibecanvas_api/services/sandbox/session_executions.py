@@ -120,13 +120,18 @@ class SessionExecutions:
             async with group.pool.acquire(execution_id) as slot:
                 context = dict(context)
                 source_id = context.pop("_workflow_resume_from", None)
-                if source_id is not None and self.session.workflow_run_source is None:
+                persistent_run = self.session.persistent_run_binding is not None
+                if source_id is not None and self.session.workflow_run_source is None and not persistent_run:
                     await restore_workflow_artifacts(
                         root=slot.artifacts, tenant_id=self.session.tenant_id,
                         execution_id=source_id,
                     )
 
                 async def artifacts():
+                    if persistent_run:
+                        # The worker writes the resource's durable /run directly.
+                        # History records outputs separately; no directory snapshot.
+                        return
                     await persist_workflow_artifacts(
                         root=str(slot.artifacts),
                         tenant_id=self.session.tenant_id,

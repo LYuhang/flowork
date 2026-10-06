@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime, time as datetime_time
 import io
 import json
 import uuid
@@ -232,9 +232,40 @@ def _schedule_body(arguments, *, create):
     return routes.ScheduledRunPatchBody(**result)
 
 
+from vibecanvas_api.services.agent_resources.table_io import _text_to_rows, _xlsx_to_rows
+
+def _json_cell(value):
+    if isinstance(value, (date, datetime, datetime_time)):
+        return value.isoformat()
+    raise ValueError("Unsupported spreadsheet cell value.")
+
+
+def _batch_rows(arguments: dict) -> list[dict]:
+    try:
+        data = base64.b64decode(arguments["data"], validate=True)
+        ext = arguments["format"]
+        if ext in {"xlsx", "xlsm"}:
+            rows, _ = _xlsx_to_rows(data, arguments["name"], arguments["sheet"])
+        else:
+            parsed = _text_to_rows(data.decode("utf-8-sig"), ext)
+            if parsed is None:
+                raise ValueError("not tabular")
+            rows, _ = parsed
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("rows must be objects")
+        # Explicitly normalize workbook date cells; reject NaN/infinity, invalid
+        # CSV columns and other non-JSON values before any execution is started.
+        if any(any(not isinstance(key, str) for key in row) for row in rows):
+            raise ValueError("invalid column")
+        return json.loads(json.dumps(rows, default=_json_cell, allow_nan=False))
+    except ToolError:
+        raise
+    except (ValueError, TypeError, UnicodeError, AttributeError) as exc:
+        raise ToolError("invalid_input", "Batch input must contain a valid table of JSON objects.") from exc
+
+
 def prepare_batch(arguments, snapshot):
     """Match input names; turn repeated flat output mappings into the UI schema."""
-    from .cli_runs import _batch_rows
     data = base64.b64decode(arguments["data"], validate=True)
     sheet = arguments.get("input_sheet", "")
     if arguments["format"] in {"xlsx", "xlsm"} and not sheet:

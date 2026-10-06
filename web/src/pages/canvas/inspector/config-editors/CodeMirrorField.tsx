@@ -21,6 +21,7 @@
 import { useState, useMemo } from 'react';
 import type { KeyboardEvent } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
+import { useTheme } from 'next-themes';
 import type { Extension } from '@codemirror/state';
 import { keymap, EditorView } from '@codemirror/view';
 import { indentWithTab } from '@codemirror/commands';
@@ -59,6 +60,7 @@ export function CodeMirrorField({
   className,
   'data-testid': testId,
 }: CodeMirrorFieldProps) {
+  const { resolvedTheme } = useTheme();
   // Local buffer + prev-prop-in-state resync (mirrors CommitOnBlur*).
   const [local, setLocal] = useState(value);
   const [prevValue, setPrevValue] = useState(value);
@@ -122,6 +124,7 @@ export function CodeMirrorField({
       )}
     >
       <CodeMirror
+        theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
         value={local}
         editable={!readOnly}
         readOnly={readOnly}

@@ -163,6 +163,43 @@ from ..agents.middleware.compaction_forms import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["chats"])
+
+
+async def _persist_chat_file(*, session, auth, scope: str, path: str,
+                             data: bytes, content_type: str) -> bool:
+    if app_config.workspace_storage_backend == "posix":
+        from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+        from vibecanvas_api.services.workspace_vfs import write_workspace_file
+        return await asyncio.to_thread(
+            write_workspace_file, PosixWorkspaceStorage(app_config.workspace_storage_root),
+            tenant_id=auth.tenant_id, scope_id=scope, user_id=auth.user_id,
+            path=path, data=data,
+        )
+    return await VfsRepo(session, object_store=get_object_store()).upsert_artifact_bytes(
+        wf_id=scope, tenant=auth.tenant_id, path=path, data=data, content_type=content_type)
+
+
+async def _read_chat_html_source(*, session, auth, scope: str, path: str) -> bytes | None:
+    """Read an authorized preview source without loading oversized POSIX files."""
+    limit = 2 * 1024 * 1024
+    if app_config.workspace_storage_backend == "posix":
+        from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+        from vibecanvas_api.services.workspace_vfs import read_workspace_file
+        try:
+            source, size = await asyncio.to_thread(
+                read_workspace_file, PosixWorkspaceStorage(app_config.workspace_storage_root),
+                tenant_id=auth.tenant_id, scope_id=scope, user_id=auth.user_id,
+                path=path, max_bytes=limit,
+            )
+        except FileNotFoundError:
+            return None
+        return source if size <= limit else None
+    source = await VfsRepo(session, object_store=get_object_store()).read_bytes(
+        wf_id=scope, path=path,
+    )
+    return source if source is not None and len(source) <= limit else None
+
+
 logger = structlog.get_logger(__name__)
 
 SSE_HEADERS = {
@@ -177,8 +214,10 @@ AVAILABLE_COMMANDS_BY_SURFACE: dict[str, set[str]] = {
 }
 
 def _available_commands(surface: str, runtime_type: str | None = None) -> set[str]:
-    del runtime_type
-    return set(AVAILABLE_COMMANDS_BY_SURFACE.get(surface, set()))
+    commands = set(AVAILABLE_COMMANDS_BY_SURFACE.get(surface, set()))
+    if commands and runtime_type == "codex":
+        commands.add("goal")
+    return commands
 
 
 def _chat_carrier_scope_id(user_id: str) -> str:
@@ -580,13 +619,20 @@ async def delete_chat_project(
 
     workspace_scope_id = _project_workspace_scope_id(project_id)
     await get_sandbox_manager().close_session(auth.tenant_id, workspace_scope_id)
-    vfs_deleted = await VfsRepo(
-        session,
-        object_store=get_object_store(),
-    ).delete_scope_prefixes(
-        wf_id=workspace_scope_id,
-        prefixes=["/data", "/memory", "/logs", "/chats", "/__runtime"],
-    )
+    if app_config.workspace_storage_backend == "posix":
+        from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage, WorkspaceIdentity
+        vfs_deleted = int(await asyncio.to_thread(
+            PosixWorkspaceStorage(app_config.workspace_storage_root).delete,
+            WorkspaceIdentity(auth.tenant_id, 'project', workspace_scope_id),
+        ))
+    else:
+        vfs_deleted = await VfsRepo(
+            session,
+            object_store=get_object_store(),
+        ).delete_scope_prefixes(
+            wf_id=workspace_scope_id,
+            prefixes=["/data", "/memory", "/logs", "/chats", "/__runtime"],
+        )
     runtime_state_deleted = await asyncio.to_thread(
         get_project_runtime_volume_provider().delete,
         tenant_id=auth.tenant_id,
@@ -943,26 +989,21 @@ async def upload_chat_attachment(
         f"{chat_working_directory(chat_id)}/attachments/{uuid.uuid4().hex[:12]}_{name}"
     )
     workspace_scope, _inventory = await _chat_workspace_scope(chat_repo, chat_id)
-    repo = VfsRepo(session, object_store=get_object_store())
-    await repo.upsert_artifact_bytes(
-        wf_id=workspace_scope,
-        tenant=auth.tenant_id,
-        path=path,
-        data=data,
-        content_type=content_type,
-    )
+    await _persist_chat_file(session=session, auth=auth, scope=workspace_scope,
+                             path=path, data=data, content_type=content_type)
     # Durability precedes the optional live-sandbox projection. A worker loss
     # after this point can only miss the mirror; the next sandbox materialize
     # still reconstructs the file from VFS.
     await chat_repo.commit()
     # If the resident sandbox is already warm, make the upload visible to the
     # next tool call immediately; a cold sandbox will materialize it from VFS.
-    try:
-        await get_sandbox_manager().mirror_vfs_write(
-            auth.tenant_id, workspace_scope, path, data,
-        )
-    except Exception:  # pragma: no cover - durable VFS remains authoritative
-        logger.warning("chat_attachment_live_mirror_failed", chat_id=chat_id, path=path)
+    if app_config.workspace_storage_backend != "posix":
+        try:
+            await get_sandbox_manager().mirror_vfs_write(
+                auth.tenant_id, workspace_scope, path, data,
+            )
+        except Exception:  # pragma: no cover - durable VFS remains authoritative
+            logger.warning("chat_attachment_live_mirror_failed", chat_id=chat_id, path=path)
     return Attachment(
         type=attachment_type,
         name=name,
@@ -1084,10 +1125,18 @@ async def delete_chat_session(
         prefix = chat_working_directory(chat_id)
         # Stop old mounted bytes being written back after the durable deletion.
         # This does not stop or delete the shared Project Runtime.
-        await get_sandbox_manager().mirror_vfs_delete(auth.tenant_id, workspace_scope_id, prefix)
-        vfs_deleted = await VfsRepo(session, object_store=get_object_store()).delete_scope_prefixes(
-            wf_id=workspace_scope_id, prefixes=[prefix],
-        )
+        if app_config.workspace_storage_backend == "posix":
+            from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+            from vibecanvas_api.services.workspace_vfs import remove_workspace_path
+            vfs_deleted = await asyncio.to_thread(
+                remove_workspace_path, PosixWorkspaceStorage(app_config.workspace_storage_root),
+                tenant_id=auth.tenant_id, scope_id=workspace_scope_id, user_id=auth.user_id, path=prefix,
+            )
+        else:
+            await get_sandbox_manager().mirror_vfs_delete(auth.tenant_id, workspace_scope_id, prefix)
+            vfs_deleted = await VfsRepo(session, object_store=get_object_store()).delete_scope_prefixes(
+                wf_id=workspace_scope_id, prefixes=[prefix],
+            )
     await chat_repo.drop_authorized_session(chat_id)
     coordinator = mutation_coordinator_for_request(
         request,
@@ -1774,11 +1823,10 @@ async def create_interactive_resource_session(
                     if path.startswith("/mount/")
                     else workspace_scope
                 )
-                source = await VfsRepo(
-                    hitl_repo.session,
-                    object_store=get_object_store(),
-                ).read_bytes(wf_id=source_scope, path=path)
-                if source is not None and len(source) <= 2 * 1024 * 1024:
+                source = await _read_chat_html_source(
+                    session=hitl_repo.session, auth=auth, scope=source_scope, path=path,
+                )
+                if source is not None:
                     rules.update(html_vfs_read_rules(source.decode("utf-8", "replace"), path))
 
     sorted_rules = tuple(sorted(rules))
@@ -1942,14 +1990,8 @@ async def save_interactive_artifact_result_file(
     workspace_scope, _inventory = await _chat_workspace_scope(
         chat_repo, row.chat_id
     )
-    repo = VfsRepo(hitl_repo.session, object_store=get_object_store())
-    replaced = await repo.upsert_artifact_bytes(
-        wf_id=workspace_scope,
-        tenant=auth.tenant_id,
-        path=path,
-        data=data,
-        content_type=body.content_type,
-    )
+    replaced = await _persist_chat_file(session=hitl_repo.session, auth=auth, scope=workspace_scope,
+                                        path=path, data=data, content_type=body.content_type)
     result_file = {
         "result_path": path,
         "path": path,
@@ -1967,20 +2009,21 @@ async def save_interactive_artifact_result_file(
     # A warm resident sandbox otherwise keeps its materialized pre-Save view
     # of /data. Project the durable write into that live workspace so the new
     # Continue Turn can read exactly what the user just saved.
-    try:
-        await get_sandbox_manager().mirror_vfs_write(
-            auth.tenant_id,
-            workspace_scope,
-            path,
-            data,
-        )
-    except Exception:  # pragma: no cover - durable VFS remains authoritative
-        logger.warning(
-            "interactive_result_live_mirror_failed",
-            chat_id=row.chat_id,
-            artifact_id=artifact_id,
-            path=path,
-        )
+    if app_config.workspace_storage_backend != "posix":
+        try:
+            await get_sandbox_manager().mirror_vfs_write(
+                auth.tenant_id,
+                workspace_scope,
+                path,
+                data,
+            )
+        except Exception:  # pragma: no cover - durable VFS remains authoritative
+            logger.warning(
+                "interactive_result_live_mirror_failed",
+                chat_id=row.chat_id,
+                artifact_id=artifact_id,
+                path=path,
+            )
     return {
         "artifact_id": artifact_id,
         **result_file,
@@ -2322,6 +2365,7 @@ async def get_chat_state(
         statuses=ACTIVE_BACKGROUND_JOB_STATUSES,
     )
     return ChatStateOut(
+        goal=await chat_repo.get_goal(chat_id),
         todo_items=items,
         background_jobs=[
             project_background_job(job) for job in background_jobs
@@ -2691,6 +2735,17 @@ async def post_message(
             stripped = SKILL_USE_PATTERN.fullmatch(body.content.strip())[2].strip()
         else:
             cmd, stripped = parse_command(body.content)
+    from ..services.agent_runtime.goal_commands import parse_goal_command
+    try:
+        goal_command = (
+            parse_goal_command(body.content)
+            if body.control is None and body.skill_use is None else None
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid /goal command or objective") from exc
+    if goal_command is not None:
+        cmd = "goal"
+        stripped = goal_command.objective or ""
     agent_surface = body.agent_surface or "chat"
     command_runtime_binding = await runtime_repo.get_chat_binding(chat_id)
     command_runtime_type = (
@@ -3516,6 +3571,9 @@ async def post_message(
         runtime_version=runtime_binding["runtime_version"],
     )
     turn_request = RuntimeTurnRequest(
+        goal_command=goal_command,
+        goal_pause_requested=await chat_repo.get_goal_pause_requested(chat_id),
+        goal_snapshot=await chat_repo.get_goal(chat_id),
         workflow_run_source=workflow_run_source,
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,

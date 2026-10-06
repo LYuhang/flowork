@@ -47,6 +47,7 @@ def test_project_runtime_volume_is_direct_and_durable_across_provider_loss(tmp_p
             "first turn",
         )
     assert os.stat(first.path).st_mode & 0o777 == 0o700
+    assert os.stat(tmp_path).st_mode & 0o7777 == 0o2770
 
 
 def test_project_runtime_volume_isolated_and_exact_delete(tmp_path):
@@ -116,16 +117,16 @@ def test_failed_project_snapshot_preserves_private_projection_for_retry(tmp_path
     volume = provider.ensure(tenant_id="tenant", user_id="user", project_scope_id="project")
     marker = Path(volume.path, "thread.jsonl")
     marker.write_text("unsaved thread", encoding="utf-8")
-    persist = store.persist_materialized_bytes
+    persist = store.persist_materialized_stream
 
     def unavailable(*args, **kwargs):
         raise OSError("storage unavailable")
 
-    monkeypatch.setattr(store, "persist_materialized_bytes", unavailable)
+    monkeypatch.setattr(store, "persist_materialized_stream", unavailable)
     with pytest.raises(OSError, match="storage unavailable"):
         provider.release(volume)
     assert marker.read_text(encoding="utf-8") == "unsaved thread"
-    monkeypatch.setattr(store, "persist_materialized_bytes", persist)
+    monkeypatch.setattr(store, "persist_materialized_stream", persist)
     assert provider.release(volume) == 1
     restored = provider.ensure(tenant_id="tenant", user_id="user", project_scope_id="project")
     assert Path(restored.path, "thread.jsonl").read_text(encoding="utf-8") == "unsaved thread"
@@ -315,3 +316,31 @@ def test_encrypted_runtime_volume_tolerates_file_removed_after_manifest(
     keys = store.list_keys(f"{volume.storage_prefix}/")
     assert keys == [f"{volume.storage_prefix}/thread.jsonl"]
     store.release_materialized_prefix(volume.storage_prefix or "", volume.path)
+
+
+def test_runtime_snapshot_streams_large_file_without_replacing_source(tmp_path):
+    import tracemalloc
+    store = FilesystemObjectStore(root=str(tmp_path / 'cipher'), master_key=b'M' * 32)
+    provider = EncryptedObjectStoreProjectRuntimeVolumeProvider(store)
+    volume = provider.ensure(tenant_id='tenant', user_id='user', project_scope_id='memory')
+    source = Path(volume.path, 'large.bin')
+    block = b'a' * (1024 * 1024)
+    with source.open('wb') as handle:
+        for _ in range(24):
+            handle.write(block)
+    inode = source.stat().st_ino
+    tracemalloc.start()
+    try:
+        assert provider.sync(volume) == 1
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 8 * 1024 * 1024, peak
+    assert source.stat().st_ino == inode
+    expected = hashlib.sha256()
+    for _ in range(24):
+        expected.update(block)
+    actual = hashlib.sha256()
+    for chunk in store.iter_bytes(f'{volume.storage_prefix}/large.bin'):
+        actual.update(chunk)
+    assert actual.digest() == expected.digest()

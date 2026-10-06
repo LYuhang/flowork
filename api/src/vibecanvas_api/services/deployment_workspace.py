@@ -13,6 +13,8 @@ import uuid
 
 from sqlalchemy import delete
 
+from vibecanvas_api.config import config
+from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage, WorkspaceIdentity
 from vibecanvas_api.services.file_format import content_type_for
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.services.workflow_artifacts import _files, restore_workflow_artifacts
@@ -25,20 +27,38 @@ class DeploymentWorkspace:
     def __init__(self, tenant_id: str, deployment_id: str):
         self.tenant_id = str(uuid.UUID(tenant_id))
         self.run_id = f"deployment-run-{uuid.UUID(deployment_id).hex}"
-        self.directory = tempfile.TemporaryDirectory(prefix="fw-deploy-run-")
-        self.root = Path(self.directory.name)
+        self.storage = (
+            PosixWorkspaceStorage(config.workspace_storage_root)
+            if config.workspace_storage_backend == "posix" else None
+        )
+        self.binding = (
+            self.storage.acquire(WorkspaceIdentity(self.tenant_id, "deployment", str(uuid.UUID(deployment_id))))
+            if self.storage is not None else None
+        )
+        self.directory = None if self.binding else tempfile.TemporaryDirectory(prefix="fw-deploy-run-")
+        self.root = Path(self.binding.directory if self.binding else self.directory.name)
         self.lock = asyncio.Lock()
         self.owners: set[str] = set()
         self.digests: dict[str, str] = {}
 
     async def hydrate(self):
+        if self.binding is not None:
+            return
         await restore_workflow_artifacts(root=self.root, tenant_id=self.tenant_id, execution_id=self.run_id)
         self.digests = await asyncio.to_thread(self._digests)
 
     def _digests(self):
         return {relative: hashlib.sha256(data).hexdigest() for relative, data in _files(str(self.root))}
 
+    def release(self):
+        if self.binding is not None:
+            self.storage.release(self.binding)
+        elif self.directory is not None:
+            self.directory.cleanup()
+
     async def sync(self):
+        if self.binding is not None:
+            return
         async with self.lock:
             # Serialize syncs, not executions. Workflow authors own concurrent
             # writes to the same file; unchanged files incur no object writes.
@@ -88,7 +108,7 @@ class DeploymentWorkspaces:
                 try:
                     await workspace.hydrate()
                 except BaseException:
-                    workspace.directory.cleanup()
+                    workspace.release()
                     raise
                 self.entries[key] = workspace
             workspace.owners.add(owner)
@@ -103,5 +123,5 @@ class DeploymentWorkspaces:
             await workspace.sync()  # Failure retains source and ownership for retry.
             workspace.owners.discard(owner)
             if not workspace.owners:
-                workspace.directory.cleanup()
+                workspace.release()
                 del self.entries[key]

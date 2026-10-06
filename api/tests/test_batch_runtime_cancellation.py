@@ -69,8 +69,9 @@ async def test_cancel_kills_owned_pool_and_skips_waiting_rows(monkeypatch, silen
         return await kwargs["execute"]
     monkeypatch.setattr(batch_runtime, "observe_row_execution", observe)
 
+    task_id = str(uuid4())
     result = await batch_runtime.run_batch_workflow(
-        task_id="task-soft-cancel",
+        task_id=task_id,
         tenant_id="tenant-1",
         user_id="user-1",
         workflow_id="workflow-1",
@@ -85,13 +86,13 @@ async def test_cancel_kills_owned_pool_and_skips_waiting_rows(monkeypatch, silen
 
     assert coordinator.session.calls == 1
     assert coordinator.session.close_calls == 1
-    assert coordinator.closed == [("tenant-1", "batch-task-soft-cancel")]
+    assert coordinator.closed == [("tenant-1", f"batch-{task_id}")]
     assert result.status == "interrupted"
     assert result.summary["cancelled"] == 2
     assert result.summary["can_resume"] is True
     assert [row["status"] for row in result.rows] == ["cancelled", "cancelled"]
     assert all("late business error" not in str(row) for row in result.rows)
-    store = batch_runtime.get_object_store()
+    store = batch_runtime.get_task_result_store()
     assert result.summary["artifact_sizes"] == {
         name: len(store.fetch_bytes(batch_runtime.uri_to_key(uri)))
         for name, uri in result.artifact_uris.items()

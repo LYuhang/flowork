@@ -232,6 +232,8 @@ services:
       - seccomp=unconfined
       - apparmor=unconfined
     environment:
+      WORKSPACE_STORAGE_BACKEND: ${WORKSPACE_STORAGE_BACKEND:-object_store}
+      WORKSPACE_STORAGE_ROOT: /var/lib/vibecanvas/workspaces
       DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
       MAINTENANCE_DATABASE_URL: postgresql+asyncpg://vibecanvas_maintenance:${VIBECANVAS_MAINTENANCE_PASSWORD:-vc_maintenance}@postgres:5432/vibecanvas
       REDIS_URL: redis://redis:6379/0
@@ -279,6 +281,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
     volumes:
+      - workspace_data:/var/lib/vibecanvas/workspaces
       - sandbox_socket:/run/vibecanvas-sandbox
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - object_store_data:/var/lib/vibecanvas/objectstore
@@ -353,6 +356,8 @@ services:
       - ${VIBECANVAS_ENV_FILE:-.env}
     # NOTE: compose merges env_file + environment; environment wins on conflict.
     environment:
+      WORKSPACE_STORAGE_BACKEND: ${WORKSPACE_STORAGE_BACKEND:-object_store}
+      WORKSPACE_STORAGE_ROOT: /var/lib/vibecanvas/workspaces
       DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
       DBOS_SYSTEM_DATABASE_URL: postgresql+psycopg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
       DBOS_RUN_MIGRATIONS: "false"
@@ -403,6 +408,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-vibecanvas-api}
     volumes:
+      - workspace_data:/var/lib/vibecanvas/workspaces
       - object_store_data:/var/lib/vibecanvas/objectstore
       - lib_overlay_data:/var/lib/vibecanvas/lib-overlay
       - agent_runtime_data:/var/lib/vibecanvas/agent-runtime
@@ -447,6 +453,8 @@ services:
     env_file:
       - ${VIBECANVAS_ENV_FILE:-.env}
     environment:
+      WORKSPACE_STORAGE_BACKEND: ${WORKSPACE_STORAGE_BACKEND:-object_store}
+      WORKSPACE_STORAGE_ROOT: /var/lib/vibecanvas/workspaces
       DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
       DBOS_SYSTEM_DATABASE_URL: postgresql+psycopg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
       DBOS_RUN_MIGRATIONS: "false"
@@ -482,6 +490,7 @@ services:
     ports:
       - "${VIBECANVAS_INTERNAL_BIND_ADDRESS:-127.0.0.1}:${VIBECANVAS_WORKER_METRICS_PORT:-9100}:9100"
     volumes:
+      - workspace_data:/var/lib/vibecanvas/workspaces
       - object_store_data:/var/lib/vibecanvas/objectstore
       - lib_overlay_data:/var/lib/vibecanvas/lib-overlay
       - openfga_bootstrap_data:/run/vibecanvas-openfga:ro
@@ -552,6 +561,7 @@ networks:
   maintenance_egress:
 
 volumes:
+  workspace_data:
   postgres_data:
   valkey_data:
   openfga_postgres_data:

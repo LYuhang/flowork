@@ -23,7 +23,7 @@ async def reap_lost_workflow_processes():
                 await db.execute(
                     text("""SELECT id,tenant_id,source_type,generation,runtime_process
             FROM workflow_execution_runs WHERE status IN ('running','waiting_approval')
-            AND runtime_process->>'host_id'=:host"""),
+            AND (runtime_process->>'host_id'=:host OR runtime_process->>'kind'='local_cli')"""),
                     {"host": host},
                 )
             )
@@ -31,7 +31,18 @@ async def reap_lost_workflow_processes():
             .all()
         )
     for candidate in candidates:
-        if not await asyncio.to_thread(process_group_gone, candidate["runtime_process"]):
+        identity = candidate["runtime_process"]
+        if identity.get("kind") == "local_cli":
+            from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
+            try:
+                exited = await get_sandbox_manager().local_execution_exited(
+                    str(candidate["tenant_id"]), identity["sandbox_id"], identity["run_id"])
+            except Exception:
+                # A failed observation is never proof that execution ended.
+                continue
+            if exited is not True:
+                continue
+        elif not await asyncio.to_thread(process_group_gone, identity):
             continue
         async with short_session_scope(tenant_id=str(candidate["tenant_id"])) as db:
             invocation = None

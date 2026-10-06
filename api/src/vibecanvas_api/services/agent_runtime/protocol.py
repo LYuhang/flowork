@@ -19,6 +19,7 @@ from pydantic import (
     model_validator,
 )
 
+from .goal_commands import GoalCommand
 from .mcp_runtime_protocol import McpDesiredState, McpExecutionContext
 from vibecanvas_api.services.workflow_run_source import WorkflowRunSource
 
@@ -317,6 +318,9 @@ class RuntimeDurableHistorySnapshot(BaseModel):
 
 
 class RuntimeTurnRequest(BaseModel):
+    goal_command: GoalCommand | None = None
+    goal_pause_requested: bool = False
+    goal_snapshot: dict | None = None
     workflow_run_source: WorkflowRunSource | None = None
     protocol_version: Literal[2] = RUNTIME_PROTOCOL_VERSION
     tenant_id: str

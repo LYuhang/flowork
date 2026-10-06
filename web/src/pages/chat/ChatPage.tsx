@@ -1349,13 +1349,14 @@ export function ChatPage() {
                         collapsed={todoCollapsed}
                         onCollapsedChange={setTodoCollapsed}
                       />
-                      <div className="chat-composer-shell">
+                      <div>
                         <ChatComposer
                           wfId={carrierScopeId}
                           chatId={activeChatId}
                           projectId={selectedProjectId}
                           chatPersisted={activeChatIsPersisted || activeHistory.isSuccess}
                           agentSurface="chat"
+                          framed
                           quietFrame
                           showModelSelector
                           historyReady={historyReady}
@@ -1382,13 +1383,14 @@ export function ChatPage() {
                           collapsed={todoCollapsed}
                           onCollapsedChange={setTodoCollapsed}
                         />
-                        <div className="chat-composer-shell">
+                        <div>
                           <ChatComposer
                             wfId={carrierScopeId}
                             chatId={activeChatId}
                             projectId={selectedProjectId}
                             chatPersisted={activeChatIsPersisted || activeHistory.isSuccess}
                             agentSurface="chat"
+                            framed
                             quietFrame
                             showModelSelector
                             historyReady={historyReady}

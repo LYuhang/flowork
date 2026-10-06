@@ -173,7 +173,7 @@ def test_platform_guidance_is_navigation_not_a_cli_manual():
     assert "operation" in text and "version list / create" in text
     assert "--clear-tags" not in text
     assert "node_config/process_fn" in text and "node_config/code" not in text
-    assert "config_schema" not in text and "current_workflow_subversion" not in text
+    assert '"config_schema":' not in text and "current_workflow_subversion" not in text
 
 
 def test_platform_guidance_prose_has_no_hard_wrapping():
@@ -222,59 +222,20 @@ def test_guidance_symlink_is_not_followed(tmp_path):
     assert target.read_text() == "private"
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("failure,failures,expected_polls", [
-    ("authorization_unavailable", 2, 4),
-    ("authorization_unavailable", 10, 4),
-    ("forbidden", 1, 2),
-])
-async def test_run_result_query_retries_only_transient_authorization_without_restarting(failure, failures, expected_polls):
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-    gateway = CliGateway()
-    reader = asyncio.StreamReader()
-    writer = SimpleNamespace(write=Mock(), drain=AsyncMock())
-    calls = []
-    polls = 0
-    async def invoke(operation, arguments):
-        nonlocal polls
-        calls.append((operation, dict(arguments)))
-        if operation == "workflow.run":return {"status": "running"}
-        if operation == "workflow.run.cancel":return {"cancelled": True}
-        assert operation == "workflow.run.poll"
-        polls += 1
-        if polls == 1:return {"sequence": 7, "event": {"status": "running"}}
-        if polls <= failures + 1:return {"error": failure}
-        return {"sequence": 8, "event": {"terminal": True, "status": "completed"}}
-    result = await gateway._stream_run(invoke, "workflow.run", {"run_id": "same-run"}, reader, writer)
-    assert polls == expected_polls
-    assert sum(op == "workflow.run" for op, _ in calls) == 1
-    retry_args = [args for op, args in calls if op == "workflow.run.poll"][1:]
-    assert all(args == {"run_id": "same-run", "ack": 7} for args in retry_args)
-    assert calls[-1][0] == "workflow.run.cancel"
-    if failure == "authorization_unavailable" and failures == 2:
-        assert result["status"] == "completed"
-    else:
-        assert result["error"] == failure
-        if failure == "authorization_unavailable":assert "do not automatically rerun" in result["hint"]
+@pytest.mark.parametrize("operation", ["workflow.run", "workflow.run-batch", "workflow.run.poll", "workflow.run.cancel"])
+def test_removed_host_execution_protocol_is_not_accepted(operation):
+    from vibecanvas_api.flowork_cli import cli
+    with pytest.raises(ValueError):
+        cli.validate_arguments(operation, {"run_id": "a" * 32})
 
 
-@pytest.mark.asyncio
-async def test_run_disconnect_during_authorization_retry_cancels_original_execution():
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-    gateway = CliGateway()
-    reader = asyncio.StreamReader()
-    writer = SimpleNamespace(write=Mock(), drain=AsyncMock())
-    calls = []
-    async def invoke(operation, arguments):
-        calls.append(operation)
-        if operation == "workflow.run":return {"status": "running"}
-        if operation == "workflow.run.cancel":return {"cancelled": True}
-        reader.feed_eof()
-        return {"error": "authorization_unavailable"}
-    with pytest.raises(ConnectionError, match="disconnected"):
-        await gateway._stream_run(invoke, "workflow.run", {"run_id": "same-run"}, reader, writer)
-    assert calls.count("workflow.run") == 1
-    assert calls.count("workflow.run.poll") == 1
-    assert calls[-1] == "workflow.run.cancel"
+def test_conversation_guidance_revision_reaches_existing_native_threads(tmp_path, monkeypatch):
+    from vibecanvas_api.services.agent_runtime import cli_gateway as gateway
+    prepare_platform_guidance(str(tmp_path))
+    mark_guidance_loaded(str(tmp_path), "existing-thread")
+    monkeypatch.setattr(gateway, "CONVERSATION", "## Updated conversation discipline\n\nContinue the requested work.")
+    assert needs_guidance_update(str(tmp_path), "existing-thread")
+    prepare_platform_guidance(str(tmp_path))
+    assert gateway.CONVERSATION in (tmp_path / "AGENTS.md").read_text()
+    mark_guidance_loaded(str(tmp_path), "existing-thread")
+    assert not needs_guidance_update(str(tmp_path), "existing-thread")

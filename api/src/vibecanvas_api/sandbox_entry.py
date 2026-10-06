@@ -568,6 +568,8 @@ class _ActivityPublisher:
 
     def __init__(self, work_dir: str) -> None:
         self._state_path = os.path.join(work_dir, "activity.json")
+        self._work_dir = work_dir
+        self._local_executions = 0
         self._lock = threading.Lock()
         self._sequence = 0
         self._active_jobs = 0
@@ -579,9 +581,9 @@ class _ActivityPublisher:
             "version": 1,
             "pid": os.getpid(),
             "sequence": self._sequence,
-            "active_jobs": self._active_jobs,
+            "active_jobs": self._active_jobs + self._local_executions,
             "idle_since_monotonic_ns": (
-                self._idle_since_ns if self._active_jobs == 0 else None
+                self._idle_since_ns if self._active_jobs + self._local_executions == 0 else None
             ),
             "updated_monotonic_ns": time.monotonic_ns(),
         }
@@ -597,6 +599,17 @@ class _ActivityPublisher:
                 os.remove(temporary)
             except OSError:
                 pass
+
+    def refresh_local_executions(self) -> None:
+        from vibecanvas_api.services.sandbox.local_activity import active_executions
+        count = active_executions(self._work_dir)
+        with self._lock:
+            if count != self._local_executions:
+                self._local_executions = count
+                self._sequence += 1
+                if self._active_jobs + count == 0:
+                    self._idle_since_ns = time.monotonic_ns()
+                self._publish_locked()
 
     def begin(self, job_id: str) -> None:
         del job_id
@@ -709,6 +722,7 @@ def serve_loop_parallel(work_dir: str, runs_root: str, concurrency: int,
     os.replace(tmp_ready, ready_path)
     try:
         while True:
+            activity.refresh_local_executions()
             _stop_requested_pools(pool_holder, pool_lock, work_dir)
             if os.path.exists(os.path.join(work_dir, "shutdown")):
                 break

@@ -31,6 +31,7 @@ Design:
 """
 from __future__ import annotations
 
+import io
 import os
 import stat
 from collections.abc import Iterator
@@ -38,7 +39,7 @@ from functools import lru_cache
 import shutil
 import tempfile
 import threading
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
 from vibecanvas_api.config import config
 from vibecanvas_api.security.crypto_core import local_master_key_from_config
@@ -371,6 +372,11 @@ class FilesystemObjectStore:
                     raise
 
     def _write_encrypted_atomic(self, path: str, *, key: str, data: bytes) -> None:
+        self._write_encrypted_stream_atomic(path, key=key, source=io.BytesIO(data), size=len(data))
+
+    def _write_encrypted_stream_atomic(
+        self, path: str, *, key: str, source: BinaryIO, size: int,
+    ) -> None:
         directory = os.path.dirname(path)
         self._ensure_durable_directory(directory)
         fd, temporary = tempfile.mkstemp(prefix=".vcobj-", dir=directory)
@@ -378,7 +384,7 @@ class FilesystemObjectStore:
             os.fchmod(fd, 0o660)
             with os.fdopen(fd, "wb") as file:
                 fd = -1
-                self._cipher.write(file, key=key, plaintext=data)
+                self._cipher.write_stream(file, key=key, source=source, size=size)
             os.replace(temporary, path)
             os.chmod(path, 0o660)
         finally:
@@ -410,6 +416,22 @@ class FilesystemObjectStore:
         raise NotImplementedError(
             "FilesystemObjectStore has no signed URL; stream via fetch_bytes"
         )
+
+    def persist_materialized_stream(
+        self, key: str, source: BinaryIO, *, size: int,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Persist a workspace stream without replacing its live source file.
+
+        Failed reads/encryption leave the previous durable object untouched.
+        The caller owns the input stream and serializes same-path mutations.
+        """
+        del content_type
+        with self._lock:
+            self._write_encrypted_stream_atomic(
+                self._path(key), key=key, source=source, size=size,
+            )
+        return f"fs://{key}"
 
     def persist_materialized_bytes(
         self, key: str, data: bytes, content_type: str = "application/octet-stream",
@@ -828,6 +850,22 @@ def uri_to_key(uri: str) -> str:
         return key
     # No recognised scheme — treat the whole string as the key.
     return uri
+
+
+def get_task_result_store() -> ObjectStore:
+    """Task outputs follow workspace storage selection, outside sandbox mounts.
+
+    Results retain the existing encrypted-file format and URI contract. Their
+    access remains controlled by Task history/export permissions, independently
+    of the shared runtime /run directory.
+    """
+    if config.workspace_storage_backend == "posix":
+        return _filesystem_object_store(
+            os.path.join(config.workspace_storage_root, "task-results-v1"),
+            os.path.join(config.workspace_storage_root, "task-result-materializations"),
+            config.object_store.fs_encryption_chunk_bytes,
+        )
+    return get_object_store()
 
 
 def get_object_store() -> ObjectStore:

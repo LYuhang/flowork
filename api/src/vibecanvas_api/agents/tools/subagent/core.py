@@ -176,6 +176,7 @@ async def run_bounded_agent(
     user_input: str,
     output_fields: dict,
     max_iterations: int = 25,
+    retry: int = 0,
     context: AgentContext | None = None,
     checkpointer: Any = None,
     thread_id: str | None = None,
@@ -208,7 +209,17 @@ async def run_bounded_agent(
             # set_output. A free-text final answer cannot satisfy that contract.
             # Require a tool call while preserving the model's choice of which
             # tool to use for intermediate work.
-            return await handler(request.override(tool_choice="required"))
+            from vibecanvas_engine.model_retry import acall_with_retry, EmptyModelResponse
+            async def generate():
+                response = await handler(request.override(tool_choice="required"))
+                messages = response.result
+                if not messages or not any(_message_text(m).strip() or getattr(m, "tool_calls", None) for m in messages):
+                    reasons = [getattr(message, "response_metadata", {}).get("finish_reason") for message in messages or []]
+                    if any(reason in ("length", "content_filter") for reason in reasons):
+                        raise RuntimeError("SubAgent returned no output due to a token limit or content filter")
+                    raise EmptyModelResponse("SubAgent model returned an empty response")
+                return response
+            return await acall_with_retry(generate, retry, stop_event)
 
     holder: dict[str, dict] = {}
     output_tool = _make_output_tool(output_fields, holder)

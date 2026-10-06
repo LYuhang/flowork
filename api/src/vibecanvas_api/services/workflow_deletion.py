@@ -35,9 +35,7 @@ async def check_dependencies(session, workflow_id):
         ("deployment_invocations", "wf_id", "status IN ('queued','running','waiting_approval')", "active deployment invocations"),
         ("scheduled_run_executions", "workflow_id", "status IN ('queued','running','cancelling')", "active scheduled executions"),
         ("workflow_run_state", "wf_id", "status IN ('pending','running')", "active canvas executions"),
-        # A lost heartbeat is not proof that a worker stopped. Only confirmed
-        # pool shutdown removes this record; uncertain runs block deletion.
-        ("workflow_cli_leases", "workflow_id", "operation = 'run'", "active or unconfirmed CLI executions"),
+        ("workflow_execution_runs", "wf_id", "source_type = 'workflow' AND status IN ('running','waiting_approval')", "active workflow executions"),
     )
     for table, column, condition, label in checks:
         if (await session.execute(text(f"SELECT 1 FROM {table} WHERE {column}=:id AND {condition} LIMIT 1"),
@@ -57,10 +55,11 @@ async def check_dependencies(session, workflow_id):
                         {"id": workflow_id, "owner": owner})).first():
                     raise ToolError("workflow_in_use", f"The workflow has {label}.",
                         info={"hint": "Disable dependent instances and finish active executions before deleting the workflow."})
-            if (await connection.execute(text("SELECT 1 FROM workflow_cli_leases "
-                    "WHERE workflow_id=:id AND tenant_id<>:owner AND operation='run' LIMIT 1"),
+            if (await connection.execute(text("SELECT 1 FROM workflow_execution_runs "
+                    "WHERE wf_id=:id AND tenant_id<>:owner AND source_type='workflow' "
+                    "AND status IN ('running','waiting_approval') LIMIT 1"),
                     {"id": workflow_id, "owner": owner})).first():
-                raise ToolError("workflow_in_use", "The workflow has active or unconfirmed CLI executions.",
+                raise ToolError("workflow_in_use", "The workflow has active workflow executions.",
                     info={"hint": "Finish or cancel active executions before deleting the workflow."})
 
     active_chat = (await session.execute(select(AgentRun.run_id)
@@ -163,6 +162,24 @@ async def cleanup(workflow_id):
         closed = await get_sandbox_manager().close_session(str(tenant), workflow_id)
         if closed.get("lifecycle_state") not in {"closed", "released"}:
             raise RuntimeError("Workflow sandbox shutdown/persistence is not confirmed")
+        from vibecanvas_api.config import config
+        if config.workspace_storage_backend == "posix":
+            from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage, WorkspaceIdentity
+            from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
+            from vibecanvas_api.services.vfs_volume import get_project_runtime_volume_provider
+            storage = PosixWorkspaceStorage(config.workspace_storage_root)
+            projects = (await session.execute(select(ChatProject).where(
+                ChatProject.workflow_id == workflow_id))).scalars().all()
+            for project in projects:
+                scope = project_workspace_scope_id(project.project_id)
+                project_tenant = str(project.tenant_id)
+                project_closed = await get_sandbox_manager().close_session(project_tenant, scope)
+                if project_closed.get("lifecycle_state") not in {"closed", "released"}:
+                    raise RuntimeError("Workflow chat sandbox shutdown is not confirmed")
+                await asyncio.to_thread(storage.delete, WorkspaceIdentity(project_tenant, "project", scope))
+                await asyncio.to_thread(get_project_runtime_volume_provider().delete,
+                    tenant_id=project_tenant, user_id=str(project.creator_user_id), project_scope_id=scope)
+            await asyncio.to_thread(storage.delete, WorkspaceIdentity(str(tenant), "workflow", workflow_id))
         store = get_object_store()
         # Delete objects BEFORE removing their durable index. A crash/retry
         # reuses the same exact keys. Chat files share this Workflow scope;
@@ -181,12 +198,13 @@ async def cleanup(workflow_id):
                     if item.object_key in await asyncio.to_thread(store.list_keys, prefix):
                         raise RuntimeError("Workflow object cleanup was not confirmed")
                 await session.delete(item)
-        from vibecanvas_api.services.vfs_volume import get_project_runtime_volume_provider
-        owners = (await session.execute(select(ChatProject.creator_user_id).where(
-            ChatProject.workflow_id == workflow_id))).scalars().all()
-        for owner in set(owners):
-            await asyncio.to_thread(get_project_runtime_volume_provider().delete,
-                tenant_id=str(tenant), user_id=str(owner), project_scope_id=workflow_id)
+        if config.workspace_storage_backend != "posix":
+            from vibecanvas_api.services.vfs_volume import get_project_runtime_volume_provider
+            owners = (await session.execute(select(ChatProject.creator_user_id).where(
+                ChatProject.workflow_id == workflow_id))).scalars().all()
+            for owner in set(owners):
+                await asyncio.to_thread(get_project_runtime_volume_provider().delete,
+                    tenant_id=str(tenant), user_id=str(owner), project_scope_id=workflow_id)
         await session.execute(text("UPDATE workflow_deletion_cleanup SET completed_at=now() WHERE workflow_id=:id"),
                               {"id": workflow_id})
 

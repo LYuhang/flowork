@@ -112,3 +112,38 @@ async def test_lost_process_closes_pending_approval_without_replay(pg_engine, mo
         if process.poll() is None:
             process.kill()
         process.wait(timeout=5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('observation', [None, 'timeout', True])
+async def test_local_execution_loss_requires_positive_guest_evidence(pg_engine, monkeypatch, observation):
+    from types import SimpleNamespace
+    from uuid import uuid4
+    from vibecanvas_api.services.sandbox import manager
+    tenant, actor, _ = await owner()
+    run_id, approval_id, _ = await waiting_run(tenant, actor)
+    local_id = uuid4().hex
+    record = {'kind': 'local_cli', 'sandbox_id': 'test-sandbox', 'run_id': local_id}
+    async with short_session_scope(tenant_id=tenant) as db:
+        await db.execute(text('UPDATE workflow_execution_runs SET runtime_process=CAST(:record AS jsonb) WHERE id=:id'),
+            {'record': json.dumps(record), 'id': run_id})
+    @asynccontextmanager
+    async def scoped_admin():
+        async with short_session_scope(tenant_id=tenant) as db:
+            yield db
+    async def observed(tenant_id, sandbox_id, command_id):
+        assert (tenant_id, sandbox_id, command_id) == (tenant, 'test-sandbox', local_id)
+        if observation == 'timeout':
+            raise TimeoutError('observation unavailable')
+        return observation
+    monkeypatch.setattr(reaper, 'session_scope_admin', scoped_admin)
+    monkeypatch.setattr(manager, 'get_sandbox_manager', lambda: SimpleNamespace(local_execution_exited=observed))
+    await reaper.reap_lost_workflow_processes()
+    async with short_session_scope(tenant_id=tenant) as db:
+        history = WorkflowHistoryRepo(db)
+        detail = await history.detail(run_id)
+        assert detail['status'] == ('failed' if observation is True else 'waiting_approval')
+        if observation is True:
+            assert detail['approvals'][0]['status'] == 'execution_lost'
+            with pytest.raises(HistoryConflict):
+                await history.request_decision(run_id, approval_id, actor_user_id=actor, approved=True)

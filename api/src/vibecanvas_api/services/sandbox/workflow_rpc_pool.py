@@ -56,6 +56,9 @@ class WorkflowRpcPool:
             binds.extend(session._private_run_aliases())
             if artifacts_root is None:
                 artifacts_root = session.workflow_run_dir
+        persistent_run = getattr(session, "persistent_run_binding", None)
+        if persistent_run is not None and artifacts_root is None:
+            artifacts_root = persistent_run.directory
         readonly = [("/skills", session.skills_dir)] if session.skills_dir else []
         pool = cls(
             capacity=capacity,

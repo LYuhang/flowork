@@ -299,7 +299,7 @@ async def test_download_never_mints_plaintext_object_store_url(monkeypatch):
             yield b"1,ok\n"
 
     monkeypatch.setattr(routes, "TasksRepo", lambda _session: _Repo())
-    monkeypatch.setattr(routes, "get_object_store", lambda: _Store())
+    monkeypatch.setattr(routes, "get_task_result_store", lambda: _Store())
 
     request = Request({
         "type": "http",

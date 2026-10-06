@@ -16,10 +16,12 @@ from uuid import uuid4
 from collections.abc import Awaitable, Callable
 
 from vibecanvas_api.flowork_cli import cli
+from vibecanvas_api.agents.prompts.conversation import CONVERSATION
 
 
 def platform_guidance() -> str:
-    return Path(cli.__file__).with_name("AGENTS.md").read_text(encoding="utf-8")
+    guidance = Path(cli.__file__).with_name("AGENTS.md").read_text(encoding="utf-8")
+    return guidance.rstrip() + "\n\n" + CONVERSATION.strip() + "\n"
 
 
 def prepare_platform_guidance(runtime_root: str) -> None:
@@ -212,8 +214,6 @@ class CliGateway:
                         result = await self._stream_browser(browser, operation, arguments, reader, writer)
                 elif operation in cli.document_cli.OPERATIONS | cli.diagram_cli.OPERATIONS:
                     result = await self._stream_document(operation, arguments, reader, writer, document_complete)
-                elif operation in cli.RUN_OPERATIONS:
-                    result = await self._stream_run(invoke, operation, arguments, reader, writer)
                 else:
                     result = await self._stream_call(invoke, operation, arguments, reader, writer)
         except (ValueError, UnicodeError):
@@ -373,82 +373,6 @@ class CliGateway:
                 await asyncio.wait_for(invoke("cli.cancel", {"call_id": call_id}), timeout=6)
             except (Exception, asyncio.CancelledError):
                 pass  # Host turn-finally and lease expiry fence lost callers.
-
-    async def _stream_run(self, invoke, operation, arguments, reader, writer):
-        # The signed identity is captured by invoke for this original turn.
-        # EOF (including SIGKILL) must cancel even while waiting for Host.
-        disconnected = asyncio.create_task(reader.read(1))
-        run_id = arguments["run_id"]
-
-        async def call(name, values):
-            task = asyncio.create_task(invoke(name, values))
-            try:
-                done, _ = await asyncio.wait({task, disconnected}, timeout=15,
-                                             return_when=asyncio.FIRST_COMPLETED)
-                if disconnected in done:
-                    raise ConnectionError("CLI disconnected")
-                if task not in done:
-                    raise TimeoutError("Execution control timed out")
-                return task.result()
-            finally:
-                if not task.done():
-                    task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-
-        try:
-            started = await call(operation, arguments)
-            if "error" in started:
-                return started
-            await self._send_run_event(writer, started)
-            ack = 0
-            unavailable_polls = 0
-            last_output = asyncio.get_running_loop().time()
-            while True:
-                reply = await call("workflow.run.poll", {"run_id": run_id, "ack": ack})
-                if reply.get("error") == "authorization_unavailable":
-                    # This is a read of the same execution/cursor, never a
-                    # retry of run/start. Every attempt still reauthorizes.
-                    # Do not discard an already delivered result because the
-                    # authorization datastore briefly failed during final drain.
-                    unavailable_polls += 1
-                    if unavailable_polls <= 2:
-                        await self._send_run_event(writer, {
-                            "status": "running", "run_id": run_id,
-                            "message": "Authorization is temporarily unavailable; retrying the same result query.",
-                        })
-                        done, _ = await asyncio.wait({disconnected}, timeout=0.25 * unavailable_polls)
-                        if done:
-                            raise ConnectionError("CLI disconnected")
-                        continue
-                    return {**reply, "hint": "The original execution was already accepted. "
-                            "Keep partial output and inspect its result/status before retrying; do not automatically rerun the workflow."}
-                if "error" in reply:
-                    return reply
-                unavailable_polls = 0
-                event = reply["event"]
-                if event is not None:
-                    if event.get("terminal"):
-                        return event
-                    await self._send_run_event(writer, event)
-                    ack = reply["sequence"]
-                    last_output = asyncio.get_running_loop().time()
-                    continue
-                if asyncio.get_running_loop().time() - last_output >= 5:
-                    await self._send_run_event(writer, {"status": "running", "run_id": run_id, "message": "Waiting for execution progress."})
-                    last_output = asyncio.get_running_loop().time()
-                # Short polling, not one long Host operation: approvals and
-                # cancellation share this bus and must remain responsive.
-                done, _ = await asyncio.wait({disconnected}, timeout=0.5)
-                if done:
-                    raise ConnectionError("CLI disconnected")
-        finally:
-            disconnected.cancel()
-            await asyncio.gather(disconnected, return_exceptions=True)
-            try:
-                await asyncio.wait_for(invoke("workflow.run.cancel", {"run_id": run_id}), timeout=6)
-            except (Exception, asyncio.CancelledError):
-                # Host turn-finally + polling lease cover Runtime/bus loss.
-                pass
 
     async def deactivate(self) -> None:
         self._invoke = None

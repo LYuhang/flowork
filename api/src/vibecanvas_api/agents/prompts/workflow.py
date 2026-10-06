@@ -31,9 +31,15 @@ entire graph. Read download --help before
 exporting: its destination is --file, whereas run/run-batch use --output for results.
 Workflow JSON is a dictionary
 of node IDs to nodes; __meta__ is reserved metadata, not a graph node.
-List node types only when choosing an unfamiliar capability; for a known type
-fetch its spec directly with `flowork-cli workflow get-spec --type StartNode,CodeNode,EndNode`.
-Its node_schema and type-specific specs are authoritative; do not invent fields.
+Before creating nodes or changing their configuration, fields or connections,
+read `flowork-cli workflow get-spec --type TYPE1,TYPE2` for every affected type.
+This is required even for familiar types. Reuse specs already read in the current
+context; fetch again if absent after compaction or if a diagnostic contradicts them.
+List types only when choosing an unfamiliar capability. Read node_schema together
+with each type's constraints, config_schema, config_guide and examples before
+writing JSON. Verify required fields, reference syntax, child limits and pair/branch
+rules. A sample is a starting point, not a substitute for the constraints.
+Do not copy a different framework's fields or guess media/template syntax.
 Use `flowork-cli config get --scope workflow --workflow-id ID --major vN`
 when changing timeouts, dependencies or network settings. It reads the chosen
 major's latest saved subversion; never a Chat binding or unsaved file.
@@ -107,9 +113,15 @@ and substring matching can misclassify unrelated words. Keep deliberate failures
 distinct from unexpected errors, and retain per-record diagnostics in batches.
 Inspect progress and result files and wait for terminal status before claiming
 completion. Shell backgrounding does not make a CLI run a durable Task Center job.
-For long runs, use a managed terminal session or keep the parent shell alive
-and wait for its child; a bare `&` followed by shell exit can kill that child.
-Check the original process/session handle, not just empty or unchanged files.
+The CLI executes locally in the sandbox. For background execution use
+`setsid nohup ... > command.log 2>&1 < /dev/null &`: setsid detaches from the
+command tool's process group and nohup ignores hangup. Keep the PID, result path
+and local status_path from the CLI receipt. Observe that original execution until
+terminal status when the user requested results, then complete the remaining
+analysis or downstream steps. An Agent turn ending does not itself stop this
+background process. A bare `&` or nohup alone can still be cleaned up with the
+launching command's process group. Check the original process/session handle,
+not just empty or unchanged files. Do not resubmit to obtain progress.
 
 Follow the AGENTS path/visibility table: Chat CLI workers can see workspace
 files, but independent runs must not depend on them. Use explicit inputs or an

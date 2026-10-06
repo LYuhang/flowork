@@ -21,6 +21,7 @@ import structlog
 
 from vibecanvas_api.config import config
 from vibecanvas_api.security.upload_scanner import scan_upload
+from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage, WorkspaceIdentity
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.services.vfs_run_context import _guess_ct
 from vibecanvas_api.storage.db import session_scope, short_session_scope
@@ -523,6 +524,11 @@ async def persist_user_mount(*, source: str, user_id: str, tenant_id: str) -> in
     sandbox contract.  Empty leaf directories are represented by a zero-byte
     sentinel because the VFS stores files rather than directory rows.
     """
+    if config.workspace_storage_backend == "posix":
+        expected = _persistent_user_mount(user_id=user_id, tenant_id=tenant_id)
+        if os.path.realpath(source) != expected:
+            raise ValueError("User mount does not match its persistent workspace")
+        return 0
     scope_id = mount_scope_id(user_id)
     if scope_id is None:
         raise ValueError("user_id is required to persist /mount")
@@ -553,6 +559,11 @@ async def persist_user_mount(*, source: str, user_id: str, tenant_id: str) -> in
 
 def persist_user_mount_sync(*, source: str, user_id: str, tenant_id: str) -> int:
     """Synchronous writeback through the NullPool-backed VFS facade."""
+    if config.workspace_storage_backend == "posix":
+        expected = _persistent_user_mount(user_id=user_id, tenant_id=tenant_id)
+        if os.path.realpath(source) != expected:
+            raise ValueError("User mount does not match its persistent workspace")
+        return 0
     scope_id = mount_scope_id(user_id)
     if scope_id is None:
         raise ValueError("user_id is required to persist /mount")
@@ -583,8 +594,18 @@ def persist_user_mount_sync(*, source: str, user_id: str, tenant_id: str) -> int
         current_sync_tenant_id.reset(token)
 
 
+def _persistent_user_mount(*, user_id: str, tenant_id: str) -> str | None:
+    if config.workspace_storage_backend != "posix":
+        return None
+    storage = PosixWorkspaceStorage(config.workspace_storage_root)
+    return storage.acquire(WorkspaceIdentity(tenant_id, "user_mount", user_id)).directory
+
+
 async def create_user_mount(*, user_id: str, tenant_id: str) -> str:
     """Create and hydrate a temporary host directory for one execution."""
+    persistent = _persistent_user_mount(user_id=user_id, tenant_id=tenant_id)
+    if persistent is not None:
+        return persistent
     host_directory = host_mount_bridge.register(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -605,6 +626,9 @@ async def create_user_mount(*, user_id: str, tenant_id: str) -> str:
 
 def create_user_mount_sync(*, user_id: str, tenant_id: str) -> str:
     """Create and hydrate a mount without crossing async event loops."""
+    persistent = _persistent_user_mount(user_id=user_id, tenant_id=tenant_id)
+    if persistent is not None:
+        return persistent
     host_directory = host_mount_bridge.register(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -638,6 +662,11 @@ def create_user_mount_sync(*, user_id: str, tenant_id: str) -> str:
 def remove_user_mount(path: str | None) -> None:
     if not path:
         return
+    if config.workspace_storage_backend == "posix":
+        root = Path(config.workspace_storage_root).resolve(strict=False)
+        resolved = Path(path).resolve(strict=False)
+        if resolved == root or root in resolved.parents:
+            return
     configured_root = config.storage.mount_path
     if configured_root is not None:
         resolved = Path(path).resolve(strict=False)

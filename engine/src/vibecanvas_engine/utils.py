@@ -7,6 +7,7 @@ import traceback
 import ast
 import inspect
 import json
+from .model_retry import observations
 from typing import Any, Mapping
 
 
@@ -201,11 +202,16 @@ def safe_call_with_args(prefix: str = ""):
         def wrapper(*args, **kwargs):
             started = time.perf_counter()
             result = result_for(args, kwargs)
+            model_calls = []
+            token = observations.set(model_calls)
             try:
                 result["output"] = func(*args, **kwargs)
             except Exception as exc:
                 failed(result, exc)
             finally:
+                observations.reset(token)
+                if model_calls:
+                    result["model_calls"] = model_calls
                 result["execution_time"] = time.perf_counter() - started
             return result
 
@@ -213,11 +219,16 @@ def safe_call_with_args(prefix: str = ""):
         async def async_wrapper(*args, **kwargs):
             started = time.perf_counter()
             result = result_for(args, kwargs)
+            model_calls = []
+            token = observations.set(model_calls)
             try:
                 result["output"] = await func(*args, **kwargs)
             except Exception as exc:
                 failed(result, exc)
             finally:
+                observations.reset(token)
+                if model_calls:
+                    result["model_calls"] = model_calls
                 result["execution_time"] = time.perf_counter() - started
             return result
 

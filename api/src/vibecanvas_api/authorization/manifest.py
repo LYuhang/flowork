@@ -92,6 +92,7 @@ _SIGNED_CAPABILITY_ENDPOINTS = frozenset({
     "mcp_oauth_callback",
     "runtime_mcp_request",
     "workflow_mcp_call",
+    "local_workflow_approvals",
     "runtime_model_request",
     "ws_hub",
 })
@@ -340,6 +341,10 @@ def permission_for_route(
             resource_type = ResourceType.MCP_OAUTH_CONNECTION
             action = Action.MANAGE_SECRET
             selector = "signed:oauth_state+expiry"
+        elif endpoint == "local_workflow_approvals":
+            resource_type = ResourceType.WORKFLOW
+            action = Action.EXECUTE
+            selector = "signed:audience+organization+user+workflow+snapshot_digest+run+authz_generation+expiry"
         elif endpoint == "workflow_mcp_call":
             resource_type = ResourceType.MCP_INSTALLATION
             action = Action.USE
@@ -379,7 +384,9 @@ def permission_for_route(
             action=action,
             selector=selector,
             parent_resolver=(
-                "workflow_execution_to_selected_mcp_installation"
+                "local_execution_to_workflow_and_private_approval_history"
+                if endpoint == "local_workflow_approvals"
+                else "workflow_execution_to_selected_mcp_installation"
                 if endpoint == "workflow_mcp_call"
                 else "runtime_mcp_to_chat_and_installation"
                 if endpoint == "runtime_mcp_request"

@@ -62,7 +62,7 @@ from vibecanvas_api.security.upload_scanner import require_clean_upload
 from vibecanvas_api.services.chat_workspace import (
     project_workspace_scope_id as _project_workspace_scope_id,
 )
-from vibecanvas_api.services.object_store import get_object_store, uri_to_key
+from vibecanvas_api.services.object_store import get_object_store, get_task_result_store, uri_to_key
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.services.user_mount_workspace import (
     mount_scope_id as _mount_scope_id,
@@ -751,8 +751,19 @@ async def list_storage(
             if isinstance(uri, str) and uri and (not q or q in name.lower())
         ]
     elif resolved.scope_id and resolved.vfs_path:
-        rows = await VfsRepo(session, object_store=get_object_store()).ls_meta(
-            wf_id=resolved.scope_id, prefix=resolved.vfs_path.rstrip("/") + "/")
+        if config.workspace_storage_backend == "posix":
+            from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+            from vibecanvas_api.services.workspace_vfs import list_workspace_files
+            private_chats = await owned_workspace_chats(session, resolved.scope_id, auth.user_id)
+            rows = await asyncio.to_thread(
+                list_workspace_files, PosixWorkspaceStorage(config.workspace_storage_root),
+                tenant_id=context_for_auth(auth, request).admitted_resource_organization_id or auth.tenant_id,
+                scope_id=resolved.scope_id, user_id=auth.user_id,
+                prefix=resolved.vfs_path.rstrip("/") + "/", owned_chats=private_chats,
+            )
+        else:
+            rows = await VfsRepo(session, object_store=get_object_store()).ls_meta(
+                wf_id=resolved.scope_id, prefix=resolved.vfs_path.rstrip("/") + "/")
         if resolved.vfs_path.startswith('/chats'):
             private_chats = await owned_workspace_chats(session, resolved.scope_id, auth.user_id)
             rows = [row for row in rows if workspace_path_visible(row.path, private_chats)]
@@ -799,7 +810,7 @@ async def read_storage_content(
     if resolved.root == "task" and resolved.task_artifact_uri:
         try:
             data = await asyncio.to_thread(
-                get_object_store().fetch_bytes,
+                get_task_result_store().fetch_bytes,
                 uri_to_key(resolved.task_artifact_uri),
             )
         except KeyError as exc:
@@ -816,6 +827,25 @@ async def read_storage_content(
         )
     if not resolved.vfs_path:
         raise HTTPException(status_code=400, detail="not_a_file")
+    if config.workspace_storage_backend == "posix":
+        from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+        from vibecanvas_api.services.workspace_vfs import read_workspace_file
+        ct = _infer_content_type(resolved.vfs_path)
+        try:
+            data, size = await asyncio.to_thread(
+                read_workspace_file, PosixWorkspaceStorage(config.workspace_storage_root),
+                tenant_id=context_for_auth(auth, request).admitted_resource_organization_id or auth.tenant_id,
+                scope_id=resolved.scope_id, user_id=auth.user_id, path=resolved.vfs_path,
+                max_bytes=_MAX_INLINE_BYTES if _is_text_ct(ct) else 0,
+            )
+        except (FileNotFoundError, NotADirectoryError, ValueError) as error:
+            raise HTTPException(status_code=404, detail="storage_path_not_found") from error
+        return StorageReadOut(
+            path=_clean_logical_path(path), content_type=ct,
+            content=data.decode("utf-8", "replace") if _is_text_ct(ct) else None,
+            size_bytes=size, truncated=bool(_is_text_ct(ct) and size > _MAX_INLINE_BYTES),
+            access=access_from_decision(decision) if decision else None,
+        )
     entry = await VfsRepo(session, object_store=get_object_store()).read(
         wf_id=resolved.scope_id, path=resolved.vfs_path, touch=False)
     if entry is None:
@@ -836,6 +866,21 @@ async def read_storage_content(
         size_bytes=len(data), truncated=truncated,
         access=access_from_decision(decision) if decision else None,
     )
+
+
+async def _persist_storage_file(*, request, auth, session, scope_id, path, data, content_type):
+    tenant = context_for_auth(auth, request).admitted_resource_organization_id or auth.tenant_id
+    if config.workspace_storage_backend == "posix":
+        from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+        from vibecanvas_api.services.workspace_vfs import write_workspace_file
+        return await asyncio.to_thread(
+            write_workspace_file, PosixWorkspaceStorage(config.workspace_storage_root),
+            tenant_id=tenant, scope_id=scope_id, user_id=auth.user_id, path=path, data=data,
+        )
+    replaced = await VfsRepo(session, object_store=get_object_store()).upsert_artifact_bytes(
+        wf_id=scope_id, tenant=tenant, path=path, data=data, content_type=content_type)
+    await get_sandbox_manager().mirror_vfs_write(tenant, scope_id, path, data)
+    return replaced
 
 
 @router.get("/raw")
@@ -863,7 +908,7 @@ async def raw_storage_content(
     if resolved.root == "task" and resolved.task_artifact_uri:
         try:
             data = await asyncio.to_thread(
-                get_object_store().fetch_bytes,
+                get_task_result_store().fetch_bytes,
                 uri_to_key(resolved.task_artifact_uri),
             )
         except KeyError as exc:
@@ -876,6 +921,15 @@ async def raw_storage_content(
         )
     if not resolved.vfs_path:
         raise HTTPException(status_code=400, detail="not_a_file")
+    if config.workspace_storage_backend == "posix":
+        from vibecanvas_api.routes.vfs import _serve_vfs_resource
+        response = await _serve_vfs_resource(
+            tenant=context_for_auth(auth, request).admitted_resource_organization_id or auth.tenant_id,
+            wf_id=resolved.scope_id, run_id="", path=resolved.vfs_path,
+            range_header=request.headers.get("range"),
+        )
+        response.headers["Content-Disposition"] = f'attachment; filename="{os.path.basename(resolved.vfs_path)}"'
+        return response
     entry = await VfsRepo(session, object_store=get_object_store()).read(
         wf_id=resolved.scope_id, path=resolved.vfs_path, touch=False)
     if entry is None:
@@ -930,11 +984,9 @@ async def write_storage_content(
         action=Action.UPDATE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    replaced = await VfsRepo(session, object_store=get_object_store()).upsert_artifact_bytes(
-        wf_id=resolved.scope_id, tenant=auth.tenant_id, path=resolved.vfs_path or "",
-        data=data, content_type=content_type)
-    await get_sandbox_manager().mirror_vfs_write(
-        auth.tenant_id, resolved.scope_id, resolved.vfs_path or "", data)
+    replaced = await _persist_storage_file(
+        request=request, auth=auth, session=session, scope_id=resolved.scope_id,
+        path=resolved.vfs_path or "", data=data, content_type=content_type)
     return StorageWriteOut(
         path=_clean_logical_path(body.path), size_bytes=len(data),
         content_type=content_type, replaced=replaced,
@@ -984,11 +1036,9 @@ async def upload_storage_file(
         action=Action.UPDATE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    replaced = await VfsRepo(session, object_store=get_object_store()).upsert_artifact_bytes(
-        wf_id=child.scope_id, tenant=auth.tenant_id, path=child.vfs_path or "",
-        data=data, content_type=content_type)
-    await get_sandbox_manager().mirror_vfs_write(
-        auth.tenant_id, child.scope_id, child.vfs_path or "", data)
+    replaced = await _persist_storage_file(
+        request=request, auth=auth, session=session, scope_id=child.scope_id,
+        path=child.vfs_path or "", data=data, content_type=content_type)
     return StorageWriteOut(
         path=child_logical, size_bytes=len(data), content_type=content_type,
         replaced=replaced,
@@ -1027,12 +1077,9 @@ async def mkdir_storage(
         action=Action.UPDATE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    replaced = await VfsRepo(session, object_store=get_object_store()).upsert_artifact_bytes(
-        wf_id=resolved.scope_id, tenant=auth.tenant_id, path=marker, data=b"",
-        content_type="application/x-directory")
-    await get_sandbox_manager().mirror_vfs_write(
-        auth.tenant_id, resolved.scope_id, marker, b"",
-    )
+    replaced = await _persist_storage_file(
+        request=request, auth=auth, session=session, scope_id=resolved.scope_id,
+        path=marker, data=b"", content_type="application/x-directory")
     return StorageWriteOut(
         path=_clean_logical_path(body.path), size_bytes=0,
         content_type="application/x-directory", replaced=replaced,
@@ -1070,6 +1117,17 @@ async def delete_storage(
         action=Action.UPDATE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
+    if config.workspace_storage_backend == "posix":
+        from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+        from vibecanvas_api.services.workspace_vfs import remove_workspace_path
+        deleted = await asyncio.to_thread(
+            remove_workspace_path, PosixWorkspaceStorage(config.workspace_storage_root),
+            tenant_id=context_for_auth(auth, request).admitted_resource_organization_id or auth.tenant_id,
+            scope_id=resolved.scope_id, user_id=auth.user_id, path=resolved.vfs_path,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="storage_path_not_found")
+        return StorageDeleteOut(deleted=deleted, access=access_from_decision(decision) if decision else None)
     deleted = await VfsRepo(session, object_store=get_object_store()).delete_artifact(
         wf_id=resolved.scope_id, tenant=auth.tenant_id, path=resolved.vfs_path)
     marker = resolved.vfs_path.rstrip("/") + "/" + _DIR_MARKER
@@ -1130,6 +1188,21 @@ async def rename_storage(
         action=Action.UPDATE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
+    if config.workspace_storage_backend == "posix":
+        from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+        from vibecanvas_api.services.workspace_vfs import rename_workspace_path
+        try:
+            await asyncio.to_thread(
+                rename_workspace_path, PosixWorkspaceStorage(config.workspace_storage_root),
+                tenant_id=context_for_auth(auth, request).admitted_resource_organization_id or auth.tenant_id,
+                scope_id=old.scope_id, user_id=auth.user_id, source=old.vfs_path, destination=new.vfs_path,
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="storage_path_not_found") from error
+        except (ValueError, NotADirectoryError, IsADirectoryError) as error:
+            raise HTTPException(status_code=400, detail="invalid_path") from error
+        return StorageRenameOut(path=_clean_logical_path(body.new_path),
+                                access=access_from_decision(decision) if decision else None)
     try:
         await VfsRepo(session, object_store=get_object_store()).rename_artifact(
             wf_id=old.scope_id, tenant=auth.tenant_id,

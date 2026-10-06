@@ -88,7 +88,7 @@ from vibecanvas_api.services.background_queue import (
 )
 from vibecanvas_api.services.batch_output import serialize_results
 from vibecanvas_api.services.access_presentation import direct_binding_out
-from vibecanvas_api.services.object_store import get_object_store, uri_to_key
+from vibecanvas_api.services.object_store import get_task_result_store, uri_to_key
 from vibecanvas_api.services.queue_routing import route_for
 from vibecanvas_api.services.resource_provenance import (
     ResourceProvenanceBuilder,
@@ -1857,7 +1857,7 @@ async def download_results(
             detail="no results to download",
         )
 
-    store = get_object_store()
+    store = get_task_result_store()
     key = uri_to_key(artifact_uri)
 
     if format == "xlsx":

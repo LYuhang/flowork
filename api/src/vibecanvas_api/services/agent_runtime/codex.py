@@ -2101,6 +2101,17 @@ async def run_codex_turn(
     control_router = _RuntimeControlRouter()
     mcp_item_correlator = _McpItemCorrelator()
     stop_event = asyncio.Event()
+    from .codex_goal import GoalContinuity, read_goal, apply_goal_command, pause_active_goal
+    goal_continuity = GoalContinuity(
+        None if request.goal_command and request.goal_command.action in {"new", "clear"}
+        else request.goal_snapshot
+    )
+    goal_state: dict | None = None
+    control_only = False
+
+    async def publish_goal(goal: dict | None) -> None:
+        await emit("projection", {"event_type": "GOAL_STATE", "payload": {"goal": goal_continuity.project(goal)}})
+
     active_hub_gateway: CodexMcpHubGateway | None = None
     cli_gateway: CliGateway | None = None
 
@@ -2117,6 +2128,13 @@ async def run_codex_turn(
             if response.get("action") == "cancel" and not response.get("correlation"):
                 stop_event.set()
                 control_router.cancel()
+                if current["thread_id"]:
+                    try:
+                        await publish_goal(await pause_active_goal(client, current["thread_id"]))
+                    except Exception:
+                        # Still interrupt the current turn if the status RPC fails.
+                        # The adapter must not initiate any continuation after Stop.
+                        pass
                 if current["thread_id"] and current["turn_id"]:
                     try:
                         await client.request(
@@ -2547,6 +2565,21 @@ async def run_codex_turn(
         if resident_threads is not None:
             resident_threads[thread_id] = resident_config
         current["thread_id"] = thread_id
+        goal_state = await read_goal(client, thread_id)
+        goal_state = await goal_continuity.restore(client, thread_id, goal_state)
+        if request.goal_pause_requested:
+            goal_state = await pause_active_goal(client, thread_id)
+        if request.goal_command is not None and not stop_event.is_set():
+            goal_state = await apply_goal_command(client, thread_id, request.goal_command)
+            if request.goal_command.action == "edit":
+                goal_continuity = GoalContinuity(None)
+            control_only = request.goal_command.action in {"status", "clear", "edit"}
+        if goal_state is not None or request.goal_command is not None:
+            await publish_goal(goal_state)
+        if stop_event.is_set():
+            goal_state = await pause_active_goal(client, thread_id)
+            await publish_goal(goal_state)
+            control_only = True
         thread_open_ms = int((perf_counter() - phase_started) * 1000)
 
         current_input = _turn_input(
@@ -2593,11 +2626,13 @@ async def run_codex_turn(
             })
             return await client.request("turn/start", params, timeout_s=45.0)
 
+        if request.goal_command is not None and request.goal_command.action == "resume":
+            turn_params["input"] = [{"type": "text", "text": "Resume the existing goal and continue from its current progress."}]
         phase_started = perf_counter()
-        started = await submit_turn(turn_params, reason="user_turn")
+        started = {} if control_only else await submit_turn(turn_params, reason="user_turn")
         turn = started.get("turn")
         turn_id = str(turn.get("id") if isinstance(turn, dict) else "")
-        if not turn_id:
+        if not turn_id and not control_only:
             raise RuntimeError("codex_turn_start_invalid_response")
         current["turn_id"] = turn_id
         turn_start_ms = int((perf_counter() - phase_started) * 1000)
@@ -2637,11 +2672,12 @@ async def run_codex_turn(
         empty_completion_attempts = 0
         native_turn_had_product_output = False
         message_stream = client.messages()
-        while True:
+        while not control_only:
             next_message = asyncio.create_task(anext(message_stream))
             terminal_reconciled = False
             while (
                 not _uses_chatgpt_account(request)
+                and not (goal_state and goal_state.get("status") == "active")
                 and completed_agent_message
                 and not open_messages
                 and not tool_invocations
@@ -2695,6 +2731,24 @@ async def run_codex_turn(
             method = str(message.get("method") or "")
             params = message.get("params")
             params = params if isinstance(params, dict) else {}
+
+            if method in {"thread/goal/updated", "thread/goal/cleared"} and params.get("threadId") == thread_id:
+                goal_state = params.get("goal") if method == "thread/goal/updated" else None
+                await publish_goal(goal_state)
+                continue
+            if method == "turn/started" and params.get("threadId") == thread_id:
+                native_turn = params.get("turn") or {}
+                next_turn_id = str(native_turn.get("id") or "")
+                if next_turn_id and next_turn_id != turn_id:
+                    turn_id = next_turn_id
+                    current["turn_id"] = turn_id
+                    completed_agent_message = False
+                    native_turn_had_product_output = False
+                    empty_completion_attempts = 0
+                    command_completion_attempts = 0
+                    if stop_event.is_set():
+                        await client.request("turn/interrupt", {"threadId": thread_id, "turnId": turn_id}, timeout_s=10.0)
+                continue
 
             if "id" in message and method in _CODEX_INTERACTIVE_SERVER_REQUESTS:
                 native_request_id = message["id"]
@@ -3327,6 +3381,15 @@ async def run_codex_turn(
                         str(error.get("message") if isinstance(error, dict) else error)
                         or "Codex turn failed"
                     )
+                if stop_event.is_set() or status == "interrupted":
+                    break
+                if status == "completed" and goal_state is not None:
+                    # Use the ordered goal notifications. A state RPC can race
+                    # ahead to a later turn's completion and drop its queued output.
+                    if goal_state.get("status") == "active":
+                        # Native Codex schedules the next turn. Keep capabilities
+                        # and the subscription alive; never inject a second loop.
+                        continue
                 if status == "completed" and not native_turn_had_product_output:
                     if empty_completion_attempts >= _MAX_EMPTY_COMPLETION_ATTEMPTS:
                         raise RuntimeError(
@@ -3508,7 +3571,7 @@ async def run_codex_turn(
             request,
             successful_tool_evidence,
         )
-        if missing_completion_tools and not stop_event.is_set():
+        if missing_completion_tools and not stop_event.is_set() and not control_only:
             raise RuntimeError(
                 "command_completion_incomplete: "
                 + ", ".join(missing_completion_tools)
@@ -3539,6 +3602,14 @@ async def run_codex_turn(
     except CodexAppServerError as exc:
         raise RuntimeError(f"{exc.code}: {exc}") from exc
     finally:
+        # A resident app-server must never continue using deactivated host
+        # capabilities after this product run exits (failure, cancellation or
+        # transport loss). Successful active goals stay inside the loop above.
+        if not control_only and goal_state and goal_state.get("status") == "active" and current["thread_id"]:
+            try:
+                await publish_goal(await pause_active_goal(client, current["thread_id"]))
+            except Exception:
+                pass
         if next_message is not None:
             next_message.cancel()
             await asyncio.gather(next_message, return_exceptions=True)

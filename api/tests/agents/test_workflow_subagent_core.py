@@ -325,3 +325,42 @@ async def test_text_beside_output_call_is_trace_only_and_no_later_model_call_run
     assert any(entry["text"] == "Accompanying explanation" for entry in result.trace)
     assert all("unwanted follow-up" not in entry["text"] for entry in result.trace)
     assert next(messages).content == "unwanted follow-up"
+
+
+@pytest.mark.asyncio
+async def test_model_retry_does_not_repeat_completed_business_tool():
+    from langchain_core.tools import tool
+    from vibecanvas_api.agents.tools.subagent.core import run_bounded_agent
+    from vibecanvas_engine.model_retry import observations
+    calls = []
+    @tool
+    def business_action() -> str:
+        """Perform the test business side effect."""
+        calls.append('executed')
+        return 'ok'
+    records = []
+    token = observations.set(records)
+    try:
+        result = await run_bounded_agent(model=_ScriptedModel(messages=iter([
+            AIMessage(content='', tool_calls=[{'name': 'business_action', 'args': {}, 'id': 'business', 'type': 'tool_call'}]),
+            AIMessage(content=''), _output_call('done'),
+        ])), tools=[business_action], system_prompt='test', user_input='test',
+            output_fields={'answer': {'type': 'string'}}, retry=1)
+    finally:
+        observations.reset(token)
+    assert result.status == 'done', result.error
+    assert calls == ['executed']
+    assert [record['attempts'] for record in records] == [1, 2]
+    assert records[1]['failures'] == [{'attempt': 1, 'error_type': 'EmptyModelResponse'}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('reason', ['length', 'content_filter'])
+async def test_subagent_does_not_retry_permanent_empty_completion(reason):
+    from vibecanvas_api.agents.tools.subagent.core import run_bounded_agent
+    result = await run_bounded_agent(model=_ScriptedModel(messages=iter([
+        AIMessage(content='', response_metadata={'finish_reason': reason}), _output_call('must not run'),
+    ])), tools=[], system_prompt='test', user_input='test',
+        output_fields={'answer': {'type': 'string'}}, retry=3)
+    assert result.status == 'error'
+    assert 'token limit or content filter' in result.error

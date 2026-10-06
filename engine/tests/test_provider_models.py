@@ -20,6 +20,24 @@ import vibecanvas_engine.custom_llms as custom_llms
 from vibecanvas_engine.nodes.prompt import PromptNode
 
 
+@pytest.mark.parametrize("reason,expected", [
+    ("length", "token budget was exhausted"),
+    ("stop", "cause is unknown"),
+    ("content_filter", "filtered the response"),
+    ("tool_calls", "tool calls instead of text"),
+    (None, "finish_reason=unknown"),
+    ("private-provider-payload", "finish_reason=unknown"),
+])
+def test_empty_completion_preserves_safe_finish_reason(reason, expected):
+    response = _t.SimpleNamespace(choices=[_t.SimpleNamespace(
+        message=_t.SimpleNamespace(content="  "), finish_reason=reason,
+    )])
+    with pytest.raises(RuntimeError) as exc:
+        custom_llms._openai_completion_text(response)
+    assert expected in str(exc.value)
+    assert "private-provider-payload" not in str(exc.value)
+
+
 # --------------------------------------------------------------------------- #
 # Routing: provider id -> class                                               #
 # --------------------------------------------------------------------------- #

@@ -6,7 +6,7 @@ import pytest
 
 from vibecanvas_api.agents.tools.decorator import ToolError
 from vibecanvas_api.services.agent_resources import table_io
-from vibecanvas_api.services.agent_runtime.cli_runs import _batch_rows
+from vibecanvas_api.services.agent_runtime.cli_tasks import _batch_rows
 
 
 @pytest.mark.parametrize("text,extension,rows,columns", [

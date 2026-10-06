@@ -141,7 +141,18 @@ export class ChatDeleteError extends Error {
   }
 }
 
+export interface ChatGoal {
+  objective: string;
+  status: 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete';
+  timeUsedSeconds: number;
+  tokensUsed: number;
+  tokenBudget?: number | null;
+  updatedAt: number;
+}
+
+
 export interface ChatState {
+  goal?: ChatGoal | null;
   todo_items: TodoItem[];
   background_jobs: BackgroundJob[];
   active_modes: string[];

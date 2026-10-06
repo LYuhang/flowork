@@ -681,6 +681,10 @@ export function routeAgentSignalWith(
       handoffToDurableHistory(client, ctx, turnId, presentation);
       return;
     }
+    case 'GOAL_STATE': {
+      client.invalidateQueries({ queryKey: ['chat-state', ctx.wfId, ctx.chatId] });
+      return;
+    }
     case 'NOTICE': {
       // Presentation is the default. Only a backend-declared cancellation
       // releases the optimistic projection; runtime warnings must preserve the

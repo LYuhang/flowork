@@ -1,3 +1,5 @@
+import { GoalStatus } from './GoalStatus';
+import { useChatState } from '@/lib/api/queries/chats';
 import { SkillUsePicker } from './SkillUsePicker';
 import type { SkillUseSelection } from '@/lib/api/sse/agent-stream';
 import { CONTEXT_DRAFT_RESET_EVENT } from '@/lib/chat/context-draft';
@@ -165,6 +167,7 @@ export interface ChatComposerProps {
   onSendStart?: () => void;
   /** Visual treatment for the main Chat page composer. */
   quietFrame?: boolean;
+  framed?: boolean;
   /** Main Chat page places the agent model picker in the composer footer. */
   showModelSelector?: boolean;
   /** Existing chat transcripts must hydrate before accepting a follow-up turn. */
@@ -191,6 +194,7 @@ export function ChatComposer({
   agentSurface = embedded ? 'browser' : 'chat',
   onSendStart,
   quietFrame = false,
+  framed = false,
   showModelSelector = false,
   historyReady = true,
   disabledReason = null,
@@ -225,6 +229,8 @@ export function ChatComposer({
   );
   const setComposerInput = useChatStreamStore((s) => s.setComposerInput);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [goalPickerOpen, setGoalPickerOpen] = useState(false);
+  const goalQuery = useChatState(wfId, chatId, !!chatId);
   const [selectedSkill, setSelectedSkill] = useState<(SkillUseSelection & { scope: string | null }) | null>(null);
   const projectMcpQuery = useProjectMcpSelection(projectId);
   const updateProjectMcp = useSetProjectMcpSelection();
@@ -917,6 +923,11 @@ export function ChatComposer({
   );
 
   const completeCommand = (cmd: SlashCommand) => {
+    if (cmd.trigger === '/goal') {
+      setGoalPickerOpen(true);
+      setMenuDismissed(true);
+      return;
+    }
     if (cmd.trigger === '/skill-use') {
       setSkillPickerOpen(true);
       setMenuDismissed(true);
@@ -1041,9 +1052,14 @@ export function ChatComposer({
   };
 
   return (
+    <div className="flex flex-col gap-3">
+      <GoalStatus key={chatId} goal={goalQuery.data?.goal} streaming={isStreaming} disabled={readOnly || externallyDisabled || !historyReady}
+        onStop={handleStop} onCommand={command => doSend(command, undefined, undefined, useAgentSettingsStore.getState().approvalMode)} />
     <div
+      data-role="chat-composer-frame"
       className={cn(
         'flex flex-col',
+        framed && 'chat-composer-shell',
         embedded ? 'm-3 mt-1 gap-2 rounded-2xl border border-edge-subtle bg-surface-raised p-2 shadow-raised transition-shadow duration-150 focus-within:border-focus/40 focus-within:shadow-popover motion-reduce:transition-none' : 'gap-2',
         quietFrame ? 'p-3.5' : !embedded && 'p-3',
       )}
@@ -1055,15 +1071,21 @@ export function ChatComposer({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {goalPickerOpen && <div role="dialog" aria-label={t('goal.details')} className="absolute bottom-full left-0 right-0 z-50 mb-2 rounded-xl border bg-popover p-2 shadow-lg" onKeyDown={event => { if (event.key === 'Escape') { setGoalPickerOpen(false); textareaRef.current?.focus(); } }}>
+          {(['new', 'resume', 'status', 'edit', 'clear'] as const).map(action => <button key={action} type="button" className="block w-full rounded-lg p-2 text-left text-sm hover:bg-accent" onClick={() => {
+            setValue(action === 'new' ? '/goal ' : `/goal:${action} `); setGoalPickerOpen(false); setMenuDismissed(true);
+            requestAnimationFrame(() => { const input = textareaRef.current; input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); });
+          }}>{action === 'new' ? <><span className="block">{t('goal.noSubcommand')}</span><span className="block text-xs text-muted-foreground">{t('goal.enterObjective')}</span></> : t(`goal.${action}`)}</button>)}
+        </div>}
         {skillPickerOpen && <SkillUsePicker onClose={() => { setSkillPickerOpen(false); setMenuDismissed(false); textareaRef.current?.focus(); }} onSelect={(skill) => {
-          const task = value.replace(/^\/skill-use:\[[^\]]*\]\s*|^\/[^\s]+\s*/, '');
+          const task = value.replace(/^\/skill-use:\[[^\]]*\]\s*|^\/[^\s]*\s*/, '');
           setSelectedSkill({ skill_id: skill.id, name: skill.name, scope: composerStateKey });
           setValue(`/skill-use:[${skill.name}] ${task}`);
           setSkillPickerOpen(false);
           setMenuDismissed(true);
           requestAnimationFrame(() => { const input = textareaRef.current; input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); });
         }} />}
-        {menuOpen && !skillPickerOpen && (
+        {menuOpen && !skillPickerOpen && !goalPickerOpen && (
           <div
             className="absolute bottom-full left-0 right-0 z-50 mb-1 overflow-hidden rounded-md border bg-popover shadow-md"
             role="listbox"
@@ -1467,6 +1489,7 @@ export function ChatComposer({
         aria-label={t('composer.attach_video', 'Attach video')}
         data-role="agent-composer-video-input"
       />
+    </div>
     </div>
   );
 }

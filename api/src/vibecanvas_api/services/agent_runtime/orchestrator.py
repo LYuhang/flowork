@@ -759,6 +759,11 @@ class AgentRuntimeOrchestrator:
                     # process and lets the outer Turn loop emit its durable
                     # terminal ``error(code=cancelled)`` frame.
                     await cancel_pending_hitl()
+                    from ...storage.chat_repo import ChatRepo
+                    async with session_scope(
+                        tenant_id=turn_request.tenant_id, user_id=turn_request.user_id
+                    ) as session:
+                        await ChatRepo(session, turn_request.user_id).request_goal_pause(turn_request.chat_id)
                     try:
                         await asyncio.wait_for(
                             runtime.cancel(turn_request.turn_id),
@@ -805,6 +810,14 @@ class AgentRuntimeOrchestrator:
                             payload=event.payload,
                         )
                     continue
+                if event.type == "projection" and event.payload.get("event_type") == "GOAL_STATE":
+                    from ...storage.chat_repo import ChatRepo
+                    async with session_scope(
+                        tenant_id=turn_request.tenant_id, user_id=turn_request.user_id
+                    ) as session:
+                        await ChatRepo(session, turn_request.user_id).set_goal(
+                            turn_request.chat_id, event.payload.get("payload", {}).get("goal"),
+                        )
                 if event.type == "runtime.started":
                     runtime_ready_at = perf_counter()
                     yield (
@@ -1000,8 +1013,6 @@ class AgentRuntimeOrchestrator:
             if not completed and not stop_event.is_set():
                 raise RuntimeError("agent runtime stream ended without runtime.completed")
         finally:
-            from .cli_runs import cancel_turn_runs
-            await cancel_turn_runs(turn_request.tenant_id, turn_request.chat_id, turn_request.turn_id)
             from .cli_calls import cancel_turn_calls
             await cancel_turn_calls(turn_request.tenant_id, turn_request.chat_id, turn_request.turn_id)
             stop_task.cancel()

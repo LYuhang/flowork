@@ -25,6 +25,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from vibecanvas_api.config import config as app_config
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.storage.sync_session import run_in_short_session
 from vibecanvas_api.storage.vfs_store import VfsRepo
@@ -261,6 +262,17 @@ class VfsDataOutputSink(BatchOutputSink):
             out_rows, path=self._path, sheet_name=self._sheet_name,
             columns=self._columns,
         )
+
+        if app_config.workspace_storage_backend == "posix":
+            from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+            from vibecanvas_api.services.workspace_vfs import write_workspace_file
+
+            write_workspace_file(
+                PosixWorkspaceStorage(app_config.workspace_storage_root),
+                tenant_id=self._tenant_id, scope_id=self._wf_id, user_id="",
+                path=self._path, data=data,
+            )
+            return self._path
 
         async def _runner(session) -> None:
             repo = VfsRepo(session, object_store=get_object_store())

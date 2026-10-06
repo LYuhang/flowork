@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import hashlib
+import io
 import json
 import os
 import struct
@@ -99,6 +100,16 @@ class LocalObjectCipher:
         ).encode("utf-8")
 
     def write(self, file: BinaryIO, *, key: str, plaintext: bytes) -> None:
+        self.write_stream(file, key=key, source=io.BytesIO(plaintext), size=len(plaintext))
+
+    def write_stream(self, file: BinaryIO, *, key: str, source: BinaryIO, size: int) -> None:
+        """Encrypt a known-length stream without retaining the whole file.
+
+        The caller must publish the destination only after this method succeeds.
+        Truncated or growing input is rejected rather than publishing partial data.
+        """
+        if size < 0:
+            raise ValueError("plaintext size must be nonnegative")
         dek = bytearray(os.urandom(AES_KEY_BYTES))
         try:
             wrap_nonce = os.urandom(GCM_NONCE_BYTES)
@@ -113,7 +124,7 @@ class LocalObjectCipher:
                     "chunk_size": self.chunk_size,
                     "key_version": self.key_version,
                     "nonce_prefix": _b64(nonce_prefix),
-                    "plaintext_size": len(plaintext),
+                    "plaintext_size": size,
                     "schema_version": 2,
                     "wrap_nonce": _b64(wrap_nonce),
                     "wrapped_dek": _b64(wrapped_dek),
@@ -125,9 +136,19 @@ class LocalObjectCipher:
             file.write(header)
             aead = AESGCM(bytes(dek))
             for index, offset in enumerate(
-                range(0, len(plaintext), self.chunk_size)
+                range(0, size, self.chunk_size)
             ):
-                chunk = plaintext[offset:offset + self.chunk_size]
+                remaining = min(self.chunk_size, size - offset)
+                chunk = bytearray()
+                while remaining:
+                    part = source.read(remaining)
+                    if not part:
+                        raise ValueError("plaintext stream ended before declared size")
+                    if len(part) > remaining:
+                        raise ValueError("plaintext stream exceeded requested read size")
+                    chunk.extend(part)
+                    remaining -= len(part)
+                chunk = bytes(chunk)
                 nonce = nonce_prefix + index.to_bytes(4, "big")
                 file.write(aead.encrypt(
                     nonce,
@@ -135,11 +156,13 @@ class LocalObjectCipher:
                     self._chunk_aad(
                         key,
                         index=index,
-                        plaintext_size=len(plaintext),
+                        plaintext_size=size,
                         chunk_size=self.chunk_size,
                         key_version=self.key_version,
                     ),
                 ))
+            if source.read(1):
+                raise ValueError("plaintext stream exceeds declared size")
         finally:
             wipe_bytes(dek)
 

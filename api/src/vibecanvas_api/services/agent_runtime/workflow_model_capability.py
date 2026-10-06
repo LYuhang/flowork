@@ -14,6 +14,7 @@ _DOMAIN = b"vibecanvas:runtime-workflow-model:v1\0"
 _AUDIENCE = "runtime-workflow-model"
 _MAX_TOKEN_BYTES = 16 * 1024
 _EXECUTION_RESOURCE_TYPES = frozenset({
+    "workflow",  # Local CLI execution: authority follows resource access, not a Chat turn.
     "agent_run",
     "deployment_invocation",
     "task",
@@ -83,6 +84,10 @@ def mint_runtime_workflow_model_capability(
         raise ValueError("unsupported Workflow execution principal type")
     if principal_type == "service_account" and principal_generation <= 0:
         raise ValueError("service account generation must be positive")
+    if execution_resource_type == "workflow" and (
+        execution_id != workflow_id or principal_type != "user" or principal_id != user_id
+    ):
+        raise ValueError("local Workflow capability must bind the same Workflow and user")
     resources = [
         f"workflow:{workflow_id}",
         f"{execution_resource_type}:{execution_id}",
@@ -208,6 +213,11 @@ def verify_runtime_workflow_model_capability(
         or not capability.workflow_id
         or not capability.execution_id
         or not capability.principal_id
+        or (capability.execution_resource_type == "workflow" and (
+            capability.execution_id != capability.workflow_id
+            or capability.principal_type != "user"
+            or capability.principal_id != capability.user_id
+        ))
         or not capability.provider
         or not capability.model
         or capability.issued_at > current + 30

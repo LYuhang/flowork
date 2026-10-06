@@ -9,7 +9,7 @@ be exposed over mTLS TCP by a remote Sandbox Service deployment.
 
 from __future__ import annotations
 
-from vibecanvas_api.services.sandbox.contracts import WorkflowRunSource
+from vibecanvas_api.services.sandbox.contracts import TaskRunSource, WorkflowRunSource
 
 import argparse
 import asyncio
@@ -81,6 +81,7 @@ _SESSION_METHODS = {
     "close",
 }
 _MANAGER_METHODS = {
+    "local_execution_exited",
     "operational_snapshot",
     "prewarm_base_fileops",
     "drain_background_closes",
@@ -470,6 +471,7 @@ class RemoteSandboxManager:
                     expose_run=bool(params.get("expose_run", True)),
                     expose_runtime=bool(params.get("expose_runtime", False)),
                     expose_mount=bool(params.get("expose_mount", True)),
+                    task_run_source=pb.TaskRunSource(**params["task_run_source"]) if params.get("task_run_source") else None,
                     workflow_run_source=pb.WorkflowRunSource(**params["workflow_run_source"]) if params.get("workflow_run_source") else None,
                 ), timeout=max(self.connect_timeout_s, 120.0), wait_for_ready=True)
                 return _metadata_from_descriptor(
@@ -562,6 +564,9 @@ class RemoteSandboxManager:
     async def health(self) -> dict[str, Any]:
         return await self._request("health")
 
+    async def local_execution_exited(self, tenant_id: str, wf_id: str, run_id: str):
+        return await self._manager_call("local_execution_exited", tenant_id=tenant_id, wf_id=wf_id, run_id=run_id)
+
     async def operational_snapshot(self) -> dict[str, int]:
         return await self._request("manager.call", method="operational_snapshot")
 
@@ -571,12 +576,14 @@ class RemoteSandboxManager:
     async def get_session(self, tenant_id: str, wf_id: str, user_id: str | None = None,
                           expose_run: bool = True, expose_runtime: bool = False,
                           lease: str = "interactive", expose_mount: bool = True,
-                          workflow_run_source: WorkflowRunSource | None = None) -> RemoteSandboxSession:
+                          workflow_run_source: WorkflowRunSource | None = None,
+                          task_run_source: TaskRunSource | None = None) -> RemoteSandboxSession:
         metadata = await self._request(
             "session.acquire", tenant_id=tenant_id, wf_id=wf_id, user_id=user_id,
             expose_run=expose_run, expose_runtime=expose_runtime, lease=lease,
             expose_mount=expose_mount,
             workflow_run_source=workflow_run_source.model_dump() if workflow_run_source else None,
+            task_run_source=task_run_source.model_dump(mode="json") if task_run_source else None,
         )
         return RemoteSandboxSession(self, metadata)
 
@@ -785,6 +792,7 @@ class _SandboxGrpcService(pb_grpc.SandboxServiceServicer):
                 expose_runtime=request.expose_runtime,
                 expose_mount=request.expose_mount if request.HasField("expose_mount") else True,
                 lease=request.lifecycle_policy or "interactive",
+                task_run_source=TaskRunSource(task_id=request.task_run_source.task_id) if request.HasField("task_run_source") else None,
                 workflow_run_source=WorkflowRunSource(tenant_id=request.workflow_run_source.tenant_id, workflow_id=request.workflow_run_source.workflow_id) if request.HasField("workflow_run_source") else None,
             )
             return pb.AcquireResponse(

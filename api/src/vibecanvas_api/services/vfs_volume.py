@@ -18,7 +18,9 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
+from vibecanvas_api.config import config
 from vibecanvas_api.services.object_store import FilesystemObjectStore, ObjectStore, get_object_store
 
 _SAFE_COMPONENT = re.compile(r"[A-Za-z0-9_.-]+")
@@ -51,6 +53,20 @@ class ProjectRuntimeVolume:
     volume_id: str
     path: str
     storage_prefix: str | None = None
+
+
+class ProjectRuntimeVolumeProvider(Protocol):
+    """Storage lifecycle; release detaches use, delete destroys resource data."""
+
+    def ensure(self, *, tenant_id: str, user_id: str,
+               project_scope_id: str) -> ProjectRuntimeVolume: ...
+
+    def sync(self, volume: ProjectRuntimeVolume) -> int: ...
+
+    def release(self, volume: ProjectRuntimeVolume) -> int: ...
+
+    def delete(self, *, tenant_id: str, user_id: str,
+               project_scope_id: str) -> bool: ...
 
 
 class LocalPosixProjectRuntimeVolumeProvider:
@@ -95,9 +111,10 @@ class LocalPosixProjectRuntimeVolumeProvider:
         return ProjectRuntimeVolume(volume_id=volume_id, path=path)
 
     @staticmethod
-    def _secure_directory(path: str) -> None:
-        os.makedirs(path, mode=0o700, exist_ok=True)
-        os.chmod(path, 0o700)
+    def _secure_directory(path: str, *, mode: int = 0o700) -> None:
+        os.makedirs(path, mode=mode, exist_ok=True)
+        if os.stat(path).st_mode & 0o7777 != mode:
+            os.chmod(path, mode)
 
     def ensure(
         self, *, tenant_id: str, user_id: str, project_scope_id: str
@@ -107,12 +124,24 @@ class LocalPosixProjectRuntimeVolumeProvider:
             user_id=user_id,
             project_scope_id=project_scope_id,
         )
-        self._secure_directory(self.root)
+        # The root also hosts API/worker-accessible workspace namespaces.
+        # Keep service-group access here; only the private Runtime subtree
+        # belongs exclusively to sandboxd.
+        self._secure_directory(self.root, mode=0o2770)
         self._secure_directory(os.path.join(self.root, tenant))
         self._secure_directory(os.path.join(self.root, tenant, user))
         self._secure_directory(os.path.join(self.root, tenant, user, "project-runtime-v1"))
         self._secure_directory(path)
         return ProjectRuntimeVolume(volume_id=volume_id, path=path)
+
+    def sync(self, volume: ProjectRuntimeVolume) -> int:
+        # Files are already on the persistent filesystem. This does not imply
+        # fsync of arbitrary application-owned open handles.
+        return 0
+
+    def release(self, volume: ProjectRuntimeVolume) -> int:
+        # Session lifetime must never own the durable resource directory.
+        return 0
 
     def delete(
         self, *, tenant_id: str, user_id: str, project_scope_id: str
@@ -198,23 +227,19 @@ class EncryptedObjectStoreProjectRuntimeVolumeProvider:
         for relative, path in sorted(files.items()):
             key = f"{prefix}/{relative}"
             try:
-                with open(path, "rb") as handle:
-                    data = handle.read()
+                handle = open(path, "rb")
             except (FileNotFoundError, NotADirectoryError):
-                # Resident runtimes may delete disposable files (for example a
-                # Codex shell snapshot) after the manifest walk but before its
-                # contents are read.  The file no longer belongs in the durable
-                # snapshot; treat this exactly like a file absent from the
-                # manifest instead of turning an otherwise completed Agent
-                # Turn into a failure.
+                # Only a vanished source is disposable. Storage failures must
+                # propagate so release retains the only remaining source.
                 continue
-            # This snapshot came FROM a still-mounted runtime. Mirroring it
-            # back with put_bytes atomically replaces open SQLite/WAL/log/lock
-            # files and strands subsequent writes on unlinked inodes.
-            if isinstance(self.store, FilesystemObjectStore):
-                self.store.persist_materialized_bytes(key, data)
-            else:
-                self.store.put_bytes(key, data)
+            with handle:
+                # Never replace the still-mounted source inode during sync.
+                if isinstance(self.store, FilesystemObjectStore):
+                    self.store.persist_materialized_stream(
+                        key, handle, size=os.fstat(handle.fileno()).st_size,
+                    )
+                else:
+                    self.store.put_bytes(key, handle.read())
             current_keys.add(key)
         stale = set(self.store.list_keys(f"{prefix}/")) - current_keys
         for key in sorted(stale):
@@ -259,8 +284,14 @@ class EncryptedObjectStoreProjectRuntimeVolumeProvider:
 
 
 def get_project_runtime_volume_provider(
-) -> EncryptedObjectStoreProjectRuntimeVolumeProvider:
-    """Use the same configured encrypted Object Store as durable VFS data."""
+) -> ProjectRuntimeVolumeProvider:
+    """Select Runtime persistence without leaking backend checks to callers.
+
+    POSIX roots require volume-level encryption and a completed data migration;
+    selecting the backend does not implicitly move existing encrypted objects.
+    """
+    if config.workspace_storage_backend == "posix":
+        return LocalPosixProjectRuntimeVolumeProvider(config.workspace_storage_root)
     return EncryptedObjectStoreProjectRuntimeVolumeProvider(
         get_object_store(),
     )
@@ -268,6 +299,7 @@ def get_project_runtime_volume_provider(
 
 __all__ = [
     "ProjectRuntimeVolume",
+    "ProjectRuntimeVolumeProvider",
     "EncryptedObjectStoreProjectRuntimeVolumeProvider",
     "LocalPosixProjectRuntimeVolumeProvider",
     "get_project_runtime_volume_provider",

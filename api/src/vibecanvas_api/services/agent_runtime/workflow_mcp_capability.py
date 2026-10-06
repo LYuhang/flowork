@@ -12,7 +12,7 @@ from uuid import UUID
 
 _DOMAIN = b"vibecanvas:runtime-workflow-mcp:v1\0"
 _AUDIENCE = "runtime-workflow-mcp"
-_EXECUTIONS = {"agent_run", "workflow_execution", "task", "task_execution", "deployment_invocation"}
+_EXECUTIONS = {"workflow", "agent_run", "workflow_execution", "task", "task_execution", "deployment_invocation"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +40,9 @@ def _valid(capability: WorkflowMcpCapability, now: int) -> bool:
     return bool(
         capability.audience == _AUDIENCE
         and capability.execution_resource_type in _EXECUTIONS
+        and (capability.execution_resource_type != "workflow" or (
+            capability.execution_id == capability.workflow_id and capability.principal_type == "user"
+        ))
         and isinstance(capability.workflow_id, str) and capability.workflow_id
         and isinstance(capability.execution_id, str) and capability.execution_id
         and isinstance(capability.authorization_generation, str) and capability.authorization_generation

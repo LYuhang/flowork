@@ -30,6 +30,8 @@ class PromptNode(BaseNode):
             "inference_config"
         ],
         "properties": {
+            "retry": {"type": "integer", "minimum": 0, "maximum": 10, "default": 0,
+                      "description": "Extra attempts per failed model request (0 disables retries). Retry transient network, rate-limit, server and empty-response errors with exponential backoff; never replay successful tools."},
             "prompt_template": {
                 "type": "string",
                 "description": "The prompt template string, supporting multimodality slots (e.g., [<<image>>](url)) and variable interpolation (e.g., {{field_name}})."
@@ -138,6 +140,7 @@ class PromptNode(BaseNode):
             "input_fields must be primitive types (string, number, integer, or boolean); use CodeNode first to compose array/object data into a prompt-ready string.",
             "Mandatory model-discovery gate: in the current build turn, call flowork-cli config get --scope model_api before writing any PromptNode, then copy one enabled models key exactly into model_name.",
             "Never use the chat Agent's runtime model id, a provider model id, or a guessed/familiar model name. If global config returns no model, do not create this node; ask the user to configure an API model first.",
+            "Media uses [<<image>>](url_or_path), [<<video>>](url_or_path), or [<<audio>>](url_or_path). Ordinary Markdown such as [image](path) or ![image](path), and a bare path, are text only: they do not attach media. A successful text response does not prove the model received the image.",
             "prompt_template must include a JSON output format block with quoted keys matching every output_fields key.",
             "For nested dictionaries/lists, many case fields, or multimodal references, use a preceding CodeNode to compose one readable prompt-ready text field such as `prompt_case`; reference it in prompt_template with {{prompt_case}}."
         ],
@@ -150,7 +153,8 @@ class PromptNode(BaseNode):
                 "Embed media with [<<image>>](url_or_path), [<<video>>](url_or_path), or [<<audio>>](url_or_path); the URL/path may also use {{field}} interpolation."
             ),
             "model_name": "Exact enabled key from flowork-cli config get --scope model_api. Fetch it in this build turn and copy it verbatim; never guess or substitute the Agent runtime model.",
-            "inference_config": "Object with temperature (float), max_tokens (int), top_k (int), top_p (float) controlling generation."
+            "inference_config": "Use config_schema for accepted fields; provider/model support is a separate constraint. Check supported parameters before using extra_body (for example reasoning.effort); do not assume reasoning can be disabled. max_tokens is the output budget, not input context length. On empty content, inspect finish_reason and reported token usage in model_calls before adjusting the prompt or budget; missing usage is not zero. A nonempty length-truncated response still has to satisfy the JSON output contract.",
+            "retry": "Extra attempts (0-10) for transient model request failures. Retrying does not repair invalid parameters, template syntax or an insufficient output budget; preserve attempt/error evidence."
         },
         "examples": [
             {
@@ -403,8 +407,8 @@ class PromptNode(BaseNode):
     def _parse_output(self, raw_output):
         if not isinstance(raw_output, str) or not raw_output.strip():
             raise ValueError(
-                "The model returned no text. Increase the node's max_tokens "
-                "or select a model that can complete the requested JSON output."
+                "The model returned no text. Check the provider response and availability; "
+                "an empty response alone does not establish token exhaustion."
             )
 
         try:
@@ -432,7 +436,9 @@ class PromptNode(BaseNode):
     def __call__(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
         model, conversation, config, stop = self._prepare_call(inputs, extra)
         try:
-            raw = model(conversation, config, stop_event=stop)
+            from ..model_retry import call_with_retry, require_text
+            raw = call_with_retry(lambda: model(conversation, config, stop_event=stop),
+                                  self.node_config.get("retry", 0), stop, require_text)
         except Exception as exc:
             raise RuntimeError(f"LLM generation failed: {exc}") from exc
         if stop is not None and stop.is_set():
@@ -443,7 +449,9 @@ class PromptNode(BaseNode):
     async def call_async(self, inputs: dict, previous_outputs: dict, extra: dict = None) -> dict:
         model, conversation, config, stop = self._prepare_call(inputs, extra)
         try:
-            raw = await model.acall(conversation, config, stop_event=stop)
+            from ..model_retry import acall_with_retry, require_text
+            raw = await acall_with_retry(lambda: model.acall(conversation, config, stop_event=stop),
+                                         self.node_config.get("retry", 0), stop, require_text)
         except Exception as exc:
             raise RuntimeError(f"LLM generation failed: {exc}") from exc
         if stop is not None and stop.is_set():

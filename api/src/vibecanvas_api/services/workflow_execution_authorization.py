@@ -155,21 +155,25 @@ async def authorize_workflow_execution(
         execution_resource_type = ResourceType(
             capability.execution_resource_type
         )
-        execution_decision = await service.check(
-            principal,
-            Action.EXECUTE,
-            ResourceRef(
-                execution_resource_type,
-                capability.execution_id,
-                capability.organization_id,
-            ),
-            authz_context,
-        )
-        if not execution_decision.allowed:
-            raise HTTPException(
-                status_code=403,
-                detail={"code": "runtime_model_execution_access_revoked"},
+        # Local CLI has no separate execution resource. Its Workflow gate
+        # below resolves the owner scope before checking execute permission.
+        # Checking the Workflow in the recipient scope would reject shares.
+        if execution_resource_type is not ResourceType.WORKFLOW:
+            execution_decision = await service.check(
+                principal,
+                Action.EXECUTE,
+                ResourceRef(
+                    execution_resource_type,
+                    capability.execution_id,
+                    capability.organization_id,
+                ),
+                authz_context,
             )
+            if not execution_decision.allowed:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": "runtime_model_execution_access_revoked"},
+                )
         workflow_owner = await _active_workflow_source_organization(session, capability)
         if workflow_owner is None:
             raise HTTPException(status_code=403, detail={"code": "runtime_model_execution_inactive"})
@@ -222,6 +226,19 @@ async def _active_workflow_source_organization(
             service_account_id = uuid.UUID(capability.principal_id)
         except ValueError:
             return None
+    if resource_type is ResourceType.WORKFLOW:
+        # A local process has no host execution job. The signed, expiring
+        # descriptor is usable only while the original actor still has live
+        # membership, Workflow execute access and credential/MCP use access.
+        if service_account_id is not None or capability.execution_id != capability.workflow_id:
+            return None
+        from vibecanvas_api.storage.shared_resource_locator import shared_resource_roots
+        roots = await shared_resource_roots(capability.user_id,
+            active_organization_id=capability.organization_id, resource_type="workflow",
+            resource_id=capability.workflow_id, limit=2)
+        if len(roots) > 1:
+            return None
+        return str(roots[0].owner_tenant_id) if roots else capability.organization_id
     if resource_type is ResourceType.WORKFLOW_EXECUTION:
         if service_account_id is not None:
             return None

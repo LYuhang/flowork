@@ -33,6 +33,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from pathlib import Path
 
 import structlog
 from vibecanvas_engine.sandbox_bus import (
@@ -46,7 +47,7 @@ from vibecanvas_engine.sandbox_bus import (
 from vibecanvas_api.services.deployment_completion import complete_before_cancelling
 
 from vibecanvas_api.config import config
-from vibecanvas_api.services.sandbox.contracts import WorkflowRunSource
+from vibecanvas_api.services.sandbox.contracts import TaskRunSource, WorkflowRunSource
 from vibecanvas_api.services.agent_runtime.codex_account import (
     codex_account_auth_file,
 )
@@ -75,8 +76,9 @@ from vibecanvas_api.services.sandbox.snapshot_store import (
     snapshot_tree_bytes,
 )
 from vibecanvas_api.services.sandbox.warm import WarmGvisorPool
+from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage, WorkspaceIdentity
 from vibecanvas_api.services.user_mount_workspace import (
-    hydrate_user_mount,
+    create_user_mount,
     persist_user_mount,
     remove_user_mount,
 )
@@ -454,6 +456,9 @@ class SandboxSession:
         self.workflow_run_dir = (workflow_run_binding.directory if workflow_run_binding else run_dir) if expose_run else None
         self.workflow_run_id = (workflow_run_binding.workflow_id if workflow_run_binding else wf_id) if expose_run else None
         self.workflow_run_tenant_id = workflow_run_binding.tenant_id if workflow_run_binding else tenant_id
+        self.task_run_source: TaskRunSource | None = None
+        self.persistent_run_binding = None
+        self.persistent_workspace_binding = None
         self.workflow_run_source = WorkflowRunSource(tenant_id=workflow_run_binding.tenant_id, workflow_id=workflow_run_binding.workflow_id) if workflow_run_binding else None
         self.lease = lease if lease in {"interactive", "resident"} else "interactive"
         self.overlay_dir = overlay_dir
@@ -1819,7 +1824,7 @@ class SandboxSession:
                     staged_extra["code_pythonpath"] = code_pythonpath
                 await asyncio.to_thread(
                     stage_workflow_job,
-                    os.path.dirname(host_run_dir),
+                    self._workflow_staging_root(),
                     sub,
                     workflow,
                     inputs,
@@ -1863,10 +1868,27 @@ class SandboxSession:
             raise ValueError("invalid workflow run id")
         self._begin_activity()
         try:
-            from vibecanvas_api.services.vfs_run_context import clear_run_contents
-            await clear_run_contents(target, self.workflow_run_tenant_id)
+            from vibecanvas_api.services.vfs_run_context import clear_run_contents, PERSISTENT_WORKSPACE_FOLDERS
+            binding = self.persistent_run_binding
+            if binding is not None:
+                if binding.identity.kind != "workflow" or binding.identity.resource_id != target:
+                    raise ValueError("workflow run does not match persistent binding")
+                await asyncio.to_thread(
+                    PosixWorkspaceStorage(config.workspace_storage_root).clear,
+                    binding.identity, preserve=PERSISTENT_WORKSPACE_FOLDERS,
+                )
+            else:
+                await clear_run_contents(target, self.workflow_run_tenant_id)
         finally:
             self._end_activity()
+
+    def _workflow_staging_root(self) -> str:
+        # Job inputs/credentials are execution-private, even when /run is shared.
+        if self.persistent_run_binding is not None:
+            if not self.pool_runs_root:
+                raise RuntimeError("Workspace session has no private staging directory")
+            return self.pool_runs_root
+        return os.path.dirname(self.workflow_run_dir)
 
     async def submit_node_job(
         self,
@@ -1906,7 +1928,7 @@ class SandboxSession:
                 read_result_json,
                 stage_node_job,
             )
-            runs_root = os.path.dirname(self.workflow_run_dir)
+            runs_root = self._workflow_staging_root()
             target_run_dir = os.path.join(runs_root, normalized_subpath)
             async with self._workflow_job_lock:
                 await asyncio.to_thread(
@@ -2005,11 +2027,11 @@ class SandboxSession:
 
             if node is not None:
                 await asyncio.to_thread(stage_node_job,
-                    os.path.join(os.path.dirname(self.workflow_run_dir), normalized_subpath),
+                    os.path.join(self._workflow_staging_root(), normalized_subpath),
                     node, inputs, extra)
             else:
                 await asyncio.to_thread(
-                    stage_workflow_job, os.path.dirname(self.workflow_run_dir),
+                    stage_workflow_job, self._workflow_staging_root(),
                     normalized_subpath, workflow, inputs, extra,
                 )
             status = await self.submit_sandbox_job(
@@ -2028,7 +2050,7 @@ class SandboxSession:
                 timeout=timeout,
             )
             result = read_result_json(
-                os.path.dirname(self.workflow_run_dir), normalized_subpath,
+                self._workflow_staging_root(), normalized_subpath,
             )
             return {"status": status, "result": result}
         finally:
@@ -2358,7 +2380,7 @@ class SandboxSession:
         raises during ordinary turn sweeps. Lifecycle transitions use strict
         mode so a failed persistence operation cannot release its source files."""
         failures: list[Exception] = []
-        for folder in self.workspace_folders:
+        for folder in (() if self.persistent_workspace_binding is not None else self.workspace_folders):
             try:
                 await self._sync_run_folder(folder)
             except Exception as exc:
@@ -2376,7 +2398,8 @@ class SandboxSession:
                 exc_info=True,
             )
         try:
-            if self.workspace_profile == "chat" and self.expose_run and self.workflow_run_dir and self.workflow_run_id:
+            if (self.workspace_profile == "chat" and self.expose_run and self.workflow_run_dir and self.workflow_run_id
+                    and self.persistent_run_binding is None):
                 await sync_run_back(
                     self.workflow_run_id,
                     self.workflow_run_tenant_id,
@@ -2425,6 +2448,34 @@ class SandboxSession:
         parts = relative.split("/")
         if any(part in {"", ".", ".."} for part in parts):
             return False
+
+        if self.persistent_workspace_binding is not None:
+            # The mounted file already is the durable file. Verify the tool's
+            # acknowledgement without copying it to the former object backend.
+            def _verify_persistent() -> bool:
+                storage = PosixWorkspaceStorage(config.workspace_storage_root)
+                with storage.open_read(self.persistent_workspace_binding.identity,
+                                       normalized.lstrip("/")) as handle:
+                    before = os.fstat(handle.fileno())
+                    if expected_bytes is not None and before.st_size != expected_bytes:
+                        return False
+                    if expected_sha256 is not None:
+                        digest = hashlib.sha256()
+                        while chunk := handle.read(1024 * 1024):
+                            digest.update(chunk)
+                        if digest.hexdigest() != expected_sha256:
+                            return False
+                    after = os.fstat(handle.fileno())
+                    return (before.st_size, before.st_mtime_ns, before.st_ctime_ns) == (
+                        after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+
+            try:
+                verified = await asyncio.to_thread(_verify_persistent)
+            except (OSError, ValueError):
+                return False
+            if verified:
+                self.last_used = time.monotonic()
+            return verified
 
         def _read() -> bytes:
             # Walk by directory descriptors: a sandbox process must not swap a
@@ -2769,37 +2820,35 @@ class SandboxSession:
         if not os.path.isdir(sub):
             return 0
 
-        def _collect() -> list[tuple[str, bytes]]:
-            out: list[tuple[str, bytes]] = []
+        def _collect_paths() -> list[tuple[str, str | None]]:
+            # Dataset workspaces may exceed the service memory budget; retain
+            # paths here and release each payload before reading the next.
+            out: list[tuple[str, str | None]] = []
             for root, _dirs, files in os.walk(sub):
                 for name in files:
                     fp = os.path.join(root, name)
-                    rel = os.path.relpath(fp, sub)
-                    try:
-                        with open(fp, "rb") as f:
-                            out.append((rel, f.read()))
-                    except OSError:
-                        logger.warning("agent_run_folder_read_failed",
-                                       wf_id=self.wf_id, folder=folder, rel=rel,
-                                       exc_info=True)
-                        raise
-            # Persist empty-leaf dirs via the hidden sentinel (0-byte artifact).
+                    out.append((os.path.relpath(fp, sub), fp))
             for rel_dir in _empty_leaf_dirs(sub):
-                out.append((rel_dir + "/" + DIR_KEEP_SENTINEL, b""))
+                out.append((rel_dir + "/" + DIR_KEEP_SENTINEL, None))
             return out
 
-        collected = await asyncio.to_thread(_collect)
+        def _read_file(path: str) -> bytes:
+            with open(path, "rb") as handle:
+                return handle.read()
+
+        collected = await asyncio.to_thread(_collect_paths)
         if not collected:
             return 0
         synced = 0
         async with short_session_scope(tenant_id=self.tenant_id) as s:
             repo = VfsRepo(s, object_store=get_object_store())
-            for rel, data in collected:
+            for rel, source_path in collected:
                 vfs_path = f"/{folder}/" + rel.replace(os.sep, "/")
                 try:
                     async with self._external_vfs_lock:
                         if vfs_path in self._external_vfs_fenced_paths:
                             continue
+                        data = await asyncio.to_thread(_read_file, source_path) if source_path is not None else b""
                         await repo.upsert_artifact_bytes(
                             wf_id=self.wf_id,
                             tenant=self.tenant_id,
@@ -2807,6 +2856,7 @@ class SandboxSession:
                             data=data,
                             content_type=_guess_ct(rel, data),
                         )
+                        del data
                     synced += 1
                 except Exception:
                     logger.warning("agent_run_folder_file_failed", wf_id=self.wf_id,
@@ -2989,6 +3039,7 @@ class SandboxManager:
         )
         self._sessions: dict[tuple[str, str], SandboxSession] = {}
         self._closed_markers: dict[tuple[str, str], float] = {}
+        self._closed_local_executions: set[tuple[str, str, str]] = set()
         self._revoked_task_scopes: set[tuple[str, str]] = set()
         self._retiring_task_sessions: dict[tuple[str, str], SandboxSession] = {}
         self._lock = asyncio.Lock()
@@ -3457,6 +3508,15 @@ class SandboxManager:
     async def _close_session_best_effort(self, session: SandboxSession, *, reason: str) -> None:
         timeout_s = max(0.1, float(config.sandbox_session_close_timeout_s))
         key = (session.tenant_id, session.wf_id)
+        pool = getattr(session, "_fileop_pool", None)
+        work_root = getattr(pool, "work_root", None)
+        local_ids = set(getattr(session, "_local_execution_ids", ()))
+        if isinstance(work_root, str):
+            directory = Path(work_root) / "local-executions"
+            if directory.is_dir():
+                local_ids.update(path.name for path in directory.iterdir()
+                    if len(path.name) == 32 and all(char in "0123456789abcdef" for char in path.name))
+        session._local_execution_ids = local_ids
         close = asyncio.create_task(session.close())
         try:
             try:
@@ -3477,6 +3537,7 @@ class SandboxManager:
                 exc_info=True,
             )
         else:
+            self._closed_local_executions.update((key[0], key[1], run_id) for run_id in local_ids)
             if self._failed_closes.get(key) is session:
                 self._failed_closes.pop(key, None)
 
@@ -3526,7 +3587,8 @@ class SandboxManager:
                           expose_runtime: bool = False,
                           lease: str = "interactive", expose_mount: bool = True,
                           workspace_profile: str = "chat",
-                          workflow_run_source: WorkflowRunSource | None = None) -> SandboxSession:
+                          workflow_run_source: WorkflowRunSource | None = None,
+                          task_run_source: TaskRunSource | None = None) -> SandboxSession:
         """Return the resident session for ``(tenant_id, wf_id)``, creating it
         (and evicting the LRU on overflow) on first use.
 
@@ -3541,6 +3603,8 @@ class SandboxManager:
             raise ValueError("invalid_workspace_profile")
         if workflow_run_source is not None and (not expose_run or workspace_profile != "chat"):
             raise ValueError("invalid_workflow_run_source_profile")
+        if task_run_source is not None and (not expose_run or workflow_run_source is not None):
+            raise ValueError("invalid_task_run_source")
         acquire_started = time.perf_counter()
         key = (tenant_id, wf_id)
         # Restore outside the manager-wide registry lock. The Session's own
@@ -3549,7 +3613,8 @@ class SandboxManager:
         async with self._acquisition_lock(key):
             restore_candidate = self._sessions.get(key)
             if (restore_candidate is not None and not restore_candidate.closed
-                    and (restore_candidate.user_id != user_id or restore_candidate.workflow_run_source != workflow_run_source)):
+                    and (restore_candidate.user_id != user_id or restore_candidate.workflow_run_source != workflow_run_source
+                         or getattr(restore_candidate, "task_run_source", None) != task_run_source)):
                 raise RuntimeError("sandbox_workspace_identity_mismatch")
             if key in self._revoked_task_scopes:
                 raise RuntimeError("Task execution scope was revoked.")
@@ -3570,7 +3635,8 @@ class SandboxManager:
                 raise RuntimeError("Task execution scope was revoked.")
             existing = self._sessions.get(key)
             if (existing is not None and not existing.closed
-                    and (existing.user_id != user_id or existing.workflow_run_source != workflow_run_source)):
+                    and (existing.user_id != user_id or existing.workflow_run_source != workflow_run_source
+                         or getattr(existing, "task_run_source", None) != task_run_source)):
                 raise RuntimeError("sandbox_workspace_identity_mismatch")
             if existing is not None and not existing.closed:
                 if getattr(existing, "_requires_rehydrate", False):
@@ -3638,6 +3704,7 @@ class SandboxManager:
                 expose_mount=expose_mount,
                 workspace_profile=workspace_profile,
                 **({"workflow_run_source": workflow_run_source} if workflow_run_source else {}),
+                **({"task_run_source": task_run_source} if task_run_source else {}),
             )
             session.lease = lease if lease in {"interactive", "resident"} else "interactive"
             self._sessions[key] = session
@@ -3653,6 +3720,21 @@ class SandboxManager:
                 ),
             )
             return session
+
+    async def local_execution_exited(self, tenant_id: str, wf_id: str, run_id: str):
+        """Positive guest-side lock-release evidence; missing state is unknown."""
+        identifier = uuid.UUID(run_id).hex
+        async with self._lock:
+            if (tenant_id, wf_id, identifier) in self._closed_local_executions:
+                return True
+            session = self._sessions.get((tenant_id, wf_id))
+            if session is None or session.closed:
+                return None
+            pool = getattr(session, "_fileop_pool", None)
+            if pool is None:
+                return None
+            marker = Path(pool.work_root) / "local-execution-finished" / identifier
+            return True if marker.is_file() else None
 
     async def get_loaded_session(
         self, tenant_id: str, wf_id: str,
@@ -4009,6 +4091,7 @@ class SandboxManager:
                 config.agent_overlay_root,
                 config.agent_runtime_root,
                 config.vfs_volume_root,
+                config.workspace_storage_root if config.workspace_storage_backend == "posix" else "",
             )
             if root
         }
@@ -4016,6 +4099,12 @@ class SandboxManager:
             for tenant_id in sorted(canonical_tenant_ids):
                 await asyncio.to_thread(remove_user_directory, root, tenant_id)
             await asyncio.to_thread(remove_personal_tenant_directory, root)
+        if config.workspace_storage_backend == "posix":
+            storage = PosixWorkspaceStorage(config.workspace_storage_root)
+            for tenant_id in sorted(canonical_tenant_ids):
+                await asyncio.to_thread(storage.delete, WorkspaceIdentity(
+                    tenant_id, "user_mount", canonical_user_id))
+            await asyncio.to_thread(storage.delete_tenant, canonical_personal_tenant_id)
         return True
 
     async def invalidate_codex_account_sessions(
@@ -4135,7 +4224,8 @@ class SandboxManager:
                              expose_runtime: bool = False,
                              expose_mount: bool = True,
                              workspace_profile: str = "chat",
-                             workflow_run_source: WorkflowRunSource | None = None) -> SandboxSession:
+                             workflow_run_source: WorkflowRunSource | None = None,
+                          task_run_source: TaskRunSource | None = None) -> SandboxSession:
         """Materialize Chat/user VFS mounts and construct the session.
 
         ``build_run_context`` (blocking DB+ObjectStore+FS, run off-loop) gives
@@ -4153,12 +4243,29 @@ class SandboxManager:
         )
         if workspace_profile not in {"chat", "execution"}:
             raise ValueError("invalid_workspace_profile")
+        workspace_binding = None
+        run_binding = None
         if workspace_profile == "execution":
             safe_scope_id = _runtime_identity_component(wf_id, field="scope_id")
             projection_root = tempfile.mkdtemp(prefix="vcsbx-projection-")
             pool_runs_root = os.path.join(projection_root, "runs")
             run_dir = os.path.join(pool_runs_root, safe_scope_id)
             os.makedirs(run_dir, mode=0o700, exist_ok=True)
+        elif config.workspace_storage_backend == "posix":
+            storage = PosixWorkspaceStorage(config.workspace_storage_root)
+            kind = "project" if not expose_run or expose_runtime or workflow_run_source else "workflow"
+            if task_run_source is None:
+                workspace_binding = storage.acquire(WorkspaceIdentity(tenant_id, kind, wf_id))
+                run_dir = workspace_binding.directory
+                if kind == "workflow" and expose_run:
+                    run_binding = workspace_binding
+            projection_root = tempfile.mkdtemp(prefix="vcsbx-projection-")
+            pool_runs_root = os.path.join(projection_root, "runs")
+            os.makedirs(pool_runs_root, mode=0o700, exist_ok=True)
+            if task_run_source is not None:
+                run_dir = os.path.join(pool_runs_root, _runtime_identity_component(wf_id, field="scope_id"))
+            for folder in _RUN_WRITEBACK_FOLDERS:
+                os.makedirs(os.path.join(run_dir, folder), mode=0o700, exist_ok=True)
         else:
             stage_started = time.perf_counter()
             ctx = await asyncio.to_thread(
@@ -4212,12 +4319,11 @@ class SandboxManager:
                 raise
 
         mount_scope_id = user_mount_scope_id(user_id) if expose_mount else None
-        mount_dir = (run_dir.rstrip("/") + ".mount") if run_dir and mount_scope_id else None
-        if mount_dir and mount_scope_id:
+        mount_dir = None
+        if run_dir and mount_scope_id:
             try:
                 stage_started = time.perf_counter()
-                await hydrate_user_mount(
-                    destination=mount_dir,
+                mount_dir = await create_user_mount(
                     user_id=user_id,
                     tenant_id=tenant_id,
                 )
@@ -4236,6 +4342,7 @@ class SandboxManager:
                     tenant_id=tenant_id,
                     exc_info=True,
                 )
+                raise
 
         runtime_dir = None
         runtime_volume = None
@@ -4300,9 +4407,15 @@ class SandboxManager:
         if workflow_run_source is not None:
             if not expose_run or workspace_profile != "chat":
                 raise ValueError("invalid_workflow_run_source_profile")
-            source_context = await asyncio.to_thread(
-                build_run_context, workflow_run_source.workflow_id, workflow_run_source.tenant_id,
-            )
+            if config.workspace_storage_backend == "posix":
+                run_binding = PosixWorkspaceStorage(config.workspace_storage_root).acquire(
+                    WorkspaceIdentity(workflow_run_source.tenant_id, "workflow", workflow_run_source.workflow_id),
+                )
+                source_context = {"run_dir": run_binding.directory}
+            else:
+                source_context = await asyncio.to_thread(
+                    build_run_context, workflow_run_source.workflow_id, workflow_run_source.tenant_id,
+                )
             if not source_context["run_dir"]:
                 raise RuntimeError("workflow_run_source_unavailable")
             workflow_run_binding = WorkflowRunBinding(
@@ -4329,6 +4442,16 @@ class SandboxManager:
             materialized_projection_root=projection_root,
             workspace_profile=workspace_profile,
         )
+        session.persistent_workspace_binding = workspace_binding
+        session.persistent_run_binding = run_binding
+        session.task_run_source = task_run_source
+        if task_run_source is not None and config.workspace_storage_backend == "posix":
+            binding = PosixWorkspaceStorage(config.workspace_storage_root).acquire(
+                WorkspaceIdentity(tenant_id, "task", str(task_run_source.task_id)),
+            )
+            session.persistent_run_binding = binding
+            session.workflow_run_dir = binding.directory
+            session.workflow_run_id = f"task-run-{task_run_source.task_id}"
         logger.warning(
             "agent_sandbox_session_build_done",
             wf_id=wf_id,

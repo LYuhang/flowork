@@ -400,6 +400,7 @@ async def test_chat_command_and_workflow_context_are_user_scoped(pg_session):
         "carrier_scope_id": "__chat_owner",
         "runtime_session_id": project.runtime_session_id,
         "runtime_type": project.runtime_type,
+        "workflow_id": None,
     }
 
 
@@ -631,3 +632,31 @@ async def test_background_job_state_machine_is_idempotent_and_reconciles_stale(
     assert private_marker not in stored["private_ciphertext"]
     assert private_marker not in stored["event_ciphertext"]
     assert old_columns == []
+
+
+@pytest.mark.asyncio
+async def test_goal_snapshot_is_private_encrypted_and_preserves_other_chat_metadata(pg_session):
+    await _seed_and_bind(pg_session)
+    repo = ChatRepo(pg_session, str(USER))
+    cid = await repo.register_session('__goal_test', project_id=PROJECT)
+    await repo.set_active_modes(cid, {'workflow'})
+    goal = {'objective': 'private-goal-example', 'status': 'paused', 'timeUsedSeconds': 42}
+    await repo.set_goal(cid, goal)
+    assert await repo.get_goal(cid) == goal
+    assert await repo.get_active_modes(cid) == {'workflow'}
+    assert await repo.get_goal_pause_requested(cid) is True
+    await repo.set_goal(cid, {**goal, 'status':'active'})
+    assert await repo.get_goal_pause_requested(cid) is False
+    await repo.request_goal_pause(cid)
+    assert await repo.get_goal_pause_requested(cid) is True
+    assert (await repo.get_goal(cid))['status'] == 'paused'
+    await repo.set_goal(cid, goal)
+    ciphertext = (await pg_session.execute(text('SELECT metadata_ciphertext FROM chats WHERE chat_id=:id'), {'id':cid})).scalar_one()
+    assert goal['objective'] not in ciphertext
+    other = ChatRepo(pg_session, str(uuid.uuid4()))
+    assert await other.get_goal(cid) is None
+    await other.set_goal(cid, None)
+    assert await repo.get_goal(cid) == goal
+    await repo.set_goal(cid, None)
+    assert await repo.get_goal(cid) is None
+    assert await repo.get_active_modes(cid) == {'workflow'}

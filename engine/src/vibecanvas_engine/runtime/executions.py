@@ -266,6 +266,7 @@ class WorkflowRuntime:
         approval_timed_out = False
         terminal_status = "failed"
         stream = None
+        final_seen = False
         try:
             stream = (
                 node_events(workflow, node_id, inputs, stop_event=e.stop, run_context=context)
@@ -274,6 +275,7 @@ class WorkflowRuntime:
             )
             async for event in stream:
                 if event.get("status") == "finished":
+                    final_seen = True
                     result = {k: event.get(k) for k in ("final_outputs", "error_dict", "execution_time")}
                 else:
                     if event.get("status") == "error":
@@ -284,6 +286,8 @@ class WorkflowRuntime:
                     if event.get("error_code") == "approval_timeout":
                         approval_timed_out = True
                         e.stop.set()  # Stop this invocation, including parallel branches.
+            if not final_seen and not e.stop.is_set():
+                raise RuntimeError("Local engine ended without a terminal result")
             result["error_dict"] = {**observed_errors, **(result["error_dict"] or {})}
             terminal_status = (
                 "timed_out"

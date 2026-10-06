@@ -18,6 +18,7 @@ import httpx
 
 from .model_utils import convert_input, encode_image
 from .register import BaseLLM
+from .model_retry import EmptyModelResponse, record_openai_response
 
 
 def _parse_extra_body(config: Dict[str, Any]) -> Optional[dict]:
@@ -46,6 +47,7 @@ def _openai_completion_text(response: Any) -> str:
     hides the provider failure behind ``'NoneType' object is not subscriptable``.
     Keep the workflow error actionable without echoing request data or secrets.
     """
+    diagnostic = record_openai_response(response)
     choices = getattr(response, "choices", None)
     if not isinstance(choices, list) or not choices or choices[0] is None:
         extra = getattr(response, "model_extra", None)
@@ -57,12 +59,43 @@ def _openai_completion_text(response: Any) -> str:
         else:
             detail = getattr(error, "message", None) or str(error or "").strip()
         suffix = f": {detail}" if detail else ""
-        raise RuntimeError(f"Provider returned no completion choices{suffix}")
+        provider_code = error.get("code") if isinstance(error, dict) else None
+        if isinstance(provider_code, int):
+            exc = RuntimeError(f"Provider returned no completion choices{suffix}")
+            exc.status_code = provider_code
+            raise exc
+        # Unknown structured errors are not assumed transient. The explicit
+        # upstream empty-response shape is safe to retry as a model request.
+        error_type = EmptyModelResponse if not error or str(detail).strip().lower() in {
+            "provider returned an empty response", "empty response",
+        } else RuntimeError
+        raise error_type(f"Provider returned no completion choices{suffix}")
 
     message = getattr(choices[0], "message", None)
     if message is None:
         raise RuntimeError("Provider returned a completion without a message")
     content = getattr(message, "content", None)
+    if not isinstance(content, str) or not content.strip():
+        reason = getattr(choices[0], "finish_reason", None)
+        # Report only known protocol values, never arbitrary provider payloads.
+        reason = reason if reason in {"stop", "length", "content_filter", "tool_calls", "function_call"} else "unknown"
+        detail = {
+            "length": ("The output token budget was exhausted before a usable answer was returned. "
+                       "Inspect this node definition and inference_config.max_tokens; increase the output budget "
+                       "or reduce/disable reasoning if the provider supports it. "
+                       "Increasing retry alone does not fix this limit."),
+            "content_filter": "The provider filtered the response.",
+            "tool_calls": "The provider returned tool calls instead of text.",
+            "function_call": "The provider returned a function call instead of text.",
+        }.get(reason, "The cause is unknown; inspect provider availability and request concurrency.")
+        error_type = EmptyModelResponse if reason in {"stop", "unknown"} else RuntimeError
+        usage = diagnostic.get("usage")
+        usage_text = ", ".join(f"{key}={value}" for key, value in usage.items()) if usage else "not reported by provider"
+        raise error_type(
+            f"The model returned no text (finish_reason={reason}). "
+            f"A model response was received, but message.content contained no usable text. "
+            f"Token usage: {usage_text}. {detail}"
+        )
     return content if isinstance(content, str) else ""
 
 
@@ -106,6 +139,7 @@ class OpenAIModel(BaseLLM):
             api_key=self.api_key,
             base_url=self.api_url,
             timeout=self.timeout,
+            max_retries=0,
         )
         create_kwargs: Dict[str, Any] = dict(
             model=self.model_name,
@@ -197,6 +231,7 @@ class AzureOpenAIModel(BaseLLM):
             azure_endpoint=self.api_url,
             api_version=config.get("api_version", self.DEFAULT_API_VERSION),
             timeout=self.timeout,
+            max_retries=0,
         )
         create_kwargs: Dict[str, Any] = dict(
             model=self.model_name,  # the Azure deployment name
@@ -275,7 +310,7 @@ class AnthropicModel(BaseLLM):
     def _prepare(self, conversation_dict, inference_config=None):
         config = inference_config or {}
 
-        client_kwargs: Dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout}
+        client_kwargs: Dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout, "max_retries": 0}
         if self.api_url:
             client_kwargs["base_url"] = self.api_url
 
@@ -380,16 +415,16 @@ class GeminiModel(BaseLLM):
 
         config = inference_config or {}
 
-        http_options = None
+        http_options = genai.types.HttpOptions(
+            timeout=self.timeout * 1000,
+            retry_options=genai.types.HttpRetryOptions(attempts=1),
+        )
         if self.api_url:
             # Saved/default Workflow credentials point this SDK at the host
             # Runtime Model Broker. The SDK appends its normal
             # v1beta/models/...:generateContent path; the capability remains in
             # the provider's regular API-key position.
-            http_options = genai.types.HttpOptions(
-                base_url=self.api_url,
-                timeout=self.timeout * 1000,
-            )
+            http_options.base_url = self.api_url
         client_kwargs = dict(api_key=self.api_key, http_options=http_options)
 
         contents = []

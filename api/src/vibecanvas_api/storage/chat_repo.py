@@ -890,6 +890,60 @@ class ChatRepo:
     # `/command` active-modes (Design §3) — persisted in chats.meta
     # ===================================================================
 
+    async def get_goal(self, chat_id: str) -> dict | None:
+        chat = (await self._s.execute(select(Chat).where(
+            Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
+            Chat.deleted_at.is_(None),
+        ))).scalar_one_or_none()
+        if chat is None:
+            return None
+        await self._materialize_chat_private(chat)
+        return chat.meta.get("goal")
+
+    async def set_goal(self, chat_id: str, goal: dict | None) -> None:
+        chat = (await self._s.execute(select(Chat).where(
+            Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
+            Chat.deleted_at.is_(None),
+        ).with_for_update())).scalar_one_or_none()
+        if chat is None:
+            return
+        await self._materialize_chat_private(chat)
+        meta = dict(chat.meta or {})
+        meta["goal"] = goal
+        meta["goal_pause_requested"] = bool(goal and goal.get("status") == "paused")
+        await self._store_chat_private(chat, name=chat.name, meta=meta)
+        await self._s.flush()
+
+    async def get_goal_pause_requested(self, chat_id: str) -> bool:
+        chat = (await self._s.execute(select(Chat).where(
+            Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
+            Chat.deleted_at.is_(None),
+        ))).scalar_one_or_none()
+        if chat is None:
+            return False
+        await self._materialize_chat_private(chat)
+        return bool(chat.meta.get("goal_pause_requested"))
+
+    async def request_goal_pause(self, chat_id: str) -> None:
+        """Keep user Stop durable even if the runtime closes before its ack."""
+        chat = (await self._s.execute(select(Chat).where(
+            Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
+            Chat.deleted_at.is_(None),
+        ).with_for_update())).scalar_one_or_none()
+        if chat is None:
+            return
+        await self._materialize_chat_private(chat)
+        meta = dict(chat.meta or {})
+        meta["goal_pause_requested"] = True
+        goal = meta.get("goal")
+        if goal and goal.get("status") == "active":
+            now = int(datetime.now(timezone.utc).timestamp())
+            elapsed = max(0, now - int(goal.get("updatedAt", now)))
+            meta["goal"] = {**goal, "status": "paused", "updatedAt": now,
+                            "timeUsedSeconds": goal.get("timeUsedSeconds", 0) + elapsed}
+        await self._store_chat_private(chat, name=chat.name, meta=meta)
+        await self._s.flush()
+
     async def get_active_modes(self, chat_id: str) -> set[str]:
         """Read the sticky ``active_modes`` set persisted for this chat.
 

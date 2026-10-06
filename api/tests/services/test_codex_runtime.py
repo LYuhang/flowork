@@ -1255,6 +1255,8 @@ async def test_codex_resident_thread_suppresses_repeated_mcp_startup(monkeypatch
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/start":
                 self.thread_number += 1
@@ -1383,6 +1385,8 @@ async def test_codex_retries_one_empty_provider_completion(monkeypatch):
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/start":
                 return {"thread": {"id": "codex-thread", "turns": []}}
@@ -1547,6 +1551,8 @@ async def test_codex_publishes_reviewed_document_through_completion_hub(
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/start":
                 return {"thread": {"id": "codex-thread", "turns": []}}
@@ -1685,6 +1691,8 @@ async def test_codex_reconciles_broker_turn_after_final_message_without_terminal
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/start":
                 return {"thread": {"id": "codex-thread", "turns": []}}
@@ -1782,6 +1790,8 @@ async def test_codex_reuses_one_aggregate_hub_endpoint_across_turns(monkeypatch)
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/start":
                 servers = params["config"]["mcp_servers"]
@@ -1931,6 +1941,8 @@ async def test_codex_forks_loaded_thread_when_turn_config_changes(monkeypatch):
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/fork":
                 assert params["threadId"] == "codex-thread-old"
@@ -2023,6 +2035,8 @@ async def test_codex_replaces_only_an_explicitly_missing_native_rollout(monkeypa
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/fork":
                 raise CodexAppServerError(
@@ -2116,6 +2130,8 @@ async def test_codex_rebuilds_partial_native_history_from_durable_transcript(
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/start":
                 return {"thread": {"id": "codex-thread-rebuilt"}}
@@ -2235,6 +2251,8 @@ async def test_codex_matching_history_watermark_keeps_native_transcript(monkeypa
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/fork":
                 return {"thread": {"id": "native-fork"}}
@@ -2316,6 +2334,8 @@ async def test_codex_failed_turn_does_not_advance_history_watermark(monkeypatch)
             return None
 
         async def request(self, method, _params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             if method == "thread/start":
                 return {"thread": {"id": "native-recovery"}}
             if method == "turn/start":
@@ -2462,6 +2482,8 @@ async def test_codex_request_user_input_resumes_the_same_native_turn(monkeypatch
             return None
 
         async def request(self, method, _params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             if method == "thread/start":
                 return {"thread": {"id": "codex-thread"}}
             if method == "turn/start":
@@ -2648,6 +2670,8 @@ async def test_codex_aggregate_hub_has_no_retired_business_approval_bridge(monke
             return None
 
         async def request(self, method, _params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             if method == "thread/start":
                 servers = _params["config"]["mcp_servers"]
                 assert set(servers) == {"flowork"}
@@ -2773,6 +2797,8 @@ async def test_codex_runtime_translates_app_server_stream_to_stable_events(monke
             return None
 
         async def request(self, method, params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/start":
                 return {
@@ -2973,6 +2999,8 @@ async def test_codex_runtime_projects_full_plan_snapshot_as_todo_update(monkeypa
             return None
 
         async def request(self, method, _params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             if method == "thread/start":
                 return {"thread": {"id": "codex-thread"}}
             if method == "turn/start":
@@ -3060,6 +3088,8 @@ async def test_codex_runtime_closes_tool_carrier_before_tool_result(monkeypatch)
             return None
 
         async def request(self, method, _params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             if method == "thread/start":
                 return {"thread": {"id": "codex-thread"}}
             if method == "turn/start":
@@ -3188,6 +3218,8 @@ async def test_codex_render_interactive_gate_ends_turn_at_completed_tool_boundar
             return None
 
         async def request(self, method, _params, **_kwargs):
+            if method == "thread/goal/get":
+                return {"goal": None}
             self.requests.append(method)
             if method == "thread/start":
                 return {"thread": {"id": "codex-thread"}}
@@ -3302,3 +3334,181 @@ def test_turn_input_keeps_pathless_quotes_and_resource_context():
     assert inputs[2]['text'] == '<user-context>\nversion v1.sv7: node_2 configuration\n</user-context>'
     assert all(item['type'] != 'mention' for item in inputs)
     assert inputs[-1] == {'type': 'localImage', 'path': '/chats/chat/contexts/photo.png'}
+
+
+@pytest.mark.asyncio
+async def test_native_goal_continues_across_turn_ids_without_a_second_start(tmp_path, monkeypatch):
+    monkeypatch.setattr("vibecanvas_api.services.agent_runtime.codex.os.path.isdir", lambda path: path in {"/runtime", "/data"})
+    monkeypatch.setattr("vibecanvas_api.services.agent_runtime.codex.os.makedirs", lambda *args, **kwargs: None)
+    class GoalServer:
+        def __init__(self):
+            self.goal = None
+            self.requests = []
+        async def start(self): pass
+        async def close(self): pass
+        async def request(self, method, params, **kwargs):
+            self.requests.append((method, params))
+            if method == 'thread/start': return {'thread': {'id': 'goal-thread'}}
+            if method == 'thread/goal/get': return {'goal': self.goal}
+            if method == 'thread/goal/set':
+                self.goal = {'objective': params.get('objective', 'goal'), 'status': params['status']}
+                return {'goal': self.goal}
+            if method == 'turn/start': return {'turn': {'id': 'first'}}
+            raise AssertionError(method)
+        async def messages(self):
+            for tid in ['first', 'second']:
+                yield {'method': 'turn/started', 'params': {'threadId': 'goal-thread', 'turn': {'id': tid}}}
+                yield {'method': 'item/completed', 'params': {'item': {'id': tid+'-message', 'type': 'agentMessage', 'text': tid}}}
+                if tid == 'second':
+                    self.goal['status'] = 'complete'
+                    yield {'method': 'thread/goal/updated', 'params': {'threadId': 'goal-thread', 'goal': dict(self.goal)}}
+                yield {'method': 'turn/completed', 'params': {'threadId': 'goal-thread', 'turn': {'id': tid, 'status': 'completed'}}}
+    client = GoalServer(); channel = _Channel()
+    await run_codex_turn(channel, RuntimeTurnRequest(
+        tenant_id='tenant', user_id='user', chat_id='chat', turn_id='product-goal', runtime_type='codex',
+        runtime_session_id='session', runtime_root='/runtime/.codex', message={'role':'user','content':'Finish'},
+        model=_BROKER_MODEL, goal_command={'action':'new','objective':'Finish'},
+    ), client=client)
+    assert [name for name, _ in client.requests].count('turn/start') == 1
+    assert client.goal['status'] == 'complete'
+    serialized = json.dumps(channel.sent)
+    assert 'second-message' in serialized
+    assert channel.sent[-1]['type'] == MSG_RUNTIME_RESULT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action', ['status', 'clear', 'edit'])
+async def test_goal_metadata_controls_do_not_call_model(tmp_path, action, monkeypatch):
+    monkeypatch.setattr("vibecanvas_api.services.agent_runtime.codex.os.path.isdir", lambda path: path in {"/runtime", "/data"})
+    monkeypatch.setattr("vibecanvas_api.services.agent_runtime.codex.os.makedirs", lambda *args, **kwargs: None)
+    class GoalServer:
+        goal = {'objective': 'previous', 'status': 'paused'}
+        async def start(self): pass
+        async def close(self): pass
+        async def request(self, method, params, **kwargs):
+            if method == 'thread/start': return {'thread': {'id': 'goal-thread'}}
+            if method == 'thread/goal/get': return {'goal': self.goal}
+            if method == 'thread/goal/clear': self.goal = None; return {'cleared': True}
+            if method == 'thread/goal/set': self.goal = params; return {'goal': self.goal}
+            raise AssertionError('Unexpected model operation: '+method)
+        async def messages(self):
+            if False: yield {}
+    channel = _Channel(); command = {'action': action}
+    if action == 'edit': command['objective'] = 'Revised goal'
+    await run_codex_turn(channel, RuntimeTurnRequest(
+        tenant_id='tenant', user_id='user', chat_id='chat', turn_id='product-control', runtime_type='codex',
+        runtime_session_id='session', runtime_root='/runtime/.codex', message={'role':'user','content':''},
+        model=_BROKER_MODEL, goal_command=command,
+    ), client=GoalServer())
+    assert channel.sent[-1]['type'] == MSG_RUNTIME_RESULT
+
+
+@pytest.mark.asyncio
+async def test_stop_pauses_goal_and_interrupts_latest_native_turn(monkeypatch):
+    from vibecanvas_engine.sandbox_bus import MSG_RUNTIME_CONTROL
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.path.isdir', lambda path: path in {"/runtime", "/data"})
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.makedirs', lambda *args, **kwargs: None)
+    stop_ready = asyncio.Event()
+    interrupted = asyncio.Event()
+    class StopChannel(_Channel):
+        async def recv(self):
+            await stop_ready.wait()
+            stop_ready.clear()
+            return {'type': MSG_RUNTIME_CONTROL, 'response': {'action': 'cancel'}}
+    class GoalServer:
+        def __init__(self): self.goal = None; self.requests = []
+        async def start(self): pass
+        async def close(self): pass
+        async def request(self, method, params, **kwargs):
+            self.requests.append((method, dict(params)))
+            if method == 'thread/start': return {'thread': {'id': 'goal-thread'}}
+            if method == 'thread/goal/get': return {'goal': self.goal}
+            if method == 'thread/goal/set':
+                self.goal = {**(self.goal or {}), **params}; return {'goal': self.goal}
+            if method == 'turn/start': return {'turn': {'id': 'first'}}
+            if method == 'turn/interrupt': interrupted.set(); return {}
+            raise AssertionError(method)
+        async def messages(self):
+            yield {'method': 'item/completed', 'params': {'item': {'id': 'message1', 'type': 'agentMessage', 'text': 'progress'}}}
+            yield {'method': 'turn/completed', 'params': {'threadId': 'goal-thread', 'turn': {'id': 'first', 'status': 'completed'}}}
+            yield {'method': 'turn/started', 'params': {'threadId': 'goal-thread', 'turn': {'id': 'second'}}}
+            stop_ready.set()
+            await interrupted.wait()
+            yield {'method': 'turn/completed', 'params': {'threadId': 'goal-thread', 'turn': {'id': 'second', 'status': 'interrupted'}}}
+    client = GoalServer(); channel = StopChannel()
+    await asyncio.wait_for(run_codex_turn(channel, RuntimeTurnRequest(
+        tenant_id='tenant', user_id='user', chat_id='chat', turn_id='product-goal-stop', runtime_type='codex',
+        runtime_session_id='session', runtime_root='/runtime/.codex', message={'role':'user','content':'Finish'},
+        model=_BROKER_MODEL, goal_command={'action':'new','objective':'Finish'},
+    ), client=client), 10)
+    assert client.goal['status'] == 'paused'
+    assert client.goal['objective'] == 'Finish'
+    pause = next(i for i, (name, params) in enumerate(client.requests) if name == 'thread/goal/set' and params.get('status') == 'paused')
+    interrupt = next(i for i, (name, _) in enumerate(client.requests) if name == 'turn/interrupt')
+    assert pause < interrupt
+    assert client.requests[interrupt][1]['turnId'] == 'second'
+    assert [name for name, _ in client.requests].count('turn/start') == 1
+
+
+@pytest.mark.asyncio
+async def test_durable_stop_intent_pauses_native_goal_before_an_ordinary_message(monkeypatch):
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.path.isdir', lambda path: path in {'/runtime','/data'})
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.makedirs', lambda *args, **kwargs: None)
+    class GoalServer:
+        goal = {'objective': 'original', 'status': 'active'}
+        async def start(self): pass
+        async def close(self): pass
+        async def request(self, method, params, **kwargs):
+            if method == 'thread/start': return {'thread': {'id':'thread'}}
+            if method == 'thread/goal/get': return {'goal': self.goal}
+            if method == 'thread/goal/set': self.goal = {**self.goal, **params}; return {'goal': self.goal}
+            if method == 'turn/start':
+                assert self.goal['status'] == 'paused'
+                return {'turn': {'id':'turn'}}
+            raise AssertionError(method)
+        async def messages(self):
+            yield {'method':'item/completed','params':{'item':{'id':'answer','type':'agentMessage','text':'Status explained'}}}
+            yield {'method':'turn/completed','params':{'turn':{'id':'turn','status':'completed'}}}
+    client=GoalServer()
+    await run_codex_turn(_Channel(), RuntimeTurnRequest(
+        tenant_id='tenant',user_id='user',chat_id='chat',turn_id='product',runtime_type='codex',
+        runtime_session_id='session',runtime_root='/runtime/.codex',model=_BROKER_MODEL,
+        message={'role':'user','content':'What happened?'},goal_pause_requested=True,
+    ),client=client)
+    assert client.goal['status'] == 'paused'
+
+
+@pytest.mark.asyncio
+async def test_resume_restores_goal_after_cancelled_turn_rebuilds_thread(monkeypatch):
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.path.isdir', lambda path: path in {'/runtime','/data'})
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.makedirs', lambda *args, **kwargs: None)
+    class GoalServer:
+        goal = None
+        async def start(self): pass
+        async def close(self): pass
+        async def request(self, method, params, **kwargs):
+            if method == 'thread/start': return {'thread': {'id':'rebuilt'}}
+            if method == 'thread/goal/get': return {'goal': self.goal}
+            if method == 'thread/goal/set':
+                self.goal = {**(self.goal or {}), **params}
+                return {'goal': self.goal}
+            if method == 'turn/start':
+                assert self.goal['objective'] == 'Finish existing experiment'
+                assert self.goal['status'] == 'active'
+                return {'turn': {'id':'resumed'}}
+            raise AssertionError(method)
+        async def messages(self):
+            yield {'method':'item/completed','params':{'item':{'id':'answer','type':'agentMessage','text':'Finished'}}}
+            self.goal['status'] = 'complete'
+            yield {'method':'thread/goal/updated','params':{'threadId':'rebuilt','goal':dict(self.goal)}}
+            yield {'method':'turn/completed','params':{'turn':{'id':'resumed','status':'completed'}}}
+    client=GoalServer(); channel=_Channel()
+    await run_codex_turn(channel, RuntimeTurnRequest(
+        tenant_id='tenant',user_id='user',chat_id='chat',turn_id='product',runtime_type='codex',
+        runtime_session_id='session',runtime_root='/runtime/.codex',model=_BROKER_MODEL,
+        message={'role':'user','content':''},goal_pause_requested=True,
+        goal_command={'action':'resume'}, goal_snapshot={'threadId':'old',
+            'objective':'Finish existing experiment','status':'paused','timeUsedSeconds':3},
+    ),client=client)
+    assert client.goal['status'] == 'complete'
+    assert channel.sent[-1]['type'] == MSG_RUNTIME_RESULT

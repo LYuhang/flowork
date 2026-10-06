@@ -149,6 +149,7 @@ class BackgroundJobCancelBody(BaseModel):
 
 
 class ChatStateOut(BaseModel):
+    goal: dict | None = None
     todo_items: list[TodoItem] = Field(default_factory=list)
     background_jobs: list[BackgroundJobOut] = Field(default_factory=list)
     active_modes: list[str] = Field(default_factory=list)

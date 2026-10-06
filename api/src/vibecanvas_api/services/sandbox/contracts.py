@@ -9,9 +9,20 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from vibecanvas_api.services.workflow_run_source import WorkflowRunSource
+
+
+class TaskRunSource(BaseModel):
+    """Stable Task /run identity, separate from a worker's lease/scope.
+
+    The authenticated Acquire scope supplies the tenant. No host path or
+    execution ID is accepted as a substitute for the owning Task ID.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    task_id: UUID
 
 
 class SandboxScopeKind(str, Enum):
@@ -54,6 +65,7 @@ class SandboxSpec(BaseModel):
     lifecycle_policy: str = "interactive"
     mount_specs: tuple[dict[str, Any], ...] = ()
     workflow_run_source: WorkflowRunSource | None = None
+    task_run_source: TaskRunSource | None = None
     network_policy_id: str = "default"
     environment_layer_digest: str = "default"
     snapshot_policy: str = "disabled"

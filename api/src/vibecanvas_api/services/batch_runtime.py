@@ -13,6 +13,8 @@ summary plus artifact URIs.
 """
 from __future__ import annotations
 
+from vibecanvas_api.services.sandbox.contracts import TaskRunSource
+
 import asyncio
 import hashlib
 import json
@@ -28,7 +30,7 @@ from vibecanvas_api.services.workflow_execution_history import (
     observe_execution as observe_row_execution,
 )
 from vibecanvas_api.services.llm_credentials_inject import inject_into_run_context_async
-from vibecanvas_api.services.object_store import get_object_store, uri_to_key
+from vibecanvas_api.services.object_store import get_task_result_store, uri_to_key
 from vibecanvas_api.services.sandbox.coordinator import get_sandbox_coordinator
 from vibecanvas_api.services.workflow_sandbox_runner import ensure_code_pythonpath
 
@@ -212,7 +214,7 @@ def _load_previous_results(uri: str | None) -> dict[int, dict]:
     if not uri:
         return {}
     try:
-        data = get_object_store().fetch_bytes(uri_to_key(uri)).decode("utf-8")
+        data = get_task_result_store().fetch_bytes(uri_to_key(uri)).decode("utf-8")
     except Exception:
         return {}
     out: dict[int, dict] = {}
@@ -371,6 +373,7 @@ async def run_batch_workflow(
     session = await coordinator.get_session(
         tenant_id,
         batch_scope_id,
+        task_run_source=TaskRunSource(task_id=task_id),
         user_id=user_id,
         expose_run=True,
         expose_runtime=False,
@@ -556,7 +559,7 @@ async def run_batch_workflow(
             "workflow_id": workflow_id,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
-        store = get_object_store()
+        store = get_task_result_store()
         artifact_uris = {
             "jsonl": store.put_bytes(
                 f"tasks/{task_id}/results.jsonl",

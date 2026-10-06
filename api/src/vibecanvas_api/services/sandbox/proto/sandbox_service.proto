@@ -59,6 +59,10 @@ message WorkflowRunSource {
   string workflow_id = 2;
 }
 
+message TaskRunSource {
+  string task_id = 1;
+}
+
 message AcquireRequest {
   SandboxScope scope = 1;
   string principal_id = 2;
@@ -74,6 +78,7 @@ message AcquireRequest {
   // Omitted by older clients means enabled; explicit false never hydrates/binds /mount.
   optional bool expose_mount = 12;
   WorkflowRunSource workflow_run_source = 13;
+  TaskRunSource task_run_source = 14;
 }
 
 message AcquireResponse {

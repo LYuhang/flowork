@@ -123,6 +123,36 @@ async def test_reference_to_current_project_uses_existing_persistent_path():
 
 
 @pytest.mark.asyncio
+async def test_posix_mount_context_creates_durable_private_snapshot(tmp_path, monkeypatch):
+    import io
+    from fastapi import HTTPException
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from vibecanvas_api.routes import previews
+    from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
+    from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage, WorkspaceIdentity
+
+    monkeypatch.setattr(previews.config, 'workspace_storage_backend', 'posix')
+    monkeypatch.setattr(previews.config, 'workspace_storage_root', str(tmp_path))
+    monkeypatch.setattr(previews, 'get_object_store', Mock(side_effect=AssertionError('no old store')))
+    host = resolver()
+    host.auth = SimpleNamespace(tenant_id='tenant', user_id='user')
+    storage = PosixWorkspaceStorage(str(tmp_path))
+    identity = WorkspaceIdentity('tenant', 'user_mount', 'user')
+    storage.write_file(identity, 'input.txt', io.BytesIO(b'original'))
+    ref = previews.MountFileRefV1(schema_version=1, scope='mount', path='/mount/input.txt')
+    resolved = await previews._resolve_file(file_ref=ref, auth=host.auth, session=Mock())
+    path = await host.materialize_file(resolved, {'project_id': 'project'})
+    target = WorkspaceIdentity('tenant', 'project', project_workspace_scope_id('project'))
+    assert path.startswith('/chats/destination/contexts/')
+    storage.write_file(identity, 'input.txt', io.BytesIO(b'changed'))
+    assert b''.join(storage.iter_bytes(target, path.lstrip('/'))) == b'original'
+    with pytest.raises(HTTPException) as error:
+        await host.materialize_file(resolved, {'project_id': 'project'})
+    assert error.value.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_dispatch_replaces_client_supplied_workflow_snapshot():
     from unittest.mock import AsyncMock
     host = resolver()

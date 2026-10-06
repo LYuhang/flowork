@@ -27,17 +27,15 @@ except ImportError:  # Standalone launcher with the adjacent stdlib-only module.
     import skill_cli
 
 
-READ_OPERATIONS = frozenset({"config.get", "workflow.list", "workflow.get", "workflow.download", "workflow.check", "workflow.version.list", "workflow.get-spec"}) | task_cli.READ_OPERATIONS | deployment_cli.READ_OPERATIONS
+READ_OPERATIONS = frozenset({"workflow.prepare", "config.get", "workflow.list", "workflow.get", "workflow.download", "workflow.check", "workflow.version.list", "workflow.get-spec"}) | task_cli.READ_OPERATIONS | deployment_cli.READ_OPERATIONS
 READ_OPERATIONS = READ_OPERATIONS | knowledge_cli.READ_OPERATIONS | document_cli.OPERATIONS | diagram_cli.OPERATIONS
 READ_OPERATIONS = READ_OPERATIONS | browser_cli.READ_OPERATIONS | resource_cli.OPERATIONS | skill_cli.READ_OPERATIONS
-RUN_OPERATIONS = frozenset({"workflow.run", "workflow.run-batch"})
-RUN_CONTROLS = frozenset({"workflow.run.poll", "workflow.run.cancel"})
-WRITE_OPERATIONS = frozenset({"workflow.create", "workflow.update", "workflow.upload", "workflow.operation", "workflow.layout", "workflow.version.create"}) | RUN_OPERATIONS
+WRITE_OPERATIONS = frozenset({"workflow.create", "workflow.update", "workflow.upload", "workflow.operation", "workflow.layout", "workflow.version.create"})
 WRITE_OPERATIONS = WRITE_OPERATIONS | {"workflow.delete"} | task_cli.WRITE_OPERATIONS | deployment_cli.WRITE_OPERATIONS
 WRITE_OPERATIONS = WRITE_OPERATIONS | knowledge_cli.WRITE_OPERATIONS
 WRITE_OPERATIONS = WRITE_OPERATIONS | browser_cli.WRITE_OPERATIONS | skill_cli.WRITE_OPERATIONS
 CALL_CONTROLS = frozenset({"cli.start", "cli.poll", "cli.cancel"})
-OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS | RUN_CONTROLS | CALL_CONTROLS
+OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS | CALL_CONTROLS
 
 
 class CliUsageError(ValueError):
@@ -203,7 +201,7 @@ def parser() -> Parser:
     target(version_create, branch=True)
     version_create.add_argument("--note", default="")
     spec = actions.add_parser("get-spec", help="Read exact node definitions or list available types.",
-        description="No workflow ID required. Output {node_schema,specs} or {types}. Read only needed candidates. Unknown/case-mismatched types reject the query. Model eligibility comes from config get --scope model_api, not the schema.")
+        description="No workflow ID required. Output {node_schema,specs} or {types}. Read affected types before constructing or modifying nodes. Combine node_schema with each spec's constraints, config_schema, config_guide and examples; do not infer the contract from examples alone. Unknown/case-mismatched types reject the query. Model eligibility comes from config get --scope model_api, not the schema.")
     for file_command in (creating, uploading, checking, downloading, spec):
         file_command.epilog = WORKFLOW_FILE_HELP
     selection = spec.add_mutually_exclusive_group(required=True)
@@ -211,13 +209,13 @@ def parser() -> Parser:
     selection.add_argument("--list-types", action="store_true")
     for command in ("run", "run-batch"):
         running = actions.add_parser(command, help="Execute the explicit branch; use --stream for stdout JSONL progress.",
-            description="Requires workflow ID, --major and execute permission. Freeze one saved snapshot for the entire invocation/batch; run --file optionally overrides its content without saving. No Chat selection. Default stdout is one final JSON; progress goes to stderr. --stream emits progress and a terminal result/error as stdout JSONL. Business results are flushed to a file. Workflow/node configured execution limits apply; transport deadlines do not cap total execution. Long managed terminal sessions are supported only inside the original Agent turn. CLI exit, turn end or sandbox loss cancels unfinished work; this is not a durable Task. Exit 0 success, 1 failure/partial/unknown, 2 invalid input.")
+            description="Requires workflow ID, --major and execute permission. Freeze one saved snapshot for the entire invocation/batch; run --file optionally overrides its content without saving. No Chat selection. Default stdout is one final JSON; progress goes to stderr. --stream emits progress and a terminal result/error as stdout JSONL. Business results are flushed to a file. Workflow/node configured execution limits apply; transport deadlines do not cap total execution. The CLI executes locally inside the sandbox. Use setsid nohup and shell output redirection for background execution across Agent turns. SIGINT/SIGTERM cancel this command; sandbox loss ends it. This is not a durable Task. Exit 0 success, 1 failure/partial/unknown, 2 invalid input.")
         target(running, branch=True)
         running.add_argument("--stream", action="store_true", help="Stream JSONL progress and one terminal result/error on stdout; default progress goes to stderr.")
-        running.add_argument("--output", help="Result file; default unique /data/runs/<run_id>/result.json or results.jsonl.")
+        running.add_argument("--output", help="JSONL result file; default unique /data/runs/<run_id>/results.jsonl, including single-row runs.")
         running.add_argument("--overwrite", action="store_true")
-        running.epilog = "Each invocation owns its pool. Completion closes it; cancellation stops new rows and hard-kills only this pool, not the Chat sandbox. Results record input/output/node_outputs/errors/execution_time; batch rows append in completion order with zero-based index. Partial files cannot undo external side effects. Check terminal status, not file existence. Never automatically rerun result_unknown. Follow AGENTS.md path visibility rules."
-        running.epilog += " HumanApprovalNode waits for review while retaining its worker. Progress includes row_status=waiting_approval and an execution_url for the reviewer; keep this command and its original Agent turn alive. Each admitted input has its own execution_id and execution_url in both progress and results. Rejection produces approved=false and continues. Approval timeout produces no business output and stops that execution with execution_status=timed_out and approval_timeout."
+        running.epilog = "Each command owns a local engine runtime. Cancellation stops its active executions and new rows without stopping the Chat sandbox. Results record input/output/node_outputs/errors/execution_time; batch rows append in completion order with zero-based index. Partial files cannot undo external side effects. Check terminal status, not file existence. Never automatically rerun result_unknown. Follow AGENTS.md path visibility rules."
+        running.epilog += " HumanApprovalNode waits for review while retaining its worker. Progress includes row_status=waiting_approval and an execution_url for the reviewer; keep this command running in the foreground or with setsid nohup. The original Agent turn need not stay open. Approval progress includes the execution detail link. Rejection produces approved=false and continues. Approval timeout produces no business output and stops that execution with execution_status=timed_out and approval_timeout."
         if command == "run":
             running.add_argument("--node", help="Execute only this exact node ID, not its upstream/downstream nodes. Inputs go directly to the node (overriding configured defaults); no previous outputs are reused. Supports --file. Validates only the target and its required resources. No autosave/new version. Loop/parallel control nodes require full workflow execution. Not supported by run-batch.")
             inputs = running.add_mutually_exclusive_group()
@@ -225,7 +223,7 @@ def parser() -> Parser:
             inputs.add_argument("--input", dest="inputs", help="Inline JSON object; default: {}.")
             running.add_argument("--file", help="Optional local workflow JSON override; requires the explicit workflow ID/major and execute permission; does not save.")
         else:
-            running.epilog += " Example: flowork-cli workflow run-batch --workflow-id wf_123 --major v1 --input-file /data/rows.csv --output /data/results.jsonl > /data/progress.jsonl 2>&1. For background monitoring, use the runtime's managed long-running terminal session, or keep the parent shell alive and wait for its background child. A bare & followed by shell exit may terminate the child before it returns any status. Empty output is not evidence of a live process or of no side effects: check the original process/session handle; do not automatically retry. No --file or --node override. Ordinary row errors continue; authorization/transport/platform errors stop new rows."
+            running.epilog += " Example: flowork-cli workflow run-batch --workflow-id wf_123 --major v1 --input-file /data/rows.csv --output /data/results.jsonl > /data/progress.jsonl 2>&1. For background execution, prefix the command with setsid nohup, redirect output to a log, append < /dev/null &, and retain $! as the PID. Read the local status_path and events_path from progress; require a terminal status and exit_code before claiming completion. Empty output is not evidence of a live process or of no side effects: check the original process/session handle; do not automatically retry. No --file or --node override. Ordinary row errors continue; authorization/transport/platform errors stop new rows."
             running.add_argument("--input-file", required=True, help="CSV/TSV/JSON/JSONL/XLSX/XLSM table. JSON: array of objects or {rows: [...]}; JSONL: one object per line.")
             running.add_argument("--concurrency", type=int, default=4, help="Positive requested worker count (default: 4; at most 16 active workers).")
             running.add_argument("--sheet", default="", help="Workbook sheet; required when multiple sheets exist.")
@@ -310,6 +308,7 @@ def validate_arguments(operation: str, arguments: dict) -> dict:
         "workflow.update": {"workflow_id", "name", "description", "tags"},
         "workflow.get": {"workflow_id"},
         "workflow.download": {"workflow_id", "major"},
+        "workflow.prepare": {"workflow_id", "major", "workflow", "node", "run_id"},
         "workflow.upload": {"workflow_id", "major", "workflow", "note", "expected_version"},
         "workflow.layout": {"workflow_id", "major"},
         "workflow.operation": {"workflow_id", "major", "operations", "note"},
@@ -317,10 +316,6 @@ def validate_arguments(operation: str, arguments: dict) -> dict:
         "workflow.get-spec": {"node_types", "list_types"},
         "workflow.version.list": {"workflow_id"},
         "workflow.version.create": {"workflow_id", "major", "note"},
-        "workflow.run": {"workflow_id", "major", "run_id", "inputs", "workflow", "node"},
-        "workflow.run-batch": {"workflow_id", "major", "run_id", "data", "format", "sheet", "name", "concurrency"},
-        "workflow.run.poll": {"run_id", "ack"},
-        "workflow.run.cancel": {"run_id"},
     }
     if operation not in allowed or set(arguments) - allowed[operation]:
         raise CliUsageError("Unsupported operation or arguments.")
@@ -330,14 +325,14 @@ def validate_arguments(operation: str, arguments: dict) -> dict:
             raise CliUsageError("Invalid CLI call ID.")
         if operation == "cli.start":
             target = result.get("operation")
-            if not isinstance(target, str) or target not in (READ_OPERATIONS | WRITE_OPERATIONS) - RUN_OPERATIONS:
+            if not isinstance(target, str) or target not in (READ_OPERATIONS | WRITE_OPERATIONS):
                 raise CliUsageError("Unsupported CLI call operation.")
             if not isinstance(result.get("arguments"), dict):
                 raise CliUsageError("Invalid CLI call arguments.")
             result["arguments"] = validate_arguments(target, result["arguments"])
         if operation == "cli.poll" and (type(result.get("ack")) is not int or result["ack"] < 0):
             raise CliUsageError("Invalid CLI acknowledgement.")
-    branch_ops = {"workflow.download", "workflow.upload", "workflow.operation", "workflow.layout", "workflow.run", "workflow.run-batch", "workflow.version.create"}
+    branch_ops = {"workflow.prepare", "workflow.download", "workflow.upload", "workflow.operation", "workflow.layout", "workflow.version.create"}
     target_ops = branch_ops | {"workflow.update", "workflow.get", "workflow.delete", "workflow.version.list"}
     if operation == "config.get":
         if result.get("scope") not in ("workflow", "model_api"):
@@ -393,27 +388,13 @@ def validate_arguments(operation: str, arguments: dict) -> dict:
             result["node_types"] = list(dict.fromkeys(types))
         else:
             raise CliUsageError("Specify either --type or --list-types, not both.")
-    if operation in RUN_OPERATIONS | RUN_CONTROLS:
+    if operation == "workflow.prepare":
         if not isinstance(result.get("run_id"), str) or re.fullmatch(r"[0-9a-f]{32}", result["run_id"]) is None:
             raise CliUsageError("run_id must be a UUID hex string.")
-        if operation == "workflow.run":
-            if "node" in result and (not isinstance(result["node"], str) or not result["node"].strip() or result["node"].startswith("__")):
-                raise CliUsageError("--node must be an exact nonblank node ID, not a reserved metadata key.")
-            result.setdefault("inputs", {})
-            if not isinstance(result["inputs"], dict) or ("workflow" in result and not isinstance(result["workflow"], dict)):
-                raise CliUsageError("Inputs and workflow must be JSON objects.")
-        elif operation == "workflow.run-batch":
-            if type(result.get("concurrency")) is not int or result["concurrency"] < 1:
-                raise CliUsageError("--concurrency must be a positive integer.")
-            if any(not isinstance(result.get(key), str) for key in ("data", "format", "sheet", "name")):
-                raise CliUsageError("Invalid batch input fields.")
-            if result["format"] not in {"csv", "tsv", "json", "jsonl", "xlsx", "xlsm"}:
-                raise CliUsageError("Unsupported batch input format.")
-            if result["sheet"] and result["format"] not in {"xlsx", "xlsm"}:
-                raise CliUsageError("--sheet only applies to workbook inputs.")
-        elif operation == "workflow.run.poll":
-            if type(result.get("ack")) is not int or result["ack"] < 0:
-                raise CliUsageError("ack must be a non-negative integer.")
+        if "workflow" in result and not isinstance(result["workflow"], dict):
+            raise CliUsageError("Workflow must be a JSON object.")
+        if "node" in result and (not isinstance(result["node"], str) or not result["node"].strip() or result["node"].startswith("__")):
+            raise CliUsageError("--node must be an exact nonblank node ID, not a reserved metadata key.")
     if operation == "workflow.version.create":
         result.setdefault("note", "")
         if not isinstance(result["note"], str):
@@ -666,76 +647,8 @@ def _open_run_output(path: str, *, overwrite: bool, sources: list[str]):
 
 
 def execute_command(args, endpoint: str) -> int:
-    """One live socket, incremental file writes; no implicit retry/resume."""
-    run_id = uuid4().hex
-    dispatched = False
-    output = None
-    try:
-        if not endpoint:
-            return emit_result(error("runtime_unavailable", "No Agent turn is active.", "Run inside an active Flowork Agent turn."), exit_code=1)
-        if args.overwrite and args.output is None:
-            raise CliUsageError("--overwrite requires --output.")
-        operation = f"workflow.{args.action}"
-        arguments = {"run_id": run_id, "workflow_id": args.workflow_id, "major": args.major}
-        sources = [args.input_file] if args.input_file else []
-        if args.action == "run":
-            text = _read_run_file(args.input_file).decode("utf-8-sig") if args.input_file else (args.inputs or "{}")
-            arguments["inputs"] = _run_json(text)
-            if getattr(args, "node", None) is not None:
-                arguments["node"] = args.node
-            if args.file is not None:
-                arguments["workflow"] = read_workflow(args.file)
-                sources.append(args.file)
-        else:
-            arguments.update(data=base64.b64encode(_read_run_file(args.input_file)).decode("ascii"),
-                             format=os.path.splitext(args.input_file)[1].lstrip(".").lower(),
-                             concurrency=args.concurrency, sheet=args.sheet,
-                             name=args.name if args.name is not None else os.path.basename(args.input_file))
-        arguments = validate_arguments(operation, arguments)
-        path = os.path.abspath(args.output) if args.output is not None else f"/data/runs/{run_id}/{'result.json' if args.action == 'run' else 'results.jsonl'}"
-        if args.output is None:
-            os.makedirs(os.path.dirname(path), exist_ok=False)
-        output = _open_run_output(path, overwrite=args.overwrite, sources=sources)
-        with output, socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-            connection.settimeout(60)  # Idle transport deadline, not execution duration.
-            connection.connect(endpoint)
-            dispatched = True
-            connection.sendall(json.dumps({"operation": operation, "arguments": arguments}, ensure_ascii=False, allow_nan=False).encode() + b"\n")
-            with connection.makefile("rb") as stream:
-                while True:
-                    line = stream.readline()
-                    if not line.endswith(b"\n"):
-                        raise ValueError("Execution connection ended without a terminal result.")
-                    frame = json.loads(line)
-                    if not isinstance(frame, dict):
-                        raise ValueError("Invalid execution response.")
-                    if frame.get("_transport") == "heartbeat":
-                        continue
-                    record = frame.pop("record", None)
-                    result = frame.pop("result", None)
-                    if record is not None or result is not None:
-                        output.write(json.dumps(record if record is not None else result, ensure_ascii=False, allow_nan=False) + "\n")
-                        output.flush()
-                    terminal = frame.pop("terminal", "error" in frame)
-                    exit_code = frame.pop("exit_code", 1 if "error" in frame else 0)
-                    frame.update(run_id=run_id, path=path)
-                    if terminal:
-                        return emit_result(frame, exit_code=exit_code, state_field="execution_status")
-                    emit_progress(frame, stream=args.stream)
-    except (CliUsageError, UnicodeError) as exc:
-        result = error("invalid_arguments", str(exc), "Run flowork-cli workflow run --help or run-batch --help.")
-        code = 2
-    except (OSError, ValueError, KeyboardInterrupt):
-        if dispatched:
-            result = error("result_unknown", "Execution was interrupted or its result could not be written or received.", "Cancellation was requested by closing the connection. Keep partial output and inspect side effects; never automatically rerun.")
-            code = 1
-        else:
-            result = error("output_unavailable", "Could not open the output or execution connection.", "Check paths, permissions and active turn. Existing output requires --overwrite.")
-            code = 2
-    finally:
-        if output is not None:
-            output.close()
-    return emit_result({**result, "run_id": run_id}, exit_code=code)
+    from vibecanvas_api.flowork_cli.local_command import execute
+    return execute(args, endpoint, sys.modules[__name__])
 
 
 def main(argv: list[str] | None = None, *, socket_path: str | None = None) -> int:

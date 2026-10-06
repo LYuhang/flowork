@@ -279,6 +279,11 @@ write_env() {
   local local_secret_dir="${VIBECANVAS_LOCAL_SECRET_DIR:-$HOME/.vibecanvas/secrets}"
   local agent_runtime_root="${AGENT_RUNTIME_ROOT:-$HOME/.vibecanvas/agent-runtime}"
   local vfs_volume_root="${VFS_VOLUME_ROOT:-$HOME/.vibecanvas/vfs-volumes}"
+  local workspace_storage_backend="${WORKSPACE_STORAGE_BACKEND:-object_store}"
+  local workspace_storage_root="${WORKSPACE_STORAGE_ROOT:-$HOME/.vibecanvas/workspaces}"
+  local workspace_storage_backend_q workspace_storage_root_q
+  printf -v workspace_storage_backend_q '%q' "$workspace_storage_backend"
+  printf -v workspace_storage_root_q '%q' "$workspace_storage_root"
   local local_kms_key_file="${KMS_LOCAL_MASTER_KEY_FILE:-$local_secret_dir/kms-master.key}"
   local local_lookup_key_file="${CONTENT_LOOKUP_HMAC_KEY_FILE:-$local_secret_dir/content-lookup-hmac.key}"
   local cors_origins="${VIBECANVAS_API_CORS_ORIGINS:-http://127.0.0.1:${WEB_PORT},http://localhost:${WEB_PORT},http://[::1]:${WEB_PORT}}"
@@ -371,6 +376,8 @@ export CODEX_RUNTIME_AUTH_METHODS=${codex_auth_methods_q}
 export CODEX_MANAGED_APIS_JSON=${codex_managed_apis_q}
 export AGENT_RUNTIME_ROOT="${agent_runtime_root}"
 export VFS_VOLUME_ROOT="${vfs_volume_root}"
+export WORKSPACE_STORAGE_BACKEND=${workspace_storage_backend_q}
+export WORKSPACE_STORAGE_ROOT=${workspace_storage_root_q}
 export RUNSC_PATH="${RUNSC_PATH:-$HOME/.cache/vibecanvas/runsc/runsc}"
 export SANDBOX_PYTHON_PATHS="${SANDBOX_PYTHON_PATHS}"
 export VIBECANVAS_SANDBOX_USE_INSTALLED_APP="${VIBECANVAS_SANDBOX_USE_INSTALLED_APP:-0}"

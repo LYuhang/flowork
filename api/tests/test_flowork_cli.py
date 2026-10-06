@@ -76,12 +76,14 @@ def test_layout_requires_named_target_and_valid_major(args, monkeypatch, capsys)
     assert json.loads(capsys.readouterr().out)["error"] == "invalid_arguments"
 
 
-def test_batch_help_requires_a_live_terminal_not_detached_shell_exit(capsys):
+def test_batch_help_describes_local_background_execution(capsys):
     with pytest.raises(SystemExit) as exited:
         cli.parser().parse_args(["workflow", "run-batch", "--help"])
     assert exited.value.code == 0
     help_text = " ".join(capsys.readouterr().out.split())
-    assert "managed long-running terminal session" in help_text
+    assert "nohup" in help_text
+    assert "status_path" in help_text and "exit_code" in help_text
+    assert "turn need not stay open" in help_text
     assert "check the original process/session handle" in help_text
     assert "do not automatically retry" in help_text
 
@@ -95,7 +97,7 @@ def test_batch_help_requires_a_live_terminal_not_detached_shell_exit(capsys):
     (["workflow", "get", "--help"], ["metadata", "global HEAD"]),
     (["workflow", "layout", "--help"], ["--workflow-id", "--major", "only if positions change", "moved_nodes", "render_preview"]),
     (["workflow", "operation", "--help"], ["All operations must succeed", "json:PATH", "~1", "saved"]),
-    (["workflow", "run", "--help"], ["--node", "hard-kills", "durable", "result_unknown"]),
+    (["workflow", "run", "--help"], ["--node", "local engine runtime", "durable", "result_unknown"]),
 ])
 def test_on_demand_help_owns_usage_and_recovery_details(command, expected, capsys):
     with pytest.raises(SystemExit) as exc:
@@ -110,8 +112,8 @@ def test_run_node_flag_is_optional_and_batch_rejects_it():
     assert cli.parser().parse_args(["workflow", "run", "wf", "--major", "v1"]).node is None
     parsed = cli.parser().parse_args(["workflow", "run", "wf", "--major", "v1", "--node", "node_2", "--file", "wf.json", "--input", "{}"])
     assert parsed.node == "node_2" and parsed.file == "wf.json"
-    args = {"workflow_id": "wf", "major": "v1", "run_id": "a" * 32, "node": "node_2", "inputs": {}}
-    assert cli.validate_arguments("workflow.run", args) == args
+    args = {"workflow_id": "wf", "major": "v1", "run_id": "a" * 32, "node": "node_2"}
+    assert cli.validate_arguments("workflow.prepare", args) == args
     with pytest.raises(cli.CliUsageError):
         cli.parser().parse_args(["workflow", "run-batch", "--input-file", "rows.json", "--node", "node_2"])
     with pytest.raises(cli.CliUsageError):
@@ -121,7 +123,7 @@ def test_run_node_flag_is_optional_and_batch_rejects_it():
 @pytest.mark.parametrize("node", ["", " ", "__meta__", None, 42])
 def test_run_rejects_invalid_node_selector(node):
     with pytest.raises(cli.CliUsageError):
-        cli.validate_arguments("workflow.run", {"run_id": "a" * 32, "node": node})
+        cli.validate_arguments("workflow.prepare", {"workflow_id": "wf", "major": "v1", "run_id": "a" * 32, "node": node})
 
 
 @pytest.mark.parametrize("args,operation,arguments,reply", [

@@ -289,14 +289,14 @@ describe('chat attachments', () => {
     expect(input).toHaveValue('Keep this question');
   });
 
-  it('selects a Skill through the composer menu without sending and permits cancellation', async () => {
+  it.each(['/', '/s', '/skill', '/skill-use'])('selects a Skill from %s without retaining the trigger and permits cancellation', async (trigger) => {
     server.use(
       http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({carrier_scope_id:SCOPE,surface:'chat',available_commands:['skill']})),
       http.get('*/api/v1/skills', () => HttpResponse.json({items:[{id:'22222222-2222-4222-8222-222222222222',name:'research',source:'custom',access:{capabilities:['use']}}]})),
     );
     renderComposer();
     const input=screen.getByRole('textbox');
-    fireEvent.change(input,{target:{value:'/skill'}});
+    fireEvent.change(input,{target:{value:trigger}});
     await userEvent.click(await screen.findByRole('option',{name:/\/skill-use/}));
     await userEvent.click(await screen.findByRole('button',{name:/research/}));
     expect(input).toHaveValue('/skill-use:[research] ');
@@ -306,6 +306,21 @@ describe('chat attachments', () => {
     await userEvent.keyboard('{Escape}');
     expect(input).toHaveValue('/skill');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('uses a second-level goal menu and writes the bare goal command for a new objective', async () => {
+    server.use(http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({carrier_scope_id:SCOPE,surface:'chat',available_commands:['goal']})));
+    renderComposer();
+    const input=screen.getByRole('textbox');
+    fireEvent.change(input,{target:{value:'/'}});
+    await userEvent.click(await screen.findByRole('option',{name:/\/goal/}));
+    await userEvent.click(await screen.findByRole('button',{name:/None/}));
+    expect(input).toHaveValue('/goal ');
+    expect(useChatStreamStore.getState().runtimes[CHAT]?.state).not.toBe('streaming');
+    fireEvent.change(input,{target:{value:'/goal'}});
+    await userEvent.click(await screen.findByRole('option',{name:/\/goal/}));
+    await userEvent.click(await screen.findByRole('button',{name:'Resume goal'}));
+    expect(input).toHaveValue('/goal:resume ');
   });
 
 });

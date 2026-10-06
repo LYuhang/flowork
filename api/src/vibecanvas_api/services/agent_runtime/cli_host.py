@@ -79,10 +79,10 @@ async def invoke_workflow_command(*, operation: str, identity_token: str, argume
             return {"status": "failed", **error("browser_runtime_unavailable", "Browser CLI execution requires the sandbox browser runtime.", "Use flowork-cli browser from an active browser side-panel turn. Do not infer action success from this response.")}
         if operation.startswith(("task.", "deployment.", "knowledge.")) or operation in {"skill.create", "skill.update", "skill.check", "skill.download", "skill.refresh", "skill.delete", "skill.install", "skill.uninstall"}:
             return error("live_channel_required", "This command requires the live CLI channel.", "Use flowork-cli --help.")
-        if operation in {"workflow.run.cancel", "workflow.run.poll"}:
-            from .cli_runs import command
-            return await command(capability, operation, arguments)
         context = await agent_context.resolve_context(capability)
+        if operation == "workflow.prepare":
+            from .cli_local_prepare import prepare
+            return await prepare(context, arguments)
         if operation.startswith(("skill.", "mcp.")):
             from .cli_resources import read
             return await read(context, operation, arguments)
@@ -108,10 +108,6 @@ async def invoke_workflow_command(*, operation: str, identity_token: str, argume
                         "types": candidates}
             return {"node_schema": deepcopy(BaseNode.GENERAL_NODE_SCHEMA),
                     "specs": [build_node_spec(name) for name in arguments["node_types"]]}
-        if operation in {"workflow.run", "workflow.run-batch"}:
-            from .cli_runs import command
-            write_started = operation in WRITE_OPERATIONS
-            return await command(capability, operation, arguments)
         if operation.startswith("workflow.version."):
             write_started = operation in WRITE_OPERATIONS
             result = await workflow_version_command(context, operation, arguments)

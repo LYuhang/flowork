@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, model_validator
 
-from vibecanvas_api.services.object_store import get_object_store, uri_to_key
+from vibecanvas_api.services.object_store import get_task_result_store, uri_to_key
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 
 TERMINAL = {"finished", "finished_with_errors", "failed", "interrupted", "cancelled"}
@@ -67,7 +67,7 @@ def load_results(uri: str) -> tuple[list[dict], str]:
     # Bound memory independently of the client-requested page size.
     chunks, size = [], 0
     try:
-        for chunk in get_object_store().iter_bytes(uri_to_key(uri)):
+        for chunk in get_task_result_store().iter_bytes(uri_to_key(uri)):
             size += len(chunk)
             if size > MAX_RESULT_BYTES:
                 raise HTTPException(413, "Result exceeds the 32 MiB interactive evaluation limit; use Download.")

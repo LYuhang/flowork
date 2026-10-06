@@ -211,8 +211,8 @@ class ContextResolver:
         from vibecanvas_api.config import config
         if resolved.row.size_bytes > config.storage.vfs_upload_max_bytes:
             raise HTTPException(413, 'context_file_too_large')
-        store = get_object_store()
-        data = await asyncio.to_thread(store.fetch_bytes, resolved.row.object_key)
+        from vibecanvas_api.routes.previews import _source_prefix
+        data = await asyncio.to_thread(_source_prefix, resolved, config.storage.vfs_upload_max_bytes + 1)
         if len(data) > config.storage.vfs_upload_max_bytes:
             raise HTTPException(413, 'context_file_too_large')
         # Copy into the destination Project so run/mount/other Project files are
@@ -221,6 +221,16 @@ class ContextResolver:
         name = posixpath.basename(resolved.file_ref.path)
         path = f'/chats/{self.chat_id}/contexts/{digest[:24]}/{name}'
         scope = project_workspace_scope_id(inventory['project_id'])
+        if config.workspace_storage_backend == 'posix':
+            from vibecanvas_api.services.workspace_storage import PosixWorkspaceStorage
+            from vibecanvas_api.services.workspace_vfs import write_workspace_file
+            await asyncio.to_thread(
+                write_workspace_file, PosixWorkspaceStorage(config.workspace_storage_root),
+                tenant_id=self.auth.tenant_id, scope_id=scope, user_id=self.auth.user_id,
+                path=path, data=data,
+            )
+            return path
+        store = get_object_store()
         await VfsRepo(self.session, object_store=store).upsert_artifact_bytes(
             wf_id=scope, tenant=self.auth.tenant_id, path=path, data=data,
             content_type=resolved.row.content_type or 'application/octet-stream')

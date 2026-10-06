@@ -66,9 +66,9 @@ def convert_input(data_dict, min_pixels, max_pixels):
             "content": data_dict["system"],
         })
 
-    image = data_dict.get("image", [])
-    audio = data_dict.get("audio", [])
-    video = data_dict.get("video", [])
+    image = list(data_dict.get("image", []))
+    audio = list(data_dict.get("audio", []))
+    video = list(data_dict.get("video", []))
     for conv in data_dict["conversations"]:
         if conv["from"] == "human":
             if IMAGE_PLACEHOLDER in conv["value"] or \
@@ -96,13 +96,16 @@ def convert_input(data_dict, min_pixels, max_pixels):
                 content_list = []
                 for split_str in split_list:
                     if split_str == IMAGE_PLACEHOLDER:
-                        base64_image = encode_image(
-                            image.pop(0),
-                        )
+                        image_bytes = encode_image(image.pop(0), return_base64=False)
+                        with Image.open(io.BytesIO(image_bytes)) as decoded:
+                            mime_type = Image.MIME.get(decoded.format)
+                        if not mime_type:
+                            raise ValueError("Image format has no supported MIME type")
+                        base64_image = base64.b64encode(image_bytes).decode("ascii")
                         content_list.append({
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
+                                "url": f"data:{mime_type};base64,{base64_image}",
                             },
                             "min_pixels": min_pixels,
                             "max_pixels": max_pixels,

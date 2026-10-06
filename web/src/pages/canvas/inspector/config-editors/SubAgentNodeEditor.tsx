@@ -1,3 +1,4 @@
+import { ModelRetryField } from './ModelRetryField';
 import { SubAgentResources, type SkillReference, type McpReference } from './SubAgentResources';
 /** SubAgentNode editor. Uses the same authorized manual API picker as PromptNode. */
 import { Label } from '@/components/ui/label';
@@ -55,6 +56,7 @@ export function SubAgentNodeEditor({
       task_template: taskTemplate,
       model_name: modelName,
       max_iterations: maxIterations,
+      retry: typeof config.retry === "number" ? config.retry : 0,
       ...(config.skills !== undefined ? { skills } : {}),
       ...(config.mcp_servers !== undefined ? { mcp_servers: servers } : {}),
       ...patch,
@@ -151,6 +153,8 @@ export function SubAgentNodeEditor({
         <WorkflowModelSelect value={modelName} readOnly={readOnly} testId="cfg-subagent-model-select"
           onChange={(next) => emitConfig({ model_name: next })} />
       </div>
+
+      <ModelRetryField value={config.retry} readOnly={!!readOnly} onChange={next => emitConfig({ retry: next })} />
 
       <div className="space-y-1.5">
         <Label className="text-xs font-medium">

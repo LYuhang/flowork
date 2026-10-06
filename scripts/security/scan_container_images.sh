@@ -77,12 +77,10 @@ scan_image() {
       printf 'Python tarfile regression probe failed for %s.\n' "$label" >&2
       return 2
     fi
-    policy_args+=(--verified-python-tarfile-backport)
   fi
   if ! "$python_bin" "$policy_evaluator" \
       --label "$label" \
-      --report "$output_dir/vulnerabilities/$label.json" \
-      "${policy_args[@]}"; then
+      --report "$output_dir/vulnerabilities/$label.json"; then
     printf 'Container vulnerability gate failed for %s.\n' "$label" >&2
     cat "$output_dir/vulnerabilities/$label.txt" >&2
     return 2
@@ -105,14 +103,14 @@ build_image engine engine/Dockerfile .
 # deployment image cannot silently bypass SBOM/vulnerability scanning.
 readonly pinned_images=(
   'rust-build|debian:bookworm-20260918-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251'
-  'python-base|python:3.11.16-slim-trixie@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e'
+  'python-base|python:3.11.17-slim-trixie@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5'
   'node-runtime|node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6'
   'node-build|node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2'
   'nginx-runtime|nginx:1.30.5-trixie@sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442'
   'valkey|valkey/valkey:9.1.2-alpine3.24@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11'
   'openfga-postgres|postgres:17.11-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f'
   'openfga|openfga/openfga:v1.20.0@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38'
-  'clamav|clamav/clamav:1.5.4-debian13-slim@sha256:df80497be841a8ad57f95e04f978216241457f8f8ad608f1f682e3cd0fe63c45'
+  'clamav|clamav/clamav:1.5.4-debian13-slim@sha256:9bb8712a50f0e75166e936c452cd82dd5e5be0b85586598930b5bbb84a99a578'
 )
 
 for entry in "${pinned_images[@]}"; do

@@ -25,6 +25,7 @@ async def create_invocation(dep, source='sync_api', status='running'):
 async def test_expiry_preserves_queue_and_live_claims(pg_engine, app_engine, monkeypatch):
     monkeypatch.setattr(db_module, '_admin_engine', pg_engine)
     controller, dep, _ = await setup_rollout(pg_engine, app_engine)
+    controller.manager.deployments.stop_expired_invocation = AsyncMock(return_value=True)
     dispatch = await create_invocation(dep)
     dead = await create_invocation(dep)
     live = await create_invocation(dep)
@@ -40,8 +41,8 @@ async def test_expiry_preserves_queue_and_live_claims(pg_engine, app_engine, mon
     await controller.expire_invocations()
     async with short_session_scope(tenant_id=tenant) as db:
         rows = {row['id']: row for row in (await db.execute(text('SELECT id,status,error FROM deployment_invocations WHERE deployment_id=:id'), {'id': dep['id']})).mappings()}
-    assert (rows[dispatch]['status'], rows[dispatch]['error']) == ('failed', 'dispatch_expired')
-    assert (rows[dead]['status'], rows[dead]['error']) == ('failed', 'execution_lease_expired')
+    assert (rows[dispatch]['status'], rows[dispatch]['error']) == ('failed', 'execution_dispatch_failed')
+    assert (rows[dead]['status'], rows[dead]['error']) == ('failed', 'execution_lost')
     assert rows[live]['status'] == 'running'
     assert rows[queued]['status'] == 'queued'
 
@@ -79,7 +80,7 @@ async def test_claim_fences_duplicates_and_lost_lease_stops_owner(pg_engine, app
             if renewed:
                 break
         assert renewed, 'live execution did not extend its lease'
-        with pytest.raises(RuntimeError, match='not_admitted'):
+        with pytest.raises(RuntimeError, match='already_owned'):
             await runtime.run(**arguments)
         async with short_session_scope(tenant_id=arguments['tenant_id']) as db:
             repo = DeploymentInvocationsRepo(db)
@@ -96,7 +97,9 @@ async def test_claim_fences_duplicates_and_lost_lease_stops_owner(pg_engine, app
         async with short_session_scope(tenant_id=arguments['tenant_id']) as db:
             assert (await db.execute(text('SELECT status FROM deployment_invocations WHERE id=:id'), {'id': invocation})).scalar_one() == 'failed'
     finally:
-        task.cancel()
+        # Disconnecting the caller does not cancel the accepted execution.
+        for owner in list(runtime._invocations.values()):
+            owner.cancel()
         await asyncio.gather(task, return_exceptions=True)
 
 

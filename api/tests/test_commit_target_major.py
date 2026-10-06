@@ -51,7 +51,7 @@ async def test_commit_target_major_lands_under_historical_and_moves_head(client)
 
     # v1.sv1 (create() seeded v1.sv0).
     r = await client.post(f"/api/v1/workflows/{wf_id}/commits",
-                          json={"workflow": {"node_1": {"node_type": "StartNode"}}},
+                          json={"workflow": {"node_1": {"node_type": "StartNode"}}, "expected_version": "v1.sv0"},
                           headers=hdr)
     assert r.status_code == 200, r.text
     assert (r.json()["active_v"], r.json()["active_sv"]) == (1, 1)
@@ -66,7 +66,7 @@ async def test_commit_target_major_lands_under_historical_and_moves_head(client)
     r = await client.post(
         f"/api/v1/workflows/{wf_id}/commits",
         json={"workflow": {"node_1": {"node_type": "StartNode"}, "edited": True},
-              "target_major": 1},
+              "target_major": 1, "expected_version": "v1.sv1"},
         headers=hdr)
     assert r.status_code == 200, r.text
     # HEAD followed the just-saved historical line → v1.sv2.
@@ -82,7 +82,7 @@ async def test_commit_target_major_lands_under_historical_and_moves_head(client)
 
     # A plain commit (no target) now appends to the ACTIVE major (= 1).
     r = await client.post(f"/api/v1/workflows/{wf_id}/commits",
-                          json={"workflow": {"node_1": {}}}, headers=hdr)
+                          json={"workflow": {"node_1": {}}, "expected_version": "v1.sv2"}, headers=hdr)
     assert r.status_code == 200, r.text
     assert (r.json()["active_v"], r.json()["active_sv"]) == (1, 3)
 
@@ -97,7 +97,7 @@ async def test_commit_default_target_unchanged_appends_to_active(client):
     )).json()["wf_id"]
     for expected_sv in (1, 2, 3):
         r = await client.post(f"/api/v1/workflows/{wf_id}/commits",
-                              json={"workflow": {"k": expected_sv}}, headers=hdr)
+                              json={"workflow": {"k": expected_sv}, "expected_version": f"v1.sv{expected_sv - 1}"}, headers=hdr)
         assert r.status_code == 200, r.text
         assert (r.json()["active_v"], r.json()["active_sv"]) == (1, expected_sv)
 
@@ -109,6 +109,6 @@ async def test_commit_target_major_unknown_404s(client):
         "/api/v1/workflows", json={"name": "U"}, headers=hdr,
     )).json()["wf_id"]
     r = await client.post(f"/api/v1/workflows/{wf_id}/commits",
-                          json={"workflow": {"x": 1}, "target_major": 99},
+                          json={"workflow": {"x": 1}, "target_major": 99, "expected_version": "v99.sv0"},
                           headers=hdr)
     assert r.status_code == 404, r.text

@@ -136,7 +136,7 @@ async def test_real_execution_lands_terminal_row_in_pg(
 
     r = await client.post(
         f"/api/v1/workflows/{wf_id}/commits",
-        json={"workflow": _minimal_runnable_workflow(wf_id)}, headers=hdr,
+        json={"workflow": _minimal_runnable_workflow(wf_id), "expected_version": "v1.sv0"}, headers=hdr,
     )
     assert r.status_code == 200, r.text
 

@@ -66,7 +66,7 @@ COPY api/drawio-runtime/search.mjs /opt/drawio-mcp/search.mjs
 RUN chmod 0755 /opt/drawio-mcp/search.mjs && \
     test "$(node /opt/drawio-mcp/search.mjs --version)" = "1.5.0"
 
-FROM python:3.11.16-slim-trixie@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e
+FROM python:3.11.17-slim-trixie@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5
 ARG CODEX_CLI_VERSION
 ARG PLAYWRIGHT_CORE_VERSION
 ARG DRAWIO_DESKTOP_VERSION
@@ -78,14 +78,8 @@ ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 
 WORKDIR /app
 
-# CPython 3.11.16 has no same-branch image containing the upstream tarfile
-# hard-link fix yet. Apply the minimal upstream change and prove the historical
-# escape no longer works before adding any application code.
-COPY scripts/security/patch_python_tarfile.py /tmp/patch_python_tarfile.py
 COPY scripts/security/verify_python_tarfile_fix.py /usr/local/lib/flowork/verify_python_tarfile_fix.py
-RUN python /tmp/patch_python_tarfile.py && \
-    python /usr/local/lib/flowork/verify_python_tarfile_fix.py && \
-    rm /tmp/patch_python_tarfile.py
+RUN python /usr/local/lib/flowork/verify_python_tarfile_fix.py
 
 # Install bubblewrap for lightweight self-hosting and retain gVisor for the
 # explicitly selected optional snapshot profile. Fetch the SAME
@@ -107,7 +101,8 @@ RUN set -eux; \
         -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
         -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
         /etc/apt/sources.list.d/debian.sources; \
-    apt-get update && apt-get install -y --no-install-recommends \
+    apt-get update && apt-get upgrade -y --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
         bubblewrap=0.12.0-1~deb13u1 \
         ca-certificates=20250419 \
         curl=8.14.1-2+deb13u5 \

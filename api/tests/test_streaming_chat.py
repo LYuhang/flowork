@@ -82,7 +82,7 @@ async def test_chat_message_stream_has_started_and_terminator(client, pg_engine)
     }
     r = await client.post(
         f"/api/v1/workflows/{wf_id}/commits",
-        json={"workflow": minimal_wf}, headers=_hdr(tok),
+        json={"workflow": minimal_wf, "expected_version": "v1.sv0"}, headers=_hdr(tok),
     )
     assert r.status_code == 200, r.text
 

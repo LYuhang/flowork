@@ -51,7 +51,7 @@ async def test_deployment_logs_are_authorized_scoped_and_paginated(monkeypatch, 
     async def scope(**kwargs):
         yield SimpleNamespace(execute=execute)
     monkeypatch.setattr(cli_deployments, "session_scope", scope)
-    monkeypatch.setattr(cli_deployments, "resource_route_params", lambda ctx, session: {"session": session})
+    monkeypatch.setattr(cli_deployments, "admitted_resource_route_params", AsyncMock(side_effect=lambda ctx, session, *args: {"session": session}))
     monkeypatch.setattr(cli_deployments.routes, "get_deployment", AsyncMock(return_value={}))
     authorize = AsyncMock(side_effect=HTTPException(403) if scenario == "denied" else None)
     monkeypatch.setattr(cli_deployments.routes, "_authorize_deployment", authorize)
@@ -61,12 +61,12 @@ async def test_deployment_logs_are_authorized_scoped_and_paginated(monkeypatch, 
     args = {"deployment_id": dep_id, "execution_id": execution_id, "after": 1, "limit": 1}
     if scenario in {"wrong_source", "missing", "denied"}:
         with pytest.raises(HTTPException):
-            await cli_deployments.read(SimpleNamespace(tenant_id="tenant"), "deployment.logs", args)
+            await cli_deployments.read(SimpleNamespace(tenant_id="tenant", username="user"), "deployment.logs", args)
         events.assert_not_awaited()
         if scenario == "denied":
             assert not executed
     else:
-        result = await cli_deployments.read(SimpleNamespace(tenant_id="tenant"), "deployment.logs", args)
+        result = await cli_deployments.read(SimpleNamespace(tenant_id="tenant", username="user"), "deployment.logs", args)
         assert result["logs_available"] == (scenario == "events")
         assert result["has_more"] == (scenario == "events")
         assert result["cursor"] == (2 if scenario == "events" else 1)
@@ -104,7 +104,7 @@ async def test_result_checks_access_and_both_execution_ownership_records(monkeyp
     @asynccontextmanager
     async def scope(**kwargs): yield SimpleNamespace(execute=execute)
     monkeypatch.setattr(cli_deployments, 'session_scope', scope)
-    monkeypatch.setattr(cli_deployments, 'resource_route_params', lambda ctx, session: {'session': session})
+    monkeypatch.setattr(cli_deployments, 'admitted_resource_route_params', AsyncMock(side_effect=lambda ctx, session, *args: {'session': session}))
     monkeypatch.setattr(cli_deployments.routes, 'get_deployment', AsyncMock(return_value={}))
     authorize = AsyncMock(side_effect=HTTPException(403) if scenario == 'denied' else None)
     monkeypatch.setattr(cli_deployments.routes, '_authorize_deployment', authorize)
@@ -113,11 +113,11 @@ async def test_result_checks_access_and_both_execution_ownership_records(monkeyp
     monkeypatch.setattr(cli_deployments, 'WorkflowHistoryRepo', lambda session: SimpleNamespace(get=AsyncMock(return_value=run), result_detail=detail))
     if scenario in {'wrong_source','missing','denied'}:
         with pytest.raises(HTTPException):
-            await cli_deployments.read(SimpleNamespace(tenant_id='tenant'), 'deployment.result', {'deployment_id': dep, 'execution_id': ex})
+            await cli_deployments.read(SimpleNamespace(tenant_id='tenant', username='user'), 'deployment.result', {'deployment_id': dep, 'execution_id': ex})
         detail.assert_not_awaited()
         if scenario == 'denied': execute.assert_not_awaited()
     else:
-        result = await cli_deployments.read(SimpleNamespace(tenant_id='tenant'), 'deployment.result', {'deployment_id': dep, 'execution_id': ex})
+        result = await cli_deployments.read(SimpleNamespace(tenant_id='tenant', username='user'), 'deployment.result', {'deployment_id': dep, 'execution_id': ex})
         assert result['outputs'] == ({'value': 42} if scenario == 'success' else None)
         assert 'secret_node' not in str(result)
         assert str(execute.call_args.args[1]['dep']) == dep

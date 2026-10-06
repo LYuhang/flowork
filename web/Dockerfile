@@ -66,7 +66,7 @@ RUN pnpm build && test -f dist/manifest.json && test -f dist/sidepanel.html
 
 # Python's standard library creates the deployment-local ZIP without adding a
 # package manager or archive utility to the final nginx runtime image.
-FROM python:3.11.16-slim-trixie@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e AS extension-package
+FROM python:3.11.17-slim-trixie@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5 AS extension-package
 COPY --from=extension-build /app/extension/dist /extension
 RUN mkdir -p /out && \
     cd /extension && \
@@ -75,6 +75,9 @@ RUN mkdir -p /out && \
 
 # ---------- Stage 2: serve via nginx ----------
 FROM nginx:1.30.5-trixie@sha256:b972f831f200b19ef0767938224f9711e74cd783718738cd7405d5cabf75c442
+# Apply security updates published after the pinned base image was built.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
 # Vite emits the bundle to /app/dist in the build stage.
 COPY --from=build /app/dist /usr/share/nginx/html

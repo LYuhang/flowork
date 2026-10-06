@@ -7,15 +7,16 @@
 # engine package remains installable. Product workflow execution is owned by
 # the API-managed sandbox runtime, not a container CLI.
 
-FROM python:3.11.16-slim-trixie@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e
+FROM python:3.11.17-slim-trixie@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5
+
+# Apply security updates published after the pinned base image was built.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY scripts/security/patch_python_tarfile.py /tmp/patch_python_tarfile.py
 COPY scripts/security/verify_python_tarfile_fix.py /usr/local/lib/flowork/verify_python_tarfile_fix.py
-RUN python /tmp/patch_python_tarfile.py && \
-    python /usr/local/lib/flowork/verify_python_tarfile_fix.py && \
-    rm /tmp/patch_python_tarfile.py
+RUN python /usr/local/lib/flowork/verify_python_tarfile_fix.py
 
 # Install reviewed, hash-locked build tooling and runtime dependencies first.
 COPY engine/requirements-build.txt /app/requirements-build.txt

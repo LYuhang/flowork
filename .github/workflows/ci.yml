@@ -26,18 +26,18 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
         with:
-          python-version: "3.11.16"
+          python-version: "3.11.17"
       - name: Install native test dependencies
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            fonts-dejavu-core fonts-wqy-zenhei postgresql
+            fonts-dejavu-core fonts-wqy-zenhei postgresql bubblewrap
           if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
       - name: Install pinned Python dependencies in a local environment
         run: |
-          python -m pip install uv==0.12.19
+          python -m pip install uv==0.12.23
           scripts/sync_python_env.sh
       - name: Run engine tests
         run: |

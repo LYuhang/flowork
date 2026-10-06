@@ -32,7 +32,7 @@ done
 Compose 还会拉取固定版本的 OpenFGA、其独立 PostgreSQL 和 Valkey 镜像。
 无须在宿主机安装 Python、Node、pnpm、runsc 或 bubblewrap。
 
-当前主要版本：Python 3.11.16、容器 Node 24.21.0、pnpm 10.34.4、
+当前主要版本：Python 3.11.17、容器 Node 24.21.0、pnpm 10.34.4、
 Codex CLI 0.157.1、DBOS 3.0.0、draw.io 31.1.8。精确镜像摘要及依赖锁以
 Dockerfile 和仓库 lock 文件为准。Codex 使用官方二进制，不再编译 Rust。
 

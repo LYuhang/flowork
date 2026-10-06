@@ -21,7 +21,7 @@
   <a href="https://github.com/LYuhang/flowork/actions/workflows/security.yml"><img src="https://github.com/LYuhang/flowork/actions/workflows/security.yml/badge.svg" alt="安全检查状态"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache License 2.0"></a>
   <img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="项目状态：Alpha">
-  <img src="https://img.shields.io/badge/Python-3.11.16-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11.16">
+  <img src="https://img.shields.io/badge/Python-3.11.17-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11.17">
   <img src="https://img.shields.io/badge/Node.js-24.21.0-5FA04E.svg?logo=nodedotjs&logoColor=white" alt="Node.js 24.21.0">
 </p>
 

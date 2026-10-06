@@ -8,6 +8,7 @@ import pytest
 from vibecanvas_api.services.knowledge_packages import PackageFile, replace_package, package_snapshot
 from vibecanvas_api.services.knowledge_metadata import package_metadata, with_metadata
 from vibecanvas_api.services import knowledge_versions
+from vibecanvas_api.services.write_conflicts import WriteConflict
 from vibecanvas_api.services.agent_runtime import cli_knowledge
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_kb import KbRepo
@@ -61,7 +62,7 @@ async def test_metadata_draft_publication_and_conflict_are_atomic(pg_engine):
         await knowledge_versions.save_snapshot(session,resource,package('After',''),version=0,base_version=1)
         current = await KbRepo(session).get_active(identifier)
         assert current.name == 'Before' and current.description == 'Old'
-    with pytest.raises(RuntimeError, match='knowledge_version_conflict'):
+    with pytest.raises(WriteConflict):
         async with session_scope(tenant_id=str(tenant)) as session:
             await replace_package(session,kb_id=identifier,actor_user_id=user,expected_version=2,
                 files=package('Wrong'),derive_index=False)

@@ -125,7 +125,7 @@ async def _make_committed_wf(client, hdr) -> str:
     wf_id = r.json()["wf_id"]
     r = await client.post(
         f"/api/v1/workflows/{wf_id}/commits",
-        json={"workflow": _two_node_codenode_wf(wf_id)}, headers=hdr,
+        json={"workflow": _two_node_codenode_wf(wf_id), "expected_version": "v1.sv0"}, headers=hdr,
     )
     assert r.status_code == 200, r.text
     return wf_id
@@ -221,7 +221,7 @@ async def test_route_node_error_surfaces_and_persists(
         "def process_fn(inputs):\n    raise ValueError('boom')"
     )
     r = await client.post(
-        f"/api/v1/workflows/{wf_id}/commits", json={"workflow": wf}, headers=hdr,
+        f"/api/v1/workflows/{wf_id}/commits", json={"workflow": wf, "expected_version": "v1.sv0"}, headers=hdr,
     )
     assert r.status_code == 200, r.text
 
@@ -265,7 +265,7 @@ async def test_non_serializable_output_does_not_crash_stream(
         "def process_fn(inputs):\n    return {'y': {1, 2, 3}}"
     )
     r = await client.post(
-        f"/api/v1/workflows/{wf_id}/commits", json={"workflow": wf}, headers=hdr,
+        f"/api/v1/workflows/{wf_id}/commits", json={"workflow": wf, "expected_version": "v1.sv0"}, headers=hdr,
     )
     assert r.status_code == 200, r.text
 
@@ -348,7 +348,7 @@ async def test_high_frame_loop_run_does_not_falsely_fail(
     # run fast enough for CI.
     r = await client.post(
         f"/api/v1/workflows/{wf_id}/commits",
-        json={"workflow": _big_loop_wf(wf_id, 3000)}, headers=hdr,
+        json={"workflow": _big_loop_wf(wf_id, 3000), "expected_version": "v1.sv0"}, headers=hdr,
     )
     assert r.status_code == 200, r.text
 
@@ -389,7 +389,7 @@ async def test_cancel_mid_run_yields_terminal_cancelled(
     # to complete quickly if the engine wins the race (both are graceful).
     r = await client.post(
         f"/api/v1/workflows/{wf_id}/commits",
-        json={"workflow": _big_loop_wf(wf_id, 2000)}, headers=hdr,
+        json={"workflow": _big_loop_wf(wf_id, 2000), "expected_version": "v1.sv0"}, headers=hdr,
     )
     assert r.status_code == 200, r.text
 

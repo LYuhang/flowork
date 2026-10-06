@@ -79,7 +79,7 @@ async def _make_wf(client, tok) -> str:
     }
     r = await client.post(
         f"/api/v1/workflows/{wf_id}/commits",
-        json={"workflow": minimal_wf}, headers=_hdr(tok),
+        json={"workflow": minimal_wf, "expected_version": "v1.sv0"}, headers=_hdr(tok),
     )
     assert r.status_code == 200, r.text
     return wf_id

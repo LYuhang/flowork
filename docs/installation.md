@@ -751,7 +751,7 @@ Do not delete old files merely because the environment variable was changed.
 
 ### Dependency verification
 
-Python 3.11.16, uv 0.12.19, Node.js 24.21.0, pnpm 10.34.4 and Codex CLI
+Python 3.11.17, uv 0.12.23, Node.js 24.21.0, pnpm 10.34.4 and Codex CLI
 0.157.1 are the current installation pins. The native bootstrap and container
 builds install the runtime used by Goal and app-server conversations. After
 updating dependency manifests, regenerate all three hashed runtime locks

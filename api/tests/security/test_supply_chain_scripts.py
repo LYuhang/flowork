@@ -73,11 +73,11 @@ def test_actual_application_images_are_built_and_scanned() -> None:
 
 
 def test_local_python_environment_is_repository_pinned() -> None:
-    assert _PYTHON_VERSION.read_text(encoding="utf-8").strip() == "3.11.16"
+    assert _PYTHON_VERSION.read_text(encoding="utf-8").strip() == "3.11.17"
     sync = _PYTHON_SYNC.read_text(encoding="utf-8")
-    assert 'uv_version="0.12.19"' in sync
+    assert 'uv_version="0.12.23"' in sync
     assert "uv venv --clear" in sync
-    assert "scripts/security/patch_python_tarfile.py" in sync
+    assert "patch_python_tarfile.py" not in sync
     assert "scripts/security/verify_python_tarfile_fix.py" in sync
     assert "--editable ./engine --editable ./api" in sync
 
@@ -91,7 +91,7 @@ def test_container_gate_emits_sboms_and_does_not_hide_high_vulnerabilities() -> 
     assert "--ignore-states" not in scanner
     assert "evaluate_container_vulnerabilities.py" in scanner
     assert "/usr/local/lib/flowork/verify_python_tarfile_fix.py" in scanner
-    assert "--verified-python-tarfile-backport" in scanner
+    assert "--verified-python-tarfile-backport" not in scanner
     assert "Python tarfile regression probe failed for %s" in scanner
     assert "container_supply_chain_gate=pass" in scanner
 

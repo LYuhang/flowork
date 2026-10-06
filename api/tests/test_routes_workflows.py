@@ -82,7 +82,7 @@ async def test_commit_then_check(client, pg_engine):
         },
     }
     r = await client.post(f"/api/v1/workflows/{wf_id}/commits",
-                          json={"workflow": minimal_wf}, headers=_hdr(tok))
+                          json={"workflow": minimal_wf, "expected_version": "v1.sv0"}, headers=_hdr(tok))
     assert r.status_code == 200
 
     r = await client.post(f"/api/v1/workflows/{wf_id}/check", headers=_hdr(tok))
@@ -108,7 +108,7 @@ async def test_edits_apply_vibe_op(client, pg_engine):
         },
     }
     await client.post(f"/api/v1/workflows/{wf_id}/commits",
-                      json={"workflow": base_wf}, headers=_hdr(tok))
+                      json={"workflow": base_wf, "expected_version": "v1.sv0"}, headers=_hdr(tok))
 
     # vibe-op v2 shape: JSON-Patch op + JSON Pointer path.
     edits = [

@@ -71,6 +71,7 @@ async def test_canvas_approval_projects_progress_and_survives_viewer_refresh(
         provider=BubblewrapProvider(shutil.which("bwrap")),
         workspace_folders=(),
         workflow_run_source=None,
+        persistent_run_binding=None,
         _rw_binds=[],
         skills_dir=None,
         _sync_mount_folder=AsyncMock(),

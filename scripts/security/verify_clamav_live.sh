@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 python_bin="${VIBECANVAS_PYTHON:-$repo_root/.venv/bin/python}"
 docker_bin="${DOCKER_BIN:-$(command -v docker || true)}"
-clamav_image="clamav/clamav:1.5.4-debian13-slim@sha256:df80497be841a8ad57f95e04f978216241457f8f8ad608f1f682e3cd0fe63c45"
+clamav_image="clamav/clamav:1.5.4-debian13-slim@sha256:9bb8712a50f0e75166e936c452cd82dd5e5be0b85586598930b5bbb84a99a578"
 
 if [[ -z "$docker_bin" || ! -x "$docker_bin" ]]; then
   printf 'Docker is required for the live ClamAV gate.\n' >&2

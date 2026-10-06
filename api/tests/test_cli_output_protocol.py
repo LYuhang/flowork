@@ -64,16 +64,30 @@ def test_render_opt_in_stream_has_tagged_events(tmp_path,capsys,resource,stream)
 
 
 @pytest.mark.parametrize('stream', [False,True])
-def test_workflow_stream_and_saved_business_result_are_independent(tmp_path,capsys,stream):
-    result_file=tmp_path/'result.json'
-    with peer(tmp_path,[{'_transport':'heartbeat'},{'status':'running'}, {'terminal':True,'exit_code':0,'status':'succeeded','result':{'outputs':{'answer':42}}}]) as (endpoint, received):
-        command=['workflow','run','--workflow-id','wf','--major','v1','--output',str(result_file)]
-        assert cli.main(command+(['--stream'] if stream else []),socket_path=endpoint)==0
-    output=capsys.readouterr();rows=decoded(output.out)
-    assert [x['event'] for x in rows] == (['progress','result'] if stream else ['result'])
-    assert rows[-1]['execution_status']=='succeeded'
-    assert rows[-1]['command_status']=='succeeded'
-    assert json.loads(result_file.read_text()) == {'outputs':{'answer':42}}
+def test_workflow_stream_and_saved_business_result_are_independent(tmp_path, capsys, monkeypatch, stream):
+    from vibecanvas_api.flowork_cli import local_command, local_workflow
+    from vibecanvas_api.services.sandbox.local_activity import execution_activity
+    monkeypatch.setattr(local_command, 'execution_activity', lambda **kw: execution_activity(tmp_path / 'work', **kw))
+    result_file = tmp_path / 'result.jsonl'
+    prepared = {'workflow': {}, 'context': {}, 'id': 'wf', 'version': 'v1.sv0', 'source': 'saved'}
+    async def run_rows(**kwargs):
+        kwargs['output'].write(json.dumps({'index': 0, 'status': 'success', 'output': {'answer': 42}}) + '\n')
+        kwargs['status']({'status': 'completed', 'completed': 1, 'failed': 0})
+        return 0
+    monkeypatch.setattr(local_workflow, 'run_rows', run_rows)
+    with peer(tmp_path, [prepared]) as (endpoint, received):
+        command = ['workflow', 'run', '--workflow-id', 'wf', '--major', 'v1', '--output', str(result_file)]
+        assert cli.main(command + (['--stream'] if stream else []), socket_path=endpoint) == 0
+    output = capsys.readouterr()
+    rows = decoded(output.out)
+    assert rows[-1]['event'] == 'result'
+    assert all(row['event'] == 'progress' for row in rows[:-1])
+    assert (len(rows) > 1) is stream
+    assert bool(output.err) is not stream
+    assert rows[-1]['execution_status'] == 'completed'
+    assert rows[-1]['command_status'] == 'succeeded'
+    assert json.loads(result_file.read_text())['output'] == {'answer': 42}
+    assert received[0]['operation'] == 'workflow.prepare'
     assert 'stream' not in received[0]['arguments']
 
 

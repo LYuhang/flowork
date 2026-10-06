@@ -39,7 +39,7 @@ is available in
 
 The supported toolchain is:
 
-- Python 3.11.16 in `.venv/`;
+- Python 3.11.17 in `.venv/`;
 - Node.js 24.21.0 and pnpm 10.34.4 across native installation, CI and containers;
 - PostgreSQL server binaries, a Redis-compatible local server, and bubblewrap; and
 - OpenFGA, started automatically with the local stack.
@@ -204,7 +204,7 @@ python -m pip check
 ```
 
 The synchronization script enforces the repository's `.python-version`
-(Python 3.11.16), uv 0.12.19, locked dependencies, and editable installs from
+(Python 3.11.17), uv 0.12.23, locked dependencies, and editable installs from
 this checkout. Run it after dependency changes or when switching checkouts;
 this prevents tests from importing a stale globally installed Flowork package.
 

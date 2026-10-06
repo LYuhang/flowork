@@ -9,7 +9,7 @@ umask 077
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PREPARE_ONLY=0
-UV_VERSION="${UV_VERSION:-0.12.19}"
+UV_VERSION="${UV_VERSION:-0.12.23}"
 NODE_VERSION="${NODE_VERSION:-24.21.0}"
 NODE_MAJOR="${NODE_VERSION%%.*}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-0.157.1}"
@@ -223,7 +223,7 @@ command -v uv >/dev/null || {
   exit 1
 }
 
-echo "[5/7] Creating the repo-local Python 3.11.16 environment"
+echo "[5/7] Creating the repo-local Python 3.11.17 environment"
 cd "$REPO_ROOT"
 bash "$REPO_ROOT/scripts/sync_python_env.sh"
 .venv/bin/python -c \

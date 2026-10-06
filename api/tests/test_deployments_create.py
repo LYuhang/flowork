@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
@@ -128,6 +129,18 @@ class _StubRequest:
         self.app = SimpleNamespace(
             state=SimpleNamespace(openfga_client=None),
         )
+        self.scope = {
+            "type": "http", "headers": [], "app": self.app,
+            "state": {"request_id": "test-request"},
+        }
+
+
+@pytest.fixture(autouse=True)
+def _workflow_scope_authorization(monkeypatch):
+    # Handler tests stub authorization; the nested Workflow scope now obtains
+    # its own service while retaining the real database admission/RLS checks.
+    from vibecanvas_api.authorization import dependencies
+    monkeypatch.setattr(dependencies, "get_authz_service", AsyncMock(return_value=_AllowAuthz()))
 
 
 class _AllowAuthz:

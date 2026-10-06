@@ -88,6 +88,7 @@ async def test_scheduled_review_allows_overlap_and_persists_isolated_result(pg_e
         provider=BubblewrapProvider(shutil.which("bwrap")),
         workspace_folders=(),
         workflow_run_source=None,
+        persistent_run_binding=None,
         _rw_binds=[],
         skills_dir=None,
         _sync_mount_folder=AsyncMock(),
@@ -182,7 +183,7 @@ async def test_scheduled_review_allows_overlap_and_persists_isolated_result(pg_e
                 await WorkflowHistoryRepo(db).request_cancel(str(execution_id))
         elif outcome == "process_loss":
             group = session._history_executions.groups[execution_id.hex]
-            await next(iter(group.pool._slots.values())).close()
+            await next(iter(group.pool._slots.values())).worker.close()
         await asyncio.wait_for(run, 20)
         async with session_scope(tenant_id=str(tenant)) as db:
             repo = TasksRepo(db)
@@ -192,11 +193,18 @@ async def test_scheduled_review_allows_overlap_and_persists_isolated_result(pg_e
                 "cancelled"
                 if outcome in {"cancel", "history_cancel"}
                 else "failed"
-                if outcome == "process_loss"
+                if outcome in {"process_loss", "timeout"}
                 else "succeeded"
             )
-            assert actual.status == detail["status"] == status
-            if outcome in {"approve", "reject", "timeout"}:
+            assert actual.status == status
+            assert detail["status"] == ("timed_out" if outcome == "timeout" else status)
+            if outcome == "timeout":
+                assert "approval_timeout" in actual.error
+                assert not actual.result["final_outputs"]
+                assert detail["approvals"][0]["status"] == "timeout"
+                events = await WorkflowHistoryRepo(db).events(str(execution_id))
+                assert not any(e.get("node_id") == "node_3" for e in events)
+            if outcome in {"approve", "reject"}:
                 assert actual.result["final_outputs"]["__end__"] == {"approved": outcome == "approve"}
                 assert actual.result["execution_id"] == str(execution_id)
                 assert actual.result["execution_url"] == f"/workflow-executions/{execution_id}"

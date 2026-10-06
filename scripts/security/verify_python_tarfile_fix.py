@@ -39,7 +39,7 @@ def main() -> int:
             raise RuntimeError("CVE-2026-82049 regression: hard link escaped extraction root")
         if outside.read_text(encoding="utf-8") != "outside-sentinel":
             raise RuntimeError("test-owned outside sentinel changed")
-    print(f"python_tarfile_backport=pass python={sys.version.split()[0]}")
+    print(f"python_tarfile_regression=pass python={sys.version.split()[0]}")
     return 0
 
 

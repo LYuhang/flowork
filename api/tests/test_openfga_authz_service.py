@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -19,6 +20,31 @@ from vibecanvas_api.authorization.types import (
     ResourceRef,
     ResourceType,
 )
+
+
+@pytest.fixture(autouse=True)
+def personal_workspace_boundary(monkeypatch):
+    # Unit fixtures model personal workspaces; real organization membership
+    # and share lookup are covered by the database integration suite.
+    from vibecanvas_api.storage import shared_resource_locator
+    probe = AsyncMock(return_value=True)
+    monkeypatch.setattr(shared_resource_locator, "allows_personal_cross_workspace_share", probe)
+    return probe
+
+
+@pytest.mark.asyncio
+async def test_company_workspace_boundary_denies_even_an_admitted_resource(personal_workspace_boundary):
+    personal_workspace_boundary.return_value = False
+    client = _FakeClient({"can_view"})
+    decision = await _service(client).check(
+        PrincipalRef(PrincipalType.USER, "recipient"), Action.VIEW,
+        ResourceRef(ResourceType.WORKFLOW, "wf-shared", "org-1"),
+        _context(admitted_resource_organization_id="org-owner",
+                 admitted_resource_type="workflow", admitted_resource_id="wf-shared"),
+    )
+    assert not decision.allowed
+    assert decision.reason_code == "workspace_boundary"
+    assert client.batch_calls == []
 
 
 class _NoGuard:

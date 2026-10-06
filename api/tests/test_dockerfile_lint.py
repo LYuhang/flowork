@@ -111,7 +111,7 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     assert "libreoffice-calc-nogui=4:25.2.3-2+deb13u8" in text
     assert "poppler-utils=25.03.0-5+deb13u4" in text
     assert "USER 10001:10001" in text
-    assert "patch_python_tarfile.py" in text
+    assert "patch_python_tarfile.py" not in text
     assert "verify_python_tarfile_fix.py" in text
 
 

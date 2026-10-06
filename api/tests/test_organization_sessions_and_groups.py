@@ -210,17 +210,17 @@ async def test_owner_can_manage_member_role_but_cannot_remove_last_owner(
     )
     assert admin_created_group.status_code == 201, admin_created_group.text
 
-    # Owner invariants are enforced by the API for administrators as well as
-    # owners; the UI must never be the only thing protecting the last owner.
+    # Administrators cannot change owners. An owner changing their own role
+    # must also satisfy the separate last-active-owner invariant.
     admin_cannot_remove_last_owner = await client.patch(
         f"/api/v1/organizations/{organization_id}/members/{owner_id}",
         headers=_headers(member_token),
         json={"role": "member", "status": "active"},
     )
-    assert admin_cannot_remove_last_owner.status_code == 409
+    assert admin_cannot_remove_last_owner.status_code == 403
     assert (
         admin_cannot_remove_last_owner.json()["detail"]
-        == "organization_requires_active_owner"
+        == "organization_owner_required"
     )
 
     last_owner = await client.patch(

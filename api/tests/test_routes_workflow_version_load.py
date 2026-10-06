@@ -59,11 +59,11 @@ async def test_version_load_endpoint_returns_pinned_snapshot(client):
     # create_workflow seeds an EMPTY init version at v1.sv0 (workflow == {}).
     # Two commits then add v1.sv1 ("first") and v1.sv2 ("second").
     r = await client.post(f"/api/v1/workflows/{wf_id}/commits",
-                          json={"workflow": _minimal_wf(wf_id, "first")},
+                          json={"workflow": _minimal_wf(wf_id, "first"), "expected_version": "v1.sv0"},
                           headers=_hdr(tok))
     assert r.status_code == 200, r.text
     r = await client.post(f"/api/v1/workflows/{wf_id}/commits",
-                          json={"workflow": _minimal_wf(wf_id, "second")},
+                          json={"workflow": _minimal_wf(wf_id, "second"), "expected_version": "v1.sv1"},
                           headers=_hdr(tok))
     assert r.status_code == 200, r.text
 

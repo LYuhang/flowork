@@ -45,13 +45,13 @@ async def test_logs_wait_for_evaluation_after_inference_finishes(state, monkeypa
     @asynccontextmanager
     async def session(**kwargs): yield object()
     monkeypatch.setattr(cli_tasks, 'session_scope', session)
-    monkeypatch.setattr(cli_tasks, 'resource_route_params', lambda *args: {})
+    monkeypatch.setattr(cli_tasks, 'admitted_resource_route_params', AsyncMock(return_value={}))
     task_id = str(uuid4())
     task = {'id': task_id, 'task_type': 'batch_exec', 'status': 'finished', 'result': {'answer': 42},
             'payload': {'evaluation': {'enabled': True}, 'evaluations': [{'status': state}]}}
     monkeypatch.setattr(cli_tasks.routes, 'get_task', AsyncMock(return_value=task))
     monkeypatch.setattr(cli_tasks.routes, 'list_task_events', AsyncMock(return_value={'items': [], 'next_cursor': None}))
-    result = await cli_tasks._read(SimpleNamespace(tenant_id='t'), 'task.logs',
+    result = await cli_tasks._read(SimpleNamespace(tenant_id='t', username='u'), 'task.logs',
         {'task_id': task_id, 'task_type': 'batch_exec'}, AsyncMock())
     assert result['terminal'] == (state in {'succeeded','failed'})
     assert result['evaluation_status'] == state

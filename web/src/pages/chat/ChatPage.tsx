@@ -1035,7 +1035,7 @@ export function ChatPage() {
   }, [debugAvailable, setDebugOpen]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-surface-work">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-work">
       <header className="surface-topbar flex min-h-[60px] shrink-0 items-center gap-2 px-3 py-2 sm:gap-3 sm:px-5">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div key={activeChatId || 'new-chat'} className="chat-context-transition min-w-0">
@@ -1227,7 +1227,7 @@ export function ChatPage() {
               onLayoutChanged={persistPaneLayout}
               resizeTargetMinimumSize={{ coarse: 18, fine: 8 }}
             >
-              <ResizablePanel id="chat" minSize={CHAT_PANE_MIN_WIDTH}>
+              <ResizablePanel id="chat" minSize={CHAT_PANE_MIN_WIDTH} style={{ overflow: 'hidden' }}>
                 <main
                   className={cn(
                     'flex h-full min-h-0 w-full flex-1 flex-col',

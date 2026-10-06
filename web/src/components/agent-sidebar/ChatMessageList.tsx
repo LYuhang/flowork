@@ -802,7 +802,7 @@ export function ChatMessageList({
       </div>
       <div
         ref={scrollRef}
-        className="chat-scrollbar flex-1 overflow-y-auto"
+        className="chat-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
         style={{ overflowAnchor: 'none' }}
         data-role="agent-message-list"
         role="log"

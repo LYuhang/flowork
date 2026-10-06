@@ -136,9 +136,9 @@ RUN set -eux; \
         libsecret-1-0=0.21.7-1 \
         libgbm1=25.0.7-2+deb13u1 \
         libasound2t64=1.2.14-1+deb13u1 \
-        libreoffice-writer-nogui=4:25.2.3-2+deb13u7 \
-        libreoffice-impress-nogui=4:25.2.3-2+deb13u7 \
-        libreoffice-calc-nogui=4:25.2.3-2+deb13u7 \
+        libreoffice-writer-nogui=4:25.2.3-2+deb13u8 \
+        libreoffice-impress-nogui=4:25.2.3-2+deb13u8 \
+        libreoffice-calc-nogui=4:25.2.3-2+deb13u8 \
         poppler-utils=25.03.0-5+deb13u4; \
     arch="$(uname -m)"; \
     base="https://storage.googleapis.com/gvisor/releases/release/${RUNSC_RELEASE}/${arch}"; \

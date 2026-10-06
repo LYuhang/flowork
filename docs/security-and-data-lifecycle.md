@@ -25,7 +25,7 @@ The main protection layers are:
   PostgreSQL row-level security independently restricts tenant-scoped rows.
 - **Isolated execution.** Agent and Workflow processes receive only the files,
   credentials, and network access required for the current operation.
-- **Separated durable and transient state.** PostgreSQL and object storage are
+- **Separated durable and transient state.** PostgreSQL, configured workspace storage and encrypted object storage are
   authoritative; Valkey, queues, live sandboxes, and snapshots provide
   coordination or resumability and do not establish identity or permission.
 - **Fail-closed production validation.** Production startup checks require the
@@ -43,7 +43,8 @@ production checks are defined in the
 | Store | Typical contents | Lifecycle behavior |
 | --- | --- | --- |
 | **PostgreSQL** | Users, Organizations, memberships, Chats, Workflows, versions, runs, Tasks, Deployments, Knowledge package metadata and derived search chunks, authorization state, and audit records | Tenant-scoped business rows are protected by RLS. Account erasure removes the personal tenant and user-scoped identity data; Organization-owned content follows the rules described below. |
-| **Object storage** | VFS file content, authoritative Knowledge package files, generated artifacts, run files, and Task outputs | Objects use tenant, resource, or Task prefixes. Account erasure removes the personal-tenant prefixes and the user's mounted-file objects. |
+| **Workspace storage** | Project/Chat files and native runtime state; Workflow, Task and Deployment `/run`; Task result files; user mounts | POSIX mode writes directly to the mounted filesystem. Encryption and backups are configured on the volume; resource directories outlive sandbox processes. Erasure must include this root. |
+| **Object storage** | Encrypted package files, artifacts and other blobs; workspace files under the object-store backend | Account erasure removes applicable tenant/resource prefixes; POSIX selection does not remove this store or its KMS dependency. |
 | **Runtime state** | Runtime-owned Chat volumes and session state | Personal-tenant state is removed. State for Chats created by the deleted user in another Organization is removed without deleting that Organization. |
 | **DBOS / PostgreSQL** | Durable background workflow, queue, and schedule state; arguments contain opaque business-record IDs only | Background work is cancelled before tenant deletion; private inputs remain encrypted in Flowork storage and application records remain the authoritative lifecycle state. |
 | **Valkey** | Short-lived event copies, counters, locks, rate limits, and transient coordination | User and personal-tenant keys are removed where they can be addressed directly. Transient entries cannot restore a deleted identity or authorization capability. |

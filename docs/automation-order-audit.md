@@ -1,7 +1,9 @@
 # Automation example: order pricing and audit API
 
-In a new Chat, the first/default example tab is **Automation → From request to
-callable API** (中文：**自动化 → 从需求到可调用服务**). Selecting the card fills the
+This page preserves an end-to-end example and its historical acceptance. The
+current engine has 16 node types; this example predates Human approval and covers
+15 types. Its measurements are not a current capacity guarantee. Select the
+automation example in a new Chat; selecting its card fills the
 editable composer; it does not send the message. The example asks the Agent to
 build, test, and publish a Workflow from one complete instruction.
 
@@ -37,7 +39,7 @@ The Agent may diagnose and correct its own work within that turn.
 | PromptNode | Generate a Chinese summary |
 | TemplateNode | Assemble a Markdown report |
 
-All 15 registered types must be connected and perform useful work. Model calls
+All 15 types used by this example must be connected and perform useful work. Model calls
 must not calculate authoritative amounts. Empty batches skip model nodes.
 The resulting API pins the tested saved version, enables a QPS cap of 1, and
 uses `mount=false`. It does not require Chat workspace files to run.

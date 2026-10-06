@@ -129,7 +129,10 @@ gVisor。镜像中保留的 runsc 仅供显式选择 gVisor 时使用，默认�
 这不表示能同时处理多个模型、浏览器和 Office 作业。镜像构建所需资源与
 空闲运行不同；使用串行构建，并为镜像层、缓存和数据增长留出额外空间。
 
-数据库、加密文件、运行时状态存放在命名卷中，重建容器不会清空。
+默认 Compose 将数据库、加密对象及运行时数据放在持久卷中。使用 POSIX 时可叠加
+`docker-compose.posix.yml`，通过 `WORKSPACE_STORAGE_HOST_ROOT` 挂载已准备好的加密宿主目录；
+API、Worker 与 sandboxd 必须使用同一目录。新建容器不清空该目录，切换后端不自动迁移旧文件。
+具体步骤见 [POSIX 安装与迁移](installation.md#persistent-posix-workspaces)。
 `.env` 中的加密密钥必须与这些数据一起保留。`docker compose down` 只停止并
 移除容器；`docker compose down -v` 会删除应用数据，只用于明确需要重置的环境。
 

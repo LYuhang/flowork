@@ -8,7 +8,7 @@ status snapshots live in the JSON payload.
 """
 from __future__ import annotations
 
-from vibecanvas_api.services.task_notifications import NotificationPolicy
+from vibecanvas_api.services.task_notifications import DEFAULT_NOTIFICATION_POLICY, NotificationPolicy
 
 import asyncio
 import json
@@ -93,7 +93,6 @@ from vibecanvas_api.services.resource_provenance import (
     ResourceProvenanceBuilder,
 )
 from vibecanvas_api.services.scheduled_runs import (
-    DEFAULT_NOTIFICATION_POLICY,
     compute_next_run_at,
     execution_to_out,
     merge_notification_policy,

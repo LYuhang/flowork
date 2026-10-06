@@ -10,11 +10,13 @@ Deployment terminals start in `/run`, a Deployment-owned persistent directory.
 All workers and overlapping revisions of the same Deployment mount the same
 host projection. File creation, modification and deletion are immediately shared;
 individual invocation start/end never clears the directory. Each Deployment has
-its own object-store namespace keyed by Deployment ID, not revision or invocation.
-Completion (including timeout), approval waits and orderly shutdown synchronize
-changed files and deletions. A rebuilt sandbox hydrates the same namespace.
-Unexpected daemon/host loss can lose changes not yet synchronized; execution
-history is not a checkpoint and lost invocations are never resumed.
+its own resource workspace keyed by Deployment ID, not revision or invocation.
+With `WORKSPACE_STORAGE_BACKEND=posix`, every revision mounts that same durable
+filesystem directory directly; no invocation copies or completion uploads are
+needed. Storage encryption and backups belong to the mounted filesystem. The
+object-store backend instead hydrates and writes back its shared projection;
+changes not yet synchronized can be lost on unexpected host loss. Neither backend
+restores in-memory execution after a crash; lost invocations are not replayed.
 Deployment instances use an execution workspace profile: they do not initialize,
 hydrate, mount or write back the Chat-specific `/chats`, `/data`, `/logs` and
 `/memory` roots. Each invocation has independent in-memory execution state,
@@ -23,8 +25,8 @@ are responsible for file naming and concurrent writes. The host installs a froze
 local RPC; inputs, execution events and results travel over RPC as well. Request
 and result JSON files are not the execution transport.
 Use `/mount` for durable files shared at user scope when explicitly enabled.
-Deployment `/run` requires no mount opt-in. Files are synchronized once at
-Deployment scope, not copied into every invocation's artifact namespace.
+Deployment `/run` requires no mount opt-in. Persistence belongs to the Deployment workspace, not to per-invocation
+artifact copies.
 Workspace previews require that Deployment's inspect-runs permission.
 
 ## Configuration changes and rollout

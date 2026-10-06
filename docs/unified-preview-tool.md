@@ -69,6 +69,10 @@ evidence, main-app sidebar expansion and compact-client behavior.
 
 ## File preview acceptance (2026-10-02)
 
+This is a historical Chromium acceptance record, not a guarantee for every
+browser/codec. The synchronous quote-selection effect mentioned at the end was
+subsequently removed during the 2026-10-06 lint cleanup.
+
 On the deployed native service, the Flowork Agent generated actual files in one
 conversation and published a `render_preview` card for each file. Acceptance
 clicked those cards and their standalone Preview links in Chromium, inspected

@@ -56,6 +56,7 @@ application containers:
 | **PostgreSQL** | TLS certificate verification, non-default application and maintenance roles, automated backups, and tested restoration covering application and DBOS state |
 | **Valkey** | Authenticated TLS using `rediss://` and private networking for event fanout, counters, rate limiting, and locks |
 | **OpenFGA** | Authenticated HTTPS endpoint with a pinned store, authorization model, and reviewed model digest |
+| **Workspace storage** | For POSIX mode, an encrypted persistent filesystem shared by API, worker and sandboxd, with mount readiness, service-account permissions and backups; see [installation](docs/installation.md#persistent-posix-workspaces) |
 | **Object storage** | S3-compatible storage using SSE-KMS, lifecycle policy, backup coverage, and workload identity |
 | **KMS and secrets** | Managed KMS, workload identity, secret rotation, and no static cloud access keys in containers |
 | **File scanning** | A capacity-tested ClamAV daemon available through a local Unix socket |
@@ -349,7 +350,7 @@ not implement application-level draining: Compose `--wait` waits for container
 health, not user work. Inspect interrupted executions and any external side
 effects before retrying; reopen traffic and schedules only after verification.
 
-1. back up the database, object storage, runtime state, and configuration;
+1. back up the database, object storage, POSIX workspace root when enabled, runtime state, and configuration;
 2. review the new release notes and database migrations;
 3. build and attest a new semantic version tag;
 4. collect fresh evidence for controls affected by the change;

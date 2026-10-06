@@ -22,7 +22,8 @@ The architecture follows four principles:
    records its state, while `sandboxd` runs agent and workflow code outside the
    API process.
 3. **Clear storage responsibilities.** PostgreSQL stores application records,
-   object storage holds file content, DBOS persists durable background work in
+   the selected workspace backend holds mutable files, encrypted object storage
+   holds other blobs, DBOS persists durable background work in
    PostgreSQL, and Valkey provides transient fanout and coordination.
 4. **Server-side authorization.** The backend checks access before database,
    storage, model, or browser operations. A resource identifier supplied by a
@@ -53,7 +54,7 @@ are defined in [`docker-compose.yml`](../docker-compose.yml).
 | Concept | Role | Current implementation |
 | --- | --- | --- |
 | **Organization** | Ownership and RLS boundary used to isolate application resources; an account may work in a personal or business organization | [Organization models](../api/src/vibecanvas_api/storage/models_org.py) |
-| **Resource access** | Object-level ownership and grants for Workflows, Tasks, Deployments, and Knowledge packages; direct sharing does not move the resource | [Resource access API](../api/src/vibecanvas_api/routes/resource_access.py) |
+| **Resource access** | Object-level ownership and grants for Workflows, Tasks, Deployments, custom Skills and Knowledge packages; direct sharing does not move the resource | [Resource access API](../api/src/vibecanvas_api/routes/resource_access.py) |
 | **Project** | User-owned workspace sharing files, one sandbox, and one Codex app-server across its Chats | [Project and Chat models](../api/src/vibecanvas_api/storage/models.py) |
 | **Chat** | Independent conversation and Codex thread within a Project, with its own messages, commands, generation settings and persistent `chats/<chat-id>` working directory. Browser-extension conversations each get a dedicated Project using the same ownership model. | [Chat models](../api/src/vibecanvas_api/storage/models.py) |
 | **Agent Run** | Persisted record of one agent response, including ordered events, approval waits, cancellation, and final status | [Agent Run models](../api/src/vibecanvas_api/storage/models_agent_runs.py) |
@@ -61,8 +62,8 @@ are defined in [`docker-compose.yml`](../docker-compose.yml).
 | **Workflow Version** | Stored major/subversion snapshot used for history and version selection | [Workflow repository](../api/src/vibecanvas_api/storage/workflow_repo.py) |
 | **Workflow Run** | One execution of a workflow or node, with status and events that the UI can reload | [Execution API](../api/src/vibecanvas_api/routes/executions.py) |
 | **Task** | Persistent record for batch or scheduled work, including progress, results, and cancellation | [Task models](../api/src/vibecanvas_api/storage/models_tasks.py) |
-| **Deployment** | API or webhook interface bound to the workflow head or a specific version | [Deployment model](../api/src/vibecanvas_api/storage/models_deployments.py) |
-| **VFS** | Virtual file system that presents logical paths while storing file content in the configured object store | [VFS store](../api/src/vibecanvas_api/storage/vfs_store.py) |
+| **Deployment** | API or webhook interface pinned to an exact Workflow major/subversion | [Deployment model](../api/src/vibecanvas_api/storage/models_deployments.py) |
+| **VFS** | Authorized logical file paths backed by POSIX workspaces or the object-store backend | [VFS store](../api/src/vibecanvas_api/storage/vfs_store.py) |
 
 ## Components and responsibilities
 
@@ -383,7 +384,7 @@ Submit a workflow or node execution
 Run through sandboxd and vibecanvas-engine
     │
     ▼
-Persist status and events; write large data to the run-specific VFS
+Persist execution status and node events; write files to the resource workspace
 ```
 
 Chat tools and the canvas read and update the same persisted Workflow model.
@@ -391,11 +392,19 @@ Before execution, the API validates the graph and applies an admission policy:
 only node types supported by the workflow engine are sent to the sandbox.
 Operations that require backend access remain in control-plane services.
 
-For interactive runs, PostgreSQL stores only the status and ordered events
-needed to restore the canvas after a refresh. Large inputs, outputs, and files
-are stored in a VFS namespace dedicated to that run. This keeps control-plane
-records small while preserving execution data for later inspection.
+Execution records and node inputs/outputs are persisted for trace inspection.
+Workspace files have a separate resource lifetime: Workflow runs use its shared
+`/run`, Task executions share the Task's `/run`, and Deployment invocations
+share the Deployment's `/run`. Execution IDs isolate status, logs and results;
+they do not make user-created file paths private. A fresh canvas run clears its
+run workspace; resume from the last failure preserves it and skips successful
+nodes only when the graph and inputs are unchanged.
 
+`flowork-cli workflow run` and `run-batch` execute the engine locally in the Agent
+sandbox. Host-authorized resource resolution is still required, but row progress
+and completion are local, not a host polling loop. The command is synchronous;
+an Agent may explicitly background it and observe its local status/events files.
+A CLI batch is not a persistent Task.
 This flow is implemented in the [execution routes](../api/src/vibecanvas_api/routes/executions.py),
 [sandbox admission policy](../api/src/vibecanvas_api/services/sandbox/workflow_guard.py),
 [Workflow Run models](../api/src/vibecanvas_api/storage/models.py), and
@@ -405,8 +414,10 @@ This flow is implemented in the [execution routes](../api/src/vibecanvas_api/rou
 
 A Task is the persistent job record for batch execution (`batch_exec`) or a
 scheduled run (`scheduled_run`). Its event log contains status changes,
-progress, logs, results, and the final outcome. A Task schedule adds cron or
-interval timing, input presets, concurrency policy, and notification settings.
+progress, logs, results, and the final outcome. A Task schedule supports one fixed date/time, recurring calendar timing or a
+fixed interval. Occurrences have separate execution records and may overlap;
+capacity limits can queue them. Notification settings currently record intent;
+the delivery hook is a no-op and does not send email.
 
 A Deployment exposes a Workflow as one of two external trigger types:
 
@@ -417,24 +428,28 @@ Recurring and calendar-based execution is modeled as a scheduled Task rather
 than a Deployment. This keeps external serving concerns separate from workload
 scheduling and gives scheduled work the Task lifecycle, history, and controls.
 
-A Deployment can follow a selected major version's latest saved subversion or
-pin a full version; older deployments may retain a global-head policy. Each
-invocation freezes its resolved graph before execution. Synchronous API requests
-wait for sandbox execution and return its result; asynchronous API and Webhook
-requests submit durable work to DBOS and return an invocation identifier.
-The authenticated application test action also runs the deployment without
-requiring an Agent to possess its external API key. Workflow code always runs
-through the sandbox service, not directly in the API or worker process.
+Task and Deployment creation pins an exact Workflow version. Updating the
+Workflow does not change an existing binding. Ordinary Deployment calls remain
+synchronous: hitting the invocation deadline cancels that invocation and returns
+HTTP 504. Reaching a Human approval node switches that call to an asynchronous
+ticket; explicit async and Webhook submissions also return a ticket. Other
+concurrent calls retain their own mode. Result queries return persisted outputs
+and terminal status without restarting execution. Approval timeout terminates the
+execution with `approval_timeout`; only a human rejection emits `approved=false`.
 
-The `flowork-cli task` and `flowork-cli deployment` commands expose observability data
-through file-oriented diagnostic exports. A Task export contains the current
-resource state, exact event counts, searchable JSONL events, and—when
-applicable—scheduled execution history. A Deployment export contains its
-current configuration, bucketed call/error/latency metrics, and cursor-paginated
-invocation logs. The Agent can inspect these ordinary sandbox files with its
-normal search and scripting tools without placing a large log stream in model
-context. Export calls remain read-only and use the existing `INSPECT_RUNS`
-authorization boundary.
+Resident workers accept asynchronous executions, route new work to the least
+occupied worker and keep cancellation scoped to one invocation. Defaults are
+one worker per whole CPU core (minimum one) and unlimited per-worker concurrency
+(`-1`); operators can set a positive cap. See [resident deployments](resident-deployments.md)
+for resource limits, admission responses and rolling replacement.
+
+CLI `info` describes the resource; `status` describes runtime state; `history`
+lists scheduled executions or Deployment calls; `logs` observes a selected
+execution; Deployment `result` retrieves complete business output. Batch Tasks
+have one execution, while schedules and Deployments have many. Diagnostic
+exports are also available. Every operation uses the caller's current access.
+Invoking or resuming a shared Task/Deployment does not silently replace its
+bound runtime identity or model credentials with the operator's credentials.
 
 See the [Task API](../api/src/vibecanvas_api/routes/tasks.py),
 [Deployment API](../api/src/vibecanvas_api/routes/deployments.py),
@@ -473,7 +488,8 @@ observation, cancellation or storage failures must not silently repeat page acti
 | --- | --- | --- |
 | **PostgreSQL** | System of record for Organizations, users, Projects, Chats, messages, Workflows, versions, runs, approvals, Tasks, Deployments, metadata, and ordered events | Tenant-specific business tables use row-level security |
 | **OpenFGA** | Relationship-based access control (ReBAC) | Evaluates whether a user can perform an action on a resource |
-| **Object storage** | File content for VFS, artifacts, authoritative Knowledge package files, Task outputs, and run files | Filesystem and S3 backends implement the same storage interface |
+| **Workspace storage** | Project/Chat files and runtime state; Workflow, Task and Deployment run directories; Task result files; user mounts | `WORKSPACE_STORAGE_BACKEND=posix` uses a shared filesystem root; `object_store` uses the object-backed implementation |
+| **Object storage** | Encrypted package files and other blobs; workspace content when using the object-store backend | Filesystem and S3 providers remain required independently of POSIX workspace selection |
 | **DBOS / PostgreSQL** | Durable background queue, recovery, and schedules | Uses the existing application PostgreSQL server; business state remains in Flowork tables |
 | **Valkey** | Transient coordination | Carries short-lived notifications, rate limits, counters, and locks; it is not the task broker or system of record |
 | **Runtime state** | Separate native Chat threads inside a Project-owned authenticated Runtime volume | Persists independently of live network connections without exposing SDK internals to the API |
@@ -482,18 +498,16 @@ observation, cancellation or storage failures must not silently repeat page acti
 VFS metadata and file content are separated by the
 [VFS store](../api/src/vibecanvas_api/storage/vfs_store.py) and
 [object-store providers](../api/src/vibecanvas_api/services/object_store.py).
-The Sandbox file explorer still reads this durable VFS view. While an
-interactive Project sandbox is loaded, listing or manually refreshing its files
-first reconciles the live workspace into VFS; recognized file mutations also
-trigger an earlier best-effort writeback. Turn completion remains the final
-durability boundary, so visibility does not depend on a particular Agent tool
-name. See the [VFS route](../api/src/vibecanvas_api/routes/vfs.py), [Web query
-polling](../web/src/lib/api/queries/vfs.ts), and [sandbox manager](../api/src/vibecanvas_api/services/sandbox/manager.py).
-Runtime files use the same authenticated volume lifecycle in
-[`vfs_volume.py`](../api/src/vibecanvas_api/services/vfs_volume.py);
-resuming a Chat does not require a separate LangGraph checkpoint store.
-Encryption and retention behavior are described in
-[Security and data lifecycle](security-and-data-lifecycle.md).
+With POSIX selected, authorized file reads/writes use the mounted filesystem
+directly; there is no per-invocation directory copy or end-of-turn upload required
+for durability. Resource identity determines the directory; sandbox lifetime does
+not determine file lifetime. Local disks and NFS can implement this interface,
+but NFS is not installed or provisioned merely by selecting `posix`. Encryption,
+mount readiness, filesystem permissions and backups are operator responsibilities.
+The object-backed workspace implementation retains its materialization/writeback
+lifecycle. See [POSIX installation](installation.md#persistent-posix-workspaces).
+Runtime files use the same authenticated volume abstraction in
+[`vfs_volume.py`](../api/src/vibecanvas_api/services/vfs_volume.py).
 
 ## Authorization and execution boundaries
 
@@ -512,8 +526,15 @@ binds RLS to the owner tenant, and performs the normal OpenFGA check again.
 Personal sharing resolves only an exact account email; business organizations
 can additionally target entries in their own member and group directory. This
 object-level sharing is available for Workflows, Tasks, Deployments, and
-Knowledge packages, but not for installed Skills or MCP servers, catalog
-entries, API credentials, or platform-built-in resources. See the
+custom Skills and Knowledge packages. Catalog resources, MCP servers,
+Project/Chat conversations, API credentials and runtime sandboxes are not
+resource-shared. Chat sharing exports an explicit text snapshot. Shared custom
+Skills must be installed by the recipient before becoming available in their
+Agent sandbox. Personal and company visibility remain separate; a company
+grant to an individual is visible only in that company context. Resource lists
+combine accessible resources with source filters, rather than separate shared
+pages. Associated workspace access follows resource capabilities; private Chat
+history, execution logs/traces and model credentials are not implicitly shared. See the
 [shared-resource admission](../api/src/vibecanvas_api/auth/deps.py),
 [resource access API](../api/src/vibecanvas_api/routes/resource_access.py), and
 [provenance presentation](../api/src/vibecanvas_api/services/resource_provenance.py).
@@ -724,3 +745,21 @@ Skill file browsing and local template creation use ordinary shell/file tools.
 The CLI no longer provides `files`, `read`, `init` or `update`, and `refresh` rejects
 `--source-dir`; use `publish` for publication. Runtime paths are locations, not
 a guarantee of current mounted content: refresh before reading when necessary.
+
+## Canvas conversations and goals
+
+An editable canvas supports contextual Agent conversations for the Workflow,
+a node or an edge. Conversations reuse the main Chat backend and remain private
+per user. Chat and Workflow execution workers share the Workflow sandbox and
+mounted resource directories; either activity keeps its idle TTL from expiring.
+The UI can reference nodes/edges as attachments and resume previous conversations.
+A saved Agent edit produces a new subversion; a canvas following that major
+version refreshes without overwriting unsaved local edits. Historical snapshots
+remain fixed and read-only.
+
+`/goal <objective>` creates a runtime goal; `/goal:resume`, `/goal:pause` and
+other goal commands manage it. The composer shows the goal state above the input.
+Goals may stop at completion, blocking, budget limits or explicit user stop;
+a running background CLI process alone does not imply that a goal is active.
+Original Chat messages and prepared Runtime inputs are recorded separately;
+see [input storage](agent-chat-input-storage.zh-CN.md) for diagnostic boundaries.

@@ -22,8 +22,8 @@ wireframes, engineering stencils, and free-form canvases.
    `event=progress` followed by one `event=result|error`.
    There is no fixed total export deadline. Cancellation tears down the worker
    process group. Render never rewrites source or implicitly rearranges it.
-4. The normal Sandbox-to-VFS lifecycle persists the accepted file and publishes it in
-   the conversation.
+4. The configured workspace backend persists the file (direct filesystem writes
+   in POSIX mode); Preview publishes the accepted revision in the conversation.
 5. Preview sends the exact file to the official diagrams.net renderer, then
    presents the returned SVG on a Flowork-native pan-and-zoom canvas. The Agent
    and user can inspect the rendered result and refine the source when needed.

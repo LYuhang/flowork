@@ -111,8 +111,10 @@ mistaken for current content in a reused workspace.
 
 ## Sharing and ownership
 
-Knowledge packages shared directly with the current account appear under
-**Shared with me** in the Web application. A share grants a resource-level role
-without changing the package owner or provenance. The `/knowledge` command's
-package catalog remains scoped to the active organization; use the Web
-application's shared view to access a package owned outside that scope.
+The resource list combines owned and shared packages; source filters sit below
+the search box. Web and CLI both resolve accessible resources in the current
+personal/company context. A company grant to an individual does not appear in
+their independent personal space. Sharing does not transfer ownership. Only
+custom resources can be shared, and read-only access disables draft editing.
+Editors may change drafts and publish versions; managers may manage sharing.
+Agent operations use the current user's permissions through the host gateway.

@@ -15,6 +15,7 @@ RUN set -eux; \
         sed -ri '/\/usr\/share\/locale/d' /etc/dpkg/dpkg.cfg.d/docker; \
     fi; \
     apt-get update; \
+    apt-get upgrade -y --no-install-recommends; \
     apt-get install -y --no-install-recommends \
         ca-certificates curl locales libnss-wrapper xz-utils zstd util-linux; \
     echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; \

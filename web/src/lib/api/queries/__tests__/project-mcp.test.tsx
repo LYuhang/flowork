@@ -32,7 +32,7 @@ describe('Project MCP selection', () => {
         projectId: 'project-a', selection: { mcp_server_ids: ['server-a'], mcp_config_revision: 0 },
       });
     });
-    expect(result.current.read.data).toEqual({ mcp_server_ids: ['server-a'], mcp_config_revision: 1 });
+    await waitFor(() => expect(result.current.read.data).toEqual({ mcp_server_ids: ['server-a'], mcp_config_revision: 1 }));
     expect(fetch.mock.calls.every(([url]) => url.endsWith('/api/v1/projects/project-a/mcp'))).toBe(true);
     unmount(); client.clear();
   });

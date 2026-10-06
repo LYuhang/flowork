@@ -217,28 +217,29 @@ Task responsibility.
 
 | Surface | What you can do | Demo |
 | --- | --- | --- |
-| **Projects** | Create a named Project, then start Chats inside it. Chats share project files and a sandbox, with independent Codex sessions that can run concurrently and be cancelled separately. The Agent can build Workflows, create documents and diagrams, and organize files, with previews beside the conversation. Project sandboxes start, hibernate, and restore as needed. | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
-| **Workflow** | Add, connect, and configure nodes on a visual canvas, validate the graph, and execute either the full Workflow or an individual node. Review run output, generated files, and earlier versions, or use batch execution and JSON import and export. | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
-| **Task** | Run a Workflow across a tabular input file or schedule it for a particular time or interval. Task Center shows queue and execution progress, events, output, and failures, and lets users pause, cancel, or resume work where supported. | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
-| **Deployment** | Publish a verified Workflow as an API or webhook for external systems. Each Deployment provides its invocation details, code examples, test requests, traffic controls, credentials, run history, and health metrics. Use a scheduled Task when the Workflow needs to run on a recurring or calendar-based schedule. | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
+| **Projects** | Create a named Project, then start Chats inside it. Chats share project files and a sandbox, with independent Codex sessions that can run concurrently and be cancelled separately. The Agent can build Workflows, create documents and diagrams, and organize files, with previews beside the conversation. Project sandboxes start on demand and release after inactivity; files persist independently. | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
+| **Workflow** | Edit versioned graphs, ask the Agent to change a node or edge in context, and run the full Workflow or one node. Resume failed canvas runs when inputs and graph are unchanged. Review run output, generated files, and earlier versions, or use batch execution and JSON import and export. | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
+| **Task** | Run a Workflow across a tabular input file or schedule it for a particular time or interval. Task Center shows execution progress, searchable result tables, per-sample traces and Python evaluation metrics, and lets users pause, cancel, or resume work where supported. | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
+| **Deployment** | Publish a verified Workflow as an API or webhook for external systems. Deployments pin exact Workflow versions and provide invocation timeouts, worker/concurrency settings, approval tickets, complete result queries and persisted traces. Use a scheduled Task when the Workflow needs to run on a recurring or calendar-based schedule. | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
 | **Knowledge** | Organize reusable notes and multimodal references as versioned file packages. Each package starts with a README and can be progressively read, edited, and published by the Agent through `/knowledge`. See [Knowledge packages](docs/knowledge.md). | <video src="https://github.com/user-attachments/assets/288b1595-eb1d-4d81-b03b-d75b80e77fea" controls></video> |
 | **MCP Server** | Find external tools through the Official MCP Registry or Smithery, or connect a custom server by URL or command. Review the source, requested access, and credentials before installation. Select connected servers for a Project; its Chats share the selection, while each turn retains its own authorization and approvals. | <video src="https://github.com/user-attachments/assets/621cdb1b-28f0-4e50-ad07-eeb13ab58a33" controls></video> |
-| **Skills** | Find and install reusable instruction packages from sources such as OpenAI and Anthropic, or import a custom Skill. Review its instructions, bundled files, tool requirements, and source before making it available to agents. | <video src="https://github.com/user-attachments/assets/178f664e-0715-475e-9db5-c8d672742ea9" controls></video> |
+| **Skills** | Find and install reusable instruction packages from sources such as OpenAI and Anthropic, or import a custom Skill. Edit and publish custom package versions; share them with authorized users. Recipients install shared Skills before Agent use. | <video src="https://github.com/user-attachments/assets/178f664e-0715-475e-9db5-c8d672742ea9" controls></video> |
 | **Storage** | Browse platform files by shared mount, Workflow, Project, or Task. A Project contains shared folders and persistent Chat working directories. Search, sort, upload, and download files, and—where permissions allow—create folders, rename or delete items, and preview or edit supported content. | <video src="https://github.com/user-attachments/assets/e7d7d418-7ad8-4dbe-97fc-0adeef7896ea" controls></video> |
 
 #### Resource ownership and sharing
 
-Workflows, Tasks, Deployments, and Knowledge packages created by a user keep
-their original owner and provenance when shared. Personal resources are shared
-by entering an exact account email; the recipient remains an external Guest
-rather than becoming a member of the owner's personal workspace, and receives
-only the selected resource-level role. A business organization can instead
-share with an exact member email, an exact team or department path, or the
-entire organization. Recipients find these resources under **Shared with me**,
-and the effective role determines which actions are available.
+Workflows, Tasks, Deployments, custom Skills and custom Knowledge packages can
+be shared with users, company members, departments/teams or the company.
+Ownership stays unchanged. Lists combine accessible resources and expose source
+filters; capabilities determine editing, execution and sharing actions. Company
+grants remain inside the company context, including grants to individuals.
 
-Installed Skills and MCP servers, catalog entries, API credentials, and
-platform-built-in resources are not shareable objects.
+Project/Chat conversations, MCP connections, catalog resources, credentials and
+sandboxes are not implicitly shared. Chat supports explicit text-snapshot links.
+Associated files follow resource access; private conversations and execution
+history are not automatically included. Shared Workflow execution uses the
+runner's model resources; existing Tasks/Deployments retain their bound runtime
+identity and credentials.
 
 #### Chat Slash Commands
 
@@ -255,6 +256,7 @@ combined when a task spans more than one area.
 | `/task` | Ask the agent to find or manage Tasks, or export searchable event and execution diagnostics for troubleshooting | Main app and extension; Codex |
 | `/deployment` | Ask the agent to find or manage Deployments, or export searchable invocation logs and metrics for troubleshooting | Main app and extension; Codex |
 | `/knowledge` | Let the Agent read, create, and version Knowledge file packages in the active organization | Main app and extension; Codex |
+| `/goal` | Set a persistent objective; use `/goal:resume` or `/goal:pause` to control it. User Stop halts goal continuation and the current turn. | Main application and browser extension; Codex |
 | `/skill` | Inspect Skills, create a template, download packages, update your own Custom Skills, or remove an installation | Main app and extension; Codex |
 | `/skill-use` | Select an available Skill by ID to use for the current task | Main app and extension; Codex |
 | [`/diagram`](docs/diagram.md) | Create native draw.io files, check their structure, and render them with draw.io Desktop before publishing a preview | Main app and extension; Codex |

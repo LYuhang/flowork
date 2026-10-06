@@ -143,7 +143,7 @@ cd flowork
 
 | 功能模块 | 用户可以做什么 | 演示 |
 | --- | --- | --- |
-| **Projects（项目）** | 创建一个命名项目，再在其中一键新建 Chat。项目内的对话共享文件和沙盒，各自持有独立的 Codex 会话，可并发运行、单独取消。Agent 可构建 Workflow、生成文档和图表、整理文件，并在对话旁提供预览。项目沙盒按需启动、休眠和恢复。 | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
+| **Projects（项目）** | 创建一个命名项目，再在其中一键新建 Chat。项目内的对话共享文件和沙盒，各自持有独立的 Codex 会话，可并发运行、单独取消。Agent 可构建 Workflow、生成文档和图表、整理文件，并在对话旁提供预览。项目沙盒按需启动、空闲回收，文件独立持久化。 | <video src="https://github.com/user-attachments/assets/13822cb0-e943-4d8d-87fb-71ff0a5cfb13" controls></video> |
 | **Workflow** | 在可视化画布上添加、连接和配置节点，检查工作流结构并执行整个流程或单个节点。运行结果、生成文件和历史版本可以集中查看，工作流也支持批量执行以及 JSON 导入和导出。 | <video src="https://github.com/user-attachments/assets/ecd228f9-dc1a-401f-bbd0-840ce5b31521" controls></video> |
 | **Task** | 使用表格文件批量运行 Workflow，或者按指定时间和间隔创建定时任务。Task Center 会持续显示排队和执行进度、事件、输出与异常，并允许用户暂停、取消或恢复适用的任务。 | <video src="https://github.com/user-attachments/assets/7f959eeb-4c72-4d9a-b18a-02d548fb4b1b" controls></video> |
 | **Deployment** | 将验证通过的 Workflow 发布为 API 或 Webhook，供外部系统调用。每个 Deployment 都提供调用信息、代码示例、在线测试、流量控制、凭据、运行历史与健康指标；如需按周期或指定日历时间执行 Workflow，请创建定时 Task。 | <video src="https://github.com/user-attachments/assets/78539888-99a6-4c58-a04e-d8b41507ddd7" controls></video> |
@@ -154,9 +154,12 @@ cd flowork
 
 #### 资源归属与共享
 
-用户创建的 Workflow、Task、Deployment 和 Knowledge 资料包在共享后仍保留原有归属与来源。共享个人资源时，需要输入对方完整的账号邮箱；对方仍是外部 Guest，不会成为所有者个人工作空间的成员，并且只会获得指定的资源级权限。企业组织则可以按完整成员邮箱、完整团队或部门路径，也可以向整个组织共享。接收者可以在“与我共享”中查看这些资源，实际可用操作由其权限角色决定。
+用户创建的 Workflow、Task、Deployment、自定义 Skill 和 Knowledge 资料包在共享后仍保留原有归属与来源。共享个人资源时，需要输入对方完整的账号邮箱；对方仍是外部 Guest，不会成为所有者个人工作空间的成员，并且只会获得指定的资源级权限。企业组织则可以按完整成员邮箱、完整团队或部门路径，也可以向整个组织共享。接收者可在统一列表中通过来源筛选查看资源，实际可用操作由其权限角色决定。
 
-已安装的 Skill 和 MCP Server、目录条目、API 凭据以及平台内置资源不属于可共享对象。
+自定义 Skill 可分享，接收者安装后才进入 Agent 沙盒；目录 Skill、MCP、凭据及平台内置资源不共享。
+Project/Chat 不共享实时对话，只提供显式文本快照分享。关联文件随资源权限开放，私有对话、执行历史和模型凭据不自动分享。
+公司内分享给个人的资源只在公司空间显示，不进入独立个人空间；各资源列表合并展示，通过来源筛选区分。
+共享 Workflow 的新执行使用执行者自己的模型资源；已有 Task/Deployment 保持绑定的运行身份及凭据。
 
 #### Chat 斜杠命令
 
@@ -168,7 +171,8 @@ cd flowork
 | `/task` | 让 Agent 查找或管理 Task，也可以导出可搜索的事件与执行诊断包来排查问题 | 主应用与浏览器扩展；Codex |
 | `/deployment` | 让 Agent 查找或管理 Deployment，也可以导出可搜索的调用日志与指标来排查问题 | 主应用与浏览器扩展；Codex |
 | `/knowledge` | 让 Agent 读取、创建和更新当前组织中的 Knowledge 文件资料包 | 主应用与浏览器扩展；Codex |
-| `/skill` | 查看 Skills、创建模板、下载文件包、更新自己创建的 Custom Skill 或删除安装 | 主应用和浏览器扩展；Codex |
+| `/goal` | 设置持续目标；通过 `/goal:resume`、`/goal:pause` 管理；点击停止会停止目标续行及当前对话执行 | 主应用与浏览器扩展；Codex |
+| `/skill` | 发现及下载 Skill，检查、发布有编辑权限的自定义包，刷新当前沙盒中的 Skill | 主应用和浏览器扩展；Codex |
 | `/skill-use` | 从候选列表选择 Skill，按 ID 为当前任务使用指定技能 | 主应用和浏览器扩展；Codex |
 | [`/diagram`](docs/diagram.zh-CN.md) | 创建原生 draw.io 文件、检查结构，并通过 draw.io Desktop 渲染后发布预览 | 主应用与浏览器扩展；Codex |
 | `/document` | 创建或修改专业的 PPTX、DOCX、XLSX 或 PDF 文件，检查文档结构与实际渲染效果，然后在 Preview 中交付原生文件 | 主应用与浏览器扩展；Codex |

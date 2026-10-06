@@ -777,7 +777,7 @@ export function ChatPage() {
     : '';
   // Derive the current tail directly from the query result so the pagination
   // affordance is present in the same render as the first transcript page.
-  // Local state retains only pages explicitly loaded before that tail. This
+  // Local state retains all displayed pages, including previous tails. This
   // avoids a transient state where messages are visible but offset/hasOlder
   // still belong to the previous render and the user must refresh the page.
   const activeHistoryWindow = useMemo(() => {
@@ -787,6 +787,17 @@ export function ChatPage() {
       ? mergeHistoryWindow(retained, activeHistory.data)
       : retained;
   }, [activeHistory.data, activeHistoryKey, historyWindows]);
+  // Retain every displayed durable page, not only explicitly loaded older
+  // pages. A new Turn changes the query key; its pending query must never
+  // replace the visible transcript with an empty window or a shorter tail.
+  useEffect(() => {
+    if (!activeHistoryKey || !activeHistory.data) return;
+    setHistoryWindows(current => retainHistoryWindow(
+      current,
+      activeHistoryKey,
+      mergeHistoryWindow(current[activeHistoryKey], activeHistory.data),
+    ));
+  }, [activeHistoryKey, activeHistory.data]);
   const olderHistoryLoadingRef = useRef(false);
   const [olderHistoryLoading, setOlderHistoryLoading] = useState(false);
   const hasOlderHistory = !!activeHistoryWindow && activeHistoryWindow.offset > 0;

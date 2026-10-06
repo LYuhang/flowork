@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CHAT_INITIAL_HISTORY_LIMIT, fetchChatHistoryPage, useChatHistory } from '@/lib/api/queries/chats';
 import { mergeHistoryWindow, type ChatHistoryWindow } from '@/pages/chat/history-window';
 import { useChatStreamStore } from '@/stores/chat-stream';
@@ -15,6 +15,15 @@ export function useConversationHistory(scopeId: string, chatId: string | null, p
   const [windows, setWindows] = useState<Record<string, ChatHistoryWindow>>({});
   const window = useMemo(() => query.data ? mergeHistoryWindow(windows[key], query.data) : windows[key],
     [key, query.data, windows]);
+  useEffect(() => {
+    if (!query.data || !chatId) return;
+    setWindows(current => {
+      const next = { ...current };
+      delete next[key];
+      next[key] = mergeHistoryWindow(current[key], query.data);
+      return Object.fromEntries(Object.entries(next).slice(-20));
+    });
+  }, [key, chatId, query.data]);
   const pending = useRef(new Set<string>());
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const loadOlder = useCallback(async () => {

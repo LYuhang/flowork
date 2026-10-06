@@ -12,10 +12,6 @@ from reportlab.pdfgen import canvas
 from vibecanvas_api.flowork_cli import cli
 from vibecanvas_api.document_runtime import rendering
 from vibecanvas_api.services.agent_runtime.cli_gateway import CliGateway
-from vibecanvas_api.services.agent_runtime.codex import (
-    _ToolCompletionEvidence, _record_document_cli_completion,
-    _document_visual_coverage, _missing_command_completion_tools,
-)
 
 
 def pdf_file(path, pages=1):
@@ -103,43 +99,6 @@ def test_snapshot_and_partial_failure(tmp_path, fake_rasterizer, monkeypatch):
     assert Path(result["images"][0]["file"]).exists()
 
 
-def test_coverage_gate_and_revision_invalidation(tmp_path):
-    source = tmp_path / "report.pdf"
-    source.write_bytes(b"source")
-    digest = hashlib.sha256(b"source").hexdigest()
-    request = SimpleNamespace(command_context=SimpleNamespace(activated_this_turn=["document"]))
-    evidence = {}
-    assert "flowork-cli document review" in _missing_command_completion_tools(request, evidence)
-    review = {"file": str(source), "source_hash": "sha256:" + digest, "status": "passed"}
-    _record_document_cli_completion(evidence, "document.review", {}, review)
-    for page in (1, 2):
-        image = tmp_path / f"page-{page}.png"
-        image.write_bytes(bytes([page]))
-        image_hash = hashlib.sha256(image.read_bytes()).hexdigest()
-        result = {**review, "status": "succeeded", "total_pages": 2, "images": [{"page": page, "file": str(image)}], "_image_hashes": {str(image): image_hash}}
-        _record_document_cli_completion(evidence, "document.render", {}, result)
-        assert _document_visual_coverage(evidence, str(source), digest)[1] is False
-        evidence.setdefault("view_image", []).append(_ToolCompletionEvidence({}, str(image), image_hash))
-    assert _document_visual_coverage(evidence, str(source), digest) == (True, True)
-    evidence["render_preview"] = [_ToolCompletionEvidence({}, str(source), digest)]
-    assert _missing_command_completion_tools(request, evidence) == ()
-    source.write_bytes(b"edited")
-    assert "flowork-cli document review" in _missing_command_completion_tools(request, evidence)
-    assert "flowork-cli document render" in _missing_command_completion_tools(request, evidence)
-
-
-def test_forged_or_failed_evidence_does_not_pass(tmp_path):
-    source = tmp_path / "report.txt"
-    source.write_text("x")
-    digest = hashlib.sha256(b"x").hexdigest()
-    request = SimpleNamespace(command_context=SimpleNamespace(activated_this_turn=["document"]))
-    forged = _ToolCompletionEvidence({"status": "passed"}, str(source), digest)
-    assert "flowork-cli document review" in _missing_command_completion_tools(request, {"review_document": [forged], "shell": [forged]})
-    evidence = {}
-    _record_document_cli_completion(evidence, "document.review", {}, {"file": str(source), "source_hash": digest, "status": "failed"})
-    assert "flowork-cli document review" in _missing_command_completion_tools(request, evidence)
-
-
 @pytest.mark.parametrize("valid,format_name", [(True, "xlsx"), (True, "docx"), (False, "xlsx")])
 def test_document_worker_reports_review_scope_and_next_step(monkeypatch, capsys, valid, format_name):
     from io import StringIO
@@ -171,20 +130,18 @@ async def test_real_gateway_records_worker_not_shell(tmp_path):
     source = tmp_path / "brief.md"
     source.write_text("# Brief\nDocument CLI test.")
     gateway = CliGateway()
-    recorded = []
 
     async def unexpected(*_):
         raise AssertionError("Local document operation must not reach Host.")
 
-    env = await gateway.activate(unexpected, document_complete=lambda *args: recorded.append(args))
+    env = await gateway.activate(unexpected)
     try:
         result = await asyncio.to_thread(cli.request, env["FLOWORK_CLI_SOCKET"], {"file": str(source)}, operation="document.review")
         assert result["status"] == "passed"
         assert "Structural checks passed" in result["message"]
         assert "not validated" in result["message"]
         assert "independently check calculations" in result["hint"]
-        assert len(recorded) == 1
-        assert recorded[0][2]["source_hash"] == "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest()
+        assert result["source_hash"] == "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest()
         assert (Path(env["FLOWORK_CLI_SOCKET"]).parent / "document_cli.py").is_file()
         process = await asyncio.create_subprocess_exec(
             "/bin/bash", "-lc", "flowork-cli document review --help",
@@ -196,7 +153,6 @@ async def test_real_gateway_records_worker_not_shell(tmp_path):
         assert b"source_hash" in stdout
     finally:
         await gateway.close()
-    assert gateway._document_complete is None
 
 
 @pytest.mark.asyncio
@@ -213,12 +169,11 @@ async def test_gateway_disconnect_terminates_document_worker(monkeypatch, operat
 
     monkeypatch.setattr(module.asyncio, "create_subprocess_exec", launch)
     gateway = CliGateway()
-    recorded = []
 
     async def unexpected(*_):
         raise AssertionError("Host must not execute sandbox document reads.")
 
-    env = await gateway.activate(unexpected, document_complete=lambda *args: recorded.append(args))
+    env = await gateway.activate(unexpected)
     try:
         _, writer = await asyncio.open_unix_connection(env["FLOWORK_CLI_SOCKET"])
         writer.write(json.dumps({"operation": operation, "arguments": {"file": file}}).encode() + b"\n")
@@ -231,7 +186,6 @@ async def test_gateway_disconnect_terminates_document_worker(monkeypatch, operat
         writer.close()
         await writer.wait_closed()
         await asyncio.wait_for(processes[0].wait(), timeout=4)
-        assert not recorded
         with pytest.raises(ProcessLookupError):
             os.kill(processes[0].pid, 0)
     finally:

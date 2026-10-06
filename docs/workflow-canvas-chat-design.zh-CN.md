@@ -523,3 +523,6 @@ v1.sv21 已通过真实部署调用：同步入口遇到 Human 返回 HTTP 202�
 - smolagents 提供工具与 MCP 集成，作为次要候选；尚未验证它对现有异步 worker、取消与消息格式的匹配度。参考：https://github.com/huggingface/smolagents/blob/main/docs/source/en/installation.md 。
 
 框架替换不应绕过现有宿主机 MCP broker 鉴权。下一阶段以相同模型、工具、输入和并发测量常驻/峰值内存、成功率与延迟，再决定是否迁移。单 worker 多异步执行仍未实现；必须先明确每条调用的运行目录和取消边界，不能直接提高 runtime capacity 并沿用超时杀 worker。
+
+
+> 2026-10-06 更新：已移除命令交付检查触发的自动续跑及自动 Preview。上文 `command_completion` 是历史验收记录，不代表当前行为。当前文档、绘图和 Workflow 的 review/Preview 要求由 Prompt 引导；平台不因缺少工具调用追加回合或拒绝正常结束。用户显式启用的 Goal 和空响应重试独立保留。

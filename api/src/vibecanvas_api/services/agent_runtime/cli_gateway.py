@@ -92,13 +92,11 @@ class CliGateway:
         self._directory: str | None = None
         self._tasks: set[asyncio.Task] = set()
         self._env: dict[str, str] = {}
-        self._document_complete = None
         self._browser = None
 
-    async def activate(self, invoke: Callable[[str, dict], Awaitable[dict]], *, document_complete=None, browser_authorize=None, browser_commit=None, browser_transfer=None) -> dict[str, str]:
+    async def activate(self, invoke: Callable[[str, dict], Awaitable[dict]], *, browser_authorize=None, browser_commit=None, browser_transfer=None) -> dict[str, str]:
         if self._invoke is not None:
             raise RuntimeError("CLI gateway already has an active turn")
-        self._document_complete = document_complete
         if browser_authorize is not None:
             from .browser_cli_runtime import BrowserCliRuntime
             self._browser = BrowserCliRuntime(browser_authorize, commit=browser_commit, transfer=browser_transfer)
@@ -186,7 +184,6 @@ class CliGateway:
         # Capture before any await: an in-flight request must never inherit a
         # later turn's identity. Idle runtimes cannot dispatch CLI operations.
         invoke = self._invoke
-        document_complete = self._document_complete
         browser = self._browser
         operation = ""
         dispatched = False
@@ -213,7 +210,7 @@ class CliGateway:
                     else:
                         result = await self._stream_browser(browser, operation, arguments, reader, writer)
                 elif operation in cli.document_cli.OPERATIONS | cli.diagram_cli.OPERATIONS:
-                    result = await self._stream_document(operation, arguments, reader, writer, document_complete)
+                    result = await self._stream_document(operation, arguments, reader, writer)
                 else:
                     result = await self._stream_call(invoke, operation, arguments, reader, writer)
         except (ValueError, UnicodeError):
@@ -263,7 +260,7 @@ class CliGateway:
                     task.cancel()
             await asyncio.gather(execution, disconnected, return_exceptions=True)
 
-    async def _stream_document(self, operation, arguments, reader, writer, completed):
+    async def _stream_document(self, operation, arguments, reader, writer):
         """Execute beside the sandbox files, with a private trusted result pipe."""
         process = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "vibecanvas_api.document_runtime.worker",
@@ -295,8 +292,6 @@ class CliGateway:
                 await process.wait()
                 if process.returncode:
                     raise RuntimeError("File CLI worker failed")
-                if completed is not None:
-                    completed(operation, arguments, result)
                 result.pop("_image_hashes", None)
                 return result
         finally:
@@ -376,7 +371,6 @@ class CliGateway:
 
     async def deactivate(self) -> None:
         self._invoke = None
-        self._document_complete = None
         tasks = list(self._tasks)
         for task in tasks:
             task.cancel()

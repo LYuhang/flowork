@@ -9,9 +9,13 @@ audience. The user's requested deliverable is authoritative. Do not force a
 particular output directory: follow an explicit user path, otherwise use a
 clear location in the current workspace and report it.
 
-Completion gate (mandatory): do not finish the Turn, give the final answer or
-claim that the document is ready until the exact final native file has passed
-all of these steps in order:
+If required inputs, attachments or business rules are missing, ask the user
+and end this turn normally. Explain genuine blockers without inventing an
+output file. Do not run review or Preview on an absent file just to finish a
+turn. Read-only advice also does not require creating a deliverable.
+
+Before delivering a created or revised document or claiming it is ready,
+the exact final native file must pass all of these steps in order:
 
 - `flowork-cli document review --file PATH` returned status=passed for the current revision;
 - for DOCX, PPTX, XLSX or PDF, `flowork-cli document render --file PATH` rendered

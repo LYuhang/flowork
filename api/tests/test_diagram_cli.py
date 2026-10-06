@@ -18,9 +18,6 @@ from vibecanvas_api.drawio import inspect_drawio
 from vibecanvas_api.diagram_runtime import operations
 from vibecanvas_api.flowork_cli import cli
 from vibecanvas_api.services.agent_runtime.cli_gateway import CliGateway
-from vibecanvas_api.services.agent_runtime.codex import (
-    _ToolCompletionEvidence, _record_document_cli_completion, _missing_command_completion_tools,
-)
 
 MODEL = '''<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>
 <mxCell id="a" vertex="1" parent="1" value="A"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell>
@@ -167,44 +164,20 @@ def test_render_uses_source_snapshot_and_retains_partial(tmp_path, monkeypatch, 
     assert Path(result["images"][0]["file"]).is_file()
 
 
-def test_gate_requires_trusted_review_render_and_views(tmp_path):
-    source = tmp_path / "diagram.drawio"
-    source.write_bytes(document())
-    review = operations.review_diagram(str(source))
-    digest = review["source_hash"].removeprefix("sha256:")
-    request = SimpleNamespace(command_context=SimpleNamespace(activated_this_turn=["diagram"]))
-    evidence = {"save_drawio_file": [_ToolCompletionEvidence({}, str(source), digest)]}
-    assert "flowork-cli diagram review" in _missing_command_completion_tools(request, evidence)
-    _record_document_cli_completion(evidence, "diagram.review", {}, review)
-    for page in (1, 2):
-        path = str(tmp_path / f"{page}.png")
-        result = {"file": str(source), "source_hash": review["source_hash"], "total_pages": 2, "images": [{"page": page, "file": path}], "_image_hashes": {path: digest}}
-        _record_document_cli_completion(evidence, "diagram.render", {}, result)
-        assert "view_image (every rendered page of the current diagram)" in _missing_command_completion_tools(request, evidence)
-        evidence.setdefault("view_image", []).append(_ToolCompletionEvidence({}, path, digest))
-    evidence["render_preview"] = [_ToolCompletionEvidence({}, str(source), digest)]
-    assert _missing_command_completion_tools(request, evidence) == ()
-    source.write_bytes(document(3))
-    assert "flowork-cli diagram review" in _missing_command_completion_tools(request, evidence)
-    assert "flowork-cli diagram render" in _missing_command_completion_tools(request, evidence)
-
-
 @pytest.mark.asyncio
 async def test_gateway_diagram_worker_and_standalone_launcher(tmp_path):
     source = tmp_path / "diagram.drawio"
     source.write_bytes(document(compressed=True))
     gateway = CliGateway()
-    recorded = []
 
     async def no_host(*_):
         raise AssertionError("Diagram must execute locally.")
 
-    env = await gateway.activate(no_host, document_complete=lambda *args: recorded.append(args))
+    env = await gateway.activate(no_host)
     try:
         result = await asyncio.to_thread(cli.request, env["FLOWORK_CLI_SOCKET"], {"file": str(source)}, operation="diagram.review")
         assert result["status"] == "passed"
         assert result["details"]["page_count"] == 2
-        assert len(recorded) == 1
         assert (Path(env["FLOWORK_CLI_SOCKET"]).parent / "diagram_cli.py").is_file()
     finally:
         await gateway.close()

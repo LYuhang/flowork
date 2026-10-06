@@ -7,6 +7,11 @@ render feedback. Native `.drawio` XML is the only source of truth. Do not
 create a Flowork-specific schema, a second semantic model, database revisions,
 or a custom operation log.
 
+If required inputs or requirements are missing, ask the user and end the turn
+normally. Read-only advice and reports of genuine blockers do not require
+creating, reviewing or publishing a diagram. The delivery checks below apply
+to an actual created or revised diagram, not every turn in this mode.
+
 Authoring:
 - Read `flowork-cli diagram review --help` for native XML structure and an
   example; read search-shapes/render leaf help for their exact arguments.

@@ -14,7 +14,6 @@ import tempfile
 import uuid
 from collections import defaultdict, deque
 from collections.abc import Hashable
-from dataclasses import dataclass
 from functools import lru_cache
 from time import perf_counter
 from types import SimpleNamespace
@@ -72,19 +71,7 @@ _MAX_TRACKED_NATIVE_THREADS = 64
 # subsequently publishing ``turn/completed``. Reconcile only after a generous
 # quiet period, a completed visible answer, and no active projected tool.
 _BROKER_TERMINAL_RECONCILIATION_IDLE_S = 120.0
-_MAX_COMMAND_COMPLETION_ATTEMPTS = 2
 _MAX_EMPTY_COMPLETION_ATTEMPTS = 1
-_MAX_COMPLETION_FILE_BYTES = 512 * 1024 * 1024
-_DEFAULT_WORKFLOW_COMPLETION_PATH = "/data/workflow.json"
-_DOCUMENT_VISUAL_EXTENSIONS = frozenset({
-    ".docx",
-    ".odp",
-    ".ods",
-    ".odt",
-    ".pdf",
-    ".pptx",
-    ".xlsx",
-})
 
 # Codex-native items that are user-observable work.  They are projected through
 # the same portable message/tool lifecycle as every other Runtime while keeping
@@ -234,71 +221,6 @@ def _canonical_completion_tool_name(name: str) -> str:
     return value
 
 
-@dataclass(frozen=True, slots=True)
-class _ToolCompletionEvidence:
-    tool_input: dict[str, Any]
-    path: str
-    sha256: str | None
-
-
-def _completion_file_path(tool_input: dict[str, Any]) -> str:
-    if "type" in tool_input and "source" in tool_input:
-        return str(tool_input["source"]).strip() if tool_input["type"] == "file" else ""
-    return str(
-        tool_input.get("path")
-        or tool_input.get("file_path")
-        or tool_input.get("filePath")
-        or tool_input.get("workflow_path")
-        or ""
-    ).strip()
-
-
-def _completion_file_hash(path: str) -> str | None:
-    """Hash one ordinary local file without following a final symlink."""
-    if not path.startswith("/"):
-        return None
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags)
-    except OSError:
-        return None
-    digest = hashlib.sha256()
-    try:
-        stat = os.fstat(descriptor)
-        if not (0 <= stat.st_size <= _MAX_COMPLETION_FILE_BYTES):
-            return None
-        remaining = stat.st_size
-        while remaining:
-            chunk = os.read(descriptor, min(1024 * 1024, remaining))
-            if not chunk:
-                return None
-            digest.update(chunk)
-            remaining -= len(chunk)
-    except OSError:
-        return None
-    finally:
-        os.close(descriptor)
-    return digest.hexdigest()
-
-
-def _latest_evidence(
-    evidence: dict[str, list[_ToolCompletionEvidence]],
-    name: str,
-    *,
-    path: str | None = None,
-) -> _ToolCompletionEvidence | None:
-    return next(
-        (
-            item
-            for item in reversed(evidence.get(name, []))
-            if path is None or item.path == path
-        ),
-        None,
-    )
-
-
 def _workflow_cli_events(operation: str, arguments: dict, result: dict) -> list[dict]:
     """Project confirmed writes to the explicitly targeted canvas."""
     if operation == "workflow.operation":
@@ -321,244 +243,6 @@ def _workflow_cli_events(operation: str, arguments: dict, result: dict) -> list[
         }},
         {"event_type": "META_SYNC", "payload": {"meta": meta}},
     ]
-
-
-def _latest_preview_evidence(
-    evidence: dict[str, list[_ToolCompletionEvidence]],
-    *,
-    path: str | None,
-) -> _ToolCompletionEvidence | None:
-    # Older in-flight turns may still publish through the retired file tool.
-    return _latest_evidence(evidence, "render_preview", path=path) or _latest_evidence(
-        evidence, "render_interactive", path=path,
-    )
-
-
-def _record_workflow_cli_completion(
-    evidence: dict[str, list[_ToolCompletionEvidence]], operation: str, result: dict,
-) -> None:
-    """Publication follows actual graph writes, never mere mode/branch selection."""
-    if operation == "workflow.delete":
-        if result.get("deleted") is True and result.get("id") and not result.get("error"):
-            # A confirmed deletion cannot be delivered through Preview. Keep
-            # other saved resources so a temporary create/delete does not
-            # discard the real deliverable's publication requirement.
-            for key in ("workflow.saved", "workflow.upload", "workflow.preview"):
-                evidence[key] = [item for item in evidence.get(key, [])
-                                 if item.tool_input.get("id") != result["id"]]
-        return
-    if operation not in {"workflow.create", "workflow.upload", "workflow.operation", "workflow.layout", "workflow.version.create"}:
-        return
-    if result.get("error") == "result_unknown":
-        # An unknown write must be reconciled, not followed by a forced upload
-        # or a claim that the last confirmed snapshot is the new result.
-        evidence.pop("workflow.saved", None)
-        evidence.pop("workflow.upload", None)
-        return
-    if operation == "workflow.layout" and result.get("changed") is not True:
-        return
-    if operation == "workflow.operation":
-        if type(result.get("applied")) is not int or result["applied"] <= 0 or result.get("error"):
-            return
-    elif result.get("error"):
-        return
-    if not result.get("id") or not re.fullmatch(r"v[1-9]\d*\.sv\d+", str(result.get("version", ""))):
-        return
-    saved = _ToolCompletionEvidence(
-        tool_input={"id": result["id"], "version": result["version"]}, path="", sha256=None,
-    )
-    evidence["workflow.saved"] = [item for item in evidence.get("workflow.saved", [])
-                                  if item.tool_input.get("id") != result["id"]] + [saved]
-    evidence.pop("workflow.upload", None)
-    if operation == "workflow.upload":
-        evidence["workflow.upload"] = [saved]
-
-
-def _record_document_cli_completion(evidence, operation, arguments, result):
-    """Called only by the local CLI worker channel, never shell stdout or MCP."""
-    if operation not in {"document.review", "document.render", "diagram.review", "diagram.render"}:
-        return
-    path = str(result.get("file") or arguments.get("file") or "")
-    source_hash = str(result.get("source_hash") or "").removeprefix("sha256:")
-    if not re.fullmatch(r"[0-9a-f]{64}", source_hash):
-        source_hash = None
-    evidence.setdefault(operation, []).append(_ToolCompletionEvidence(
-        tool_input=dict(result), path=path, sha256=source_hash,
-    ))
-
-
-def _document_visual_coverage(evidence, path, source_hash, *, operation="document.render"):
-    viewed = {(item.path, item.sha256) for item in evidence.get("view_image", [])}
-    rendered, inspected = set(), set()
-    total = 0
-    for item in evidence.get(operation, []):
-        if item.path != path or item.sha256 != source_hash:
-            continue
-        result = item.tool_input
-        count = result.get("total_pages", 0)
-        if not isinstance(count, int) or count <= 0:
-            continue
-        # Do not combine distinct pagination layouts even for the same bytes.
-        if total and total != count:
-            rendered.clear()
-            inspected.clear()
-        total = count
-        for image in result.get("images", []):
-            page = image.get("page")
-            image_path = image.get("file")
-            image_hash = result.get("_image_hashes", {}).get(image_path)
-            if type(page) is int and 1 <= page <= total and image_hash:
-                rendered.add(page)
-                if (image_path, image_hash) in viewed:
-                    inspected.add(page)
-    return bool(total and len(rendered) == total), bool(total and len(inspected) == total)
-
-
-def _missing_command_completion_tools(
-    request: RuntimeTurnRequest,
-    evidence: dict[str, list[_ToolCompletionEvidence]],
-) -> tuple[str, ...]:
-    """Compute command-owned evidence still required before a successful Turn.
-
-    Prompts guide the model, but a professional deliverable must not be marked
-    complete merely because a compatible model decided to stop early.  This
-    gate deliberately checks only small, deterministic publication contracts;
-    visual quality remains the Agent's responsibility after inspecting the
-    rendered feedback.
-    """
-    activated = set(request.command_context.activated_this_turn)
-    missing: list[str] = []
-    if "document" in activated:
-        review = _latest_evidence(evidence, "document.review")
-        current_hash = (
-            _completion_file_hash(review.path)
-            if review is not None and review.path
-            else None
-        )
-        current_review = bool(
-            review is not None
-            and review.sha256 is not None
-            and review.sha256 == current_hash
-            and review.tool_input.get("status") == "passed"
-        )
-        if not current_review:
-            missing.append("flowork-cli document review")
-        visual = bool(
-            review is not None
-            and os.path.splitext(review.path)[1].lower()
-            in _DOCUMENT_VISUAL_EXTENSIONS
-        )
-        if visual:
-            rendered, viewed = _document_visual_coverage(evidence, review.path, current_hash)
-            if not current_review or not rendered:
-                missing.append("flowork-cli document render")
-            if not current_review or not viewed:
-                missing.append("view_image (every rendered page of the current document)")
-        preview = _latest_preview_evidence(
-            evidence,
-            path=review.path if review is not None else None,
-        )
-        if not (
-            current_review
-            and preview is not None
-            and preview.sha256 == current_hash
-        ):
-            missing.append("render_preview")
-    if "diagram" in activated:
-        saved = _latest_evidence(evidence, "diagram.review")
-        current_hash = (
-            _completion_file_hash(saved.path)
-            if saved is not None and saved.path
-            else None
-        )
-        current_save = bool(
-            saved is not None
-            and saved.sha256 is not None
-            and saved.sha256 == current_hash
-            and saved.tool_input.get("status") == "passed"
-        )
-        if not current_save:
-            missing.append("flowork-cli diagram review")
-        rendered, viewed = _document_visual_coverage(evidence, saved.path if saved else "", current_hash, operation="diagram.render")
-        if not current_save or not rendered:
-            missing.append("flowork-cli diagram render")
-        if not current_save or not viewed:
-            missing.append("view_image (every rendered page of the current diagram)")
-        preview = _latest_preview_evidence(
-            evidence,
-            path=saved.path if saved is not None else None,
-        )
-        if not (
-            current_save
-            and preview is not None
-            and preview.sha256 == current_hash
-        ):
-            missing.append("render_preview")
-    if "workflow" in activated:
-        # /workflow also serves inspection, execution and Chat selection tasks.
-        # Its activation is not authorization to upload/create anything. Only
-        # verify publication when the private gateway confirmed a graph write.
-        # Saved versions are not proof of validation or of fulfilling all intent.
-        published = _latest_evidence(evidence, "workflow.saved") or _latest_evidence(evidence, "workflow.upload")
-        previews = evidence.get("workflow.preview", [])
-        if published is not None and not any(
-            item.tool_input == published.tool_input for item in previews
-        ):
-            missing.append("render_preview")
-    return tuple(dict.fromkeys(missing))
-
-
-def _command_completion_reminder(
-    missing: tuple[str, ...],
-    evidence: dict[str, list[_ToolCompletionEvidence]],
-) -> str:
-    tool_list = ", ".join(f"`{name}`" for name in missing)
-    reviewed = _latest_evidence(evidence, "document.review")
-    saved = _latest_evidence(evidence, "diagram.review")
-    candidate_path = (reviewed.path if reviewed is not None else "") or (
-        saved.path if saved is not None else ""
-    )
-    publication_instruction = ""
-    if "flowork-cli workflow upload" in missing:
-        publication_instruction += (
-            " If the last upload or version change returned result_unknown, do not blindly repeat it or upload again. "
-            "Inspect workflow get ID/version list ID and download ID --major vN to a separate file to reconcile first; "
-            "report an unresolved service/permission blocker instead of claiming delivery."
-        )
-    uploaded = _latest_evidence(evidence, "workflow.saved") or _latest_evidence(evidence, "workflow.upload")
-    if "render_preview" in missing and uploaded is not None:
-        reference = json.dumps({"type": "workflow", "source": uploaded.tool_input["id"], "version": uploaded.tool_input["version"]}, ensure_ascii=True)
-        publication_instruction += f" Publish the saved workflow with render_preview arguments {reference}. Do not upload again just to publish a preview."
-    if "render_preview" in missing and candidate_path:
-        safe_path = (
-            json.dumps(candidate_path, ensure_ascii=False)
-            .replace("`", "\\u0060")
-            .replace("<", "\\u003c")
-            .replace(">", "\\u003e")
-        )
-        publication_instruction += (
-            " The current candidate file path is "
-            f"{safe_path}. After every other listed step succeeds for "
-            "that exact current revision, call `render_preview` with exactly "
-            f'`type="file", source={safe_path}`; do not merely describe the call.'
-        )
-        if missing == ("render_preview",):
-            publication_instruction += (
-                " This is the only remaining action: your very next action must "
-                "be that `render_preview` tool call. Do not inspect, edit, "
-                "review, render feedback, or call any other tool first. After it "
-                "succeeds, send the concise final answer without changing the file."
-            )
-    return (
-        "<system-reminder>Platform completion gate: the current command cannot "
-        f"finish because these successful tool calls are still missing: {tool_list}. "
-        "Reuse the exact current final file and existing research. Do not start "
-        "over or create another deliverable. Perform only the missing validation "
-        "and publication work, fix any material defect it reveals, then give one "
-        + publication_instruction
-        + " "
-        "concise final answer.</system-reminder>"
-    )
 
 
 def _codex_executable() -> str:
@@ -2016,10 +1700,6 @@ async def run_codex_turn(
 
     seq = 1
     tool_invocations: dict[str, tuple[dict[str, Any], float]] = {}
-    successful_tool_evidence: dict[
-        str, list[_ToolCompletionEvidence]
-    ] = defaultdict(list)
-
     runtime_mcp_catalog: list[dict[str, Any]] = []
 
     def invocation_catalog(item: dict[str, Any], name: str) -> list[dict[str, Any]]:
@@ -2055,38 +1735,6 @@ async def run_codex_turn(
     async def emit(event_type: str, payload: dict[str, Any]) -> None:
         from vibecanvas_engine.sandbox_bus import MSG_RUNTIME_EVENT
 
-        if event_type == "tool.end" and payload.get("status") == "done":
-            name = _canonical_completion_tool_name(str(payload.get("name") or ""))
-            invocation = payload.get("invocation")
-            invocation = invocation if isinstance(invocation, dict) else {}
-            tool_input = invocation.get("input")
-            tool_input = dict(tool_input) if isinstance(tool_input, dict) else {}
-            path = _completion_file_path(tool_input)
-            if not path and name == "check_workflow":
-                path = _DEFAULT_WORKFLOW_COMPLETION_PATH
-            if name == "render_preview":
-                artifact = payload.get("artifact")
-                meta = artifact.get("meta", {}) if isinstance(artifact, dict) else {}
-                reference = meta.get("workflow_preview") if isinstance(meta, dict) else None
-                if isinstance(reference, dict) and reference.get("id") and reference.get("version"):
-                    successful_tool_evidence["workflow.preview"].append(
-                        _ToolCompletionEvidence(tool_input={"id": reference["id"], "version": reference["version"]}, path="", sha256=None)
-                    )
-            successful_tool_evidence[name].append(
-                _ToolCompletionEvidence(
-                    tool_input=tool_input,
-                    path=path,
-                    sha256=(
-                        _completion_file_hash(path)
-                        if name in {
-                            "view_image",
-                            "render_preview",
-                            "render_interactive",
-                        }
-                        else None
-                    ),
-                )
-            )
         async with emit_lock:
             await channel.send(
                 {
@@ -2274,72 +1922,6 @@ async def run_codex_turn(
         await emit("message.end", {"message_id": carrier_id})
         return item_id
 
-    async def publish_completion_preview(
-        *,
-        path: str,
-        native_turn_id: str,
-    ) -> bool:
-        """Publish a fully validated file through the active sandbox MCP Hub.
-
-        Publication is deterministic and does not mutate the deliverable.  It
-        therefore belongs to the command completion boundary once the Agent
-        has reviewed the exact current file revision.  Routing through the
-        same Hub preserves workspace sync, authorization, artifact projection,
-        and the ordinary Tool card contract without another provider roundtrip.
-        """
-        if active_hub_gateway is None:
-            return False
-        arguments = {"type": "file", "source": path}
-        item_id = f"completion-preview-{uuid.uuid4().hex}"
-        item: dict[str, Any] = {
-            "id": item_id,
-            "type": "mcpToolCall",
-            "tool": "render_preview",
-            "arguments": arguments,
-        }
-        await start_visible_tool(item, native_turn_id)
-        result = await active_hub_gateway.call_tool(
-            "render_preview",
-            arguments,
-        )
-        result_payload = result.model_dump(
-            mode="json",
-            by_alias=True,
-            exclude_none=True,
-        )
-        item.update(
-            status="failed" if result.isError else "completed",
-            result=result_payload,
-        )
-        name, _, output, artifact = _tool_projection(item)
-        prior_invocation = tool_invocations.pop(item_id, None)
-        status = "done" if not result.isError and artifact is not None else "error"
-        await emit(
-            "tool.end",
-            {
-                "tool_call_id": item_id,
-                "name": name,
-                "status": status,
-                "content": output,
-                "invocation": finish_tool_invocation(
-                    prior_invocation[0] if prior_invocation else None,
-                    started_monotonic=(
-                        prior_invocation[1] if prior_invocation else None
-                    ),
-                    invocation_id=item_id,
-                    runtime_type="codex",
-                    name=name,
-                    status=status,
-                    content=output,
-                    artifact=artifact,
-                    mcp_catalog=invocation_catalog(item, name),
-                    native_kind="platformCommandCompletion",
-                ),
-                **({"artifact": artifact} if artifact is not None else {}),
-            },
-        )
-        return status == "done"
-
     result_ready = False
     next_message: asyncio.Task | None = None
     try:
@@ -2378,7 +1960,6 @@ async def run_codex_turn(
             for projection in result.pop("_cli_events", []):
                 await emit("projection", projection)
             try:
-                _record_workflow_cli_completion(successful_tool_evidence, operation, result)
                 for projection in _workflow_cli_events(operation, arguments, result):
                     await emit("projection", projection)
             except Exception:
@@ -2400,9 +1981,7 @@ async def run_codex_turn(
         cli_env = await cli_gateway.activate(invoke_cli,
             browser_authorize=authorize_browser_cli if "browser" in request.active_platform_mcps else None,
             browser_commit=commit_browser_cli if "browser" in request.active_platform_mcps else None,
-            browser_transfer=approve_browser_transfer if "browser" in request.active_platform_mcps else None,
-            document_complete=lambda operation, arguments, result:
-            _record_document_cli_completion(successful_tool_evidence, operation, arguments, result))
+            browser_transfer=approve_browser_transfer if "browser" in request.active_platform_mcps else None)
         await mcp_hub.reconcile(request.mcp_desired_state)
         await mcp_hub.activate(request.mcp_execution_context)
         active_hub_gateway = (
@@ -2668,7 +2247,6 @@ async def run_codex_turn(
         await emit("checkpoint", checkpoint_payload)
 
         completed_agent_message = False
-        command_completion_attempts = 0
         empty_completion_attempts = 0
         native_turn_had_product_output = False
         message_stream = client.messages()
@@ -2745,7 +2323,6 @@ async def run_codex_turn(
                     completed_agent_message = False
                     native_turn_had_product_output = False
                     empty_completion_attempts = 0
-                    command_completion_attempts = 0
                     if stop_event.is_set():
                         await client.request("turn/interrupt", {"threadId": thread_id, "turnId": turn_id}, timeout_s=10.0)
                 continue
@@ -3450,93 +3027,6 @@ async def run_codex_turn(
                     completed_agent_message = False
                     native_turn_had_product_output = False
                     continue
-                missing_completion_tools = _missing_command_completion_tools(
-                    request,
-                    successful_tool_evidence,
-                )
-                if (
-                    status == "completed"
-                    and missing_completion_tools == ("render_preview",)
-                ):
-                    reviewed = _latest_evidence(
-                        successful_tool_evidence,
-                        "document.review",
-                    )
-                    saved = _latest_evidence(
-                        successful_tool_evidence,
-                        "diagram.review",
-                    )
-                    candidate_path = (
-                        reviewed.path if reviewed is not None else ""
-                    ) or (saved.path if saved is not None else "")
-                    if candidate_path:
-                        await publish_completion_preview(
-                            path=candidate_path,
-                            native_turn_id=turn_id,
-                        )
-                        missing_completion_tools = _missing_command_completion_tools(
-                            request,
-                            successful_tool_evidence,
-                        )
-                if status == "completed" and missing_completion_tools:
-                    if command_completion_attempts >= _MAX_COMMAND_COMPLETION_ATTEMPTS:
-                        raise RuntimeError(
-                            "command_completion_incomplete: "
-                            + ", ".join(missing_completion_tools)
-                        )
-                    command_completion_attempts += 1
-                    await emit(
-                        "projection",
-                        {
-                            "event_type": "NOTICE",
-                            "payload": {
-                                "level": "info",
-                                "code": "command_completion_continuing",
-                                "message": (
-                                    "The Agent is completing the required review "
-                                    "and Preview steps."
-                                ),
-                                "runtime_type": "codex",
-                                "turn_disposition": "continue",
-                            },
-                        },
-                    )
-                    continuation_params: dict[str, Any] = {
-                        "threadId": thread_id,
-                        "input": [{
-                            "type": "text",
-                            "text": _command_completion_reminder(
-                                missing_completion_tools,
-                                successful_tool_evidence,
-                            ),
-                        }],
-                        "clientUserMessageId": (
-                            f"{client_user_message_id}:command-completion:"
-                            f"{command_completion_attempts}"
-                        ),
-                        "approvalPolicy": _approval_policy(request.approval_mode),
-                    }
-                    if isinstance(selected_model, str) and selected_model:
-                        continuation_params["model"] = selected_model
-                    if request.reasoning_effort:
-                        continuation_params["effort"] = request.reasoning_effort
-                    continued = await submit_turn(
-                        continuation_params, reason="command_completion",
-                    )
-                    continuation_turn = continued.get("turn")
-                    turn_id = str(
-                        continuation_turn.get("id")
-                        if isinstance(continuation_turn, dict)
-                        else ""
-                    )
-                    if not turn_id:
-                        raise RuntimeError(
-                            "codex_command_completion_turn_start_invalid_response"
-                        )
-                    current["turn_id"] = turn_id
-                    completed_agent_message = False
-                    native_turn_had_product_output = False
-                    continue
                 break
 
             if method in _CODEX_RECOGNIZED_NOTIFICATIONS:
@@ -3567,15 +3057,6 @@ async def run_codex_turn(
                         },
                     )
 
-        missing_completion_tools = _missing_command_completion_tools(
-            request,
-            successful_tool_evidence,
-        )
-        if missing_completion_tools and not stop_event.is_set() and not control_only:
-            raise RuntimeError(
-                "command_completion_incomplete: "
-                + ", ".join(missing_completion_tools)
-            )
         for message_id in list(open_messages):
             await emit("message.end", {"message_id": message_id})
         if latest_usage_payload is not None:

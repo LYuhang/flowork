@@ -60,8 +60,16 @@ jobs:
           runsc_path="$(bash scripts/get_runsc.sh)"
           PATH="$PWD/.venv/bin:$PATH" RUNSC_PATH="$runsc_path" \
             .venv/bin/python -c 'from vibecanvas_api.services.sandbox import _gvisor_runnable; print(f"rootless_gvisor_full_profile={_gvisor_runnable()}")'
-          PATH="$PWD/.venv/bin:$PATH" RUNSC_PATH="$runsc_path" \
-            .venv/bin/python -m pytest -q api/tests --maxfail=20 \
+          # Resident deployments require a writable delegated cgroup, just
+          # like the native installation. Keep pytest/PostgreSQL non-root.
+          sudo systemd-run --wait --pipe --collect \
+            --property="User=$(id -un)" --property=Delegate=yes \
+            --property="WorkingDirectory=$PWD" \
+            --setenv="PATH=$PWD/.venv/bin:$PATH" \
+            --setenv="RUNSC_PATH=$runsc_path" \
+            --setenv=SANDBOX_GVISOR_PLATFORM=ptrace \
+            "$PWD/.venv/bin/python" scripts/with_cgroup_delegation.py \
+            "$PWD/.venv/bin/python" -m pytest -q api/tests --maxfail=20 \
             --junitxml="$RUNNER_TEMP/python-test-reports/api.xml" \
             2>&1 | tee "$RUNNER_TEMP/python-test-reports/api.log"
       - name: Upload Python test diagnostics

@@ -636,6 +636,8 @@ async def test_g13_test_invoke_via_user_session(
             dep_id=dep_id, body={"x": 3}, request=_StubRequest(), ctx=ctx,
             session=s, service=_AllowAuthz(),
         )
+    if not isinstance(resp, dict):
+        pytest.fail(resp.body.decode("utf-8"))
     assert resp["outputs"] == {"y": 3}
 
 

@@ -111,7 +111,7 @@ def _minimal_runnable_workflow(wf_id: str) -> dict:
             "node_description": "",
             "input_fields": {},
             "output_fields": {},
-            "node_config": {"process_fn": ""},
+            "node_config": {},
             "children": [],
             "__attributes__": {"x": 0, "y": 0},
         },

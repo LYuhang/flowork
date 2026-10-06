@@ -308,7 +308,10 @@ def _big_loop_wf(wf_id: str, iters: int) -> dict:
         "node_2": {
             "node_id": "node_2", "node_name": "lb",
             "node_type": "LoopBeginNode", "node_description": "",
-            "input_fields": {}, "output_fields": {},
+            "input_fields": {}, "output_fields": {
+                "loop_output": {"type": "array", "description": "Iteration outputs"},
+                "i": {"type": "integer", "description": "Current index"},
+            },
             "node_config": {
                 "init_value": {"value": 0, "reference": ""},
                 "end_value": {"value": iters, "reference": ""},

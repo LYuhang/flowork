@@ -23,7 +23,7 @@ def test_command_instructions_are_resolved_once_by_backend_policy() -> None:
 
 def test_workflow_command_is_a_playbook_not_a_parameter_reference():
     content = command_instructions_for_modes({"workflow"})[0].content
-    assert "there is no connect, status or version set" in content
+    assert "there is no connect, status or version set" in content.lower()
     assert "flowork-cli workflow <command> --help" in content
     assert "node_schema" in content
     assert "version list" in content
@@ -44,7 +44,7 @@ def test_workflow_command_is_a_playbook_not_a_parameter_reference():
 @pytest.mark.parametrize("mode", ["workflow", "task", "deployment"])
 def test_workflow_discovery_instructions_use_cli(mode):
     instruction = command_instructions_for_modes({mode})[0]
-    assert ("flowork-cli workflow list" in instruction.content or "Use list to discover" in instruction.content)
+    assert ("flowork-cli workflow list" in instruction.content or "use list/get/version list" in instruction.content)
     assert "list_workflows" not in instruction.content
 
 

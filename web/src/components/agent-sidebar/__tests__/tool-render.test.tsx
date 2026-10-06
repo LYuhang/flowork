@@ -1559,7 +1559,10 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
     expect(screen.getByText(/^drawio$/i)).toBeInTheDocument();
     expect(onOpenFilePreview).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: 'Open in preview' }));
+    const previewButtons = screen.getAllByRole('button', { name: 'Open in preview' });
+    expect(previewButtons).toHaveLength(2);
+    for (const button of previewButtons) await user.click(button);
+    expect(onOpenFilePreview).toHaveBeenCalledTimes(2);
     expect(onOpenFilePreview).toHaveBeenCalledWith('/data/diagrams/system.drawio');
   });
 
@@ -1603,7 +1606,10 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
     expect(document.querySelector('[data-preview-render-state="summary"]')).toBeInTheDocument();
     expect(document.querySelector('[data-role="interactive-artifact-body"]')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Open in preview' }));
+    const previewButtons = screen.getAllByRole('button', { name: 'Open in preview' });
+    expect(previewButtons).toHaveLength(2);
+    for (const button of previewButtons) await user.click(button);
+    expect(onOpenFilePreview).toHaveBeenCalledTimes(2);
     expect(onOpenFilePreview).toHaveBeenCalledWith(
       '/data/diagrams/product-launch-readiness.drawio',
     );
@@ -1649,7 +1655,10 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
     expect(screen.getByText('External documentation')).toBeInTheDocument();
     expect(screen.getByText(toolName === 'render_preview' ? 'Preview' : 'Web preview')).toBeInTheDocument();
     expect(document.querySelector(`[data-tool-name="${toolName}"]`)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Open in preview' }));
+    const previewButtons = screen.getAllByRole('button', { name: 'Open in preview' });
+    expect(previewButtons).toHaveLength(2);
+    for (const button of previewButtons) await user.click(button);
+    expect(onOpenInteractivePreview).toHaveBeenCalledTimes(2);
     expect(onOpenInteractivePreview).toHaveBeenCalledWith(expect.objectContaining({
       artifact_id: 'ia_url', component_type: 'url_preview',
       props: { url: 'https://example.com/docs', description: 'External documentation' },
@@ -1666,9 +1675,9 @@ describe('InteractiveArtifactBlock HITL behavior', () => {
       } } },
     }} />, { wrapper: QueryWrapper });
     const links = screen.getAllByRole('link', { name: /Open in a new Preview tab/ });
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(3);
     for (const link of links) {
-      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf&version=v2.sv3');
+      expect(link).toHaveAttribute('href', '/preview?type=workflow&workflowId=wf&version=v2.sv3&originChatId=chat-test&originArtifactId=ia_workflow_compact');
       expect(link).toHaveAttribute('target', '_blank');
       expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     }

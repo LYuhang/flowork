@@ -27,7 +27,7 @@ def state(monkeypatch):
     monkeypatch.setattr(auth, "session_scope", scope)
     monkeypatch.setattr(auth, "WorkflowRepo", lambda *_args: repo)
     monkeypatch.setattr(auth, "_service", lambda *_args: object())
-    monkeypatch.setattr(auth, "_decision", decisions)
+    monkeypatch.setattr(auth, "_workflow_decision", decisions)
     monkeypatch.setattr(auth, "_require_active_chat_write", fence)
     return ctx, session, repo, decisions, fence
 
@@ -37,7 +37,7 @@ async def test_get_is_explicit_read_only_metadata(state):
     ctx, session, repo, decisions, fence = state
     assert await auth.get_authorized_workflow_metadata(ctx, "live-id") == repo.get_meta.return_value
     repo.get_meta.assert_awaited_once_with("live-id", for_update=False)
-    assert [c.kwargs["action"] for c in decisions.await_args_list] == [auth.Action.USE, auth.Action.VIEW]
+    assert [(c.kwargs["action"] if "action" in c.kwargs else c.args[3]) for c in decisions.await_args_list] == [auth.Action.USE, auth.Action.VIEW]
     fence.assert_not_awaited()
     repo.update_meta.assert_not_awaited()
 
@@ -63,7 +63,7 @@ async def test_update_patches_only_explicit_fields(state):
     await auth.get_authorized_workflow_metadata(ctx, "live-id", {"description": "", "tags": ["a", "b"]})
     fence.assert_awaited_once_with(session, ctx)
     repo.update_meta.assert_awaited_once_with("live-id", description="", tags=["a", "b"])
-    assert [c.kwargs["action"] for c in decisions.await_args_list] == [auth.Action.USE, auth.Action.VIEW, auth.Action.UPDATE]
+    assert [(c.kwargs["action"] if "action" in c.kwargs else c.args[3]) for c in decisions.await_args_list] == [auth.Action.USE, auth.Action.VIEW, auth.Action.UPDATE]
 
 @pytest.mark.asyncio
 async def test_update_denied_never_writes(state):

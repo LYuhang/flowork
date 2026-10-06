@@ -75,7 +75,6 @@ def service(monkeypatch):
     monkeypatch.setattr(ops, "resolve_target", selection)
     monkeypatch.setattr(ops, "_workflow_decision", AsyncMock())
     monkeypatch.setattr(ops, "_service", lambda *_: object())
-    monkeypatch.setattr(ops, "_workflow_resource", lambda *_: object())
     monkeypatch.setattr(ops, "WorkflowRepo", lambda *_: repo)
     return ctx, selection, repo, pointer, events
 

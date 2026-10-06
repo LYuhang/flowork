@@ -63,9 +63,10 @@ def state(monkeypatch):
     for module in (auth, transfer, versions):
         monkeypatch.setattr(module, "session_scope", scope)
         monkeypatch.setattr(module, "WorkflowRepo", lambda *_: repo)
-        monkeypatch.setattr(module, "_service", lambda *_: object())
         monkeypatch.setattr(module, "_workflow_decision", decision)
         monkeypatch.setattr(module, "_require_active_chat_write", fence)
+    for module in (auth, transfer):
+        monkeypatch.setattr(module, "_service", lambda *_: object())
     monkeypatch.setattr(transfer, "validate_workflow_for_context", AsyncMock(return_value=[]))
     monkeypatch.setattr(transfer, "collect_workflow_warnings", lambda _: [])
     monkeypatch.setattr(transfer, "_auto_tidy_workflow", lambda _: None)

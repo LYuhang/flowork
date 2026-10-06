@@ -42,6 +42,7 @@ const emptyPage = <T,>(): Page<T> => ({
 export const fixtureWorkflow = (
   overrides: Partial<WorkflowMetaOut> = {},
 ): WorkflowMetaOut => ({
+  created_by_me: true,
   wf_id: 'wf_test_1',
   workflow_name: 'Test Workflow',
   description: 'a workflow for tests',

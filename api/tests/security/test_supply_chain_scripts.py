@@ -266,9 +266,11 @@ def test_release_compose_uses_a_separate_verified_sandbox_builder_image() -> Non
         "api",
         "background_worker",
     }
-    assert set(services) == api_consumers | {"web", "sandboxd", "postgres"}
+    assert set(services) == api_consumers | {"web", "sandboxd", "postgres", "openfga_erasure_bootstrap"}
     assert services["postgres"]["image"].startswith("${VIBECANVAS_POSTGRES_IMAGE:?")
     assert services["postgres"]["pull_policy"] == "always"
+    assert services["openfga_erasure_bootstrap"]["image"] == services["postgres"]["image"]
+    assert services["openfga_erasure_bootstrap"]["pull_policy"] == "always"
     assert services["sandboxd"]["image"].startswith("${VIBECANVAS_SANDBOX_IMAGE:?")
     assert services["sandboxd"]["pull_policy"] == "always"
     for service_name in api_consumers:

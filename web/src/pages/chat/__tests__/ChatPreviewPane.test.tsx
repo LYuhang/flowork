@@ -11,7 +11,7 @@ const fileViewer = vi.hoisted(() => ({
 
 vi.mock('../preview/ChatFilePreview', () => ({
   ChatFilePreview: forwardRef(function MockChatFilePreview(_props, ref) {
-    useImperativeHandle(ref, () => ({ requestLeave: fileViewer.requestLeave }));
+    useImperativeHandle(ref, () => ({ requestLeave: fileViewer.requestLeave }), []);
     return <div>Active file</div>;
   }),
 }));

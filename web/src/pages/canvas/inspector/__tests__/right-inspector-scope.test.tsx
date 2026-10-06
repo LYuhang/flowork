@@ -87,7 +87,7 @@ describe('RightInspector scope-driven tab sets', () => {
     expect(screen.getAllByRole('tab')).toHaveLength(3);
   });
 
-  it('WORKFLOW scope (no selection) shows Run / Batch', () => {
+  it('WORKFLOW scope (no selection) shows Run / Batch / Schedule', () => {
     selection.nodes = [];
     renderInspector();
     expect(screen.getByTestId('inspector-tab-run')).toBeInTheDocument();
@@ -95,7 +95,8 @@ describe('RightInspector scope-driven tab sets', () => {
     expect(screen.queryByTestId('inspector-tab-node')).toBeNull();
     // The standalone Execution tab is GONE.
     expect(screen.queryByTestId('inspector-tab-execution')).toBeNull();
-    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.getByTestId('inspector-tab-schedule')).toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
   });
 
   it('explicit workflow override (no node selected) shows workflow tabs', () => {

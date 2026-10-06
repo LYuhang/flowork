@@ -40,7 +40,6 @@ def state(monkeypatch):
     monkeypatch.setattr(transfer, "resolve_target", selection)
     monkeypatch.setattr(transfer, "_require_active_chat_write", fence)
     monkeypatch.setattr(transfer, "_service", lambda *args: object())
-    monkeypatch.setattr(transfer, "_workflow_resource", lambda *args: object())
     monkeypatch.setattr(transfer, "_workflow_decision", decision)
     monkeypatch.setattr(transfer, "validate_workflow_for_context", validate)
     monkeypatch.setattr(transfer, "collect_workflow_warnings", lambda graph: [])

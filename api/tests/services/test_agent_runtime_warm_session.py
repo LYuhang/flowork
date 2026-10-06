@@ -462,12 +462,16 @@ async def test_failed_turn_syncs_volume_without_stopping_sibling_runtime(
         storage_prefix="project-runtime-v1/test",
     )
     persisted: list[str] = []
+    released: list[str] = []
 
     class RuntimeVolumeProvider:
         def sync(self, volume):
             assert provider.lifecycle == []
             persisted.append(volume.volume_id)
             return 1
+
+        def release(self, volume):
+            released.append(volume.volume_id)
 
     monkeypatch.setattr(
         manager_module,
@@ -510,7 +514,9 @@ async def test_failed_turn_syncs_volume_without_stopping_sibling_runtime(
         ]
 
     assert persisted == ["runtime-volume"]
+    assert released == []
     await session.close()
+    assert released == ["runtime-volume"]
 
 
 @pytest.mark.asyncio

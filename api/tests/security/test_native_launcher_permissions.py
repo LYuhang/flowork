@@ -224,3 +224,12 @@ def test_bootstrap_generated_config_preserves_invocation_values(tmp_path):
         capture_output=True, text=True, check=True,
     )
     assert defaults.stdout == "bubblewrap:rootless-warm"
+
+
+def test_node_and_pnpm_entrypoints_share_the_pinned_toolchain():
+    import json
+
+    root = Path(__file__).resolve().parents[3]
+    assert (root / ".nvmrc").read_text().strip() == "24.21.0"
+    for package in ("package.json", "web/package.json", "extension/package.json"):
+        assert json.loads((root / package).read_text())["packageManager"] == "pnpm@10.34.4"

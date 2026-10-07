@@ -26,9 +26,12 @@ export function capturePageSelection() {
 }
 
 export function registerPageQuotes() {
-  chrome.runtime.onInstalled.addListener(() => {
-    chrome.contextMenus.create({ id: menuId, title: 'Quote in Flowork', contexts: ['selection'],
-      documentUrlPatterns: ['http://*/*', 'https://*/*'] });
+  // Menus survive worker suspension, but an existing installation may not have
+  // this menu yet. Ensure it on every worker start, without duplicating it.
+  const properties = { title: 'Quote in Flowork', contexts: ['selection'],
+    documentUrlPatterns: ['http://*/*', 'https://*/*'] } satisfies chrome.contextMenus.UpdateProperties;
+  chrome.contextMenus.update(menuId, properties, () => {
+    if (chrome.runtime.lastError) chrome.contextMenus.create({ id: menuId, ...properties });
   });
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (message?.type !== 'PAGE_QUOTE_CONTEXT') return false;

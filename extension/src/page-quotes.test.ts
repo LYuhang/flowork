@@ -36,7 +36,7 @@ it('uses CLI target IDs and the source window destination without attaching debu
     runtime: { id: 'extension', getURL: (path: string) => `chrome-extension://extension/${path}`,
       onInstalled: { addListener: vi.fn() },
       onMessage: { addListener: (handler: typeof message) => { message = handler; } }, sendMessage: send },
-    contextMenus: { create: vi.fn(), onClicked: { addListener: (handler: typeof click) => { click = handler; } } },
+    contextMenus: { update: vi.fn(), create: vi.fn(), onClicked: { addListener: (handler: typeof click) => { click = handler; } } },
     debugger: { attach, getTargets: vi.fn(async () => [{ id: 'target-23', tabId: 23 }]) },
     scripting: { executeScript: vi.fn(async () => [{ result: { text: 'selected', css_selector: '#answer', prefix: 'before', suffix: 'after' } }]) },
     sidePanel: { open: vi.fn(async () => undefined) },
@@ -55,4 +55,18 @@ it('uses CLI target IDs and the source window destination without attaching debu
     attachment: expect.objectContaining({ type: 'quote', snapshot: { text: 'selected' },
       selector: expect.objectContaining({ tab_id: 'tab_target-23', window_id: 'win_7', css_selector: '#answer' }) }) }));
   expect(attach).not.toHaveBeenCalled();
+});
+
+it.each([false, true])('ensures the menu at worker startup (missing=%s)', async (missing) => {
+  const create = vi.fn();
+  const update = vi.fn((_id, _properties, callback) => callback());
+  vi.stubGlobal('chrome', {
+    runtime: { lastError: missing ? { message: 'Cannot find menu item' } : undefined,
+      onMessage: { addListener: vi.fn() } },
+    contextMenus: { update, create, onClicked: { addListener: vi.fn() } },
+  });
+  const { registerPageQuotes } = await import('./page-quotes');
+  registerPageQuotes();
+  expect(update).toHaveBeenCalledWith('flowork-quote', expect.objectContaining({ contexts: ['selection'] }), expect.any(Function));
+  expect(create).toHaveBeenCalledTimes(missing ? 1 : 0);
 });

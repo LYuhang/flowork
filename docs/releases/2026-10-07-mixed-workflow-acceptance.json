@@ -1,0 +1,603 @@
+{
+  "date": "2026-10-07",
+  "environment": "https://flowork.top",
+  "execution_method": "Resources and workload scripts authored by platform Terra Agent; approvals clicked in real browser; host used for observation, diagnosis and application fixes.",
+  "workflow": {
+    "id": "f69df1d0e009",
+    "version": "v1.sv2",
+    "node_types": [
+      "StartNode",
+      "ParallelStartNode",
+      "CodeNode",
+      "CodeNode",
+      "ParallelEndNode",
+      "PromptNode",
+      "ConditionNode",
+      "HumanApprovalNode",
+      "EndNode",
+      "ConditionNode",
+      "EndNode",
+      "EndNode"
+    ],
+    "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "route_input": "need_approval"
+  },
+  "task_batch": {
+    "id": "85ee0ecf-1d8e-4444-b051-17c2cb72fc9e",
+    "rows": 4,
+    "succeeded": 4,
+    "paths": [
+      "approval_not_requested",
+      "human_approved",
+      "human_rejected"
+    ]
+  },
+  "scheduled_tasks": [
+    {
+      "task_id": "55d547c6-e82f-46aa-95e5-5d6904b23625",
+      "type": "once",
+      "status": "finished",
+      "next_run_at": null,
+      "executions": [
+        {
+          "id": "99463960-00ec-41bd-a095-1c7484a58392",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:33:10.054173+00:00",
+          "started_at": "2026-10-07T03:35:27.300077+00:00",
+          "finished_at": "2026-10-07T03:35:58.652216+00:00",
+          "error": null
+        }
+      ]
+    },
+    {
+      "task_id": "5f23ba68-834e-4d14-a221-e2cf9a21a0d5",
+      "type": "interval",
+      "status": "paused",
+      "next_run_at": null,
+      "executions": [
+        {
+          "id": "67be1742-706c-40ef-b794-0a8dbbfcda27",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:35:07.253509+00:00",
+          "started_at": "2026-10-07T03:39:19.844912+00:00",
+          "finished_at": "2026-10-07T03:40:43.582353+00:00",
+          "error": null
+        },
+        {
+          "id": "93f25f3b-f687-474e-8d1f-cab46da07aca",
+          "status": "failed",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:34:27.414644+00:00",
+          "started_at": "2026-10-07T03:37:39.111342+00:00",
+          "finished_at": "2026-10-07T03:38:16.679302+00:00",
+          "error": "{\"node_6\": \"[NodeId: node_6][PromptNode Call]: LLM generation failed: Provider returned no completion choices: Upstream error from Nvidia: Service temporarily overloaded\"}"
+        },
+        {
+          "id": "13b06aeb-c0f8-44a0-8239-c096e553a901",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:33:47.295305+00:00",
+          "started_at": "2026-10-07T03:36:00.173518+00:00",
+          "finished_at": "2026-10-07T03:36:56.725112+00:00",
+          "error": null
+        },
+        {
+          "id": "818d2087-744c-4b7c-b045-3d332d732fa9",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:33:07.269886+00:00",
+          "started_at": "2026-10-07T03:34:29.047100+00:00",
+          "finished_at": "2026-10-07T03:35:25.701688+00:00",
+          "error": null
+        },
+        {
+          "id": "41572203-8d6f-43e1-8308-1b8967a5d0a6",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:32:27.345101+00:00",
+          "started_at": "2026-10-07T03:32:43.872901+00:00",
+          "finished_at": "2026-10-07T03:33:38.813442+00:00",
+          "error": null
+        }
+      ]
+    },
+    {
+      "task_id": "6d717671-7b7a-42b8-8a16-177b1288ee27",
+      "type": "cron",
+      "status": "paused",
+      "next_run_at": null,
+      "executions": [
+        {
+          "id": "460b38cf-0ec3-4562-b92a-39e0d87e8d21",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:35:00.114934+00:00",
+          "started_at": "2026-10-07T03:38:19.954652+00:00",
+          "finished_at": "2026-10-07T03:39:17.137307+00:00",
+          "error": null
+        },
+        {
+          "id": "d4845fa8-1683-44e7-a939-c6731cbe405e",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:34:00.143801+00:00",
+          "started_at": "2026-10-07T03:36:57.889590+00:00",
+          "finished_at": "2026-10-07T03:37:37.703350+00:00",
+          "error": null
+        },
+        {
+          "id": "b7c57a9c-c422-4a24-a9a0-0438b30de52e",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:33:00.045872+00:00",
+          "started_at": "2026-10-07T03:33:39.582875+00:00",
+          "finished_at": "2026-10-07T03:34:26.998753+00:00",
+          "error": null
+        },
+        {
+          "id": "df963dd8-2afd-4a61-80e0-79eab9123467",
+          "status": "succeeded",
+          "trigger_type": "scheduled",
+          "triggered_at": "2026-10-07T03:32:00.067200+00:00",
+          "started_at": "2026-10-07T03:32:03.314237+00:00",
+          "finished_at": "2026-10-07T03:32:42.837492+00:00",
+          "error": null
+        }
+      ]
+    }
+  ],
+  "schedule_scope_note": "Natural once, interval and cron triggers verified. Overdue overlapping occurrences were queued under available capacity, not skipped. Simultaneous execution of scheduled runs was not proven by this test.",
+  "local_cli": {
+    "local_single": {
+      "rows": 1,
+      "statuses": {
+        "success": 1
+      },
+      "paths": [
+        "approval_not_requested"
+      ]
+    },
+    "local_batch": {
+      "rows": 3,
+      "statuses": {
+        "success": 3
+      },
+      "paths": [
+        "approval_not_requested",
+        "human_approved",
+        "human_rejected"
+      ]
+    },
+    "run_approve": {
+      "rows": 1,
+      "statuses": {
+        "success": 1
+      },
+      "paths": [
+        "human_approved"
+      ]
+    },
+    "run_reject_002": {
+      "rows": 1,
+      "statuses": {
+        "success": 1
+      },
+      "paths": [
+        "human_rejected"
+      ]
+    },
+    "run_timeout": {
+      "rows": 1,
+      "statuses": {
+        "timed_out": 1
+      },
+      "paths": []
+    },
+    "run_batch_human": {
+      "rows": 4,
+      "statuses": {
+        "error": 1,
+        "success": 2,
+        "timed_out": 1
+      },
+      "paths": [
+        "approval_not_requested",
+        "human_rejected"
+      ]
+    }
+  },
+  "approval_timeout_invariant": "Both single and batch emitted approval_timeout with approved=null and no downstream successful nodes.",
+  "deployment": {
+    "id": "c7bada98-a9f3-46a5-993f-57e70f2b744c",
+    "worker_count": 1,
+    "concurrency": 4,
+    "timeout_seconds": 60,
+    "traffic": {
+      "started_at": "2026-10-07T03:53:51Z",
+      "workflow_version": "v1.sv2",
+      "planned_requests": 66,
+      "minute_counts": [
+        3,
+        6,
+        9,
+        3,
+        12,
+        6,
+        9,
+        3,
+        12,
+        3
+      ]
+    },
+    "http_counts": {
+      "200": 24,
+      "202": 7,
+      "429": 14,
+      "502": 10,
+      "504": 11
+    },
+    "admitted": 52,
+    "terminal": {
+      "succeeded": 31,
+      "failed": 10,
+      "timed_out": 11
+    },
+    "human_async_success": 7,
+    "execution_lost": 0
+  },
+  "memory_after_fix": {
+    "sample_interval_seconds": 5,
+    "limit_bytes": 268435456,
+    "peak_bytes": 163540992,
+    "peak_code_workers": 8,
+    "final_code_workers": 0,
+    "oom_kill": 0
+  },
+  "monitoring": {
+    "window": "fixed minute",
+    "ranges": [
+      "5m",
+      "10m",
+      "30m",
+      "1h",
+      "3h",
+      "6h",
+      "24h",
+      "7d",
+      "14d",
+      "30d"
+    ],
+    "independent_recalculation": {
+      "checked_at": "2026-10-07T04:05:59.288Z",
+      "from": "2026-10-07T03:53:00.000Z",
+      "to": "2026-10-07T04:04:00.000Z",
+      "buckets": 11,
+      "calls": 52,
+      "completed": 52,
+      "errors": []
+    },
+    "rejected_before_admission_excluded": true,
+    "ui_checks": [
+      {
+        "mode": "desktop",
+        "resource": "deployment",
+        "tab": "overview",
+        "sections": 3,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "deployment",
+        "tab": "usage",
+        "sections": 4,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "deployment",
+        "tab": "activity",
+        "sections": 2,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "deployment",
+        "tab": "settings",
+        "sections": 2,
+        "tables": 2,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "deployment",
+        "tab": "terminal",
+        "sections": 0,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "batch",
+        "tab": "overview",
+        "sections": 1,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "batch",
+        "tab": "logs",
+        "sections": 2,
+        "tables": 1,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "batch",
+        "tab": "settings",
+        "sections": 1,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "batch",
+        "tab": "evaluation",
+        "sections": 2,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "schedule",
+        "tab": "overview",
+        "sections": 1,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "schedule",
+        "tab": "logs",
+        "sections": 3,
+        "tables": 1,
+        "overflow": false
+      },
+      {
+        "mode": "desktop",
+        "resource": "schedule",
+        "tab": "settings",
+        "sections": 1,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "deployment",
+        "tab": "overview",
+        "sections": 2,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "deployment",
+        "tab": "usage",
+        "sections": 4,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "deployment",
+        "tab": "activity",
+        "sections": 2,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "deployment",
+        "tab": "settings",
+        "sections": 1,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "deployment",
+        "tab": "terminal",
+        "sections": 0,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "batch",
+        "tab": "overview",
+        "sections": 1,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "batch",
+        "tab": "logs",
+        "sections": 2,
+        "tables": 1,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "batch",
+        "tab": "settings",
+        "sections": 1,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "batch",
+        "tab": "evaluation",
+        "sections": 0,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "schedule",
+        "tab": "overview",
+        "sections": 0,
+        "tables": 0,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "schedule",
+        "tab": "logs",
+        "sections": 3,
+        "tables": 1,
+        "overflow": false
+      },
+      {
+        "mode": "mobile",
+        "resource": "schedule",
+        "tab": "settings",
+        "sections": 1,
+        "tables": 0,
+        "overflow": false
+      }
+    ]
+  },
+  "error_investigation": {
+    "before_fix": "Parallel branch Code pool ownership leak caused resident child processes and sandbox OOM; fixed in 1e405f1.",
+    "after_fix": {
+      "provider_overloaded": 9,
+      "empty_model_content": 1,
+      "timed_out_at_prompt": 10,
+      "timed_out_after_end_node_event": 1
+    },
+    "boundary_case": "a89540dc-2a4c-40b9-b317-56757cabe51d: End node success is not final runtime completion. Exact terminal emission/commit timing unavailable for this historical call; cannot label as proven API-only timeout or proven false timeout.",
+    "model_phase_evidence": "8 additional calls: 7 succeeded, 1 Nvidia overloaded. Preflight 95-196 ms; upstream headers 326-415 ms; successful response-body consumption 6.45-24.98 s. No timeout reproduced in these 8 calls.",
+    "no_model_control": {
+      "wait_seconds_success": [
+        0,
+        2,
+        55,
+        59,
+        59
+      ],
+      "wait_seconds_timeout": [
+        60,
+        60,
+        61
+      ],
+      "deadline_seconds": 60
+    },
+    "limitation": "Small controlled sample excludes obvious early deadline behavior; does not prove every historical timeout originated at provider."
+  },
+  "fixes": [
+    {
+      "commit": "1e405f1",
+      "change": "Shared ownership and release of Code subprocess pool across parallel branches",
+      "deployed": true
+    },
+    {
+      "commit": "c7b9ccd",
+      "change": "Model proxy phase timings without prompts, credentials or payloads",
+      "deployed": true
+    },
+    {
+      "commit": "3672719",
+      "change": "Forced timeout response uses recorded execution duration instead of fabricated zero",
+      "deployed": true
+    }
+  ],
+  "tests": {
+    "deployment_results": 16,
+    "model_broker": 32
+  },
+  "evidence_root": "/tmp/flowork-e2e-20261007",
+  "evidence_files": {
+    "batch.json": {
+      "sha256": "fcbcf4f2426b45ba0ac04bf72a377bd03b16acab5c5f5a1509165345cffc73aa",
+      "bytes": 10255
+    },
+    "batch-history.json": {
+      "sha256": "383d7ab17d7af02e0ddf6d6eb5bb8e8ac6b84161a99cf2ad3cb3cea4c534c2ff",
+      "bytes": 2940
+    },
+    "retest-run.json": {
+      "sha256": "f6f7334a9a0e3e67185f5cd6d9e4f3515c4e8be64445f287061c701a774617f0",
+      "bytes": 128
+    },
+    "retest-results.jsonl": {
+      "sha256": "6b2e05c0ef7e17534ff7d8b319082ea726c3f27f264ea0e92f3399ed687d14d6",
+      "bytes": 30411
+    },
+    "retest-error-audit.json": {
+      "sha256": "4fa6a6a1cb3c101ebfd8dad5b05f486cce60632f4efd84c7865f75ad4185194e",
+      "bytes": 5927
+    },
+    "model-timing-evidence.json": {
+      "sha256": "621157cb8e2f118052a9e71a110478aca53cf5053fa774622422f9e600512852",
+      "bytes": 6826
+    },
+    "control-history.json": {
+      "sha256": "a40addad7ef9303faa1fa4e74aa3d5d8a83125e82c3d587502d45309c774c7e3",
+      "bytes": 2737
+    },
+    "retest-control_boundary_results.jsonl": {
+      "sha256": "37ef2deb34dd814d0e986761b72f82f5deb88324b92d9020412d0c986a3c5a7a",
+      "bytes": 2018
+    },
+    "retest-metric-verification.json": {
+      "sha256": "afda8b53f59bc45ae9d318b4b0954e48b518205f870c127bd771c881e156c0e4",
+      "bytes": 187
+    },
+    "approval-clicks.jsonl": {
+      "sha256": "88f773ad404cb515d0848e523b43778d17c7f716928db54b2ca3cc4ad51da446",
+      "bytes": 5664
+    },
+    "detail-acceptance.json": {
+      "sha256": "efaa5f8dc419b045c7369ba3ad731214e81d5c3e1a2ee9c7458c2f3b683b972e",
+      "bytes": 3352
+    },
+    "ranges-final-live.log": {
+      "sha256": "8ccfd0ededfb3ac7370357becb047dd278df2b0ff1aedd5ea9c7bca7bd6bcb83",
+      "bytes": 315
+    },
+    "monitor-ui.log": {
+      "sha256": "0c84706c829a2f410d2ffcba387c1eafa06423e448ffbcd1d29bc7740db95b0c",
+      "bytes": 1405
+    },
+    "memory-retest.jsonl": {
+      "sha256": "14ca9620e68da24fd081fd38f3412c8ff93727e64d904ab335f1a3b4f222583b",
+      "bytes": 47404
+    },
+    "results-tests.log": {
+      "sha256": "80b01a3dce804a83d2d7382480dfa2f5fef8bcdc5290f436626de06e368d8023",
+      "bytes": 552
+    },
+    "broker-tests.log": {
+      "sha256": "b5e7b3e9207f956501172e502b58d0e8ca820a62d9190cc85b3152c166441641",
+      "bytes": 1583
+    },
+    "retest-timeout_result_recheck.json": {
+      "sha256": "5f5d351dc76a1423fcc4ee74f66ff19d7e1ac2a82d65456e634989bb8e6b167a",
+      "bytes": 116
+    }
+  },
+  "external_timeout_result_live_recheck": {
+    "http_status": 200,
+    "status": "timed_out",
+    "error_code": "execution_timeout",
+    "exec_time_ms": 59939.979
+  },
+  "conclusion": "Requested live acceptance completed. Platform pool leak and forced-timeout elapsed display fixed and deployed. Provider failures and configured admission/timeout outcomes preserved; historical near-deadline call cannot be attributed conclusively."
+}

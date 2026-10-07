@@ -22,6 +22,26 @@ afterEach(() => {
 });
 
 describe('side-panel app readiness', () => {
+  it('returns the live quote destination only to its own window and trusted app frame', async () => {
+    chrome.runtime.id = 'extension';
+    await import('./sidepanel');
+    await vi.advanceTimersByTimeAsync(1);
+    const frame = document.getElementById('embed') as HTMLIFrameElement;
+    const sendContext = (origin: string, chatId: string | null) => window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow, origin, data: { type: 'PAGE_QUOTE_CONTEXT', chatId, account: 'owner' },
+    }));
+    sendContext('http://localhost:9001', 'chat');
+    sendContext('https://untrusted.example', 'other-chat');
+    const receive = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
+    const reply = vi.fn();
+    receive({ type: 'PAGE_QUOTE_CONTEXT_REQUEST', windowId: 2 }, { id: 'extension' }, reply);
+    expect(reply).not.toHaveBeenCalled();
+    receive({ type: 'PAGE_QUOTE_CONTEXT_REQUEST', windowId: 1 }, { id: 'extension' }, reply);
+    expect(reply).toHaveBeenLastCalledWith({ chatId: 'chat', account: 'owner' });
+    sendContext('http://localhost:9001', null);
+    receive({ type: 'PAGE_QUOTE_CONTEXT_REQUEST', windowId: 1 }, { id: 'extension' }, reply);
+    expect(reply).toHaveBeenLastCalledWith(null);
+  });
   it('keeps a retry path when an HTTP error document fires iframe load', async () => {
     await import('./sidepanel');
     await vi.advanceTimersByTimeAsync(1);

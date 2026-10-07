@@ -35,6 +35,7 @@ export class PlaywrightCdpBridge {
     private readonly cookieAccess?: (tabId: number, mode: "metadata" | "export" | "status", format: string) => Promise<unknown>,
     downloadChrome?: DownloadChrome,
     downloadConfirmationChanged: () => void = () => {},
+    quotedTabWindows: ReadonlyMap<number, number> = new Map(),
   ) {
     this.model = new PlaywrightBrowserModel(
       async (method, params) => {
@@ -54,6 +55,7 @@ export class PlaywrightCdpBridge {
       (message) => this.handleRelayEvent(message),
       onOwnedTabDetached,
       onAttachedTabsChanged,
+      quotedTabWindows,
     );
     this.model.connectOverCDP(emitCDP);
     if (downloadChrome) this.downloads = new NativeDownloads(downloadChrome, windowId, tabId => this.ownsTab(tabId), undefined, downloadConfirmationChanged);

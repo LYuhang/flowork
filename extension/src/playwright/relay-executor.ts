@@ -160,6 +160,7 @@ export class PlaywrightRelayExecutor {
       reason: "attached" | "detached" | "tab_removed",
       tabId: number,
     ) => void = () => undefined,
+    private readonly quotedTabWindows: ReadonlyMap<number, number> = new Map(),
   ) {
     const onDebuggerEvent = (
       source: RelayDebuggee,
@@ -204,7 +205,7 @@ export class PlaywrightRelayExecutor {
       this.notifyTabsChanged("tab_removed", tabId);
     };
     const onTabDetached = (tabId: number, info: { oldWindowId: number }) => {
-      if (info.oldWindowId !== this.windowId ||
+      if ((info.oldWindowId !== this.windowId && this.quotedTabWindows.get(tabId) !== info.oldWindowId) ||
           (!this.attachedTabs.has(tabId) && !this.attachingTabs.has(tabId) && !this.announcedTabs.has(tabId))) return;
       // Revoke synchronously before any cleanup await: both events and commands
       // must stop at the window boundary, including an attach currently in flight.
@@ -240,7 +241,7 @@ export class PlaywrightRelayExecutor {
   initialize(tabs: RelayTab[]): void {
     if (this.closed) throw new Error("Playwright relay is closed");
     for (const tab of tabs) {
-      if (tab.id === undefined || tab.windowId !== this.windowId) continue;
+      if (tab.id === undefined || (tab.windowId !== this.windowId && this.quotedTabWindows.get(tab.id) !== tab.windowId)) continue;
       this.announcedTabs.add(tab.id);
       this.emit({ method: "chrome.tabs.onCreated", params: [tab] });
     }
@@ -372,7 +373,7 @@ export class PlaywrightRelayExecutor {
 
   private async requireTabInWindow(tabId: number): Promise<RelayTab> {
     const tab = await this.api.tabs.get(tabId);
-    if (tab.windowId !== this.windowId)
+    if (tab.windowId !== this.windowId && this.quotedTabWindows.get(tabId) !== tab.windowId)
       throw new Error("Playwright relay target is outside the side-panel window");
     if ([tab.url, tab.pendingUrl].some(url => /^(chrome|chrome-extension|devtools|edge):/i.test(url || "")))
       throw new Error("Browser and extension UI cannot be controlled by the Agent");

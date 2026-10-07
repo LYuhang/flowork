@@ -1,4 +1,4 @@
-import { registerPageQuotes } from './page-quotes';
+import { registerPageQuotes, quotedTabsForChat, clearQuotedTabs } from './page-quotes';
 /**
  * MV3 background service worker.
  *
@@ -557,6 +557,7 @@ chrome.runtime.onMessageExternal.addListener(
 
     void (async () => {
       if (m.type === "AUTH_CLEAR") {
+        await clearQuotedTabs();
         await chrome.storage.local.remove([
           "embedExchangeCode",
           "embedAgentSettings",
@@ -861,14 +862,17 @@ chrome.runtime.onMessage.addListener(
             ? await rememberedControlledTabIds()
             : [];
           const tabs: RelayTab[] = [];
+          const quotedTabs = await quotedTabsForChat(chatIdFromChannel(channel));
+          const quotedTabWindows = new Map(quotedTabs.flatMap(tab => tab.id === undefined ? [] : [[tab.id, tab.windowId] as const]));
           for (const tabId of rememberedTabs) {
             try {
               const tab = (await chrome.tabs.get(tabId)) as RelayTab;
-              if (tab.windowId === windowId) tabs.push(tab);
+              if (tab.windowId === windowId || quotedTabWindows.get(tabId) === tab.windowId) tabs.push(tab);
             } catch {
               // Closed tabs are omitted from the fresh Playwright handshake.
             }
           }
+          for (const tab of quotedTabs) if (!tabs.some(existing => existing.id === tab.id)) tabs.push(tab);
           if (tabs.length === 0) {
             const [active] = await chrome.tabs.query({ active: true, windowId });
             if (
@@ -959,6 +963,7 @@ chrome.runtime.onMessage.addListener(
             },
             chrome,
             () => { void chrome.runtime.sendMessage({ type: "DOWNLOAD_CONFIRM_CHANGED" }).catch(() => {}); },
+            quotedTabWindows,
           );
           playwrightCdpBridge.initialize(tabs);
           // The backend confirms the durable lease over the authenticated CDP

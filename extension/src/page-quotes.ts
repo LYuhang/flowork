@@ -1,7 +1,30 @@
 /** User-selected page material, independent of debugger ownership. */
 type Destination = { chatId: string; account: string };
-const destinations = new Map<number, Destination>();
 const menuId = 'flowork-quote';
+type QuotedTab = { tabId: number; windowId: number; targetId: string };
+const quoteKey = (chatId: string) => `pageQuoteTabs:${chatId}`;
+
+export async function clearQuotedTabs(): Promise<void> {
+  const saved = await chrome.storage.session.get(null);
+  await chrome.storage.session.remove(Object.keys(saved).filter(key => key.startsWith('pageQuoteTabs:')));
+}
+
+/** Only native user quotes create these tab grants; attachment JSON cannot. */
+export async function quotedTabsForChat(chatId: string): Promise<chrome.tabs.Tab[]> {
+  const key = quoteKey(chatId);
+  const records = ((await chrome.storage.session.get(key))[key] ?? []) as QuotedTab[];
+  if (!records.length) return [];
+  const targets = await chrome.debugger.getTargets();
+  const tabs: chrome.tabs.Tab[] = [];
+  for (const record of records) {
+    if (!targets.some(target => target.tabId === record.tabId && target.id === record.targetId)) continue;
+    try {
+      const tab = await chrome.tabs.get(record.tabId);
+      if (tab.windowId === record.windowId) tabs.push(tab);
+    } catch { /* Closed tabs are not replaced with a different page. */ }
+  }
+  return tabs;
+}
 
 export function capturePageSelection() {
   const selection = window.getSelection();
@@ -33,23 +56,17 @@ export function registerPageQuotes() {
   chrome.contextMenus.update(menuId, properties, () => {
     if (chrome.runtime.lastError) chrome.contextMenus.create({ id: menuId, ...properties });
   });
-  chrome.runtime.onMessage.addListener((message, sender, respond) => {
-    if (message?.type !== 'PAGE_QUOTE_CONTEXT') return false;
-    if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL('sidepanel.html')) return false;
-    if (!Number.isInteger(message.windowId)) return false;
-    if (typeof message.chatId === 'string' && message.chatId && typeof message.account === 'string' && message.account) {
-      destinations.set(message.windowId, { chatId: message.chatId, account: message.account });
-    } else destinations.delete(message.windowId);
-    respond({ ok: true });
-    return false;
-  });
   chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId !== menuId || !tab?.id || !info.selectionText) return;
-    const destination = destinations.get(tab.windowId);
+    let destination: Destination | undefined;
     const deliver = (payload: Record<string, unknown>) => chrome.runtime.sendMessage({
       type: 'PAGE_QUOTE', windowId: tab.windowId, ...destination, ...payload,
     }).catch(() => undefined);
     void (async () => {
+      // Ask the live shell, rather than retaining a stale destination when the
+      // panel closes or losing it when this disposable worker restarts.
+      const context = await chrome.runtime.sendMessage({ type: 'PAGE_QUOTE_CONTEXT_REQUEST', windowId: tab.windowId }).catch(() => null);
+      if (context?.chatId && context?.account) destination = context;
       if (!destination) {
         await chrome.sidePanel.open({ windowId: tab.windowId });
         await deliver({ error: 'Open a conversation in this window, then select the text and quote it again.' });
@@ -59,6 +76,10 @@ export function registerPageQuotes() {
       if (text.length > 32768) { await deliver({ error: 'Select at most 32768 characters for a quote.' }); return; }
       const target = (await chrome.debugger.getTargets()).find(target => target.tabId === tab.id);
       if (!target) { await deliver({ error: 'The selected tab is no longer available. Select the text again.' }); return; }
+      const key = quoteKey(destination.chatId);
+      const records = ((await chrome.storage.session.get(key))[key] ?? []) as QuotedTab[];
+      await chrome.storage.session.set({ [key]: [...records.filter(record => record.tabId !== tab.id),
+        { tabId: tab.id, windowId: tab.windowId, targetId: target.id }] });
       let selection: ReturnType<typeof capturePageSelection> = null;
       try {
         const results = await chrome.scripting.executeScript({ target: { tabId: tab.id!, frameIds: [info.frameId ?? 0] }, func: capturePageSelection });

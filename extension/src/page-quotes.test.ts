@@ -29,32 +29,46 @@ describe('web quote selection', () => {
 it('uses CLI target IDs and the source window destination without attaching debugger', async () => {
   vi.resetModules();
   let click!: (info: unknown, tab: unknown) => void;
-  let message!: (data: unknown, sender: unknown, reply: unknown) => void;
-  const send = vi.fn(async () => ({}));
+  const send = vi.fn(async (message) => message.type === 'PAGE_QUOTE_CONTEXT_REQUEST' ? { chatId: 'chat', account: 'owner' } : {});
   const attach = vi.fn();
   vi.stubGlobal('chrome', {
     runtime: { id: 'extension', getURL: (path: string) => `chrome-extension://extension/${path}`,
       onInstalled: { addListener: vi.fn() },
-      onMessage: { addListener: (handler: typeof message) => { message = handler; } }, sendMessage: send },
+      sendMessage: send },
     contextMenus: { update: vi.fn(), create: vi.fn(), onClicked: { addListener: (handler: typeof click) => { click = handler; } } },
     debugger: { attach, getTargets: vi.fn(async () => [{ id: 'target-23', tabId: 23 }]) },
+    storage: { session: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
     scripting: { executeScript: vi.fn(async () => [{ result: { text: 'selected', css_selector: '#answer', prefix: 'before', suffix: 'after' } }]) },
     sidePanel: { open: vi.fn(async () => undefined) },
   });
   const { registerPageQuotes } = await import('./page-quotes');
   registerPageQuotes();
-  message({ type: 'PAGE_QUOTE_CONTEXT', windowId: 7, chatId: 'chat', account: 'owner' },
-    { id: 'extension', url: 'chrome-extension://extension/sidepanel.html' }, vi.fn());
-  // A page cannot overwrite the selected destination.
-  message({ type: 'PAGE_QUOTE_CONTEXT', windowId: 7, chatId: 'attacker', account: 'other' },
-    { id: 'extension', url: 'https://example.com' }, vi.fn());
   click({ menuItemId: 'flowork-quote', selectionText: 'selected', pageUrl: 'https://example.com', frameId: 0 },
     { id: 23, windowId: 7, title: 'Report', url: 'https://example.com' });
-  await vi.waitFor(() => expect(send).toHaveBeenCalled());
+  await vi.waitFor(() => expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'PAGE_QUOTE' })));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ windowId: 7, chatId: 'chat', account: 'owner',
     attachment: expect.objectContaining({ type: 'quote', snapshot: { text: 'selected' },
       selector: expect.objectContaining({ tab_id: 'tab_target-23', window_id: 'win_7', css_selector: '#answer' }) }) }));
   expect(attach).not.toHaveBeenCalled();
+});
+
+it('restores only the quoted chat targets with matching live window and target IDs', async () => {
+  const saved = { 'pageQuoteTabs:chat': [
+    { tabId: 1, windowId: 7, targetId: 'a' },
+    { tabId: 2, windowId: 8, targetId: 'b' },
+    { tabId: 3, windowId: 9, targetId: 'stale' },
+    { tabId: 4, windowId: 10, targetId: 'moved' },
+  ] };
+  vi.stubGlobal('chrome', {
+    storage: { session: { get: vi.fn(async () => saved) } },
+    debugger: { getTargets: vi.fn(async () => [
+      { tabId: 1, id: 'a' }, { tabId: 2, id: 'b' }, { tabId: 3, id: 'replacement' }, { tabId: 4, id: 'moved' },
+    ]) },
+    tabs: { get: vi.fn(async (id: number) => ({ id, windowId: id === 1 ? 7 : id === 2 ? 8 : 20 })) },
+  });
+  const { quotedTabsForChat } = await import('./page-quotes');
+  expect(await quotedTabsForChat('chat')).toEqual([{ id: 1, windowId: 7 }, { id: 2, windowId: 8 }]);
+  expect(await quotedTabsForChat('other-chat')).toEqual([]);
 });
 
 it.each([false, true])('ensures the menu at worker startup (missing=%s)', async (missing) => {

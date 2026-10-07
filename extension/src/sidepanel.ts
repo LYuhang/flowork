@@ -35,6 +35,8 @@ interface Binding {
   webBase?: string;
 }
 
+let quoteContext: { chatId: string; account: string } | null = null;
+
 /** The origin the embed iframe is loaded from (web app's origin). Defaults to
  *  WEB_BASE's origin; updated from the binding's `webBase` once known. Used for
  *  the postMessage targetOrigin + the inbound message-origin guard. */
@@ -434,7 +436,7 @@ window.addEventListener("message", (ev: MessageEvent) => {
       turn_id: m.turn_id,
     });
   } else if (m.type === "PAGE_QUOTE_CONTEXT") {
-    void sendToSw({ type: "PAGE_QUOTE_CONTEXT", windowId: currentWindowId, chatId: m.chatId, account: m.account });
+    quoteContext = m.chatId && m.account ? { chatId: m.chatId, account: m.account } : null;
   } else if (m.type === "AUTH_EXCHANGE_CONSUMED") {
     // Retain the single-use code until the iframe confirms that its
     // partitioned HttpOnly Session exists. This closes the iframe-load race.
@@ -467,13 +469,18 @@ window.addEventListener("message", (ev: MessageEvent) => {
 
 // Reflect WS connection state into the tiny fallback chip (the iframe is the
 // primary UI; this only matters before/around the iframe mounting).
-chrome.runtime.onMessage.addListener((msg: unknown) => {
+chrome.runtime.onMessage.addListener((msg: unknown, sender, respond) => {
   const m = msg as {
     type?: string;
     chat_id?: string;
     status?: string;
     browser_window_id?: string | number;
+    windowId?: number;
   } | null;
+  if (m?.type === 'PAGE_QUOTE_CONTEXT_REQUEST' && sender.id === chrome.runtime.id && m.windowId === currentWindowId) {
+    respond(quoteContext);
+    return false;
+  }
   if (m?.type === "WS_OPEN" || m?.type === "WS_CLOSED") {
     postToIframe({ type: "BROWSER_TRANSPORT_STATE", connected: m.type === "WS_OPEN" });
   }

@@ -20,7 +20,7 @@ function event<T extends (...args: never[]) => void>() {
   };
 }
 
-function fixture(onOwnedTabDetached = vi.fn(), onAttachedTabsChanged = vi.fn()) {
+function fixture(onOwnedTabDetached = vi.fn(), onAttachedTabsChanged = vi.fn(), quotedTabWindows = new Map<number, number>()) {
   const tabs = new Map<number, RelayTab>([
     [10, { id: 10, windowId: 7, title: "Allowed" }],
     [11, { id: 11, windowId: 8, title: "Other window" }],
@@ -62,6 +62,7 @@ function fixture(onOwnedTabDetached = vi.fn(), onAttachedTabsChanged = vi.fn()) 
     (message) => messages.push(message),
     onOwnedTabDetached,
     onAttachedTabsChanged,
+    quotedTabWindows,
   );
   return {
     api,
@@ -79,6 +80,18 @@ function fixture(onOwnedTabDetached = vi.fn(), onAttachedTabsChanged = vi.fn()) 
 }
 
 describe("Playwright extension relay", () => {
+  it('allows the exact quoted tab in another window, but not its neighbors or a moved tab', async () => {
+    const { relay, tabs, tabDetached, api } = fixture(undefined, undefined, new Map([[11, 8]]));
+    tabs.set(13, { id: 13, windowId: 8 });
+    const attach = (tabId: number) => relay.handle({ id: tabId, method: 'chrome.debugger.attach', params: [{ tabId }, '1.3'] });
+    expect((await attach(11)).error).toBeUndefined();
+    expect((await attach(13)).error?.message).toContain('outside');
+    tabDetached.emit(11, { oldWindowId: 8 });
+    tabs.set(11, { id: 11, windowId: 9 });
+    expect((await attach(11)).error).toBeDefined();
+    expect(api.debugger.attach).toHaveBeenCalledTimes(1);
+    await relay.close();
+  });
   async function attached() {
     const f = fixture();
     await f.relay.handle({ id: 100, method: "chrome.debugger.attach", params: [{ tabId: 10 }, "1.3"] });

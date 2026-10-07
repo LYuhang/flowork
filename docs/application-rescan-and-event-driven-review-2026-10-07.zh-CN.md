@@ -18,7 +18,7 @@
 
 | 范围 | 已有实机证据 | 仍需补齐 |
 | --- | --- | --- |
-| F1、F5、P5 | 文件下载与账号隔离；完成记录释放及去槽后的真实 CLI 单条/批量、Deployment 调用通过；inbox 扫描优化 | 原订单示例含模型的正常分支仍有服务商/工具输出失败，不等同于本项回归通过 |
+| F1、F5、P5 | 文件下载与账号隔离；完成记录释放及去槽后的真实 CLI 单条/批量、Deployment 调用通过；inbox 扫描优化 | 原订单样例按用户要求替换为简单审批样例；当前验收详见文末，服务商失败保留且不冒充成功 |
 | F2 引用授权 | Terra 跨窗口多标签页读取；模块并发/关闭/移动；真实页面退出、第二账号登录及原生引用隔离通过 | 双窗口原生引用在受控写入重叠下已补验；与账号、标签页生命周期和 Terra 读取证据合并覆盖，不声称高负载压测 |
 | F3 / P1 对话消息 | 长历史分批回放对照、多窗口、离线恢复、历史翻页 | 刷新重复消息、两屏历史、编辑框溢出已实机复核；当前页流订阅与提前显示运行状态已部署并通过延迟流连接测试；原对话两条失败记录刷新前后内容、数量一致；运行故障证据见 P3 |
 | F4 结果表格 | 20,000 行真实文件并发查询/事件循环响应；线上 300 行双并发查询与健康 API 对照；账号隔离 | 已补响应性证据；线上未构造 20,000 行执行结果，不声称容量压测 |
@@ -1065,3 +1065,52 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 - 样例进一步收敛为一条方向性需求：保留主要节点、模型、render preview、人工点击、CLI/任务/部署覆盖、10分钟波动调用与证据要求；去掉预设字段、样本数、并发/超时值、流量表和详细命令，让 Agent 自行探索。不再通过多轮补充构造最终验收需求。
 
 - 精简后的中英文样例已重新构建并发布，部署路径检查通过。当前对话已实际调用 render_preview。新增 approve 批次受 authorization_unavailable 阻断；对应 OpenFGA 记录为访问本机 PostgreSQL 5433 的 read tcp i/o timeout，并非模型错误；尚未定位连接超时根因，未标为修复。当前完整任务／部署／10分钟验收仍未完成。
+
+- 用户明确当前验收的 Task 和 Deployment 应由验收人员在真实对应页面手动创建、执行、审批和核对，不能仅以 Agent CLI 返回替代页面验收；Agent 负责 Workflow 构建及相关 CLI 能力观察。
+- 授权读超时的新对照：当前已知授权请求串行各150次、4路并发各150次，context propagation true/false 均未复现（各0错误）；不足以修改生产配置。新证据 /tmp/flowork-fga-context-current-serial.json 和 /tmp/flowork-fga-context-current-concurrent.json。临时 OpenFGA 进程已退出。
+
+### 当前页面验收进展
+
+- 用户明确授权异常以清晰报错为准，由 Agent 判断是否重试；不因偶发授权读取错误暂停整体验收，也不增加平台隐式重试。
+- Task 页面真实上传 JSONL、选择 Workflow ad1e78c9b3eb/v1.sv1、映射三个输入并选择三个输出列，点击提交创建批次 423a7e7c-2d98-47eb-8374-fa9d4de88d93。日志页进入执行详情画布，依次点击 Approve 和 Reject（202），原执行均结束；最终任务 Finished，4/4成功。结果表逐条输出 not_required/approved/rejected/not_required 与动作一致。证据 /tmp/flowork-mixed-current-20261007/task-*。
+- 结果页采用固定列（input/output为JSON）而非用户选择的导出列；原脚本等待 approval_path 列超时，源码确认属当前展示方式，不是结果缺失。完整输出和Trace列实际存在，尚需核对导出文件及搜索/链接交互。
+- 一次性任务首次验收脚本误以用户显示时区填入日历，但调度表单为 UTC，导致时间晚8小时；这是测试设置错误，原任务 b6ac4116-7755-492b-8201-e77f40c7d5a6 将从页面暂停，另按表单UTC创建新任务；不作为产品调度故障。
+
+- 批量结果搜索 ui-batch-approve-1 返回1条，并点击 Trace ID 进入12节点执行画布。CSV成功下载4行。发现验收脚本在延迟筛选尚未更新时误选同一个request_id字段，导致三个命名输出列都指向request_id；已核对payload证实为测试选择错误，修正脚本精确匹配字段后待补验。
+- 一次性UTC任务6420044e-6d41-4da3-a650-9b54660584d5于16:30:52到期、16:30:53开始，Succeeded，只有1次执行，next_run_at=null，页面Finished。
+- 固定间隔任务1b4c73ca-b05f-4a28-a75b-c7ab21ae3403在16:31:32/16:32:32/16:33:32各触发一次。首条Human等待期间后两条Queued（本机任务worker并发1），没有跳过。真实页面暂停计划，再从日志执行详情分别Approve/Reject/Reject，3条均Succeeded，任务Paused，next_run_at=null。不能声称多worker同时运行已验证。证据schedule-current-summary.json、schedule-ui-decisions.jsonl及对应截图。
+
+- cron任务63fce1c3-97fe-42f7-a4b5-d8b7b35bf3d1从Task页面创建，* * * * * UTC，16:37触发；页面暂停计划，执行Succeeded，最终Paused。证据schedule-cron-summary.json、schedule-cron-final.txt/png。Deployment页面与连续10分钟验收仍待完成；批量导出字段选择补验仍待完成。
+
+- Deployment 70a947ec-bd28-4811-aa1a-45c74e3bfc02 已通过页面创建；设置页显式切换v1.sv1、超时60秒、worker1/并发4，二确保存200。首次页面Test返回422 approval_email_required，尚未执行推理；原Human未指定审批人，节点spec已有“部署必须显式邮箱”说明。已将实际错误反馈Terra，让其修改并render preview；没有绕过校验或将422算成功。
+- 两项脚本问题：创建成功后Close选择器同时命中两个按钮；设置二确最末按钮实际是关闭按钮。均通过精确按钮名修正，原创建只发生一次，错误设置未提交；已确认成功PATCH的配置。
+
+- 修正请求t_213cb2aec6d34a1a9316d9170fa85708在启动阶段因resident sandbox capacity full失败，Workflow尚未执行。检查发现旧订单QA部署b439d3df-4192-49ae-a135-fdab0bf0ed1a仍启用；已在真实设置页关闭Accept requests并二确，PATCH200，保留历史。之后显式重新发出未启动的修正需求，不是平台自动重投。
+
+### 本轮验收续记：资源与部署版本（2026-10-07）
+
+- 依用户要求，仅将线上 `/opt/flowork/.env.launch.local` 的 `SANDBOX_MAX_RESIDENT` 从 4 调至 6，供下次启动读取；未为此打断服务。复核 test 账号 32 个 Project 沙盒均为 released。旧订单验收 Deployment 已经通过页面停用；保留当前验收 Deployment。
+- Terra 修复人工审批指定用户并发布 `ad1e78c9b3eb@v1.sv2`，已静态校验并生成 preview。页面 Settings 固定至 v1.sv2，PATCH 200。切换完成前立即测试仍命中旧实例并返回 approval_email_required；数据库 revision 显示新版于 16:51:05 UTC 激活，之后页面测试返回 200，结果 approval_path=not_required。不可把保存设置等同于新实例已经就绪。
+- 同步成功证据：execution ed564f23-220e-48c6-ab26-26f622b1639c；耗时约 10.9 秒，包含 request_id、prompt_result、approval_path。
+- 16:54:01 UTC 开始当前 Deployment 的 600 秒波动流量验收，单次间隔在 5/6/10/15/20 秒间变化；输入混合同步、人工通过、人工驳回，审批通过真实只读画布按钮完成。尚未完成，不提前判通过。
+- 首次失败 e152cb76-e855-4c05-8ec2-66069c8eb772 的持久化节点错误为 NVIDIA Service temporarily overloaded；外部 API 保留通用 execution_failed，完整诊断在鉴权后的执行详情中，不应直接暴露可能含敏感信息的节点错误到公开调用方。
+
+### 当前 Deployment 与导出验收结果
+
+- 连续发送窗口 16:54:01–17:04:01 UTC，最后同步返回17:04:10；70次外部调用，56次成功、12次失败、1次60秒同步超时、1次并发上限429。69次实际入场执行，29次进入Human并返回202；画布实际点击16次通过和13次驳回，全部最终成功，凭API key查询原result_url与数据库终态、业务输出一致，无路由结果不匹配。保留原始失败，无重发。
+- 12次失败中11次节点明确记录NVIDIA Service temporarily overloaded，1次runtime_model_upstream_unavailable（执行1248b8c8-c4ff-4db4-a85c-760a5e8a7462）。后一条日志异常被统一脱敏为REDACTED，仅能定位上游转发异常，不能声称已证实具体网络/服务商根因。同步超时de989ebd-d102-4ef9-af40-4d8b44a53a8f的并行Code已成功，Prompt启动后到达60秒期限，返回504并持久化timed_out。
+- 数据库独立逐行重算11个分钟窗口的calls、errors、QPS、error_rate、P50/P95，与metrics API逐项一致；真实页面切换5m/10m/30m/1h/3h/6h/24h/7d/14d/30d，均200且bucket=minute。已查看截图，版本v1.sv2、worker1×4、unfinished0及窗口说明正确。证据traffic-window.json、traffic-verified.json、deployment-approval-clicks.jsonl、metrics-verified.json、deployment-metrics-ui.json，目录/tmp/flowork-mixed-current-20261007。
+- 导出字段补验：页面创建单条批次f92f293b-42a4-4433-862c-d84091c1301b，固定v1.sv2，精确选择EndNode的request_id/prompt_result/approval_path三个不同字段。页面Download→CSV下载，实际1行success，三列分别为ui-export-sync、模型摘要、not_required，导出映射正确。
+
+### CLI 通过路径补验
+
+- Terra 在本地 CLI 单条执行进入 Human 后主动给出 Run ID 85b9cf3c72724cf2977845fddb4c22cb、审批 ID 和执行详情链接。真实画布通过 execution 806114de-abf1-5046-a3da-04bc6e9bd23c，HTTP202；原执行Succeeded，最终approval_path=approved。告知审批完成后Terra查询原ID确认total=1，无重提。
+- 随后Terra顺序发起本地单行批量 run 29a650dbc4c44b8bae48482dd67fed2d，同样主动返回索引0和审批链接；真实画布通过 execution d28bb691-0fbc-5eab-b00a-a93c22036c99，原执行Succeeded，approval_path=approved。与此前混合四行批量/驳回证据合并覆盖，不声称本次单行批量等同多样本混合。
+- 已完成的Deployment通过页面停用（PATCH200），无剩余审批；导出补验任务已Finished。证据 cli-approve-clicks.jsonl、Agent对话980bc592-7c03-4106-ae5f-5c75040790b6。
+- 版本边界：最初任务与驳回CLI使用v1.sv1；Terra为外部Deployment补显式审批邮箱后，部署、导出补验和通过CLI使用v1.sv2。未将这些分批证据冒充一个完全无需反馈的首轮端到端执行。
+
+### 本轮收尾
+
+- Terra最终查询原批次completed、1/1成功、results_complete=true，并保存单条/批量验收文件。运行完成后确认active-runs为空，释放本轮Project沙盒；返回closed，文件卷已卸载、执行进程停止，历史与持久文件保留。
+- 样例最终仅调整中英文末尾说明：由Agent判断是否重试，不增加平台隐式重投。EmptyChatExamples现有4项测试通过（7.54秒），Vite正式构建与deployment-path guard通过。前端资源及说明已发布；本次无需后端重启。
+- 当前简单样例的功能路径验收已覆盖；不宣称70次全部成功、不宣称免费模型具备生产SLA、不宣称上游异常具体根因已定位。旧订单实验不再是用户当前验收范围。

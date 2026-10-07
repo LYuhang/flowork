@@ -3611,7 +3611,7 @@
   "chat.examples.tab.automation": "自动化",
   "chat.examples.automation.mixedExecution.title": "验证同步与人工审批",
   "chat.examples.automation.mixedExecution.description": "构建简单工作流，验证批量、定时任务与部署调用。",
-  "chat.examples.automation.mixedExecution.prompt": "/workflow 请构建一个简单的 Workflow，用来端到端验证平台的工作流、任务和部署能力。包含开始、并行、Prompt、条件、人工审批和结束节点；通过输入决定是否经过人工审批，Prompt 使用已配置的 Nemotron 3 Ultra (free)。构建并校验后，先 render preview 展示工作流画布，供我查看。\n\n请自主查阅 CLI 帮助和节点定义，设计测试数据，验证单次与批量执行的同步、异步路径。遇到人工审批时，将审批链接和执行标识发给我，由我在画布通过或驳回；之后查询原执行，核对结果，不要代替我审批。\n\n再用同一固定版本验证批量任务、各种定时任务和部署调用。部署连续调用10分钟，流量时快时慢，混合免审批与人工审批请求；核对执行结果、状态、日志以及详情页的请求速率、错误率和延迟展示是否一致。\n\n请自行安排步骤并推进，只有需要我审批或确实受阻时才等待。使用专用测试资源，结束后停止测试计划和部署。将过程证据和结论保存到 automation-mixed-execution/，如实区分通过、失败与未验证项；失败应排查并记录，不自动重投，也不要因此跳过其它独立测试。",
+  "chat.examples.automation.mixedExecution.prompt": "/workflow 请构建一个简单的 Workflow，用来端到端验证平台的工作流、任务和部署能力。包含开始、并行、Prompt、条件、人工审批和结束节点；通过输入决定是否经过人工审批，Prompt 使用已配置的 Nemotron 3 Ultra (free)。构建并校验后，先 render preview 展示工作流画布，供我查看。\n\n请自主查阅 CLI 帮助和节点定义，设计测试数据，验证单次与批量执行的同步、异步路径。遇到人工审批时，将审批链接和执行标识发给我，由我在画布通过或驳回；之后查询原执行，核对结果，不要代替我审批。\n\n再用同一固定版本验证批量任务、各种定时任务和部署调用。部署连续调用10分钟，流量时快时慢，混合免审批与人工审批请求；核对执行结果、状态、日志以及详情页的请求速率、错误率和延迟展示是否一致。\n\n请自行安排步骤并推进，只有需要我审批或确实受阻时才等待。使用专用测试资源，结束后停止测试计划和部署。将过程证据和结论保存到 automation-mixed-execution/，如实区分通过、失败与未验证项；失败应排查并记录，由你判断是否需要重试，不要因此跳过其它独立测试。",
   "embed.back_to_chat": "返回对话",
   "embed.welcome.title": "今天想完成什么？",
   "embed.welcome.description": "跨页面调研、整理信息，或填写表单。告诉我目标，从当前浏览器开始。",

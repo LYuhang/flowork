@@ -271,3 +271,11 @@ Usage 的 8 项真实 Python/Shell 样例验证已通过。新增 draw.io 静态
 - 使用独立的无登录 Cookie 客户端、部署 API Key 调用公网 invoke，得到 HTTP 200、`status=succeeded`、`outputs={"answer":42}`，请求耗时约 635 毫秒。此证据覆盖真实同步执行链路，不代表审批、超时和其余页面场景已经通过。
 - 审批测试版本切换遇到滚动更新容量不足，改为停止本轮专用 QA 部署并等待 `stopped` 后再启用，以释放旧实例资源；其他业务部署不因此停止。
 - 审批版本 `v1.sv3` 启动后，公网调用约 431 毫秒返回 HTTP 202、`waiting_approval`、`async_reason=human_approval` 和结果查询地址。使用指定审批账号提交通过得到 202，独立 API Key 客户端随后查到 `succeeded` 与完整输出 `{"approved":true}`。脚本首次误用审批字段 `approval_id` 得到 404，按实际详情契约改用 `id` 后通过；该错误属于验收脚本，不是业务接口故障。
+
+### 线上超时与限流故障验收
+
+- 审批等待设置 3 秒，调用先返回 202，随后结果查询返回 `timed_out`、`approval_timeout`、空输出；未将超时转换为 `approved=false`。
+- 普通 Code 节点执行 20 秒等待、Deployment 超时设置 2 秒，两次调用分别约 2.18 和 2.20 秒返回 HTTP 504、`execution_timeout`，没有转成异步。执行详情确认终态，部署保持 `ready`；并发上限为 1 时下一次调用可再次进入执行，没有被前一次调用占用容量而拒绝。
+- 对本机 Redis 使用自动恢复的 3 秒命令暂停进行故障注入，配置 QPS=2 的公网调用约 252 毫秒返回 HTTP 503、`rate_limit_unavailable`、`Retry-After: 1`，没有返回执行工单。随后 Redis PING 恢复 PONG。
+- 将本轮 QA 部署恢复到确定性同步版本后，再次公网调用约 384 毫秒返回 200 和 `answer=42`。这验证限流服务恢复后的实际调用路径。尚需继续完成页面、文件上传及预览等剩余验收。
+- 真实 Chromium 使用测试账号打开已有 96 条持久化记录的长对话，点击加载更早消息：依次读取尾部 30 条、offset 36/6 的各 30 条以及 offset 0 的 6 条，所有请求均 200，最后加载按钮消失。按页面 `data-chat-render-key` 检查，已有展示项在加载过程中未丢失，页面无 JavaScript 异常。此场景证明已有长历史的分页展示；跨新回合的间隔补齐及插件侧边栏仍需进一步实机验证。

@@ -1048,3 +1048,20 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 - 本轮所有已改 Python 源码、迁移和测试的 Ruff 检查通过；保留了授权测试所需的 autouse fixture 引入，没有为了消除 unused 警告删除 fixture。`git diff --check` 通过。
 - 78 个运行源码/迁移与生产文件字节一致，已删除模块生产也不存在；前端与插件测试文件无需发布。证据 `/tmp/flowork-final-source-parity.json`、`/tmp/flowork-final-ruff.log`。
 - 本轮提交排除 AutoWorkflow 实验文档、实验 Skill 包及 extension/node_modules 本地链接。不合并 main。原订单模型分支仍有服务商/结构化工具输出失败，不标为通过，整体目标仍保留该待验收项。
+
+
+### 当前验收范围调整：简单同步／审批样例
+
+用户明确以“创建自动化”第一个样例替换复杂订单样例。新的工作流仅覆盖开始、成对并行、Prompt、条件、Human、结束，Prompt 使用 Nemotron 3 Ultra (free)，Agent 使用 Terra。旧订单验收结果保留为历史，不再作为当前验收门槛。
+
+- 先检查单条及批量 Workflow CLI：到达 Human 后返回异步执行 ID、可查询状态与结果、审批链接；Agent 应将链接告知人工，不得自行审批。
+- 验收人员通过真实画布分别点击 Approve／Reject，确认原执行恢复及结果一致，不能以 API 代替此项交互验收。
+- 同一固定版本覆盖批量任务、一次性／固定间隔／cron 定时任务，以及部署连续 10 分钟波动调用；核对同步和异步结果、详情页与指标。
+- 顺序执行以限制资源占用，执行失败原样记录，不自动重投。当前仅样例组件 4 项测试通过，完整实机验收尚未完成。
+
+- 用户补充：构建并校验 Workflow 后，必须先 render preview，给用户可点击的固定版本画布预览，再执行测试；中英文样例均已补充，不增加平台强制续跑规则。
+- 当前实测：Workflow ad1e78c9b3eb/v1.sv1，单次 CLI run 5258517128a64708b869499ca6ccf795 在 Human 返回 async=true 和审批链接，Terra 主动展示链接；真实画布驳回后返回 approved=false / approval_path=rejected。批次 a83513956e8746dab988b8cfa44c3d90 同样返回异步及索引3审批链接，画布已驳回，等待 Agent 查询完整结果。此前模型临时过载导致的失败仍保留，不能统计成审批通过。证据 /tmp/flowork-mixed-current-20261007。
+
+- 样例进一步收敛为一条方向性需求：保留主要节点、模型、render preview、人工点击、CLI/任务/部署覆盖、10分钟波动调用与证据要求；去掉预设字段、样本数、并发/超时值、流量表和详细命令，让 Agent 自行探索。不再通过多轮补充构造最终验收需求。
+
+- 精简后的中英文样例已重新构建并发布，部署路径检查通过。当前对话已实际调用 render_preview。新增 approve 批次受 authorization_unavailable 阻断；对应 OpenFGA 记录为访问本机 PostgreSQL 5433 的 read tcp i/o timeout，并非模型错误；尚未定位连接超时根因，未标为修复。当前完整任务／部署／10分钟验收仍未完成。

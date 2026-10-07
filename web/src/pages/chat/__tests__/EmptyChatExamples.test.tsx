@@ -33,7 +33,7 @@ function renderExamples(visible: boolean, onSelect = vi.fn()) {
 const scenarios = [
   ['tables', ['tables.clean', 'tables.audit', 'office.spreadsheet']],
   ['reports', ['office.report', 'office.presentation', 'reports.weekly']],
-  ['automation', ['automation.orderAudit', 'operations.schedule', 'operations.deploy']],
+  ['automation', ['automation.mixedExecution', 'operations.schedule', 'operations.deploy']],
   ['diagrams', ['diagram.architecture', 'diagram.process', 'diagram.sequence']],
   ['knowledge', ['knowledge.create', 'knowledge.explore', 'knowledge.update']],
   ['more', ['skill.template', 'skill.download', 'skill.update']],

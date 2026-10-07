@@ -48,7 +48,7 @@ const CATEGORIES: readonly {
     example('weekly', '📅', '/document', 'chat.examples.reports.weekly'),
   ] },
   { id: 'automation', labelKey: 'chat.examples.scenario.automation', style: 'automation', examples: [
-    example('order-audit', '⚙️', '/workflow', 'chat.examples.automation.orderAudit'),
+    example('mixed-execution', '⚙️', '/workflow', 'chat.examples.automation.mixedExecution'),
     example('schedule', '🗓️', '/task', 'chat.examples.operations.schedule'),
     example('deploy', '🚀', '/deployment', 'chat.examples.operations.deploy'),
   ] },

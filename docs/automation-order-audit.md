@@ -1,11 +1,12 @@
 # Automation example: order pricing and audit API
 
-This page preserves an end-to-end example and its historical acceptance. The
+This page preserves a retired end-to-end example and its historical acceptance.
+The first Automation card now uses `chat.examples.automation.mixedExecution.prompt`
+for the simpler sync/human-approval Task and Deployment acceptance scenario.
+The order-audit example below is no longer offered by that card. The
 current engine has 16 node types; this example predates Human approval and covers
-15 types. Its measurements are not a current capacity guarantee. Select the
-automation example in a new Chat; selecting its card fills the
-editable composer; it does not send the message. The example asks the Agent to
-build, test, and publish a Workflow from one complete instruction.
+15 types. Its measurements are not a current capacity guarantee. The historical example asked the Agent to build, test, and publish a Workflow
+from one complete instruction.
 
 ## Prerequisites
 

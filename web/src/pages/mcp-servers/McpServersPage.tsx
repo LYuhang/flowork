@@ -1,3 +1,5 @@
+import { ResourceSort } from '@/components/resources/ResourceSort';
+import { useResourceSort, compareResourceValues } from '@/lib/resource-sort';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
@@ -265,6 +267,7 @@ function CatalogCard({ item, installed }: { item: McpCatalogItem; installed?: Mc
 
 export function McpServersPage() {
   const { t } = useTranslation();
+  const sorting = useResourceSort(['updated_at', 'created_at', 'name'] as const, 'updated_at');
   const [urlParams, setUrlParams] = useSearchParams();
   const query = useMcpServers();
   const deleteMutation = useDeleteMcpServer();
@@ -299,8 +302,8 @@ export function McpServersPage() {
       if (statusFilter === 'enabled' && !server.enabled) return false;
       if (statusFilter === 'failed' && !isHandshakeFailed(server)) return false;
       return !text || server.name.toLowerCase().includes(text) || server.endpoint.toLowerCase().includes(text) || (server.description ?? '').toLowerCase().includes(text);
-    });
-  }, [items, search, statusFilter]);
+    }).sort((left, right) => compareResourceValues(left[sorting.field], right[sorting.field], sorting.direction, sorting.field === 'name') || left.id.localeCompare(right.id));
+  }, [items, search, statusFilter, sorting.field, sorting.direction]);
   const installedForCandidate = (candidate: McpCatalogItem) =>
     items.find(
       (server) =>
@@ -393,6 +396,7 @@ export function McpServersPage() {
                     <SelectItem value="failed">{t('mcp.filter_failed', 'Probe Failed')}</SelectItem>
                   </SelectContent>
                 </Select>
+                <ResourceSort fields={['updated_at', 'created_at', 'name']} value={sorting.value} onValueChange={sorting.setValue} />
                 {failedCount > 0 ? (
                   <button type="button" onClick={() => setStatusFilter('failed')} className="text-xs font-medium text-destructive hover:underline">
                     {t('mcp.needs_attention', { count: failedCount, defaultValue: '{{count}} Need Attention' })}

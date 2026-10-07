@@ -388,6 +388,8 @@ class TasksRepo:
         exclude_creator: bool = False,
         limit: int = 50,
         offset: int = 0,
+        sort_by: str = "submitted_at",
+        sort_order: str = "desc",
     ) -> tuple[list[Task], int]:
         """List tasks visible to the current tenant (RLS-scoped).
 
@@ -417,7 +419,9 @@ class TasksRepo:
                 Task.results_uri.ilike(pattern),
             ))
         count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
-        stmt = stmt.order_by(Task.submitted_at.desc(), Task.id).limit(limit).offset(offset)
+        column = {"submitted_at": Task.submitted_at, "started_at": Task.started_at, "finished_at": Task.finished_at}[sort_by]
+        order = column.asc() if sort_order == "asc" else column.desc()
+        stmt = stmt.order_by(order.nulls_last(), Task.id).limit(limit).offset(offset)
         rows_result = await self.session.execute(stmt)
         count_result = await self.session.execute(count_stmt)
         rows = list(rows_result.scalars().all())

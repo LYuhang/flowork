@@ -2989,6 +2989,51 @@
         }
       }
     },
+    "/api/v1/workflows/{wf_id}/activity": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Workflow Activity",
+        "operationId": "workflow_activity_api_v1_workflows__wf_id__activity_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "wf_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Wf Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workflows/{wf_id}/head": {
       "get": {
         "tags": [
@@ -3803,7 +3848,7 @@
           "workflows"
         ],
         "summary": "Submit Batch",
-        "description": "Submit a batch atomically.\n\nInserts a ``tasks`` row inside the request transaction, then\nenqueues a durable workflow with ``workflow_id == tasks.id`` (so DBOS and\nthe business row share one idempotency key used by the reconciler).",
+        "description": "Submit a batch atomically.\n\nInserts a ``tasks`` row inside the request transaction, then\nenqueues a durable workflow with ``workflow_id == tasks.id`` (so DBOS and\nthe business row refer to the same task).",
         "operationId": "submit_batch_api_v1_workflows__wf_id__batch_post",
         "security": [
           {
@@ -4272,6 +4317,52 @@
         ],
         "responses": {
           "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-executions/{execution_id}/activity": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "Activity",
+        "operationId": "activity_api_v1_workflow_executions__execution_id__activity_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "execution_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Execution Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -7154,6 +7245,60 @@
         }
       }
     },
+    "/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/activity": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Stream Chat Activity",
+        "operationId": "stream_chat_activity_api_v1_chat_scopes__scope_id__chats__chat_id__activity_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scope_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scope Id"
+            }
+          },
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chat-scopes/{scope_id}/active-runs": {
       "get": {
         "tags": [
@@ -7667,6 +7812,35 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "submitted_at",
+                "started_at",
+                "finished_at"
+              ],
+              "type": "string",
+              "default": "submitted_at",
+              "title": "Sort By"
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string",
+              "default": "desc",
+              "title": "Sort Order"
             }
           }
         ],
@@ -9036,8 +9210,55 @@
           "tasks"
         ],
         "summary": "Stream Task Events",
-        "description": "Server-Sent Events stream of ``task_events`` for one task.\n\nResume contract: clients send ``Last-Event-ID`` (a ``task_events.id``\ninteger) to resume after a known cursor; the stream replays any\nrows with id > that cursor in id order before switching to the\nlive tail. Absent / unparsable header is treated as ``0`` (replay\neverything).\n\nOrdering: ``task_events.id`` is BIGSERIAL — strictly monotonic\nper row insertion. The SELECT-replay is ``ORDER BY id``; the\nlive tail dedupes on the same id; the worker publishes to\nRedis with the same id. End-to-end: strict, gap-free ordering.\n\nTenant binding: the pre-check uses the request's tenant-bound DI\nsession (RLS) — cross-tenant or absent tasks surface as 404. The\nstream then opens its own short ``session_scope(tenant_id=...)``\nsessions inside the generator so RLS keeps applying for every\npoll cycle.",
+        "description": "Server-Sent Events stream of ``task_events`` for one task.\n\nResume contract: clients send ``Last-Event-ID`` (a ``task_events.id``\ninteger) to resume after a known cursor; the stream replays any\nrows with id > that cursor in id order before switching to the\nlive tail. Absent / unparsable header is treated as ``0`` (replay\neverything).\n\nEvent writers serialize per task. The stream reads committed events in ID\norder, then waits for commit notifications. Reconnect replays after the\ncursor. Every read uses the resource tenant and periodically revalidates\nthe caller's authorization.",
         "operationId": "stream_task_events_api_v1_tasks__task_id__stream_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/activity": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Task Activity",
+        "description": "Resource invalidations remain available after inference finishes.",
+        "operationId": "task_activity_api_v1_tasks__task_id__activity_get",
         "security": [
           {
             "HTTPBearer": []
@@ -9501,6 +9722,35 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "created_at",
+                "updated_at",
+                "last_invoked_at"
+              ],
+              "type": "string",
+              "default": "created_at",
+              "title": "Sort By"
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string",
+              "default": "desc",
+              "title": "Sort Order"
             }
           }
         ],
@@ -14948,7 +15198,7 @@
           "previews"
         ],
         "summary": "Stream Preview File Events",
-        "description": "Reconcile once, then follow durable changes for one Preview FileRef.\n\nThe browser never polls descriptors. Database triggers append a cursor in\nthe same transaction as every VFS content mutation, so any API worker can\nreplay changes after reconnect or another worker's write. The initial\n``preview_ready`` frame carries the authoritative revision and closes the\nresolve/subscribe race without replaying unbounded historical changes.",
+        "description": "Reconcile current content, then notify Preview when it changes.\n\nPOSIX files use metadata checks without database change records. Object-backed\nVFS rows use durable events. Every connection starts with preview_ready so a\nreconnect reconciles current content even when intermediate edits coalesce.",
         "operationId": "stream_preview_file_events_api_v1_previews_events_get",
         "security": [
           {

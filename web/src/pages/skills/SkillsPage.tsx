@@ -1,3 +1,5 @@
+import { ResourceSort } from '@/components/resources/ResourceSort';
+import { useResourceSort, compareResourceValues } from '@/lib/resource-sort';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
@@ -163,6 +165,7 @@ function CatalogCard({ item, installed }: { item: SkillCatalogItem; installed?: 
 
 export function SkillsPage() {
   const { t } = useTranslation();
+  const sorting = useResourceSort(['updated_at', 'created_at', 'name'] as const, 'updated_at');
   const [params, setParams] = useSearchParams();
   const skillsQuery = useSkills();
   const deleteMutation = useDeleteSkill();
@@ -192,8 +195,8 @@ export function SkillsPage() {
       if (installationState === 'uninstalled' && skill.installed) return false;
       if (installedSource !== 'all' && skill.source !== installedSource) return false;
       return !query || skill.name.toLowerCase().includes(query) || skill.description.toLowerCase().includes(query) || skill.allowed_tools.some((tool) => tool.toLowerCase().includes(query));
-    });
-  }, [installedSource, items, search, relationship, installationState]);
+    }).sort((left, right) => compareResourceValues(left[sorting.field], right[sorting.field], sorting.direction, sorting.field === 'name') || left.id.localeCompare(right.id));
+  }, [installedSource, items, search, relationship, installationState, sorting.field, sorting.direction]);
 
   const installedFor = (item: SkillCatalogItem) =>
     items.find((skill) => skill.source === item.source && skill.source_id === item.source_id);
@@ -310,6 +313,7 @@ export function SkillsPage() {
                     <SelectItem value="anthropic">{t('skills.source.anthropic', 'Anthropic Public')}</SelectItem>
                   </SelectContent>
                 </Select>
+                <ResourceSort fields={['updated_at', 'created_at', 'name']} value={sorting.value} onValueChange={sorting.setValue} />
               </div>
             </ManagementToolbar>
 

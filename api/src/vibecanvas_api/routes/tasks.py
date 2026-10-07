@@ -377,6 +377,8 @@ async def list_tasks(
     q: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    sort_by: Literal["submitted_at", "started_at", "finished_at"] = "submitted_at",
+    sort_order: Literal["asc", "desc"] = "desc",
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
@@ -412,7 +414,8 @@ async def list_tasks(
             items, count = await TasksRepo(session).list_for_tenant(task_ids=identifiers,
                 status=status or None, task_type=task_type or None, workflow_id=workflow_id, search=q,
                 creator_user_id=ctx.user_id if source != "all" else None,
-                exclude_creator=source == "shared", limit=offset + limit, offset=0)
+                exclude_creator=source == "shared", limit=offset + limit, offset=0,
+                sort_by=sort_by, sort_order=sort_order)
             total += count
             provenance = ResourceProvenanceBuilder(session)
             for item in items:
@@ -427,8 +430,10 @@ async def list_tasks(
                 output_items.append(output)
     finally:
         await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
-    output_items.sort(key=lambda item: item["id"])
-    output_items.sort(key=lambda item: item.get("submitted_at") or "", reverse=True)
+    # Apply the same ordering across owner scopes before taking the page.
+    output_items.sort(key=lambda item: str(item["id"]))
+    output_items.sort(key=lambda item: item.get(sort_by) or "", reverse=sort_order == "desc")
+    output_items.sort(key=lambda item: item.get(sort_by) is None)
     return {"items": output_items[offset:offset + limit], "total": total, "limit": limit, "offset": offset}
 
 

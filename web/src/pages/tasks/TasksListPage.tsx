@@ -1,3 +1,5 @@
+import { ResourceSort } from '@/components/resources/ResourceSort';
+import { useResourceSort } from '@/lib/resource-sort';
 import { ScheduledRunCreatePanel } from './ScheduledRunCreatePanel';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
@@ -69,6 +71,7 @@ import { ResourceIcon } from '@/components/presentation/ResourceIcon';
 import { ResourceProvenanceLine } from '@/components/resources/ResourceProvenanceLine';
 
 
+const SORT_FIELDS = ["submitted_at", "started_at", "finished_at"] as const;
 const PAGE_SIZE = 25;
 const TASK_LIST_REFETCH_ACTIVE_MS = 2_000;
 const TASK_LIST_REFETCH_IDLE_MS = 5_000;
@@ -114,19 +117,6 @@ const BatchTab = lazy(() =>
 function DeferredControlFallback({ className = 'h-10 w-full' }: { className?: string }) {
   return <Skeleton className={className} />;
 }
-const ACTIVE_RANK: Record<TaskStatus, number> = {
-  running: 0,
-  resuming: 0,
-  cancelling: 0,
-  queued: 0,
-  failed: 1,
-  interrupted: 1,
-  finished_with_errors: 1,
-  finished: 2,
-  cancelled: 3,
-  enabled: 2,
-  paused: 3,
-};
 
 function taskSemanticStatus(status: TaskStatus): SemanticStatus {
   switch (status) {
@@ -369,6 +359,7 @@ export function TasksListPage() {
   const formatTime = useFormatDateTime();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const sorting = useResourceSort(SORT_FIELDS, 'submitted_at');
   const resourceScope: 'all' | 'created' | 'shared' = searchParams.get('scope') === 'shared'
     ? 'shared' : searchParams.get('scope') === 'created' ? 'created' : 'all';
   const activeType: TaskType = searchParams.get('type') === 'scheduled_run'
@@ -410,10 +401,12 @@ export function TasksListPage() {
   });
 
   const listQuery = useQuery({
-    queryKey: ['tasks', { activeType, statusFilter, queryText, workflowFilter, offset, resourceScope }],
+    queryKey: ['tasks', { activeType, statusFilter, queryText, workflowFilter, offset, resourceScope, sortBy: sorting.field, sortOrder: sorting.direction }],
     queryFn: () =>
       listTasks({
         source: resourceScope,
+        sort_by: sorting.field,
+        sort_order: sorting.direction,
         status: statusFilter.length ? statusFilter : undefined,
         task_type: [activeType],
         q: queryText || undefined,
@@ -473,15 +466,7 @@ export function TasksListPage() {
     },
   });
 
-  const items = useMemo(
-    () =>
-      [...(listQuery.data?.items ?? [])].sort((a, b) => {
-        const rank = ACTIVE_RANK[a.status] - ACTIVE_RANK[b.status];
-        if (rank !== 0) return rank;
-        return (b.submitted_at ?? '').localeCompare(a.submitted_at ?? '');
-      }),
-    [listQuery.data?.items],
-  );
+  const items = listQuery.data?.items ?? [];
   const total = listQuery.data?.total ?? 0;
   const hasNext = offset + PAGE_SIZE < total;
   const hasPrev = offset > 0;
@@ -651,6 +636,7 @@ export function TasksListPage() {
                   searchPlaceholder={t('tasks.related.filter', 'Filter by Workflow')} />
               </Suspense>
               {workflowFilter && <Button variant="ghost" size="sm" onClick={() => updateListParams({ workflow_id: null, offset: null })}>{t('tasks.related.clear', 'All workflows')}</Button>}
+              <ResourceSort fields={SORT_FIELDS} value={sorting.value} onValueChange={sorting.setValue} />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button

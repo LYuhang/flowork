@@ -132,10 +132,14 @@ class DeploymentsRepo:
         query: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
     ) -> list[dict]:
         """List deployments visible under the current tenant
         (RLS-scoped). Soft-deleted rows are filtered. Newest-first by
         ``created_at``."""
+        column = {"created_at": "d.created_at", "updated_at": "d.updated_at", "last_invoked_at": "inv.last_invoked_at"}[sort_by]
+        direction = {"asc": "ASC", "desc": "DESC"}[sort_order]
         clauses = ["deleted_at IS NULL"]
         params: dict = {"limit": limit, "offset": offset}
         if deployment_ids is not None:
@@ -191,8 +195,8 @@ class DeploymentsRepo:
                 ) inv ON inv.deployment_id = d.id
                 WHERE """
                 + where_sql
-                + """
-                ORDER BY d.created_at DESC, d.id
+                + f"""
+                ORDER BY {column} {direction} NULLS LAST, d.id
                 LIMIT :limit OFFSET :offset
                 """
             ),

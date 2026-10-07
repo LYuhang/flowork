@@ -4019,5 +4019,18 @@
   "logs.range.3h": "最近3小时",
   "logs.range.14d": "最近14天",
   "deployments.metrics.p50Seconds": "P50 延迟（秒）",
-  "deployments.metrics.p95Seconds": "P95 延迟（秒）"
+  "deployments.metrics.p95Seconds": "P95 延迟（秒）",
+  "resources.sort.label": "排序",
+  "resources.sort.option": "{{field}}：{{direction}}",
+  "resources.sort.submitted_at": "提交时间",
+  "resources.sort.started_at": "开始时间",
+  "resources.sort.finished_at": "结束时间",
+  "resources.sort.created_at": "创建时间",
+  "resources.sort.updated_at": "更新时间",
+  "resources.sort.last_invoked_at": "最近调用",
+  "resources.sort.name": "名称",
+  "resources.sort.asc": "从远到近",
+  "resources.sort.desc": "从近到远",
+  "resources.sort.name_asc": "正序",
+  "resources.sort.name_desc": "倒序"
 }

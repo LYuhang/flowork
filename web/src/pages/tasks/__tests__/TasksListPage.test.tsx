@@ -22,6 +22,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
 import i18n from 'i18next';
+import en from '@/lib/i18n/locales/en.json';
 
 import type { Task, TaskStatus } from '@/lib/api/tasks';
 
@@ -102,7 +103,7 @@ const testI18n = i18n.createInstance();
 void testI18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
-  resources: { en: { translation: {} } },
+  resources: { en: { translation: Object.fromEntries(Object.entries(en).filter(([key]) => key.startsWith('resources.sort.'))) } },
   interpolation: { escapeValue: false },
 });
 
@@ -169,10 +170,9 @@ describe('<TasksListPage>', () => {
     expect(screen.queryByTestId('tasks-running-badge')).not.toBeInTheDocument();
   });
 
-  it('sorts active (running) tasks above finished ones', async () => {
+  it('preserves server time ordering even when an older task is running', async () => {
     mockList([
-      // finished submitted later, running submitted earlier — running must
-      // still float to the top because active work is what the user wants.
+      // The newer finished task must remain ahead of older active work.
       makeTask({
         id: 'f1',
         status: 'finished',
@@ -189,8 +189,8 @@ describe('<TasksListPage>', () => {
     renderWithProviders(<TasksListPage />);
     await waitFor(() => expect(screen.getByText('wf_run')).toBeInTheDocument());
     const rows = screen.getAllByText(/wf_(run|done)/);
-    expect(rows[0]).toHaveTextContent('wf_run');
-    expect(rows[1]).toHaveTextContent('wf_done');
+    expect(rows[0]).toHaveTextContent('wf_done');
+    expect(rows[1]).toHaveTextContent('wf_run');
   });
 
   it('opens the in-page batch task creation flow from New Task', async () => {
@@ -250,4 +250,18 @@ describe('<TasksListPage>', () => {
       offset: 0,
     })));
   });
+  it('requests ascending time sorting while preserving selected filters', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TasksListPage />);
+    await screen.findByText('wf_42');
+    await user.click(screen.getByRole('button', { name: 'Filter by status' }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: 'running' }));
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('combobox', { name: 'Sort' }));
+    await user.click(screen.getByRole('option', { name: 'Submitted: Oldest first' }));
+    await waitFor(() => expect(listTasks).toHaveBeenLastCalledWith(expect.objectContaining({
+      sort_by: 'submitted_at', sort_order: 'asc', status: ['running'], offset: 0,
+    })));
+  });
+
 });

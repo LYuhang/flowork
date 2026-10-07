@@ -984,6 +984,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/{wf_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workflow Activity */
+        get: operations["workflow_activity_api_v1_workflows__wf_id__activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflows/{wf_id}/head": {
         parameters: {
             query?: never;
@@ -1218,7 +1235,7 @@ export interface paths {
          *
          *     Inserts a ``tasks`` row inside the request transaction, then
          *     enqueues a durable workflow with ``workflow_id == tasks.id`` (so DBOS and
-         *     the business row share one idempotency key used by the reconciler).
+         *     the business row refer to the same task).
          */
         post: operations["submit_batch_api_v1_workflows__wf_id__batch_post"];
         delete?: never;
@@ -1378,6 +1395,23 @@ export interface paths {
          * @description Cancel the active workflow execution by workflow id.
          */
         post: operations["cancel_workflow_execution_api_v1_workflows__wf_id__execution_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-executions/{execution_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Activity */
+        get: operations["activity_api_v1_workflow_executions__execution_id__activity_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2155,6 +2189,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream Chat Activity */
+        get: operations["stream_chat_activity_api_v1_chat_scopes__scope_id__chats__chat_id__activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat-scopes/{scope_id}/active-runs": {
         parameters: {
             query?: never;
@@ -2643,18 +2694,32 @@ export interface paths {
          *     live tail. Absent / unparsable header is treated as ``0`` (replay
          *     everything).
          *
-         *     Ordering: ``task_events.id`` is BIGSERIAL — strictly monotonic
-         *     per row insertion. The SELECT-replay is ``ORDER BY id``; the
-         *     live tail dedupes on the same id; the worker publishes to
-         *     Redis with the same id. End-to-end: strict, gap-free ordering.
-         *
-         *     Tenant binding: the pre-check uses the request's tenant-bound DI
-         *     session (RLS) — cross-tenant or absent tasks surface as 404. The
-         *     stream then opens its own short ``session_scope(tenant_id=...)``
-         *     sessions inside the generator so RLS keeps applying for every
-         *     poll cycle.
+         *     Event writers serialize per task. The stream reads committed events in ID
+         *     order, then waits for commit notifications. Reconnect replays after the
+         *     cursor. Every read uses the resource tenant and periodically revalidates
+         *     the caller's authorization.
          */
         get: operations["stream_task_events_api_v1_tasks__task_id__stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Task Activity
+         * @description Resource invalidations remain available after inference finishes.
+         */
+        get: operations["task_activity_api_v1_tasks__task_id__activity_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4376,13 +4441,11 @@ export interface paths {
         };
         /**
          * Stream Preview File Events
-         * @description Reconcile once, then follow durable changes for one Preview FileRef.
+         * @description Reconcile current content, then notify Preview when it changes.
          *
-         *     The browser never polls descriptors. Database triggers append a cursor in
-         *     the same transaction as every VFS content mutation, so any API worker can
-         *     replay changes after reconnect or another worker's write. The initial
-         *     ``preview_ready`` frame carries the authoritative revision and closes the
-         *     resolve/subscribe race without replaying unbounded historical changes.
+         *     POSIX files use metadata checks without database change records. Object-backed
+         *     VFS rows use durable events. Every connection starts with preview_ready so a
+         *     reconnect reconciles current content even when intermediate edits coalesce.
          */
         get: operations["stream_preview_file_events_api_v1_previews_events_get"];
         put?: never;
@@ -11108,6 +11171,37 @@ export interface operations {
             };
         };
     };
+    workflow_activity_api_v1_workflows__wf_id__activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                wf_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_workflow_head_api_v1_workflows__wf_id__head_get: {
         parameters: {
             query?: {
@@ -11862,6 +11956,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activity_api_v1_workflow_executions__execution_id__activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                execution_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13450,6 +13575,38 @@ export interface operations {
             };
         };
     };
+    stream_chat_activity_api_v1_chat_scopes__scope_id__chats__chat_id__activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_active_agent_runs_api_v1_chat_scopes__scope_id__active_runs_get: {
         parameters: {
             query?: never;
@@ -13717,6 +13874,8 @@ export interface operations {
                 q?: string | null;
                 limit?: number;
                 offset?: number;
+                sort_by?: "submitted_at" | "started_at" | "finished_at";
+                sort_order?: "asc" | "desc";
             };
             header?: never;
             path?: never;
@@ -14504,6 +14663,37 @@ export interface operations {
             };
         };
     };
+    task_activity_api_v1_tasks__task_id__activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     download_results_api_v1_tasks__task_id__download_get: {
         parameters: {
             query?: {
@@ -14679,6 +14869,8 @@ export interface operations {
                 q?: string | null;
                 limit?: number;
                 offset?: number;
+                sort_by?: "created_at" | "updated_at" | "last_invoked_at";
+                sort_order?: "asc" | "desc";
             };
             header?: never;
             path?: never;

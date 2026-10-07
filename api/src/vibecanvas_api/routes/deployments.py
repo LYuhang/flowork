@@ -569,6 +569,8 @@ async def list_deployments(
     q: Optional[str] = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    sort_by: Literal["created_at", "updated_at", "last_invoked_at"] = "created_at",
+    sort_order: Literal["asc", "desc"] = "desc",
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
@@ -604,7 +606,7 @@ async def list_deployments(
             shared_filters = dict(deployment_ids=identifiers, wf_id=workflow_id,
                 creator_user_id=ctx.user_id if source != "all" else None, exclude_creator=source == "shared")
             filters = dict(**shared_filters, trigger_type=trigger_type, enabled=enabled, query=q)
-            items = await repo.list_for_tenant(**filters, limit=offset + limit, offset=0)
+            items = await repo.list_for_tenant(**filters, limit=offset + limit, offset=0, sort_by=sort_by, sort_order=sort_order)
             total += await repo.count_for_tenant(**filters)
             counts = await repo.summary_for_tenant(**shared_filters)
             for key in ("active", "disabled", "invocations"):
@@ -627,8 +629,10 @@ async def list_deployments(
         await session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"), {"tenant": original or ""})
     if summary["last_invoked_at"] is not None:
         summary["last_invoked_at"] = summary["last_invoked_at"].isoformat()
+    # Apply the same ordering across owner scopes before taking the page.
     output_items.sort(key=lambda item: str(item["id"]))
-    output_items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    output_items.sort(key=lambda item: item.get(sort_by) or "", reverse=sort_order == "desc")
+    output_items.sort(key=lambda item: item.get(sort_by) is None)
     return {"items": output_items[offset:offset + limit], "limit": limit, "offset": offset,
             "total": total, "summary": summary}
 

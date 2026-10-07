@@ -110,6 +110,8 @@ export interface TaskEvent {
 }
 
 export interface ListTasksParams {
+  sort_by?: 'submitted_at' | 'started_at' | 'finished_at';
+  sort_order?: 'asc' | 'desc';
   source?: "all" | "created" | "shared";
   status?: TaskStatus[];
   task_type?: TaskType[];
@@ -263,6 +265,8 @@ async function authedFetch(
 
 function buildListQuery(p: ListTasksParams): string {
   const params = new URLSearchParams();
+  if (p.sort_by) params.set('sort_by', p.sort_by);
+  if (p.sort_order) params.set('sort_order', p.sort_order);
   if (p.source) params.set("source", p.source);
   for (const s of p.status ?? []) params.append('status', s);
   for (const t of p.task_type ?? []) params.append('task_type', t);

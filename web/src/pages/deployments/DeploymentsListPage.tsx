@@ -1,3 +1,5 @@
+import { ResourceSort } from '@/components/resources/ResourceSort';
+import { useResourceSort } from '@/lib/resource-sort';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -69,6 +71,7 @@ type DeploymentKind = TriggerType;
 type StatusFilter = 'all' | 'active' | 'disabled';
 
 const DEPLOYMENT_TYPES: DeploymentKind[] = ['api', 'webhook'];
+const SORT_FIELDS = ["created_at", "updated_at", "last_invoked_at"] as const;
 const PAGE_SIZE = 25;
 
 function triggerLabel(type: TriggerType, t: TFunction): string {
@@ -87,6 +90,7 @@ export function DeploymentsListPage() {
   const formatTime = useFormatDateTime();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const sorting = useResourceSort(SORT_FIELDS, 'created_at');
   const resourceScope: 'all' | 'created' | 'shared' = searchParams.get('scope') === 'shared'
     ? 'shared' : searchParams.get('scope') === 'created' ? 'created' : 'all';
   const typeParam = searchParams.get('type');
@@ -154,9 +158,11 @@ export function DeploymentsListPage() {
   };
 
   const query = useQuery({
-    queryKey: ['deployments', { search, typeFilter, statusFilter, page, workflowId: initialWorkflowId, resourceScope }],
+    queryKey: ['deployments', { search, typeFilter, statusFilter, page, workflowId: initialWorkflowId, resourceScope, sortBy: sorting.field, sortOrder: sorting.direction }],
     queryFn: () => listDeployments({
       source: resourceScope,
+      sort_by: sorting.field,
+      sort_order: sorting.direction,
       q: search || undefined,
       workflow_id: initialWorkflowId || undefined,
       trigger_type: typeFilter === 'all' ? undefined : typeFilter,
@@ -296,6 +302,7 @@ export function DeploymentsListPage() {
                   <SelectItem value="disabled">{t('deployments.status.disabled', 'Disabled')}</SelectItem>
                 </SelectContent>
               </Select>
+              <ResourceSort fields={SORT_FIELDS} value={sorting.value} onValueChange={sorting.setValue} />
             </div>
           </ManagementToolbar>
 

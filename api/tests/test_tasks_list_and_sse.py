@@ -222,3 +222,32 @@ async def test_task_activity_commit_rollback_and_heartbeat(pg_engine):
         async with session_scope(tenant_id=str(tenant_id)) as session:
             await TasksRepo(session).update_status(task_id, status='running')
         await asyncio.wait_for(changed.wait(), 5)
+
+
+@pytest.mark.asyncio
+async def test_task_sorting_precedes_pagination_and_keeps_missing_dates_last(pg_engine):
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.repo_tasks import TasksRepo
+
+    tenant_id, user_id = uuid.uuid4(), uuid.uuid4()
+    await _seed_tenant_user(pg_engine, tenant_id, user_id)
+    ids = [uuid.uuid4() for _ in range(3)]
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        repo = TasksRepo(session)
+        for i, task_id in enumerate(ids):
+            await repo.create(task_id=task_id, tenant_id=tenant_id, user_id=user_id,
+                workflow_id=None, task_type="batch_exec", payload={}, background_job_id=str(task_id))
+            await session.execute(text("""UPDATE tasks SET
+                submitted_at='2026-01-01'::timestamptz + :n * interval '1 day',
+                started_at=CASE WHEN :n=1 THEN NULL ELSE '2026-01-01'::timestamptz + :n * interval '1 day' END
+                WHERE id=:id"""), {"n": i, "id": task_id})
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        repo = TasksRepo(session)
+        for direction, expected in [("asc", ids), ("desc", ids[::-1])]:
+            for offset, expected_id in enumerate(expected):
+                rows, total = await repo.list_for_tenant(sort_order=direction, offset=offset, limit=1)
+                assert total == 3
+                assert [row.id for row in rows] == [expected_id]
+        for direction, expected in [("asc", [ids[0], ids[2], ids[1]]), ("desc", [ids[2], ids[0], ids[1]])]:
+            rows, _ = await repo.list_for_tenant(sort_by="started_at", sort_order=direction)
+            assert [row.id for row in rows] == expected

@@ -4019,5 +4019,18 @@
   "logs.range.3h": "Last 3 hours",
   "logs.range.14d": "Last 14 days",
   "deployments.metrics.p50Seconds": "P50 latency (s)",
-  "deployments.metrics.p95Seconds": "P95 latency (s)"
+  "deployments.metrics.p95Seconds": "P95 latency (s)",
+  "resources.sort.label": "Sort",
+  "resources.sort.option": "{{field}}: {{direction}}",
+  "resources.sort.submitted_at": "Submitted",
+  "resources.sort.started_at": "Started",
+  "resources.sort.finished_at": "Finished",
+  "resources.sort.created_at": "Created",
+  "resources.sort.updated_at": "Updated",
+  "resources.sort.last_invoked_at": "Last activity",
+  "resources.sort.name": "Name",
+  "resources.sort.asc": "Oldest first",
+  "resources.sort.desc": "Newest first",
+  "resources.sort.name_asc": "A–Z",
+  "resources.sort.name_desc": "Z–A"
 }

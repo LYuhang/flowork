@@ -1,3 +1,5 @@
+import { ResourceSort } from '@/components/resources/ResourceSort';
+import { useResourceSort, compareResourceValues } from '@/lib/resource-sort';
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileArchive, FolderUp, Plus, Search } from 'lucide-react';
@@ -21,7 +23,6 @@ import { useFormatDateTime } from '@/lib/timezone';
 
 
 const knowledgeKey = ['knowledge-bases'] as const;
-type KnowledgeSort = 'updated' | 'created' | 'name';
 
 function errorState(error: unknown): 'permission' | 'error' {
   const message = error instanceof Error ? error.message : String(error ?? '');
@@ -30,6 +31,7 @@ function errorState(error: unknown): 'permission' | 'error' {
 
 export function KnowledgeListPage() {
   const { t } = useTranslation();
+  const sorting = useResourceSort(['updated_at', 'created_at', 'name'] as const, 'updated_at');
   const formatTime = useFormatDateTime();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -45,7 +47,6 @@ export function KnowledgeListPage() {
   const [importError, setImportError] = useState('');
   const folderInput = useRef<HTMLInputElement>(null);
   const archiveInput = useRef<HTMLInputElement>(null);
-  const [sort, setSort] = useState<KnowledgeSort>('updated');
   const scope = searchParams.get('scope') ?? 'all';
   const knowledge = useQuery({
     queryKey: knowledgeKey,
@@ -103,13 +104,12 @@ export function KnowledgeListPage() {
         !normalized
         || `${item.name} ${item.description ?? ''}`.toLocaleLowerCase().includes(normalized)
       ))
-      .sort((left, right) => {
-        if (sort === 'name') return left.name.localeCompare(right.name);
-        const leftDate = Date.parse(sort === 'created' ? left.created_at : left.latest_updated_at);
-        const rightDate = Date.parse(sort === 'created' ? right.created_at : right.latest_updated_at);
-        return rightDate - leftDate;
-      });
-  }, [knowledge.data, query, sort, scope]);
+      .sort((left, right) => compareResourceValues(
+        sorting.field === 'updated_at' ? left.latest_updated_at : left[sorting.field],
+        sorting.field === 'updated_at' ? right.latest_updated_at : right[sorting.field],
+        sorting.direction, sorting.field === 'name',
+      ) || left.id.localeCompare(right.id));
+  }, [knowledge.data, query, sorting.field, sorting.direction, scope]);
   const hasActiveFilters = Boolean(query.trim());
   const setScope = (value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -143,16 +143,7 @@ export function KnowledgeListPage() {
               <SelectItem value="shared">{t('skills.relationship.shared', 'Shared with me')}</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={sort} onValueChange={(value) => setSort(value as KnowledgeSort)}>
-            <SelectTrigger className="w-40" aria-label={t('knowledge.sort', 'Sort knowledge bases')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="updated">{t('knowledge.sort.updated', 'Recently updated')}</SelectItem>
-              <SelectItem value="created">{t('knowledge.sort.created', 'Newest created')}</SelectItem>
-              <SelectItem value="name">{t('knowledge.sort.name', 'Name')}</SelectItem>
-            </SelectContent>
-          </Select>
+          <ResourceSort fields={['updated_at', 'created_at', 'name']} value={sorting.value} onValueChange={sorting.setValue} />
         </div>
       </div>
       {knowledge.isLoading ? <AsyncState kind="loading" title={t('knowledge.loading', 'Loading knowledge bases…')} /> : null}

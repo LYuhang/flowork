@@ -322,3 +322,26 @@ async def test_resolve_by_slug_binds_tenant(
     assert dep["id"] == dep_id
     assert dep["tenant_id"] == tenant_id
     assert tenant_id_var.get() == tenant_id
+
+
+@pytest.mark.asyncio
+async def test_deployment_time_sorting_before_pagination(pg_engine, app_engine):
+    tenant_id, user_id = uuid.uuid4(), uuid.uuid4()
+    wf_id = f"wf_{uuid.uuid4().hex[:8]}"
+    await _seed_tenant_and_user(pg_engine, tenant_id, user_id)
+    await _seed_workflow(app_engine, wf_id, tenant_id, user_id)
+    ids = [await _seed_api_deployment(app_engine, tenant_id=tenant_id, user_id=user_id,
+        wf_id=wf_id, slug=f"sort-{uuid.uuid4().hex[:8]}", api_key_plain=f"sort-key-{i}") for i in range(3)]
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        for i, dep_id in enumerate(ids):
+            await session.execute(text("UPDATE deployments SET created_at='2026-01-01'::timestamptz + :n * interval '1 day' WHERE id=:id"), {"n": i, "id": dep_id})
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        repo = DeploymentsRepo(session)
+        for direction, expected in [("asc", ids), ("desc", ids[::-1])]:
+            for offset, expected_id in enumerate(expected):
+                rows = await repo.list_for_tenant(sort_order=direction, offset=offset, limit=1)
+                assert [row["id"] for row in rows] == [expected_id]
+        # Never-invoked resources remain deterministic in both directions.
+        for direction in ["asc", "desc"]:
+            rows = await repo.list_for_tenant(sort_by="last_invoked_at", sort_order=direction)
+            assert [row["id"] for row in rows] == sorted(ids)

@@ -102,6 +102,8 @@ export interface DeploymentListResponse {
 }
 
 export interface ListDeploymentsParams {
+  sort_by?: 'created_at' | 'updated_at' | 'last_invoked_at';
+  sort_order?: 'asc' | 'desc';
   source?: "all" | "created" | "shared";
   trigger_type?: TriggerType;
   enabled?: boolean;
@@ -244,6 +246,8 @@ async function authedFetch(
 
 function buildListQuery(p: ListDeploymentsParams): string {
   const params = new URLSearchParams();
+  if (p.sort_by) params.set('sort_by', p.sort_by);
+  if (p.sort_order) params.set('sort_order', p.sort_order);
   if (p.source) params.set("source", p.source);
   if (p.trigger_type) params.set('trigger_type', p.trigger_type);
   if (p.enabled !== undefined) params.set('enabled', String(p.enabled));

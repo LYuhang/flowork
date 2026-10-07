@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import uuid
 
 import pytest
@@ -244,9 +245,29 @@ async def test_chat_files_write_back_and_restore_with_the_project(client, tmp_pa
     sandbox._external_vfs_lock = asyncio.Lock()
     sandbox._external_vfs_fenced_paths = set()
     assert await sandbox._sync_run_folder("chats") >= 3
+    persisted = {
+        "memory/report.md": b"durable memory report",
+        "memory/diagram.bin": b"\x00\xff\x01",
+        "data/result.csv": b"id,value\n1,42\n",
+        "logs/run.log": b"completed\n",
+    }
+    for path, data in persisted.items():
+        target = first / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    for folder in ("memory", "data", "logs"):
+        await sandbox._sync_run_folder(folder)
+    # The old sandbox files are gone: only persisted storage can restore them.
+    shutil.rmtree(first)
     restored = tmp_path / "new-mount"
     await _hydrate_run_folders(str(restored), scope, me["tenant_id"])
     assert (restored / "chats" / chat_id / "result.txt").read_text() == "durable result"
+    for path, data in persisted.items():
+        assert (restored / path).read_bytes() == data
+    memory_read = await client.get("/api/v1/storage/content", headers=headers,
+                                  params={"path": f"/project/{project_id}/memory/report.md"})
+    assert memory_read.status_code == 200, memory_read.text
+    assert memory_read.json()["content"] == "durable memory report"
     read = await client.get("/api/v1/storage/content", headers=headers,
                             params={"path": f"/project/{project_id}/chats/{chat_id}/result.txt"})
     assert read.status_code == 200, read.text

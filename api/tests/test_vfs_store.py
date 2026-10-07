@@ -664,3 +664,35 @@ async def test_facade_upsert_artifact(app_engine):
         assert e is not None and e.content == "data"
     finally:
         current_sync_tenant_id.reset(tok)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("writer", ["upsert_artifact_bytes", "upsert_internal_artifact_bytes"])
+@pytest.mark.parametrize("path", ["/memory/report.md", "/data/report.md", "/logs/report.md"])
+async def test_workspace_artifact_read_matches_listing(pg_session, writer, path):
+    tenant, wf_id, _ = await _seed_pg(pg_session)
+    repo = VfsRepo(pg_session, object_store=InMemoryObjectStore())
+    await getattr(repo, writer)(wf_id=wf_id, tenant=tenant, path=path,
+                               data=b"durable report", content_type="text/plain", abstract="report")
+    assert await repo.read_bytes(wf_id=wf_id, path=path) == b"durable report"
+    entry = await repo.read(wf_id=wf_id, path=path)
+    assert entry.kind == "artifact" and entry.content == "durable report"
+    assert entry.abstract == "report"
+    assert [e.path for e in await repo.ls(wf_id=wf_id, prefix=path)] == [path]
+
+
+@pytest.mark.asyncio
+async def test_durable_artifact_shadows_scratch_consistently(pg_session):
+    tenant, wf_id, _ = await _seed_pg(pg_session)
+    repo = VfsRepo(pg_session, object_store=InMemoryObjectStore())
+    path = "/memory/report.md"
+    await repo.write_scratch(wf_id=wf_id, tenant=tenant, path=path, content="scratch")
+    await repo.upsert_internal_artifact(wf_id=wf_id, tenant=tenant, path=path,
+                                       content="durable", abstract="durable description")
+    assert await repo.read_bytes(wf_id=wf_id, path=path) == b"durable"
+    assert (await repo.read(wf_id=wf_id, path=path)).content == "durable"
+    for entries in (await repo.ls(wf_id=wf_id, prefix="/memory/"),
+                    await repo.ls_meta(wf_id=wf_id, prefix="/memory/")):
+        assert len(entries) == 1
+        assert entries[0].kind == "artifact"
+        assert entries[0].abstract == "durable description"

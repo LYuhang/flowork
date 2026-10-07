@@ -128,10 +128,6 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-def _is_scratch(path: str) -> bool:
-    return path.startswith("/memory/")
-
-
 class VfsRepo:
     def __init__(self, session: AsyncSession, *,
                  object_store=None,
@@ -599,11 +595,18 @@ class VfsRepo:
         await self._s.flush()
         return True
 
+    async def _read_row(self, *, wf_id, path):
+        # Paths describe locations, not storage kinds. Workspace writeback and
+        # internal artifacts can persist /memory files as durable artifacts.
+        # A durable file takes precedence over a scratch entry at the same path;
+        # ls/ls_meta use this same rule.
+        row = await self._s.get(VfsArtifact, (wf_id, path))
+        if row is not None:
+            return row, "artifact"
+        return await self._s.get(VfsScratch, (wf_id, path)), "scratch"
+
     async def read_bytes(self, *, wf_id, path) -> bytes | None:
-        if _is_scratch(path):
-            r = await self._s.get(VfsScratch, (wf_id, path))
-        else:
-            r = await self._s.get(VfsArtifact, (wf_id, path))
+        r, _ = await self._read_row(wf_id=wf_id, path=path)
         if not r:
             return None
         # Post-unification every row is object-backed (Postgres = pure metadata
@@ -613,13 +616,8 @@ class VfsRepo:
         return self._require_store().fetch_bytes(r.object_key)
 
     async def read(self, *, wf_id, path, touch: bool = True) -> VfsEntry | None:
-        if _is_scratch(path):
-            r = await self._s.get(VfsScratch, (wf_id, path))
-            kind, wf_version = "scratch", None
-        else:
-            r = await self._s.get(VfsArtifact, (wf_id, path))
-            kind = "artifact"
-            wf_version = r.wf_version if r else None
+        r, kind = await self._read_row(wf_id=wf_id, path=path)
+        wf_version = r.wf_version if r is not None and kind == "artifact" else None
         if not r:
             return None
         if touch:
@@ -664,10 +662,13 @@ class VfsRepo:
                 out.append(VfsEntry(r.path, "artifact", "", r.content_type,
                                     abstract, r.size_bytes, r.wf_version,
                                     r.last_access.timestamp()))
+            durable_paths = {entry.path for entry in out}
             for r in (await self._s.execute(
                 select(VfsScratch).where(
                     VfsScratch.scope_id == wf_id,
                     VfsScratch.path.like(prefix + "%")))).scalars().all():
+                if r.path in durable_paths:
+                    continue
                 abstract = await unprotect_vfs_abstract(
                     self._s, tenant_id=str(r.tenant_id), kind="scratch",
                     resource_id=str(r.scope_id), path=r.path,
@@ -701,6 +702,7 @@ class VfsRepo:
                 out.append(VfsEntryMeta(r.path, "artifact", r.content_type, abstract,
                                         r.size_bytes, r.wf_version,
                                         r.last_access.timestamp(), r.content_revision))
+            durable_paths = {entry.path for entry in out}
             rows = (await self._s.execute(
                 select(VfsScratch).options(load_only(
                     VfsScratch.path, VfsScratch.content_type, VfsScratch.abstract,
@@ -710,6 +712,8 @@ class VfsRepo:
                 .where(VfsScratch.scope_id == wf_id,
                        VfsScratch.path.like(prefix + "%")))).scalars().all()
             for r in rows:
+                if r.path in durable_paths:
+                    continue
                 abstract = await unprotect_vfs_abstract(
                     self._s, tenant_id=str(r.tenant_id), kind="scratch",
                     resource_id=str(wf_id), path=r.path, abstract=r.abstract,

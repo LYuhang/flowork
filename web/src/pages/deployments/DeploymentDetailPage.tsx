@@ -92,12 +92,12 @@ function deploymentDetailTab(value: string | null): TabKey {
 }
 
 
-type MetricsRange = '6h' | '24h' | '7d' | '30d';
+const METRICS_RANGE_MINUTES = { '5m': 5, '10m': 10, '30m': 30, '1h': 60, '3h': 180, '6h': 360, '24h': 1440, '7d': 10080, '14d': 20160, '30d': 43200 } as const;
+type MetricsRange = keyof typeof METRICS_RANGE_MINUTES;
 
 function metricsTimeRange(range: MetricsRange) {
   const to = new Date();
-  const hours = { '6h': 6, '24h': 24, '7d': 168, '30d': 720 }[range];
-  const from = new Date(to.getTime() - hours * 3600 * 1000);
+  const from = new Date(to.getTime() - METRICS_RANGE_MINUTES[range] * 60 * 1000);
   return { from: from.toISOString(), to: to.toISOString() };
 }
 
@@ -789,7 +789,7 @@ function MonitoringTab({ query, onTest, range, onRangeChange }: { query: UseQuer
         actions={<div className="flex items-center gap-2">
           <Select value={range} onValueChange={value => onRangeChange(value as MetricsRange)}>
             <SelectTrigger className="w-40" aria-label={t('logs.timeRange', 'Time range')}><SelectValue /></SelectTrigger>
-            <SelectContent>{(['6h', '24h', '7d', '30d'] as const).map(value => <SelectItem key={value} value={value}>
+            <SelectContent>{(Object.keys(METRICS_RANGE_MINUTES) as MetricsRange[]).map(value => <SelectItem key={value} value={value}>
               {value === '6h' ? t('deployments.metrics.last6h', 'Last 6 hours') : t(`logs.range.${value}`)}
             </SelectItem>)}</SelectContent>
           </Select>

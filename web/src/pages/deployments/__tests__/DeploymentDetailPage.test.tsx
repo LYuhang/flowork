@@ -429,6 +429,20 @@ describe('<DeploymentDetailPage>', () => {
     expect(Date.parse(params.to) - Date.parse(params.from)).toBe(30 * 86400000);
   });
 
+  it('keeps minute buckets for short and fortnight monitoring ranges', async () => {
+    const user = userEvent.setup(); renderAt(DEP_ID);
+    await screen.findByRole('heading', { name: 'Requests, errors, and latency' });
+    for (const [range, minutes] of [['5m', 5], ['10m', 10], ['30m', 30], ['1h', 60], ['3h', 180], ['14d', 20160]] as const) {
+      await user.click(screen.getByRole('combobox', { name: 'Time range' }));
+      await user.click(screen.getByRole('option', { name: `logs.range.${range}` }));
+      await waitFor(() => {
+        const params = vi.mocked(getMetrics).mock.calls.at(-1)![1];
+        expect(params.bucket).toBe('minute');
+        expect(Date.parse(params.to) - Date.parse(params.from)).toBe(minutes * 60000);
+      });
+    }
+  });
+
   it('displays zero errors while keeping an all-zero chart finite', async () => {
     vi.mocked(getMetrics).mockResolvedValue({
       series: [{ ts: '2026-05-24T10:00:00Z', calls: 0, errors: 0, qps: 0, error_rate: 0, latency_p50: 0, latency_p95: 0 }],

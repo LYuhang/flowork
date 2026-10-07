@@ -4010,5 +4010,10 @@
   "deployments.metrics.qpsHelp": "该分钟接收的调用数 ÷ 窗口秒数；当前分钟按已过去的秒数计算。不含鉴权或限流拒绝。",
   "deployments.metrics.errorRate": "错误率",
   "deployments.metrics.errorHelp": "该分钟结束的调用中，失败或超时的比例；等待审批中的调用不计入。",
-  "deployments.metrics.latencyHelp": "该分钟结束的调用耗时 P95（秒）：95% 的已记录耗时不超过此值。"
+  "deployments.metrics.latencyHelp": "该分钟结束的调用耗时 P95（秒）：95% 的已记录耗时不超过此值。",
+  "logs.range.5m": "最近5分钟",
+  "logs.range.10m": "最近10分钟",
+  "logs.range.30m": "最近30分钟",
+  "logs.range.3h": "最近3小时",
+  "logs.range.14d": "最近14天"
 }

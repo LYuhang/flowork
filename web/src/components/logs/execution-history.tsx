@@ -56,7 +56,7 @@ export function ExecutionHistory({ source, sourceId }: { source: ExecutionSource
         : query.isLoading ? <p role="status" className="text-sm text-content-secondary">{t('execution.loading')}</p>
           : items.length === 0 ? <p className="text-sm text-content-secondary">{t('execution.empty')}</p>
             : <div className="app-scrollbar max-h-[32rem] overflow-auto rounded-lg border border-edge-subtle">
-              <table data-slot="execution-table" className="w-full min-w-[680px] text-left text-sm" aria-label={t('execution.history')}>
+              <table data-slot="execution-table" className="w-full text-left text-sm" aria-label={t('execution.history')}>
                 <thead className="sticky top-0 z-10 bg-surface-sunken">
                   <tr>
                     <th scope="col" className="px-4 py-3">{t('execution.id')}</th>

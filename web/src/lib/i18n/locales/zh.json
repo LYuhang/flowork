@@ -4015,5 +4015,7 @@
   "logs.range.10m": "最近10分钟",
   "logs.range.30m": "最近30分钟",
   "logs.range.3h": "最近3小时",
-  "logs.range.14d": "最近14天"
+  "logs.range.14d": "最近14天",
+  "deployments.metrics.p50Seconds": "P50 延迟（秒）",
+  "deployments.metrics.p95Seconds": "P95 延迟（秒）"
 }

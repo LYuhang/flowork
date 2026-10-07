@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { metricGeometry } from '../DeploymentMetricChart';
+import { metricGeometry } from '../deployment-metric-geometry';
 import type { MetricsResponse } from '@/lib/api/deployments';
 
 const dataset: MetricsResponse = {

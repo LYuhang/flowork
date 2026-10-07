@@ -118,15 +118,16 @@ async def _seed_deployment(pg_engine, app_engine):
             name="Deployment Workflow",
             initial_workflow=_MINIMAL_WORKFLOW,
         )
+        # Invocation tests do not require Redis; rate-limit behavior has its own suite.
         await session.execute(
             text(
                 "INSERT INTO deployments("
                 "id, tenant_id, user_id, owner_id, wf_id, name, slug, "
                 "trigger_type, version_pin, pinned_major, pinned_sub, "
-                "api_key_hash"
+                "api_key_hash, rate_limit_qps"
                 ") VALUES ("
                 ":id, :t, :u, :u, :w, 'Async', :s, "
-                "'api', 'specific', 1, 0, :h"
+                "'api', 'specific', 1, 0, :h, 0"
                 ")"
             ),
             {

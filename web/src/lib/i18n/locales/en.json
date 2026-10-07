@@ -4015,5 +4015,7 @@
   "logs.range.10m": "Last 10 minutes",
   "logs.range.30m": "Last 30 minutes",
   "logs.range.3h": "Last 3 hours",
-  "logs.range.14d": "Last 14 days"
+  "logs.range.14d": "Last 14 days",
+  "deployments.metrics.p50Seconds": "P50 latency (s)",
+  "deployments.metrics.p95Seconds": "P95 latency (s)"
 }

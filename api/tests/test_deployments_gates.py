@@ -101,7 +101,7 @@ _MIN_WF = {
 
 async def _seed_full(
     pg_engine, app_engine, *,
-    trigger="api", qps=10,
+    trigger="api", qps=0,  # Rate-limit checks use their own explicit Redis fixture.
     api_key_plain=None,
     version_pin="specific", pinned_major=1, pinned_sub=0,
     hmac_secret=None,
@@ -401,8 +401,8 @@ async def test_g5_webhook_signature_branches(
             self.headers = headers
             self._body = body
 
-        async def body(self):
-            return self._body
+        async def stream(self):
+            yield self._body
 
     body = b"{}"
     ts = str(int(time.time()))

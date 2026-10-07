@@ -826,8 +826,8 @@ function MonitoringTab({ query, onTest, range, onRangeChange }: { query: UseQuer
                 <th scope="col" className="px-4 py-3 font-medium">{t('deployments.detail.bucket', 'Bucket')}</th>
                 <th scope="col" className="px-4 py-3 text-right font-medium">QPS</th>
                 <th scope="col" className="px-4 py-3 text-right font-medium">{t('deployments.metrics.errorRate')} (%)</th>
-                <th scope="col" className="px-4 py-3 text-right font-medium">P50 (s)</th>
-                <th scope="col" className="px-4 py-3 text-right font-medium">P95 (s)</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">{t('deployments.metrics.p50Seconds')}</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">{t('deployments.metrics.p95Seconds')}</th>
               </tr>
             </thead>
             <tbody>

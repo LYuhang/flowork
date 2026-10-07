@@ -180,7 +180,7 @@ def test_nginx_refreshes_compose_service_dns() -> None:
 
     assert "resolver 127.0.0.11" in nginx
     assert "server api:8000 resolve;" in nginx
-    assert nginx.count("proxy_pass http://flowork_api;") == 3
+    assert nginx.count("proxy_pass http://flowork_api;") == 4
 
 
 def test_nginx_preserves_browser_authority_for_origin_validation() -> None:

@@ -24,7 +24,10 @@ from __future__ import annotations
 from vibecanvas_api.services.task_notifications import NotificationPolicy
 
 import uuid
+from datetime import datetime, timezone
+from contextlib import aclosing
 from dataclasses import replace
+from fastapi.responses import StreamingResponse
 
 from fastapi import (
     APIRouter,
@@ -593,6 +596,35 @@ class WorkflowHeadOut(BaseModel):
     sub: int
     tree_revision: float
     access: ResourceAccessOut
+
+
+@router.get("/{wf_id}/activity")
+async def workflow_activity(
+    wf_id: str, request: Request,
+    repo: WorkflowRepo = Depends(get_workflow_repo),
+    session: AsyncSession = Depends(tenant_db),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from ..authorization.stream_guard import authorization_lease_is_valid
+    from ..services.state_notifications import invalidations
+    await _authorize_workflow(request=request, auth=auth, service=service, wf_id=wf_id, action=Action.VIEW)
+    if not await repo.get_meta(wf_id):
+        raise HTTPException(404, "Workflow not found")
+    await session.commit()
+
+    async def authorized():
+        return await authorization_lease_is_valid(auth=auth,
+            openfga_client=request.app.state.openfga_client,
+            resource=_workflow_resource(auth, wf_id), action=Action.VIEW)
+
+    async def stream():
+        async with aclosing(invalidations('flowork_workflow_activity', wf_id, authorized)) as changes:
+            async for changed in changes:
+                yield 'event: changed\ndata: {}\n\n' if changed else ': heartbeat\n\n'
+
+    return StreamingResponse(stream(), media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @router.get("/{wf_id}/head", response_model=WorkflowHeadOut)
@@ -1344,8 +1376,7 @@ async def get_prompt_history(
 # Atomic batch submission.
 #
 # ``tasks.id == tasks.background_job_id == response.task_id``. The DB row is
-# the durable audit (RLS-scoped to the caller's tenant); enqueue is reconciled
-# every 30s by ``background.reconcile_queued``.
+# the durable audit (RLS-scoped to the caller's tenant). Enqueue is attempted once.
 # ---------------------------------------------------------------------------
 
 
@@ -1393,7 +1424,7 @@ async def submit_batch(
 
     Inserts a ``tasks`` row inside the request transaction, then
     enqueues a durable workflow with ``workflow_id == tasks.id`` (so DBOS and
-    the business row share one idempotency key used by the reconciler).
+    the business row refer to the same task).
     """
     from vibecanvas_api.authorization.dependencies import authorized_resource_scope
     await _rebind_request_organization(session, ctx)
@@ -1504,12 +1535,8 @@ async def submit_batch(
     try:
         await apply_committed_structural_mutations(coordinator, mutation_ids)
         await _rebind_request_organization(session, ctx)
-    except Exception:
-        # The durable outbox owns projection retries. Report the committed ID,
-        # never invite another create after the Task has already been accepted.
-        return {"task_id": str(task_id), "version": snapshot["version"], "authorization_pending": True}
-    # A failure here is safe: the business row is already durably queued and
-    # the periodic reconciler will idempotently enqueue it again.
+    except Exception as exc:
+        await _batch_submission_failed(session, ctx, task_id, "authorization_unavailable", exc)
     try:
         await enqueue_background_job_async(
             "batch_exec",
@@ -1517,10 +1544,29 @@ async def submit_batch(
             queue="interactive",
             kwargs={"task_id": str(task_id)},
         )
-    except Exception:
-        # Swallow — the row is durably queued and the reconciler owns
-        # delivery reliability. Re-raising would leave the row in
-        # ``queued`` AND return 5xx to the client (worst of both).
-        pass
+    except Exception as exc:
+        await _batch_submission_failed(session, ctx, task_id, "task_dispatch_failed", exc)
 
     return {"task_id": str(task_id), "version": snapshot["version"]}
+
+
+async def _batch_submission_failed(session, ctx, task_id, code: str, cause: Exception):
+    """Save a failed submission without replaying or overwriting a started task."""
+    from vibecanvas_api.security.redaction import redact_text
+
+    await _rebind_request_organization(session, ctx)
+    repo = TasksRepo(session)
+    task = await repo.get(task_id, for_update=True)
+    if task is None:
+        raise HTTPException(503, detail={"error": code, "task_id": str(task_id)}) from cause
+    if task.status == "queued":
+        await repo.update_status(
+            task_id, status="failed", finished_at=datetime.now(timezone.utc),
+            error=f"{code}: {redact_text(type(cause).__name__ + ': ' + str(cause))}",
+        )
+    current_status = task.status
+    await session.commit()
+    raise HTTPException(503, detail={
+        "error": code, "task_id": str(task_id), "status": current_status,
+        "message": "Task submission failed. No automatic resubmission. Inspect this task's status and logs before any new action.",
+    }) from cause

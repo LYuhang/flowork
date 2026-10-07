@@ -56,6 +56,7 @@ _SESSION_METHODS = {
     "mcp_call",
     *_STREAM_METHODS,
     "send_agent_runtime_control",
+    "local_execution_process",
     "cancel_agent_runtime",
     "cancel_workflow_run",
     "kill_workflow_job",
@@ -200,6 +201,9 @@ class RemoteSandboxSession:
 
     async def refresh_chat_skill(self, **kwargs: Any) -> dict:
         return await self._call("refresh_chat_skill", **kwargs)
+
+    async def local_execution_process(self) -> dict:
+        return await self._call("local_execution_process")
 
     async def prepare_workflow_skills(self, snapshot: dict) -> dict:
         return await self._call("prepare_workflow_skills", snapshot)

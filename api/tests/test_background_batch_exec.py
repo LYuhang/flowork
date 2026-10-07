@@ -5,8 +5,8 @@ The sandbox has no Docker → no Redis broker, no LocalStack S3. So:
 * :class:`InMemoryObjectStore` is the default ``object_store.provider``,
   exposed via the module-level ``_global_inmemory_store`` singleton so
   tests can introspect bytes uploaded by the task body.
-* The best-effort ``_publish`` swallows any Redis error, so even without
-  a broker the task body finishes cleanly.
+* Task events use transactional PostgreSQL notifications; no Redis broker
+  is needed for log delivery.
 
 Coverage in this file:
 
@@ -70,11 +70,25 @@ async def test_durable_cancel_watcher_sets_worker_event(monkeypatch):
     )
     stop_event = threading.Event()
 
-    await _watch_durable_cancel(
-        uuid.uuid4(),
-        stop_event,
-        poll_seconds=0.001,
-    )
+    import asyncio
+    from contextlib import asynccontextmanager
+    from vibecanvas_api.services import state_notifications
+    changed = asyncio.Event()
+    @asynccontextmanager
+    async def changes(*_):
+        yield changed
+    monkeypatch.setattr(state_notifications, 'state_changes', changes)
+    watcher = asyncio.create_task(_watch_durable_cancel(uuid.uuid4(), stop_event))
+    try:
+        await asyncio.sleep(0.1)
+        assert calls == 1
+        await asyncio.sleep(0.3)
+        assert calls == 1
+        changed.set()
+        await asyncio.wait_for(watcher, 2)
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
 
     assert stop_event.is_set()
     assert calls == 2

@@ -8,21 +8,15 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import redis
 import structlog
 from sqlalchemy import select
 
 from vibecanvas_api.authorization.types import ResourceType
-from vibecanvas_api.config import config
 from vibecanvas_api.services.background_queue import (
     enqueue_background_job_in_transaction,
 )
 from vibecanvas_api.services.llm_credentials_inject import inject_into_run_context_async
 from vibecanvas_api.services.queue_routing import route_for
-from vibecanvas_api.services.redis_channels import (
-    task_event_channel,
-    task_event_envelope,
-)
 from vibecanvas_api.services.sandbox.coordinator import (
     dispose_sandbox_rpc_client,
 )
@@ -54,26 +48,7 @@ logger = structlog.get_logger(__name__)
 SCHEDULED_RUN_DISPATCH_INTERVAL_SEC = 60.0
 
 
-def _publish(task_id: uuid.UUID, tenant_id: uuid.UUID, message: dict) -> None:
-    try:
-        r = redis.from_url(
-            config.redis.url,
-            socket_connect_timeout=0.2,
-            socket_timeout=0.2,
-        )
-        r.publish(
-            task_event_channel(tenant_id, task_id),
-            json.dumps(
-                task_event_envelope(
-                    organization_id=tenant_id,
-                    task_id=task_id,
-                    event=message,
-                ),
-                default=str,
-            ),
-        )
-    except Exception:
-        pass
+
 
 
 def _emit(task_id: uuid.UUID, tenant_id: uuid.UUID, event_type: str, payload: dict) -> None:
@@ -85,12 +60,7 @@ def _emit(task_id: uuid.UUID, tenant_id: uuid.UUID, event_type: str, payload: di
             payload["task_status"] = task.status
         return await repo.insert_event(task_id, event_type, payload, tenant_id)
 
-    ev_id = run_in_short_session(_runner)
-    _publish(
-        task_id,
-        tenant_id,
-        {"id": ev_id, "event_type": event_type, "payload": payload},
-    )
+    run_in_short_session(_runner)
 
 
 def _refresh_task(task_id: uuid.UUID) -> None:
@@ -544,12 +514,14 @@ async def _claim_execution(execution_id: uuid.UUID):
 
 
 async def _watch_cancellation(execution_id: uuid.UUID, stop: asyncio.Event) -> None:
-    # A long silent node may emit no events; cancellation must not wait for it.
-    while not stop.is_set():
-        if await _execution_cancelled(execution_id):
-            stop.set()
-            return
-        await asyncio.sleep(0.5)
+    from vibecanvas_api.services.state_notifications import state_changes
+    async with state_changes('flowork_schedule_command', str(execution_id)) as changed:
+        while not stop.is_set():
+            changed.clear()
+            if await _execution_cancelled(execution_id):
+                stop.set()
+                return
+            await changed.wait()
 
 
 async def _execution_cancelled(execution_id: uuid.UUID) -> bool:

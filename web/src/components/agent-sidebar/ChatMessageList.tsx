@@ -421,6 +421,8 @@ export function ChatMessageList({
   const shouldStickToBottomRef = useRef(true);
   const wasAutoStreamingRef = useRef(false);
   const loadingOlderRef = useRef(false);
+  const historyFillTargetRef = useRef<number | null>(null);
+  const lastAutoFillItemsRef = useRef<RawChunk[] | null>(null);
   const [paginationRevision, setPaginationRevision] = useState(0);
   const paginationRef = useRef<{
     chatKey: string | null;
@@ -606,12 +608,13 @@ export function ChatMessageList({
     }
   }, []);
 
-  const maybeLoadOlderHistory = useCallback((explicit = false) => {
+  const maybeLoadOlderHistory = useCallback((explicit = false, minimumHeight?: number) => {
     const el = scrollRef.current;
     if (!el || !hasOlderHistory || olderHistoryLoading || loadingOlderRef.current || !onLoadOlderHistory) return;
     if (!explicit && el.scrollTop > 80) return;
     const anchor = captureViewport();
     if (!anchor) return;
+    historyFillTargetRef.current ??= minimumHeight ?? el.scrollHeight + 2 * el.clientHeight;
     const pending = { chatKey: scrollStateKey, settled: false, anchor };
     paginationRef.current = pending;
     loadingOlderRef.current = true;
@@ -620,6 +623,7 @@ export function ChatMessageList({
     // The request can finish before React commits its state updates. Keep the
     // snapshot until a layout effect observes the committed transcript.
     Promise.resolve().then(onLoadOlderHistory).catch(() => {
+      historyFillTargetRef.current = null;
       // Keep the current viewport on failure; the load button remains retryable.
     }).finally(() => {
       if (paginationRef.current !== pending) return;
@@ -635,6 +639,7 @@ export function ChatMessageList({
       paginationRef.current = null;
       readingAnchorRef.current = null;
       loadingOlderRef.current = false;
+      historyFillTargetRef.current = null;
       return;
     }
     restoreViewport(pending.anchor);
@@ -660,6 +665,8 @@ export function ChatMessageList({
       paginationRef.current = null;
       readingAnchorRef.current = null;
       loadingOlderRef.current = false;
+      historyFillTargetRef.current = null;
+      lastAutoFillItemsRef.current = null;
     };
   }, [scrollStateKey, restoreViewport]);
 
@@ -667,21 +674,28 @@ export function ChatMessageList({
   // can collapse many tool rows into one compact activity card.  In that
   // case the first page may be shorter than the viewport, so no user scroll
   // event can ever reach the lazy-load threshold.  Keep paging until the
-  // rendered transcript fills the viewport (or the server reports no older
-  // rows), while retaining scroll-triggered pagination for longer pages.
+  // rendered transcript fills two viewports. A user-triggered history load
+  // likewise prepends two viewports, even when many durable rows collapse
+  // into a single tool card. Each page keeps the existing reading anchor.
   useEffect(() => {
     if (!hasOlderHistory || olderHistoryLoading || !onLoadOlderHistory) return;
     const timer = window.setTimeout(() => {
       const el = scrollRef.current;
-      if (!el) return;
-      if (el.scrollHeight <= el.clientHeight + 80) {
-        maybeLoadOlderHistory();
+      if (!el || loadingOlderRef.current || lastAutoFillItemsRef.current === historyItems) return;
+      const target = historyFillTargetRef.current ?? 2 * el.clientHeight;
+      if (el.scrollHeight < target || el.clientHeight === 0) {
+        lastAutoFillItemsRef.current = historyItems;
+        maybeLoadOlderHistory(true, target);
+      } else {
+        historyFillTargetRef.current = null;
       }
     }, 0);
     return () => window.clearTimeout(timer);
   }, [
     hasOlderHistory,
     historyItems.length,
+    historyItems,
+    paginationRevision,
     maybeLoadOlderHistory,
     olderHistoryLoading,
     onLoadOlderHistory,

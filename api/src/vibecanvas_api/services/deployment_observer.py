@@ -28,7 +28,7 @@ def own_dispatch(coroutine) -> asyncio.Task:
 
 
 async def observe_invocation(*, tenant_id: str, slug: str, invocation_id: str, dispatch: asyncio.Task | None = None):
-    from vibecanvas_api.services.execution_notifications import execution_changes
+    from vibecanvas_api.services.state_notifications import execution_changes
 
     async with execution_changes(invocation_id) as changed:
         # Observation duration never changes the invocation's sync/async contract.

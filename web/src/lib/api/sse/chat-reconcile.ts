@@ -3,7 +3,6 @@ import { readServerActiveTurns } from './server-active-turn';
 import { readActiveTurnFor } from './active-turn';
 import { resumeActiveTurn } from './resume-turn';
 
-export const CHAT_RECONCILE_INTERVAL_MS = 30_000;
 export const CHAT_RECONCILED_EVENT = 'vibecanvas:chat-reconciled';
 
 export interface ReconcileChatArgs {
@@ -51,9 +50,13 @@ async function reconcileChat({
 }: ReconcileChatArgs): Promise<void> {
   if (!wfId) return;
 
+  // Discovery removes terminal markers from storage. Keep the replay cursor
+  // before that read so a missed terminal frame can still be recovered.
+  const localTurn = chatId ? readActiveTurnFor(wfId, chatId) : null;
   const turns = await readServerActiveTurns(wfId);
   if (turns) {
     for (const turn of turns) {
+      if (chatId && turn.chatId !== chatId) continue;
       void resumeActiveTurn(turn);
     }
     // The POST stream can lose only its final terminal frame while the backend
@@ -65,7 +68,6 @@ async function reconcileChat({
     // The page-local stream coordinator makes this a no-op while the original
     // POST transport still owns the Chat, so periodic reconciliation cannot
     // create a competing projection.
-    const localTurn = chatId ? readActiveTurnFor(wfId, chatId) : null;
     if (
       localTurn
       && !turns.some((turn) => (

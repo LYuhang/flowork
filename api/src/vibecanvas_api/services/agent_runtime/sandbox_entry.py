@@ -152,7 +152,15 @@ async def serve_turns(channel) -> None:
             if envelope is None:
                 return
             kind = envelope.get("type")
-            if kind == MSG_RUNTIME_REQUEST:
+            if kind == "runtime_execution_status":
+                from vibecanvas_api.services.sandbox.local_activity import execution_alive
+                try:
+                    alive = execution_alive(envelope.get("run_id", ""))
+                except (OSError, ValueError, TypeError, AttributeError):
+                    alive = None
+                await channel.send({"type": kind, "turn_id": envelope.get("turn_id"),
+                                    "run_id": envelope.get("run_id"), "alive": alive})
+            elif kind == MSG_RUNTIME_REQUEST:
                 raw = envelope.get("request") or {}
                 turn_id = str(raw.get("turn_id") or "")
                 try:

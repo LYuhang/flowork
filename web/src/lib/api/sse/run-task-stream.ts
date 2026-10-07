@@ -1,37 +1,5 @@
-/**
- * Task event SSE hook — drives the `/tasks/:id` detail page live log.
- *
- * Why a hook over the chat-stream / exec-stream zustand stores: the
- * task detail page is a single-task scope (one task, one stream, one
- * mount), and the events list is local UI state that does not need to
- * survive a route change. Lifting into a global store would be ceremony
- * without payoff; the hook keeps the component self-contained.
- *
- * Why `@microsoft/fetch-event-source` and not the native `EventSource`:
- *   - We must send `Last-Event-ID` on reconnect so the backend's
- *     replay-from-cursor contract works (T13's strict-ordering
- *     guarantee). Vanilla `EventSource` cannot set request headers, so
- *     it cannot transmit the cursor at all — the browser keeps that
- *     header for its own auto-reconnect, which is fine for in-flight
- *     drops but does not work for our hook-driven reconnect.
- *   - The native API also can't pass `Authorization` headers; the
- *     same rationale as `exec-stream.ts` / `agent-stream.ts`.
- *
- * Lifecycle:
- *   1. On mount (or `taskId` change), reset state and open the SSE
- *      connection.
- *   2. Each `onmessage` appends a `TaskEventFrame` to local state and
- *      bumps `lastIdRef` so a reconnect resumes from the cursor.
- *   3. Terminal frames (`terminal`) flip `done=true`
- *      and abort the request so the library stops retrying.
- *   4. Unmount aborts the controller; the library's `onerror` then sees
- *      `signal.aborted` and exits cleanly.
- *
- * The hook does NOT poll `GET /tasks/{id}` — the page uses TanStack
- * Query for that with a status-aware `refetchInterval`. SSE provides
- * the event log; polling provides the canonical status snapshot.
- */
-import { useEffect, useRef, useState } from "react";
+/** Task logs replay from the last accepted event after network interruptions. */
+import { useEffect, useState } from "react";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { isSseDoneSentinel } from "./json";
 
@@ -83,13 +51,11 @@ export function useTaskStream(
     events: TaskEventFrame[];
     done: boolean;
   } | null>(null);
-  /** Cursor for resume — sent as `Last-Event-ID` on reconnect. */
-  const lastIdRef = useRef<number>(0);
 
   useEffect(() => {
     if (!taskId || !enabled) return;
 
-    lastIdRef.current = initialAfter;
+    let cursor = initialAfter;
 
     const ctrl = new AbortController();
     const base = getApiBase();
@@ -99,17 +65,22 @@ export function useTaskStream(
         await fetchEventSource(`${base}/api/v1/tasks/${taskId}/stream`, {
           signal: ctrl.signal,
           credentials: "include",
-          // Backend reads bearer token from the auth header — same as
-          // the other SSE hooks. `credentials: "include"` is for cookie
-          // sessions, which we don't use; keep the explicit Authorization.
+          // The library records raw IDs before parsing. Always reconnect from
+          // the last event accepted into our projection instead.
+          fetch: (input, init) => {
+            const headers = new Headers(init?.headers);
+            headers.delete('Last-Event-ID');
+            if (cursor > 0) headers.set('Last-Event-ID', String(cursor));
+            return fetch(input, { ...init, headers });
+          },
           headers: (() => {
             const h: Record<string, string> = {
               Accept: "text/event-stream",
             };
             const token = useAuthStore.getState().token;
             if (token) h.Authorization = `Bearer ${token}`;
-            if (lastIdRef.current > 0) {
-              h["Last-Event-ID"] = String(lastIdRef.current);
+            if (cursor > 0) {
+              h["Last-Event-ID"] = String(cursor);
             }
             return h;
           })(),
@@ -117,14 +88,28 @@ export function useTaskStream(
           // run can take minutes and the user often tabs away.
           openWhenHidden: true,
           onopen: async (res) => {
+            if (res.status === 204) {
+              setStreamState((current) => ({
+                taskId,
+                events: current?.taskId === taskId ? current.events : [],
+                done: true,
+              }));
+              ctrl.abort();
+              return;
+            }
             // 401 short-circuits before the body is read; matches the
             // agent-stream + exec-stream pattern.
             if (res.status === 401) {
+              ctrl.abort();
               useAuthStore.getState().handle401();
               throw new Error("auth");
             }
+            if (res.status === 403 || res.status === 404) ctrl.abort();
             if (!res.ok) {
               throw new Error(`task stream open failed: ${res.status}`);
+            }
+            if (!res.headers.get('content-type')?.startsWith('text/event-stream')) {
+              throw new Error('Invalid task stream content type');
             }
           },
           onmessage(msg) {
@@ -134,23 +119,15 @@ export function useTaskStream(
             // `sse_bridge.py` always sets it from `task_events.id`).
             if (!msg.id) return;
             const id = Number(msg.id);
-            if (Number.isNaN(id)) return;
-            lastIdRef.current = Math.max(lastIdRef.current, id);
-
-            let payload: unknown = {};
-            if (msg.data) {
-              try {
-                payload = JSON.parse(msg.data);
-              } catch {
-                // Backend sends JSON, but keep the raw string as a
-                // last resort so the UI can still display malformed
-                // frames instead of swallowing them.
-                payload = msg.data;
-              }
+            if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid task event ID');
+            if (id <= cursor) return;
+            const payload: unknown = JSON.parse(msg.data);
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+              throw new Error('Invalid task event payload');
             }
 
             const eventType = msg.event || "message";
-            if (!TASK_EVENT_TYPES.has(eventType)) return;
+            if (!TASK_EVENT_TYPES.has(eventType)) throw new Error("Invalid task event type");
             const frame: TaskEventFrame = {
               id,
               event_type: eventType as TaskEventType,
@@ -158,9 +135,13 @@ export function useTaskStream(
             };
             setStreamState((current) => ({
               taskId,
-              events: current?.taskId === taskId ? [...current.events, frame] : [frame],
+              events: current?.taskId === taskId
+                ? current.events.some((event) => event.id === id) ? current.events : [...current.events, frame]
+                : [frame],
               done: current?.taskId === taskId ? current.done : false,
             }));
+
+            cursor = id;
 
             if (TERMINAL_EVENT_TYPES.has(eventType)) {
               setStreamState((current) => ({
@@ -173,6 +154,9 @@ export function useTaskStream(
               // close the stream anyway.
               ctrl.abort();
             }
+          },
+          onclose() {
+            if (!ctrl.signal.aborted) throw new Error('Task stream ended before terminal event');
           },
           onerror(err) {
             // If the controller is aborted (unmount or terminal frame),

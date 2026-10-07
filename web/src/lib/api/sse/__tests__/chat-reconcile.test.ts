@@ -64,6 +64,27 @@ describe('reconcileChatWithServer terminal recovery', () => {
     expect(mocks.resumeActiveTurn).toHaveBeenCalledWith(localTurn);
   });
 
+  it('keeps the terminal replay cursor before discovery clears storage', async () => {
+    const turn = { wfId: 'scope-1', chatId: 'chat-1', turnId: 'ended', lastEventId: 8 };
+    mocks.readActiveTurnFor.mockReturnValue(turn);
+    mocks.readServerActiveTurns.mockImplementationOnce(async () => {
+      mocks.readActiveTurnFor.mockReturnValue(null);
+      return [];
+    });
+    await reconcileChatWithServer({ wfId: 'scope-1', chatId: 'chat-1' });
+    expect(mocks.resumeActiveTurn).toHaveBeenCalledWith(turn);
+  });
+
+  it('only opens a replay for the selected conversation', async () => {
+    const selected = { wfId: 'scope-1', chatId: 'chat-1', turnId: 'selected' };
+    mocks.readServerActiveTurns.mockResolvedValue([
+      { wfId: 'scope-1', chatId: 'other-chat', turnId: 'other' }, selected,
+    ]);
+    await reconcileChatWithServer({ wfId: 'scope-1', chatId: 'chat-1' });
+    expect(mocks.resumeActiveTurn).toHaveBeenCalledTimes(1);
+    expect(mocks.resumeActiveTurn).toHaveBeenCalledWith(selected);
+  });
+
   it('does not infer completion when active-run discovery fails', async () => {
     mocks.readActiveTurnFor.mockReturnValue({
       wfId: 'scope-1',

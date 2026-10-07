@@ -362,3 +362,44 @@ async def test_due_dispatch_uses_encrypted_schedule_and_task_documents(
     assert executions[0].input_snapshot == {"private": "input"}
     assert sent and sent[0]["name"] == "scheduled_runs.execute"
     assert sent[0]["kwargs"] == {"execution_id": str(executions[0].id)}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind', ['batch', 'schedule'])
+async def test_cancel_notification_is_commit_bound(pg_engine, kind):
+    import asyncio
+    from vibecanvas_api.services.state_notifications import state_changes
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.repo_tasks import TasksRepo
+
+    tenant, user, workflow = await _seed_tenant_user_workflow(pg_engine)
+    task_id, schedule_id, execution_id = [uuid.uuid4() for _ in range(3)]
+    async with session_scope(tenant_id=str(tenant)) as session:
+        repo = TasksRepo(session)
+        if kind == 'batch':
+            await repo.create(task_id=task_id, tenant_id=tenant, user_id=user,
+                workflow_id=workflow, task_type='batch_exec', payload={}, background_job_id=str(task_id))
+        else:
+            await repo.create_schedule(task_id=task_id, schedule_id=schedule_id, tenant_id=tenant,
+                user_id=user, workflow_id=workflow, name='cancel-notification', enabled=False,
+                schedule_type='interval', cron_expr=None, interval_seconds=60, timezone='UTC',
+                input_preset={}, mount_enabled=False, notification_policy={}, next_run_at=None,
+                workflow_selector={'version': 'v1.sv0'})
+            await repo.create_scheduled_execution(execution_id=execution_id, tenant_id=tenant,
+                schedule_id=schedule_id, workflow_id=workflow, run_key='cancel',
+                trigger_type='manual', input_snapshot={})
+    channel = 'flowork_task_command' if kind == 'batch' else 'flowork_schedule_command'
+    resource_id = task_id if kind == 'batch' else execution_id
+    async with state_changes(channel, str(resource_id)) as changed:
+        await asyncio.wait_for(changed.wait(), 5)
+        changed.clear()
+        async with session_scope(tenant_id=str(tenant)) as session:
+            repo = TasksRepo(session)
+            if kind == 'batch':
+                await repo.update_status(task_id, status='cancelling')
+            else:
+                await repo.update_scheduled_execution(execution_id, status='cancelling')
+            await session.flush()
+            await asyncio.sleep(0.1)
+            assert not changed.is_set()
+        await asyncio.wait_for(changed.wait(), 5)

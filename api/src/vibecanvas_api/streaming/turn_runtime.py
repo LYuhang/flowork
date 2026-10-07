@@ -12,6 +12,7 @@ Spec §3.3 — buffers GC'd 30 minutes after the runner completes.
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 import time
 import uuid
 from typing import Any, AsyncIterator, Callable
@@ -20,6 +21,7 @@ import structlog
 
 from .async_turn_buffer import AsyncTurnBuffer
 from .sse import format_event
+from .text_event_batches import coalesce_text_events
 
 logger = structlog.get_logger(__name__)
 
@@ -132,11 +134,14 @@ async def run_turn(
             await durable_writer.heartbeat()
 
     async def _cancel_watch_loop() -> None:
-        while True:
-            await asyncio.sleep(0.75)
-            if await durable_writer.cancel_requested():
-                stop.set()
-                return
+        from vibecanvas_api.services.state_notifications import agent_commands
+        async with agent_commands(turn_id) as changed:
+            while True:
+                changed.clear()
+                if await durable_writer.cancel_requested():
+                    stop.set()
+                    return
+                await changed.wait()
 
     if durable_writer is not None:
         helper_tasks = [
@@ -148,17 +153,18 @@ async def run_turn(
         # Always emit a 'started' frame first.
         await _emit("started", {"turn_id": turn_id})
         first_producer_event = True
-        async for event_name, payload in producer(stop):
-            if first_producer_event:
-                first_producer_event = False
-                logger.info(
-                    "agent_turn_timing",
-                    phase="first_producer_event",
-                    event_type=event_name,
-                    turn_id=turn_id,
-                    elapsed_ms=int((time.perf_counter() - turn_started) * 1000),
-                )
-            await _emit(event_name, payload)
+        async with aclosing(coalesce_text_events(producer(stop))) as events:
+            async for event_name, payload in events:
+                if first_producer_event:
+                    first_producer_event = False
+                    logger.info(
+                        "agent_turn_timing",
+                        phase="first_producer_event",
+                        event_type=event_name,
+                        turn_id=turn_id,
+                        elapsed_ms=int((time.perf_counter() - turn_started) * 1000),
+                    )
+                await _emit(event_name, payload)
         if stop.is_set():
             await _emit("error", {"code": "cancelled",
                                   "message": "Turn cancelled by client."})

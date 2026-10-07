@@ -13,6 +13,7 @@ from vibecanvas_api.services.local_approval_records import validate_submission
 def claims():
     return dict(organization_id=str(uuid4()), user_id=str(uuid4()), workflow_id='wf',
         run_id=str(uuid4()), sandbox_id='test-sandbox', workflow_digest=workflow_digest({'node': {}}),
+        runtime_process={'host_id': 'a' * 64, 'boot_id': str(uuid4()), 'pid': 123, 'group': 123, 'start': 1},
         workflow_version='v1.sv2', authorization_generation='test')
 
 
@@ -31,7 +32,7 @@ def test_approval_capability_is_signed_expiring_and_audience_separated():
 
 @pytest.mark.parametrize('change', [{'organization_id': 'bad'}, {'run_id': 'bad'},
     {'workflow_digest': 'fake'}, {'workflow_version': 'latest'}, {'workflow_id': ''},
-    {'audience': 'runtime-workflow-model'}])
+    {'audience': 'runtime-workflow-model'}, {'runtime_process': {}}, {'runtime_process': None}])
 def test_invalid_approval_claims_rejected(change):
     with pytest.raises(ValueError):
         mint_local_approval_capability(**{**claims(), **change}, secret='test', ttl_s=60, now=100)

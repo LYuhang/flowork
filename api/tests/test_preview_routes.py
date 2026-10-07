@@ -38,7 +38,7 @@ def _office_payload(extension: str) -> bytes:
     return target.getvalue()
 
 
-from tests.test_workflow_authorization_integration import _browser_sessions, _register as _register_user
+from tests.test_workflow_authorization_integration import _browser_sessions as _browser_sessions, _register as _register_user
 
 
 async def _register(client) -> tuple[dict, dict]:
@@ -823,3 +823,42 @@ async def test_large_table_returns_structured_preview_error(client, app_engine):
     assert descriptor["error"]["code"] == "file_too_large"
     assert descriptor["error"]["params"]["actualBytes"] == len(data)
     assert descriptor["error"]["params"]["limitBytes"] == 10 * 1024 * 1024
+
+
+@pytest.mark.asyncio
+async def test_preview_concurrent_files_preserve_cursor_commit_order(client, app_engine):
+    import asyncio
+    from vibecanvas_api.services.state_notifications import state_changes
+
+    _headers, me, _project, scope = await _chat_fixture(client, app_engine)
+    tenant = str(me['tenant_id'])
+    entered = asyncio.Event()
+    async def write(session, path):
+        await VfsRepo(session, object_store=get_object_store()).upsert_artifact_bytes(
+            wf_id=scope, tenant=tenant, path=path, data=b'test', content_type='text/plain')
+    async def second_write():
+        async with session_scope(tenant_id=tenant) as session:
+            entered.set()
+            await write(session, 'data/second.txt')
+    pending = None
+    try:
+        async with state_changes('flowork_preview_state', f'artifact:{scope}') as changed:
+            await asyncio.wait_for(changed.wait(), 5)
+            changed.clear()
+            async with session_scope(tenant_id=tenant) as session:
+                await write(session, 'data/first.txt')
+                pending = asyncio.create_task(second_write())
+                await asyncio.wait_for(entered.wait(), 2)
+                await asyncio.sleep(0.2)
+                assert not pending.done()
+                assert not changed.is_set()
+            await asyncio.wait_for(changed.wait(), 5)
+            await asyncio.wait_for(pending, 5)
+        first = await _artifact_events(app_engine, tenant_id=tenant, scope_id=scope, path='data/first.txt')
+        second = await _artifact_events(app_engine, tenant_id=tenant, scope_id=scope, path='data/second.txt')
+        assert len(first) == len(second) == 1
+        assert first[0]['event_id'] < second[0]['event_id']
+    finally:
+        if pending:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)

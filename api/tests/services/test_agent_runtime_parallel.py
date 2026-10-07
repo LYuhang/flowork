@@ -29,6 +29,62 @@ class Channel:
 
 
 @pytest.mark.asyncio
+async def test_host_checks_cli_exit_in_agent_runtime_without_fileop_worker(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from uuid import uuid4
+    from vibecanvas_api.services.sandbox import local_activity
+    from vibecanvas_api.services.sandbox.manager import SandboxManager
+
+    channel = Channel()
+
+    class Broker:
+        async def send(self, message):
+            await channel.incoming.put(message)
+
+        async def messages(self):
+            while True:
+                message = await channel.outgoing.get()
+                if message is None:
+                    return
+                yield message
+
+    original = local_activity.execution_alive
+    monkeypatch.setattr(local_activity, 'execution_alive', lambda run_id: original(run_id, tmp_path))
+    guest = asyncio.create_task(entry.serve_turns(channel))
+    router = RuntimeBusRouter(Broker())
+    session = SimpleNamespace(closed=False, _fileop_pool=None, _runtime_router=router)
+    manager = SimpleNamespace(_lock=asyncio.Lock(), _sessions={('tenant', 'sandbox'): session},
+                              _closed_local_executions=set())
+    active, finished, unknown = [uuid4().hex for _ in range(3)]
+
+    async def query(run_id, tenant='tenant'):
+        return await SandboxManager.local_execution_exited(manager, tenant, 'sandbox', run_id)
+
+    try:
+        with local_activity.execution_activity(tmp_path, run_id=finished):
+            pass
+        with local_activity.execution_activity(tmp_path, run_id=active):
+            assert await asyncio.gather(query(active), query(finished), query(unknown)) == [None, True, None]
+            assert await query(finished, 'other-tenant') is None
+            assert router.turns == {}
+        async def lose_request(message):
+            pass
+        monkeypatch.setattr(router.broker, 'send', lose_request)
+        assert await asyncio.wait_for(query(finished), 3) is None
+        assert router.turns == {}  # A timed-out query leaves no subscription.
+        await channel.incoming.put(None)
+        await asyncio.wait_for(guest, 1)
+        await channel.outgoing.put(None)
+        await asyncio.wait_for(router.task, 1)
+        assert await query(finished) is None  # Disconnect is not exit evidence.
+        assert router.turns == {}
+    finally:
+        guest.cancel()
+        await asyncio.gather(guest, return_exceptions=True)
+        await router.close()
+
+
+@pytest.mark.asyncio
 async def test_guest_routes_controls_and_cancel_without_stopping_sibling(monkeypatch):
     channel = Channel()
     cancelled = []

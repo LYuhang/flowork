@@ -6,6 +6,8 @@
 // relying on frontend-owned state as the source of truth.
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useAuthStore } from '@/stores/auth';
+import { queryClient } from '@/app/query-client';
+import { fetchChatHistory } from '@/lib/api/queries/chats';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { getApiBase } from '@/lib/base-path';
 import { routeAgentSignal } from './route-signal';
@@ -120,6 +122,13 @@ async function resumeActiveTurnStream(
   let lastEventId = canContinueFromCursor
     ? Math.max(turn.lastEventId ?? 0, samePageCursor)
     : 0;
+  // Show server-confirmed activity without changing the transcript boundary.
+  if (turn.status) {
+    const store = useChatStreamStore.getState();
+    store.setState('streaming', turn.chatId);
+    store.setWaitingForUser(turn.status === 'waiting_approval', turn.chatId);
+    store.setAbort(ac, turn.chatId);
+  }
   const eventSequence = new SseEventSequence(lastEventId);
   let terminalSeen = false;
   let consecutiveConnectFailures = 0;
@@ -248,6 +257,14 @@ async function resumeActiveTurnStream(
             throw new FatalResumeError(`resume failed: ${res.status}`);
           }
           consecutiveConnectFailures = 0;
+          // Install the fixed transcript boundary before exposing replayed
+          // messages. fetch-event-source awaits onopen, so buffered events
+          // cannot race ahead of this checkpoint.
+          await queryClient.fetchQuery({
+            queryKey: ['chat-history', turn.wfId, turn.chatId, turn.turnId],
+            queryFn: () => fetchChatHistory(turn.wfId, turn.chatId, turn.turnId),
+            staleTime: Infinity,
+          });
           // Live turn found — wire abort (so STOP works) + set up the store for the
           // replay (chatId + streaming + a fresh buffer the replay re-fills).
           resumed = true;
@@ -330,6 +347,9 @@ async function resumeActiveTurnStream(
   flushPendingTextEvents();
   useChatStreamStore.getState().setAbort(null, turn.chatId);
 
-  if (!resumed) clearActiveTurn({ wfId: turn.wfId, chatId: turn.chatId });
+  if (!resumed) {
+    clearActiveTurn({ wfId: turn.wfId, chatId: turn.chatId });
+    if (turn.status) useChatStreamStore.getState().setState('interrupted', turn.chatId);
+  }
   return resumed;
 }

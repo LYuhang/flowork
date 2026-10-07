@@ -106,8 +106,6 @@ class WorkflowRuntime:
         self.max_buffer_bytes = max_buffer_bytes
         self.workflows: dict[str, tuple[str, dict, str | None]] = {}
         self.executions: dict[str, Execution] = {}
-        # Lightweight tombstones survive payload ACKs for this runtime's life.
-        self.completed: dict[str, tuple[str, str]] = {}
 
     def install(self, revision: str, workflow: dict, node_id: str | None = None) -> None:
         fingerprint = _digest({"workflow": workflow, "node_id": node_id})
@@ -134,8 +132,6 @@ class WorkflowRuntime:
         context: dict | None = None,
         require_approval_resume: bool = False,
     ) -> dict:
-        # Stable IDs are required for replay protection; arbitrary paths are not
-        # accepted as IDs. Artifact-path construction belongs to the sandbox host.
         uuid.UUID(invocation_id)
         fingerprint = _digest(
             {"revision": revision, "inputs": inputs, "require_approval_resume": require_approval_resume}
@@ -144,11 +140,6 @@ class WorkflowRuntime:
         if existing:
             if existing.fingerprint != fingerprint:
                 raise ExecutionConflict("invocation already accepted with different input")
-            return self.status(invocation_id)
-        completed = self.completed.get(invocation_id)
-        if completed:
-            if completed[0] != fingerprint:
-                raise ExecutionConflict("invocation already completed with different input")
             return self.status(invocation_id)
         active = sum(e.status not in self.TERMINAL for e in self.executions.values())
         if self.capacity != -1 and active >= self.capacity:
@@ -182,17 +173,7 @@ class WorkflowRuntime:
         return self.status(invocation_id)
 
     def status(self, invocation_id: str) -> dict:
-        e = self.executions.get(invocation_id)
-        if e is None:
-            completed = self.completed.get(invocation_id)
-            if completed is None:
-                raise KeyError(invocation_id)
-            return {
-                "invocation_id": invocation_id,
-                "generation": self.generation,
-                "status": completed[1],
-                "acknowledged": True,
-            }
+        e = self.executions[invocation_id]
         return {
             "invocation_id": invocation_id,
             "generation": self.generation,
@@ -364,8 +345,6 @@ class WorkflowRuntime:
 
     def acknowledge(self, invocation_id: str, through: int) -> None:
         e = self.executions.get(invocation_id)
-        if e is None and invocation_id in self.completed:
-            return
         if e is None:
             raise KeyError(invocation_id)
         if through > e.seq or through < 0:
@@ -376,7 +355,6 @@ class WorkflowRuntime:
             e.buffered_bytes -= size
         e.buffer_released.set()
         if e.status in self.TERMINAL and through == e.seq and e.task.done():
-            self.completed[invocation_id] = (e.fingerprint, e.status)
             del self.executions[invocation_id]
 
     async def decide(self, invocation_id: str, approval_id: str, approved: bool) -> dict:

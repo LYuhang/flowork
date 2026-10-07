@@ -99,7 +99,7 @@ WORKFLOW_FILE_HELP = (
 def parser() -> Parser:
     root = Parser(prog="flowork-cli",
         description="Access Flowork resources from an active cloud Agent turn. No login required.",
-        epilog="Workflow commands are stateless: pass an exact workflow ID and --major vN for branch content. No connect/disconnect/status/version set. Read each command's --help. Default stdout is one final JSON; progress JSONL goes to stderr. workflow run/run-batch, document/diagram render accept --stream for stdout JSONL; task logs --follow also streams. Events are progress/result/error. command_status is the command outcome, not execution_status or resource_status. Help is text. Workflow download without --file emits the raw workflow JSON only. Exit: 0 success, 1 failure/partial/unknown, 2 invalid input. Never automatically retry a mutation after result_unknown. Transport heartbeat deadlines are not command duration limits.")
+        epilog="Workflow commands are stateless: pass an exact workflow ID and --major vN for branch content. No connect/disconnect/version set. Execution status/result require --run-id. Read each command's --help. Default stdout is one final JSON; progress JSONL goes to stderr. workflow run/run-batch, document/diagram render accept --stream for stdout JSONL; task logs --follow also streams. Events are progress/result/error. command_status is the command outcome, not execution_status or resource_status. Help is text. Workflow download without --file emits the raw workflow JSON only. Exit: 0 success, 1 failure/partial/unknown, 2 invalid input. Never automatically retry a mutation after result_unknown. Transport heartbeat deadlines are not command duration limits.")
     groups = root.add_subparsers(dest="resource", required=True)
     task_cli.add_parser(groups)
     deployment_cli.add_parser(groups)
@@ -119,6 +119,14 @@ def parser() -> Parser:
     workflow = groups.add_parser("workflow", help="Discover, edit, validate, version, execute and delete workflows.",
         description="Stateless commands. Every resource operation names its target explicitly; branch-content operations also require --major vN. No stored current workflow or selected branch. A command resolves the latest subversion once; run-batch freezes it for all rows. Commits preserve version history and follow the platform's global HEAD save semantics, but never write Chat selection state. Local file metadata never selects the target. Preview is a separate render_preview MCP call.")
     actions = workflow.add_subparsers(dest="action", required=True)
+
+    for name in ('status', 'result'):
+        query = actions.add_parser(name, help='Read a local execution by run ID; never submits or waits for execution.')
+        query.add_argument('--run-id', required=True, help='run_id returned by workflow run or run-batch in this sandbox.')
+        if name == 'result':
+            query.add_argument('--index', type=int, help='Optional zero-based sample index.')
+            query.add_argument('--offset', type=int, default=0)
+            query.add_argument('--limit', type=int, default=100, help='Result page size, 1–1000.')
 
     layout = actions.add_parser("layout", help="Arrange saved nodes left-to-right on an explicit branch.",
         description="Changes only node x/y positions on the specified major's latest saved subversion. Preserves edges, configs and other visual attributes. Saves one new subversion only if positions change. Output {id,version,changed,moved_nodes,message}. Does not validate or execute the graph. No local file or Chat binding. After result_unknown inspect version list/download before retrying.",
@@ -213,7 +221,7 @@ def parser() -> Parser:
         running.add_argument("--output", help="JSONL result file; default unique /data/runs/<run_id>/results.jsonl, including single-row runs.")
         running.add_argument("--overwrite", action="store_true")
         running.epilog = "Each command owns a local engine runtime. Cancellation stops its active executions and new rows without stopping the Chat sandbox. Results record input/output/node_outputs/errors/execution_time; batch rows append in completion order with zero-based index. Partial files cannot undo external side effects. Check terminal status, not file existence. Never automatically rerun result_unknown. Follow AGENTS.md path visibility rules."
-        running.epilog += " HumanApprovalNode waits for review while retaining its worker. Progress includes row_status=waiting_approval and an execution_url for the reviewer; keep this command running in the foreground or with setsid nohup. The original Agent turn need not stay open. Approval progress includes the execution detail link. Rejection produces approved=false and continues. Approval timeout produces no business output and stops that execution with execution_status=timed_out and approval_timeout."
+        running.epilog += " On reaching HumanApprovalNode, the CLI automatically returns execution_status=waiting_approval, async=true, run_id, approval links and status/result query commands. The same local engine continues in the background without restarting rows. Use workflow status/result --run-id ID in this sandbox; no waiting connection to the Agent is required. Rejection produces approved=false and continues. Approval timeout produces no business output and stops that execution with execution_status=timed_out and approval_timeout."
         if command == "run":
             running.add_argument("--node", help="Execute only this exact node ID, not its upstream/downstream nodes. Inputs go directly to the node (overriding configured defaults); no previous outputs are reused. Supports --file. Validates only the target and its required resources. No autosave/new version. Loop/parallel control nodes require full workflow execution. Not supported by run-batch.")
             inputs = running.add_mutually_exclusive_group()
@@ -669,6 +677,9 @@ def main(argv: list[str] | None = None, *, socket_path: str | None = None) -> in
             return task_cli.execute(args, socket_path or os.environ.get("FLOWORK_CLI_SOCKET", ""), sys.modules[__name__])
         if args.resource == "deployment":
             return deployment_cli.execute(args, socket_path or os.environ.get("FLOWORK_CLI_SOCKET", ""), sys.modules[__name__])
+        if args.resource == 'workflow' and args.action in {'status', 'result'}:
+            from vibecanvas_api.flowork_cli.local_command import query
+            return query(args, sys.modules[__name__])
         if args.action in {"run", "run-batch"}:
             return execute_command(args, socket_path or os.environ.get("FLOWORK_CLI_SOCKET", ""))
         if args.action == "download" and args.overwrite and args.file is None:

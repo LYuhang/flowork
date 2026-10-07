@@ -790,5 +790,5 @@ fall back to a third-party renderer. Opening the external editor remains an
 explicit, separate user action.
 
 For event-driven Deployment result waiting behind transaction-mode PgBouncer,
-set `EXECUTION_NOTIFICATION_DATABASE_URL` to a direct or session-pooled URL for
+set `STATE_NOTIFICATION_DATABASE_URL` to a direct or session-pooled URL for
 the same application database. PostgreSQL LISTEN requires session affinity.

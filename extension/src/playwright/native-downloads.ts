@@ -42,6 +42,7 @@ export class NativeDownloads {
     // tabs must make attribution ambiguous, not leak that tab's file.
     if (capture.requests.size >= 10000 && !capture.requests.has(request.requestId)) {
       capture.error = "download_observation_overflow";
+      this.changed();
       return;
     }
     const record = capture.requests.get(request.requestId) || { tabId: request.tabId, urls: new Set<string>() };
@@ -58,7 +59,10 @@ export class NativeDownloads {
       && tab.openerTabId !== undefined && capture.tabs.has(tab.openerTabId)) capture.tabs.add(tab.id);
   };
   private readonly onDetached = (tabId: number) => {
-    if (this.capture?.tabs.has(tabId)) this.capture.error = "download_window_changed";
+    if (this.capture?.tabs.has(tabId)) {
+      this.capture.error = "download_window_changed";
+      this.changed();
+    }
   };
 
   async begin(tabId: number): Promise<Record<string, unknown>> {

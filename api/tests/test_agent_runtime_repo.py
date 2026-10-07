@@ -357,3 +357,87 @@ async def test_workflow_history_binding_is_immutable_and_scoped(pg_engine):
                 chat_id, {**binding, "workflow_id": "another-workflow"})
     async with session_scope(**scope) as session:
         assert await ChatRepo(session, str(uuid.uuid4())).list_sessions("wf-history") == []
+
+
+@pytest.mark.asyncio
+async def test_agent_commit_notifications_and_bounded_replay(pg_engine):
+    import asyncio
+    from vibecanvas_api.services.state_notifications import agent_changes
+    tenant_id, user_id = await _seed(pg_engine)
+    chat_id = f'notify_{uuid.uuid4().hex}'
+    run_id = f't_{uuid.uuid4().hex}'
+    await _insert_chat(tenant_id, user_id, chat_id)
+    scope = dict(tenant_id=tenant_id, user_id=user_id)
+    async with session_scope(**scope) as session:
+        await AgentRunsRepo(session).create(run_id=run_id, tenant_id=tenant_id,
+            chat_id=chat_id, creator_user_id=user_id, client_request_id=run_id, input_snapshot={})
+    async with agent_changes(run_id) as changed:
+        await asyncio.wait_for(changed.wait(), 5)
+        changed.clear()
+        async with session_scope(**scope) as session:
+            repo = AgentRunsRepo(session)
+            for seq in range(1, 6):
+                await repo.append_event(run_id=run_id, seq=seq, event_type='message_delta',
+                    payload={'text': str(seq)}, tenant_id=tenant_id)
+            await asyncio.sleep(0.02)
+            assert not changed.is_set()
+        await asyncio.wait_for(changed.wait(), 5)
+        async with session_scope(**scope) as session:
+            repo = AgentRunsRepo(session)
+            cursor, found = 0, []
+            while rows := await repo.list_events(run_id, cursor, limit=2):
+                assert len(rows) <= 2
+                found.extend(row.seq for row in rows)
+                cursor = rows[-1].seq
+            assert found == [1, 2, 3, 4, 5]
+
+
+@pytest.mark.asyncio
+async def test_chat_activity_commits_broadcast_to_all_observers(pg_engine):
+    import asyncio
+    from vibecanvas_api.services.state_notifications import state_changes
+    tenant_id, user_id = await _seed(pg_engine)
+    chat_id = f'activity_{uuid.uuid4().hex}'
+    await _insert_chat(tenant_id, user_id, chat_id)
+    async with state_changes('flowork_chat_activity', chat_id) as first:
+        async with state_changes('flowork_chat_activity', chat_id) as second:
+            # Listener readiness also triggers reconciliation.
+            await asyncio.wait_for(first.wait(), 3)
+            await asyncio.wait_for(second.wait(), 3)
+            first.clear()
+            second.clear()
+            async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
+                await AgentRunsRepo(session).create(
+                    run_id=f'turn_{uuid.uuid4().hex}', tenant_id=tenant_id,
+                    chat_id=chat_id, creator_user_id=user_id,
+                    client_request_id=uuid.uuid4().hex, input_snapshot={'content': 'test'},
+                )
+                await session.flush()
+                assert not first.is_set() and not second.is_set()
+            await asyncio.wait_for(first.wait(), 3)
+            await asyncio.wait_for(second.wait(), 3)
+
+@pytest.mark.asyncio
+async def test_failed_turn_history_is_bounded_to_actor_chat_and_requested_runs(pg_engine):
+    tenant_id, user_id = await _seed(pg_engine)
+    chat_id = f'failed_history_{uuid.uuid4().hex}'
+    await _insert_chat(tenant_id, user_id, chat_id)
+    failed_id, success_id = f't_{uuid.uuid4().hex}', f't_{uuid.uuid4().hex}'
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
+        repo = AgentRunsRepo(session)
+        for run_id, kind, payload in [
+            (failed_id, 'error', {'code': 'authorization_unavailable', 'message': 'Authorization unavailable'}),
+            (success_id, 'done', {'ok': True}),
+        ]:
+            await repo.create(run_id=run_id, tenant_id=tenant_id, chat_id=chat_id,
+                creator_user_id=user_id, client_request_id=run_id, input_snapshot={})
+            await repo.append_event(run_id=run_id, seq=1, event_type=kind, payload=payload, tenant_id=tenant_id)
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
+        repo = AgentRunsRepo(session)
+        assert await repo.failed_turns_for_history(chat_id, [failed_id, success_id], creator_user_id=user_id) == {
+            failed_id: {'code': 'authorization_unavailable', 'message': 'Authorization unavailable'},
+        }
+        assert not await repo.failed_turns_for_history(chat_id, [success_id], creator_user_id=user_id)
+        assert not await repo.failed_turns_for_history('other_chat', [failed_id], creator_user_id=user_id)
+        assert not await repo.failed_turns_for_history(chat_id, [failed_id], creator_user_id=str(uuid.uuid4()))
+        assert not await repo.failed_turns_for_history(chat_id, [], creator_user_id=user_id)

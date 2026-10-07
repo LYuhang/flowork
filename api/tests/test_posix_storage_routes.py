@@ -69,3 +69,27 @@ async def test_storage_rename_delete_and_readonly_boundary(tmp_path, monkeypatch
     new.writable = True
     deleted = await route.delete_storage(path='/project/project/data/new', **args)
     assert deleted.deleted == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('name', ['report.csv', '测试结果.csv', '空 格"%.txt', 'line\r\nname.txt'])
+async def test_storage_download_encodes_filename(tmp_path, monkeypatch, name):
+    from starlette.requests import Request
+    from urllib.parse import unquote
+    monkeypatch.setattr(route.config, 'workspace_storage_backend', 'posix')
+    monkeypatch.setattr(route.config, 'workspace_storage_root', str(tmp_path))
+    monkeypatch.setattr(route, '_authorize_logical_path', AsyncMock(return_value=None))
+    monkeypatch.setattr(route, 'context_for_auth', lambda *args: SimpleNamespace(admitted_resource_organization_id='owner'))
+    scope = project_workspace_scope_id('project')
+    monkeypatch.setattr(route, '_resolve_path', AsyncMock(return_value=SimpleNamespace(
+        root='project', scope_id=scope, vfs_path='/data/' + name)))
+    storage = PosixWorkspaceStorage(str(tmp_path))
+    storage.write_file(WorkspaceIdentity('owner', 'project', scope), 'data/' + name, io.BytesIO(b'contents'))
+    response = await route.raw_storage_content(
+        request=Request({'type':'http', 'headers':[]}), path='/project/project/data/' + name,
+        auth=SimpleNamespace(tenant_id='viewer', user_id='viewer'), session=object(), service=object())
+    header = response.headers['content-disposition']
+    assert header.isascii() and '\r' not in header and '\n' not in header
+    assert unquote(header.split("UTF-8''", 1)[1]) == name.replace('\r', '_').replace('\n', '_')
+    content = b''.join([part async for part in response.body_iterator])
+    assert content == b'contents'

@@ -37,7 +37,6 @@ from vibecanvas_api.background_tasks.kb_indexer import kb_index_file_task
 from vibecanvas_api.background_tasks.kb_orphan_reconciler import (
     kb_orphan_reconciler,
 )
-from vibecanvas_api.background_tasks.reconciler import resubmit_stuck_queued
 from vibecanvas_api.background_tasks.scheduled_runs import (
     dispatch_due_scheduled_runs,
     execute_scheduled_run,
@@ -226,9 +225,6 @@ dispatch_due_workflow = _schedule_registration(
     "scheduled_runs.dispatch_due", dispatch_due_scheduled_runs
 )
 task_recovery_workflow = _schedule_registration("tasks.recover_workers", recover_task_workers)
-queued_reconciler_workflow = _schedule_registration(
-    "background.reconcile_queued", resubmit_stuck_queued
-)
 authorization_reconciler_workflow = _schedule_registration(
     "authorization.audit", reconcile_authorization
 )
@@ -259,14 +255,6 @@ SCHEDULES = [
         # `*/5 * * * * *` means every five seconds, not every five minutes.
         "schedule": "0 */5 * * * *",
         "queue_name": "maintenance",
-    },
-    {
-        "schedule_name": "flowork-queued-reconciler",
-        "workflow_fn": queued_reconciler_workflow,
-        # Delivery is event-driven; this sweep only repairs the exceptional
-        # request-committed/DBOS-enqueue-failed gap.
-        "schedule": "0 */5 * * * *",
-        "queue_name": "control",
     },
     {
         "schedule_name": "flowork-authorization-audit",
@@ -311,7 +299,6 @@ SCHEDULES = [
 SCHEDULE_WORKFLOWS = {
     "tasks.recover_workers": task_recovery_workflow,
     "scheduled_runs.dispatch_due": dispatch_due_workflow,
-    "background.reconcile_queued": queued_reconciler_workflow,
     "authorization.audit": authorization_reconciler_workflow,
     "data_purge.run_due": data_purge_workflow,
     "deployments.concurrency_reconciler": concurrency_reconciler_workflow,
@@ -321,7 +308,7 @@ SCHEDULE_WORKFLOWS = {
 }
 
 
-RETIRED_SCHEDULES = ("flowork-authorization-reconciler",)
+RETIRED_SCHEDULES = ("flowork-authorization-reconciler", "flowork-queued-reconciler")
 
 
 __all__ = [

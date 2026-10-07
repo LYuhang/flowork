@@ -49,8 +49,12 @@ async def test_queries_filter_whole_dataset_and_keep_typed_values(monkeypatch):
     monkeypatch.setattr(tasks, '_authorize_task', AsyncMock())
     monkeypatch.setattr(tasks, 'TasksRepo', lambda session: SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(
         task_type='batch_exec', status='finished', result={'artifact_uris': {'jsonl': 'memory://test'}}))))
-    monkeypatch.setattr(evaluation, 'load_results', lambda uri: (rows, 'version'))
-    result = await tasks.query_results(uuid4(), tasks.ResultQuery(search='240', limit=10), None, None, None, None)
+    from vibecanvas_api.services import result_tables
+    from vibecanvas_api.services.object_store import InMemoryObjectStore
+    store = InMemoryObjectStore()
+    store.put_bytes('test', '\n'.join(json.dumps(row) for row in rows).encode())
+    monkeypatch.setattr(result_tables, 'get_task_result_store', lambda: store)
+    result = await tasks.query_results(uuid4(), tasks.ResultQuery(search='240', limit=10), None, SimpleNamespace(tenant_id=uuid4(), user_id=uuid4()), None, None)
     assert result['total'] == 250
     assert result['rows'][0]['input']['value'] == 240
     assert result['rows'][0]['output']['ok'] is False

@@ -60,7 +60,7 @@ export function ContextAttachmentCard({ attachment, onRemove, originChatId, comp
   const Icon = attachment.type === 'quote' ? Quote : attachment.type === 'resource' ? Shapes : FileText;
   return (
     <>
-      <div className={cn("preview-click-card relative flex max-w-full shrink-0 border border-edge-subtle bg-surface-sunken/60 text-xs", compact ? "h-8 w-auto max-w-[200px] rounded-lg" : "w-60 rounded-xl")}
+      <div className={cn("preview-click-card relative flex max-w-full shrink-0 border border-edge-subtle bg-surface-sunken/60 text-xs", compact ? "h-8 w-auto max-w-[176px] rounded-lg" : "w-60 rounded-xl")}
         data-role={onRemove ? 'agent-composer-attachment-chip' : 'context-attachment-card'} data-attachment-type={attachment.type}>
         <button type="button" className={cn("flex min-w-0 flex-1 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus", compact ? "items-center gap-1.5 rounded-lg px-2 py-1" : "items-start gap-2.5 rounded-xl px-3 py-2.5")}
           onClick={() => setOpen(true)} aria-label={t('composer.context.view', {defaultValue:'View context: {{name}}', name:label})}>
@@ -72,7 +72,7 @@ export function ContextAttachmentCard({ attachment, onRemove, originChatId, comp
           </span>
         </button>
         {onRemove && <button type="button" onClick={onRemove}
-          className={cn("mr-1 rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus", compact ? "self-center" : "my-1 self-start")}
+          className={cn("mr-1 shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus", compact ? "self-center" : "my-1 self-start")}
           aria-label={t('composer.remove_attachment', 'Remove attachment')} data-action="agent-composer-attachment-remove">
           <X className="h-3 w-3" />
         </button>}

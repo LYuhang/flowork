@@ -14,7 +14,7 @@ export function EvaluationTab({ taskId, canEdit, canExecute }: { taskId: string;
   const client = useQueryClient();
   const [draft, setDraft] = useState<EvaluationConfig | null>(null);
   const query = useQuery({ queryKey: ['evaluation', taskId], queryFn: () => taskResultRequest<EvaluationState>(taskId, 'evaluation'),
-    refetchInterval: 3000 });
+    refetchOnWindowFocus: true });
   const value = draft ?? query.data?.config ?? { enabled: false, script: '' };
   const active = query.data?.records.some(r => r.status === 'queued' || r.status === 'running');
   const mutation = useMutation({ mutationFn: async (run: boolean) => {

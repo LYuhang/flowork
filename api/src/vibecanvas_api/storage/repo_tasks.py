@@ -350,6 +350,9 @@ class TasksRepo:
                 f"TasksRepo.insert_event: unknown event_type {event_type!r}; "
                 f"allowed = {sorted(TASK_EVENT_TYPES)}"
             )
+        # Serialize ID allocation with commits so cursor readers cannot skip
+        # an earlier event that commits after a later ID.
+        await self.session.execute(select(Task.id).where(Task.id == task_id).with_for_update())
         record_id = uuid.uuid4()
         encrypted = await self._encrypt_document(
             tenant_id=tenant_id,

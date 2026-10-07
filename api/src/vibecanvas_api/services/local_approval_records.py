@@ -42,6 +42,7 @@ async def append_evidence(*, session, capability, body):
             initiator_user_id=capability.user_id, workflow=body['workflow'], inputs=body['inputs'],
             approvers=approvers, input_index=body['index'], workflow_version=capability.workflow_version)
         await repo.bind_runtime(execution_id, capability.run_id, process={
+            **capability.runtime_process,
             'kind': 'local_cli', 'sandbox_id': capability.sandbox_id, 'run_id': capability.run_id})
         run = await repo.get(execution_id, lock=True)
     if (str(run['initiator_user_id']) != capability.user_id or run['wf_id'] != capability.workflow_id

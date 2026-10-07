@@ -26,6 +26,38 @@ async def owner():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_claim_is_exclusive_and_survives_new_sessions(pg_engine):
+    tenant, actor, _ = await owner()
+    run_id = str(uuid.uuid4())
+    async with session_scope(tenant_id=tenant) as session:
+        await WorkflowHistoryRepo(session).create(
+            execution_id=run_id, tenant_id=tenant, wf_id='qa-claim',
+            source_type='workflow', source_id='qa-claim', initiator_user_id=actor,
+            workflow={}, inputs={}, approvers={})
+
+    async def claim():
+        try:
+            async with session_scope(tenant_id=tenant) as session:
+                await WorkflowHistoryRepo(session).claim_dispatch(run_id)
+            return 'claimed'
+        except HistoryConflict as exc:
+            assert str(exc) == 'execution_already_dispatched'
+            return 'rejected'
+
+    async with asyncio.timeout(10):
+        results = await asyncio.gather(*(claim() for _ in range(8)))
+    assert results.count('claimed') == 1
+    assert results.count('rejected') == 7
+    assert await claim() == 'rejected'
+    async with session_scope(tenant_id=tenant) as session:
+        await WorkflowHistoryRepo(session).bind_runtime(run_id, 'qa-generation')
+    assert await claim() == 'rejected'
+    async with session_scope(tenant_id=tenant) as session:
+        await WorkflowHistoryRepo(session).fail(run_id, error_code='execution_failed')
+    assert await claim() == 'rejected'
+
+
+@pytest.mark.asyncio
 async def test_execution_keeps_server_selected_version_in_private_snapshot(pg_engine):
     tenant, actor, _ = await owner()
     run_id = str(uuid.uuid4())
@@ -367,7 +399,7 @@ async def test_lost_approval_process_is_not_resumed_and_capacity_is_reusable(pg_
     from vibecanvas_api.services.sandbox.bubblewrap import BubblewrapProvider
     from vibecanvas_api.services.sandbox.workflow_execution_driver import WorkflowExecutionDriver
     from vibecanvas_api.services.sandbox.workflow_rpc_pool import WorkflowRpcPool, WorkflowPoolFull
-    from vibecanvas_api.services.sandbox.workflow_rpc_slot import WorkflowRpcWorker, WorkflowInvocationSlot
+    from vibecanvas_api.services.sandbox.workflow_rpc_slot import WorkflowRpcWorker
 
     if not shutil.which("bwrap"):
         pytest.skip("bubblewrap is required")

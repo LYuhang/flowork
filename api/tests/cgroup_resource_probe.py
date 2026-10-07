@@ -56,6 +56,11 @@ def main():
     recovered = ResourceAllocator(allocator.root, cpu_capacity_millis=200, memory_capacity_mb=256)
     assert recovered.release(third), 'empty group from a previous daemon was not reclaimed'
     assert not list(allocator.root.glob('deployment-*'))
+    allocator.root.rmdir()
+    recreated = allocator.reserve(third, ResourceBudget(cpu_millis=100, memory_mb=128))
+    assert (recreated.path / 'cpu.max').read_text().strip() == '10000 100000'
+    assert (recreated.path / 'memory.max').read_text().strip() == str(128 * 1024 * 1024)
+    assert allocator.release(third)
 
 
 if __name__ == '__main__':

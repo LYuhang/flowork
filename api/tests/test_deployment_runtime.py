@@ -66,7 +66,6 @@ async def test_resident_rpc_calls_reuse_process_and_persist_history(pg_engine, a
 
 @pytest.mark.asyncio
 async def test_cancel_waits_for_rpc_worker_without_interrupting_sibling(monkeypatch):
-    from vibecanvas_api.services.deployment_completion import complete_before_cancelling
     from vibecanvas_api.services.sandbox import workflow_execution_driver
     from vibecanvas_api.services.sandbox.workflow_rpc_pool import WorkflowRpcPool, WorkflowPoolFull
 
@@ -358,3 +357,52 @@ async def test_dead_worker_replaced_without_rebuilding_deployment():
         manager.get_session.assert_not_awaited()
     finally:
         await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_prepare_failure_preserves_diagnostics_without_resubmission(pg_engine, app_engine, monkeypatch):
+    import uuid
+    from tests.test_deployment_rollout import setup_rollout
+    from vibecanvas_api.storage.db import short_session_scope
+    from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+    from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
+    from vibecanvas_api.services.deployment_results import external_result
+
+    controller, dep, _ = await setup_rollout(pg_engine, app_engine)
+    tenant = str(dep['tenant_id'])
+    invocation = uuid.uuid4()
+    graph = await controller.graph({})
+    async with short_session_scope(tenant_id=tenant) as db:
+        await DeploymentInvocationsRepo(db).create(
+            invocation_id=invocation, tenant_id=dep['tenant_id'], deployment_id=dep['id'],
+            wf_id=dep['wf_id'], trigger_type='api', source='sync_api', status='queued',
+            revision_id=dep['active_revision_id'],
+        )
+        await WorkflowHistoryRepo(db).create(
+            execution_id=str(invocation), tenant_id=tenant, wf_id=dep['wf_id'],
+            source_type='deployment', source_id=str(dep['id']),
+            initiator_user_id=str(dep['user_id']), workflow=graph, inputs={}, approvers={},
+        )
+    runtime = DeploymentRuntime(SimpleNamespace())
+    failure = RuntimeError('deployment_resource_delegation_unavailable api_key=test-secret-value')
+    prepare = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(runtime, 'prepare', prepare)
+    with pytest.raises(RuntimeError) as caught:
+        await runtime.run(tenant_id=tenant, deployment_id=str(dep['id']),
+                          revision_id=str(dep['active_revision_id']), workflow=graph,
+                          inputs={}, run_id=str(invocation))
+    assert caught.value is failure
+    prepare.assert_awaited_once()
+    async with short_session_scope(tenant_id=tenant) as db:
+        detail = await WorkflowHistoryRepo(db).result_detail(str(invocation))
+    assert detail['status'] == 'failed'
+    diagnostic = detail['result']['error_dict']['__engine__']
+    assert 'deployment_resource_delegation_unavailable' in diagnostic
+    assert 'test-secret-value' not in diagnostic
+    from vibecanvas_api.services.agent_runtime.cli_deployments import execution_result
+    cli_result = execution_result({'status': 'failed', 'deployment_id': str(dep['id']),
+                                   'execution_id': str(invocation)}, detail)
+    assert cli_result['errors']['__engine__'] == diagnostic
+    assert cli_result['outputs'] is None
+    # Public API-key results do not expose host diagnostics.
+    assert external_result(detail)['errors'] == {'__top__': 'execution_failed'}

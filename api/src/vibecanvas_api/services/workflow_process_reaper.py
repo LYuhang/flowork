@@ -34,12 +34,14 @@ async def reap_lost_workflow_processes():
         identity = candidate["runtime_process"]
         if identity.get("kind") == "local_cli":
             from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
-            try:
-                exited = await get_sandbox_manager().local_execution_exited(
-                    str(candidate["tenant_id"]), identity["sandbox_id"], identity["run_id"])
-            except Exception:
-                # A failed observation is never proof that execution ended.
-                continue
+            exited = await asyncio.to_thread(process_group_gone, identity)
+            if not exited:
+                try:
+                    exited = await get_sandbox_manager().local_execution_exited(
+                        str(candidate["tenant_id"]), identity["sandbox_id"], identity["run_id"])
+                except Exception:
+                    # A failed observation is never proof that execution ended.
+                    continue
             if exited is not True:
                 continue
         elif not await asyncio.to_thread(process_group_gone, identity):

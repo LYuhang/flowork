@@ -165,7 +165,22 @@ async def test_silent_execution_cancellation_does_not_wait_for_node_events(monke
     from vibecanvas_api.background_tasks import scheduled_runs
     stop = asyncio.Event()
     monkeypatch.setattr(scheduled_runs, "_execution_cancelled", AsyncMock(side_effect=[False, True]))
-    await asyncio.wait_for(scheduled_runs._watch_cancellation(uuid4(), stop), timeout=2)
+    from contextlib import asynccontextmanager
+    from vibecanvas_api.services import state_notifications
+    changed = asyncio.Event()
+    @asynccontextmanager
+    async def changes(*_):
+        yield changed
+    monkeypatch.setattr(state_notifications, 'state_changes', changes)
+    watcher = asyncio.create_task(scheduled_runs._watch_cancellation(uuid4(), stop))
+    try:
+        await asyncio.sleep(0.7)
+        assert scheduled_runs._execution_cancelled.await_count == 1
+        changed.set()
+        await asyncio.wait_for(watcher, 2)
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
     assert stop.is_set()
 
 
@@ -343,3 +358,20 @@ async def test_schedule_history_includes_execution_commands_without_exposing_int
 def test_task_rejects_floating_major():
     with pytest.raises(ValueError, match='fixed --version'):
         task_cli.validate('task.create', {'task_type': 'batch_exec', 'workflow_id': 'wf', 'major': 'v1', 'format': 'csv', 'data': 'x\n1\n'})
+
+
+@pytest.mark.asyncio
+async def test_submission_failure_keeps_queryable_task_id(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from vibecanvas_api.services.agent_runtime import cli_tasks
+    task_id = str(uuid4())
+    monkeypatch.setattr(cli_tasks.agent_context, "resolve_context", AsyncMock(side_effect=HTTPException(503, {
+        "error": "task_dispatch_failed", "task_id": task_id, "status": "failed",
+        "message": "Task submission failed. No automatic resubmission.",
+    })))
+    result = await cli_tasks.execute(SimpleNamespace(operation="task.batch_exec.create", capability=object()), {})
+    assert result["error"] == "task_dispatch_failed"
+    assert result["task_id"] == task_id and result["status"] == "failed"
+    assert result["hint"] == f"flowork-cli task status --task-id {task_id} --task-type batch_exec"

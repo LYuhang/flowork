@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -188,6 +188,11 @@ class BackgroundJobsRepo:
         event_type: str,
         payload: dict,
     ) -> ChatToolJobEvent:
+        # A Chat stream combines multiple Jobs. Serialize event ID allocation
+        # across those jobs so a later commit cannot be skipped by its cursor.
+        await self.session.execute(text(
+            "SELECT pg_advisory_xact_lock(hashtextextended(:scope, 0))"
+        ), {"scope": f"background-events:{row.tenant_id}:{row.chat_id}"})
         encrypted = await content_encryption_service().encrypt_json(
             self.session,
             tenant_id=row.tenant_id,

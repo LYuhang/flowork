@@ -110,6 +110,14 @@ class ResourceAllocator:
     def reserve(self, revision_id: str, budget: ResourceBudget) -> ResourceGroup:
         name = 'deployment-' + uuid.UUID(str(revision_id)).hex
         with self._lock:
+            # An empty delegated subtree may disappear after service startup.
+            # Recreate only this configured leaf, never unrelated parent groups.
+            try:
+                self.root.mkdir()
+            except FileExistsError:
+                pass
+            else:
+                (self.root / 'cgroup.subtree_control').write_text('+cpu +memory +pids')
             if not {'cpu', 'memory', 'pids'}.issubset(set((self.root / 'cgroup.subtree_control').read_text().split())):
                 raise RuntimeError('deployment_resource_delegation_unavailable')
             # A confirmed stop can lag a failed preparation/retirement. Reap

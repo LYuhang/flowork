@@ -254,6 +254,26 @@ class AgentRunsRepo:
             await self.session.get(AgentRun, run_id)
         )
 
+    async def failed_turns_for_history(
+        self, chat_id: str, turn_ids: list[str], *, creator_user_id: str,
+    ) -> dict[str, dict[str, str]]:
+        if not turn_ids:
+            return {}
+        rows = (await self.session.execute(select(AgentRun).where(
+            AgentRun.chat_id == chat_id,
+            AgentRun.creator_user_id == _uuid(creator_user_id),
+            AgentRun.run_id.in_(turn_ids),
+            AgentRun.status == "failed",
+        ))).scalars().all()
+        result = {}
+        for row in rows:
+            run = await self._materialize_run(row)
+            result[run.run_id] = {
+                "code": run.error_code or "engine_error",
+                "message": run.error_message or "",
+            }
+        return result
+
     async def get_for_chat(
         self,
         chat_id: str,
@@ -432,7 +452,7 @@ class AgentRunsRepo:
 
         await self.session.flush()
 
-    async def list_events(self, run_id: str, after_seq: int) -> list[AgentRunEvent]:
+    async def list_events(self, run_id: str, after_seq: int, *, limit: int = 256) -> list[AgentRunEvent]:
         rows = list((
             await self.session.execute(
                 select(AgentRunEvent)
@@ -441,6 +461,7 @@ class AgentRunsRepo:
                     AgentRunEvent.seq > after_seq,
                 )
                 .order_by(AgentRunEvent.seq)
+                .limit(max(1, min(limit, 256)))
             )
         ).scalars().all())
         for row in rows:

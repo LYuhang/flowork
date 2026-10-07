@@ -225,6 +225,7 @@ class DeploymentRuntime:
             raise RuntimeError("deployment_revision_not_admitted")
         started = time.perf_counter()
         result = None
+        failure_detail = None
         owner = asyncio.current_task()
         heartbeat = asyncio.create_task(self._maintain_execution_lease(tenant_id, run_id, claim, owner))
         try:
@@ -272,6 +273,10 @@ class DeploymentRuntime:
             result = await self._execute_request(session, workflow=workflow, inputs=inputs,
                 extra=runtime_extra, tenant_id=tenant_id, run_id=run_id, wf_id=row["spec"]["wf_id"])
             return result
+        except Exception as exc:
+            from vibecanvas_api.security.redaction import redact_text
+            failure_detail = redact_text(f"{type(exc).__name__}: {exc}")
+            raise
         finally:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -279,7 +284,7 @@ class DeploymentRuntime:
             # sandboxd owns completion once it accepts execution. The HTTP/queue
             # caller can disappear after dispatch without stranding the drain
             # lease. Only summary counts are persisted, never workflow outputs.
-            await self._record_completion(tenant_id, run_id, result, time.perf_counter() - started, claim)
+            await self._record_completion(tenant_id, run_id, result, time.perf_counter() - started, claim, failure_detail=failure_detail)
 
     async def _maintain_execution_lease(self, tenant_id, run_id, claim, owner):
         """An executor stops its own request if it cannot renew ownership.
@@ -311,7 +316,7 @@ class DeploymentRuntime:
             owner.cancel()
 
     @complete_before_cancelling
-    async def _record_completion(self, tenant_id, run_id, result, elapsed, claim):
+    async def _record_completion(self, tenant_id, run_id, result, elapsed, claim, *, failure_detail=None):
         from vibecanvas_api.storage.db import short_session_scope
         from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
         errors = (result or {}).get('error_dict') or {}
@@ -325,7 +330,7 @@ class DeploymentRuntime:
                 if execution.get("timeout_requested_at") is not None:
                     await history.confirm_timed_out(run_id)
                 else:
-                    await history.fail(run_id, error_code="execution_failed")
+                    await history.fail(run_id, error_code="execution_failed", error_detail=failure_detail)
                 execution = await history.get(run_id)
             terminal_status = execution["status"] if execution is not None else ("failed" if failed else "succeeded")
             await DeploymentInvocationsRepo(db).mark_terminal(

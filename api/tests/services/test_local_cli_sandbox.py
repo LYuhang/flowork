@@ -32,7 +32,7 @@ from pathlib import Path
 for path in os.environ.get('VC_SANDBOX_PYTHON_PATHS','').split(os.pathsep):
     if path and path not in sys.path:sys.path.append(path)
 from vibecanvas_api.services.agent_runtime.cli_gateway import CliGateway
-from vibecanvas_api.services.sandbox.local_activity import active_executions
+from vibecanvas_api.services.sandbox.local_activity import active_executions, execution_alive
 async def main():
     gateway=CliGateway()
     calls={}
@@ -57,7 +57,7 @@ async def main():
     child=int(stdout.decode().strip())
     async def state(wanted):
         while True:
-            paths=list(Path('/data/.flowork-runs').glob('*/status.json'))
+            paths=list(Path('/data/runs').glob('*/status.json'))
             if paths:
                 value=json.loads(paths[0].read_text())
                 if value['status'] in wanted:return value
@@ -78,6 +78,9 @@ async def main():
             if active_executions('/work')==0:break
             await asyncio.sleep(.05)
         assert active_executions('/work')==0
+        assert list(Path('/work/local-executions').iterdir())==[]
+        finished=list(Path('/work/local-execution-finished').iterdir())
+        assert len(finished)==1 and execution_alive(finished[0].name, '/work') is False
         rows=[json.loads(line) for line in Path('/data/results.jsonl').read_text().splitlines()]
         assert len(rows)==2 and all(row['status']=='success' for row in rows)
         assert operations==['workflow.prepare']

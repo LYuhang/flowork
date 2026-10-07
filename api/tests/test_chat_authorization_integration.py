@@ -6,7 +6,7 @@ import uuid
 
 from httpx import ASGITransport, AsyncClient
 import pytest
-from tests.test_workflow_authorization_integration import _headers, _register, _browser_sessions
+from tests.test_workflow_authorization_integration import _headers, _register, _browser_sessions as _browser_sessions
 from sqlalchemy import text
 
 from vibecanvas_api.app import build_app
@@ -394,7 +394,7 @@ async def test_chat_and_children_are_creator_private(
             )
             assert response.status_code == 200, (path, response.text)
 
-        for path in owner_paths:
+        for path in (*owner_paths, f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}/activity"):
             response = await client.get(
                 path,
                 headers=_headers(outsider_token),

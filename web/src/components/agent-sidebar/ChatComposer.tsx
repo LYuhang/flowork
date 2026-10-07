@@ -197,7 +197,7 @@ export function ChatComposer({
   agentSurface = embedded ? 'browser' : 'chat',
   onSendStart,
   quietFrame = false,
-  compactAttachments = false,
+  compactAttachments = true,
   framed = false,
   showModelSelector = false,
   historyReady = true,
@@ -931,6 +931,7 @@ export function ChatComposer({
   );
 
   const completeCommand = (cmd: SlashCommand) => {
+    setValue(`${cmd.trigger} `);
     if (cmd.trigger === '/goal') {
       setGoalPickerOpen(true);
       setMenuDismissed(true);
@@ -941,7 +942,6 @@ export function ChatComposer({
       setMenuDismissed(true);
       return;
     }
-    setValue(`${cmd.trigger} `);
     setMenuDismissed(true);
     // The controlled re-render can reset the caret — refocus + move it to end.
     requestAnimationFrame(() => {
@@ -1196,10 +1196,12 @@ export function ChatComposer({
           {(pendingAttachments.length > 0 || activeUploads.length > 0) && (
             <div
               className={cn(
-                'flex gap-2 overflow-x-auto px-2.5 pt-2.5',
+                'flex min-w-0 w-full max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain px-2.5 pt-2.5 pb-1',
                 quietFrame && 'px-0 pt-0',
                 compactAttachments && 'gap-1.5',
               )}
+              tabIndex={0}
+              aria-label={t('composer.attachment_mentions', 'Attached files')}
               data-role="agent-composer-attachments"
             >
               {(!draftPreparing ? pendingAttachments : []).map((attachment, index) => (

@@ -1,0 +1,55 @@
+import { afterEach, expect, it, vi } from 'vitest';
+const mocks = vi.hoisted(() => ({ connect: vi.fn() }));
+vi.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: mocks.connect }));
+import { watchResourceActivity } from '../resource-activity';
+afterEach(() => { vi.clearAllMocks(); vi.useRealTimers(); });
+it('coalesces bursts, stays idle without reads, and preserves changes during reads', async () => {
+ vi.useFakeTimers(); mocks.connect.mockReturnValue(new Promise(() => {}));
+ let finish!: () => void;
+ const refresh = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; })).mockResolvedValue(undefined);
+ const stop = watchResourceActivity('/activity', refresh);
+ const options = mocks.connect.mock.calls[0][1];
+ await vi.advanceTimersByTimeAsync(60_000); expect(refresh).not.toHaveBeenCalled();
+ for(let i=0;i<100;i++) options.onmessage({event:'changed'});
+ await vi.advanceTimersByTimeAsync(100); expect(refresh).toHaveBeenCalledTimes(1);
+ options.onmessage({event:'changed'}); finish();
+ await vi.advanceTimersByTimeAsync(100); expect(refresh).toHaveBeenCalledTimes(2);
+ options.onmessage({event:'heartbeat'});
+ await vi.advanceTimersByTimeAsync(60_000); expect(refresh).toHaveBeenCalledTimes(2);
+ options.onmessage({event:'changed'}); stop();
+ await vi.advanceTimersByTimeAsync(1000); expect(refresh).toHaveBeenCalledTimes(2);
+ expect(options.signal.aborted).toBe(true);
+});
+it('opens independent streams and stops on revoked access', async () => {
+ mocks.connect.mockReturnValue(new Promise(() => {}));
+ const stopA=watchResourceActivity('/activity',async()=>{}),stopB=watchResourceActivity('/activity',async()=>{});
+ const a=mocks.connect.mock.calls[0][1],b=mocks.connect.mock.calls[1][1];
+ expect(a.signal).not.toBe(b.signal); expect(()=>a.onclose()).toThrow();
+ await expect(a.onopen(new Response('',{status:403}))).rejects.toThrow();
+ expect(a.signal.aborted).toBe(true);expect(b.signal.aborted).toBe(false);stopA();stopB();
+});
+it('retries a failed snapshot without another notification and then stays idle',async()=>{
+ vi.useFakeTimers(); mocks.connect.mockReturnValue(new Promise(()=>{}));
+ const refresh=vi.fn().mockRejectedValueOnce(new Error('network')).mockResolvedValue(undefined);
+ const stop=watchResourceActivity('/activity',refresh);
+ mocks.connect.mock.calls[0][1].onmessage({event:'changed'});
+ await vi.advanceTimersByTimeAsync(100);expect(refresh).toHaveBeenCalledTimes(1);
+ await vi.advanceTimersByTimeAsync(999);expect(refresh).toHaveBeenCalledTimes(1);
+ await vi.advanceTimersByTimeAsync(1);expect(refresh).toHaveBeenCalledTimes(2);
+ await vi.advanceTimersByTimeAsync(60_000);expect(refresh).toHaveBeenCalledTimes(2);stop();
+});
+it('drains a read started before the notification then reads fresh data without cancelling',async()=>{
+ const {QueryClient,QueryObserver}=await import('@tanstack/react-query');
+ const {refreshResourceQuery}=await import('../resource-activity');
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ const key=['resource','one'];client.setQueryData(key,'old');
+ let finish!: (value:string)=>void;
+ const read=vi.fn().mockImplementationOnce(()=>new Promise<string>(resolve=>{finish=resolve;})).mockResolvedValue('new');
+ const observer=new QueryObserver(client,{queryKey:key,queryFn:read,staleTime:Infinity});
+ const stop=observer.subscribe(()=>{});
+ const original=client.refetchQueries({queryKey:key});
+ const update=refreshResourceQuery(client,key);
+ expect(read).toHaveBeenCalledTimes(1);finish('stale');
+ await Promise.all([original,update]);expect(read).toHaveBeenCalledTimes(2);
+ expect(client.getQueryData(key)).toBe('new');stop();client.clear();
+});

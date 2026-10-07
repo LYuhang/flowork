@@ -2020,6 +2020,7 @@ async def get_chat_history(
     tail: bool = Query(default=False),
     before_turn_id: str | None = Query(default=None),
     service: AuthzService = Depends(get_authz_service),
+    session: AsyncSession = Depends(tenant_db),
 ):
     timings = RequestTimings(request.scope)
     await _authorize_chat(
@@ -2064,6 +2065,12 @@ async def get_chat_history(
         before_turn_id=before_turn_id,
     )
     timings.mark("history_messages")
+    failed_turns = await AgentRunsRepo(session).failed_turns_for_history(
+        chat_id,
+        list({str(item["turn_id"]) for item in visible
+              if item.get("role") == "user" and item.get("turn_id")}),
+        creator_user_id=auth.user_id,
+    )
     hitl_projections: list[tuple[str, HistoryMessage]] = []
     for artifact_row, hitl_row in await hitl_repo.list_artifact_refs_for_chat(chat_id):
         projected = hitl_history_projection(artifact_row, hitl_row)
@@ -2134,7 +2141,9 @@ async def get_chat_history(
                     "turn_id": item.get("turn_id"),
                 }
                 if debug
-                else None
+                else ({"turn_error": failed_turns[item["turn_id"]]}
+                      if item.get("role") == "user" and item.get("turn_id") in failed_turns
+                      else None)
             ),
         )
         stored_history.append(message)
@@ -2356,18 +2365,10 @@ async def stream_chat_background_job_events(
 
     async def event_stream():
         nonlocal cursor
-        idle_ticks = 0
-        next_authorization_check = 0.0
-        while not await request.is_disconnected():
-            now = asyncio.get_running_loop().time()
-            if now >= next_authorization_check:
-                if not await authorization_guard():
-                    logger.info(
-                        "background_job_sse_authorization_lease_closed",
-                        chat_id=chat_id,
-                    )
-                    return
-                next_authorization_check = now + 5.0
+        from contextlib import aclosing
+        from vibecanvas_api.services.state_notifications import event_batches
+
+        async def read_events():
             async with session_scope(tenant_id=auth.tenant_id) as event_session:
                 events = await BackgroundJobsRepo(
                     event_session
@@ -2376,8 +2377,15 @@ async def stream_chat_background_job_events(
                     creator_user_id=auth.user_id,
                     after_event_id=cursor,
                 )
-            if events:
-                idle_ticks = 0
+            return events
+
+        async with aclosing(event_batches(
+            "flowork_background_state", chat_id, read_events, authorization_guard,
+        )) as batches:
+            async for events in batches:
+                if events is None:
+                    yield b": heartbeat\n\n"
+                    continue
                 for event in events:
                     cursor = int(event.event_id)
                     yield format_event(
@@ -2396,12 +2404,6 @@ async def stream_chat_background_job_events(
                         },
                         event_id=cursor,
                     )
-                continue
-            idle_ticks += 1
-            if idle_ticks >= 15:
-                idle_ticks = 0
-                yield b": heartbeat\n\n"
-            await asyncio.sleep(1.0)
 
     return StreamingResponse(
         event_stream(),
@@ -4010,6 +4012,36 @@ async def stream_turn(
             "X-Replay-Source": "database",
         },
     )
+
+
+@router.get("/chat-scopes/{scope_id}/chats/{chat_id}/activity")
+async def stream_chat_activity(
+    scope_id: str,
+    chat_id: str,
+    request: Request,
+    chat_repo: ChatRepo = Depends(get_chat_repo),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from contextlib import aclosing
+    from vibecanvas_api.services.state_notifications import invalidations
+
+    await _authorize_chat(request=request, auth=auth, service=service,
+                          chat_id=chat_id, action=Action.VIEW)
+    sessions = await chat_repo.list_sessions(scope_id)
+    if not any(item['chat_id'] == chat_id for item in sessions):
+        raise HTTPException(status_code=404, detail='chat not found')
+    await chat_repo.commit()
+    guard = _chat_stream_guard(request=request, auth=auth,
+                              resource_type=ResourceType.CHAT,
+                              resource_id=chat_id, action=Action.VIEW)
+
+    async def events():
+        async with aclosing(invalidations('flowork_chat_activity', chat_id, guard)) as stream:
+            async for changed in stream:
+                yield format_event('changed', {}) if changed else b': heartbeat\n\n'
+
+    return StreamingResponse(events(), media_type='text/event-stream', headers=SSE_HEADERS)
 
 
 @router.get(

@@ -26,6 +26,7 @@
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
+import { refreshResourceQuery, watchResourceActivity } from '@/lib/api/sse/resource-activity';
 
 export const useWorkflow = (wfId: string) =>
   useQuery({
@@ -99,9 +100,18 @@ export const useWorkflowAt = (
     enabled: !!wfId && v !== null && sv !== null,
   });
 
-/** Poll only the branch pointer; unchanged pointers never reload graph content. */
+/** Committed changes wake branch/tree readers; snapshots stay version-pinned. */
 export const useWorkflowHead = (wfId: string, major: number | null, enabled = true) => {
   const client = useQueryClient();
+  useEffect(() => {
+    if (!wfId || !enabled) return;
+    return watchResourceActivity(`/api/v1/workflows/${encodeURIComponent(wfId)}/activity`, async () => {
+      await Promise.all([
+        refreshResourceQuery(client, ['workflow-head', wfId, major]),
+        refreshResourceQuery(client, workflowVersionsQueryKey(wfId)),
+      ]);
+    });
+  }, [client, wfId, major, enabled]);
   const query = useQuery({
     queryKey: ['workflow-head', wfId, major],
     enabled: !!wfId && enabled,
@@ -114,12 +124,11 @@ export const useWorkflowHead = (wfId: string, major: number | null, enabled = tr
     },
     staleTime: 0,
     refetchOnMount: 'always',
-    refetchInterval: 3000,
+    // Sharing capability changes do not yet emit resource events. Keep the
+    // same low-frequency permission reconciliation as Task details.
+    refetchInterval: 15000,
     refetchIntervalInBackground: false,
   });
 
-  useEffect(() => {
-    if (query.data) client.invalidateQueries({ queryKey: workflowVersionsQueryKey(wfId) });
-  }, [client, wfId, query.data]);
   return query;
 };

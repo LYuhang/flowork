@@ -12,18 +12,21 @@ export function useConversationHistory(scopeId: string, chatId: string | null, p
   });
   const query = useChatHistory(scopeId, persisted ? chatId : null, persisted, turnId);
   const key = `${scopeId}:${chatId ?? ''}`;
+  // A resumed Turn can be discovered after the unbounded tail has loaded.
+  // Its authoritative checkpoint replaces that tail, while keeping older pages.
+  const beforePosition = turnId && query.data && !query.isPlaceholderData ? query.data.total : undefined;
   const [windows, setWindows] = useState<Record<string, ChatHistoryWindow>>({});
-  const window = useMemo(() => query.data ? mergeHistoryWindow(windows[key], query.data) : windows[key],
-    [key, query.data, windows]);
-  const [checkpoint, setCheckpoint] = useState<{ key: string; page: typeof query.data } | null>(null);
+  const window = useMemo(() => query.data ? mergeHistoryWindow(windows[key], query.data, beforePosition) : windows[key],
+    [key, query.data, windows, beforePosition]);
+  const [checkpoint, setCheckpoint] = useState<{ key: string; page: typeof query.data; beforePosition?: number } | null>(null);
   // Capture a changed query page during this render so the next Turn can
   // immediately reuse it, without an effect-driven second commit.
-  if (query.data && chatId && (checkpoint?.key !== key || checkpoint.page !== query.data)) {
-    setCheckpoint({ key, page: query.data });
+  if (query.data && chatId && (checkpoint?.key !== key || checkpoint.page !== query.data || checkpoint.beforePosition !== beforePosition)) {
+    setCheckpoint({ key, page: query.data, beforePosition });
     setWindows(current => {
       const next = { ...current };
       delete next[key];
-      next[key] = mergeHistoryWindow(current[key], query.data);
+      next[key] = mergeHistoryWindow(current[key], query.data, beforePosition);
       return Object.fromEntries(Object.entries(next).slice(-20));
     });
   }
@@ -41,7 +44,7 @@ export function useConversationHistory(scopeId: string, chatId: string | null, p
       setWindows(current => {
         const next = { ...current };
         delete next[key];
-        next[key] = mergeHistoryWindow(current[key], page);
+        next[key] = mergeHistoryWindow(current[key], page, turnId ? page.total : undefined);
         return Object.fromEntries(Object.entries(next).slice(-20));
       });
     } finally {

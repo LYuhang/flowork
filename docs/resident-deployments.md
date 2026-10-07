@@ -583,7 +583,7 @@ to read results on events; normal waiting does not poll execution tables. A
 separate deadline wakes synchronous calls for timeout handling. Reconnecting the
 listener prompts a state read to recover missed events.
 
-`EXECUTION_NOTIFICATION_DATABASE_URL` may point to the same application database
+`STATE_NOTIFICATION_DATABASE_URL` may point to the same application database
 through a direct or session-pooled connection when `DATABASE_URL` uses transaction
 pooling. It defaults to `DATABASE_URL`; PostgreSQL LISTEN must not pass through a
 transaction-mode PgBouncer pool. No additional service is required.

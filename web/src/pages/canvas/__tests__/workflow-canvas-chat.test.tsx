@@ -22,7 +22,7 @@ vi.mock('@/lib/chat/use-conversation-history', () => ({ useConversationHistory: 
   mocks.history(...args);
   return { ready: true, query: {}, items: [], loadOlder: vi.fn() };
 } }));
-vi.mock('@/lib/api/sse/chat-reconcile', () => ({ CHAT_RECONCILE_INTERVAL_MS: 30000, reconcileChatWithServer: mocks.reconcile }));
+vi.mock('@/lib/api/sse/chat-reconcile', () => ({ reconcileChatWithServer: mocks.reconcile }));
 vi.mock('@/components/agent-sidebar/ChatComposer', () => ({ ChatComposer: (props: ChatComposerProps) =>
   <button disabled={!!props.disabledReason} onClick={async () => {
     try { await props.prepareConversation?.(); props.onSendAccepted?.(); } catch { /* Error retained for retry. */ }

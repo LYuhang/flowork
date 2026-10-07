@@ -332,7 +332,7 @@ class WorkflowHistoryRepo:
             },
         )
 
-    async def fail(self, execution_id: str, *, error_code: str, generation: str | None = None):
+    async def fail(self, execution_id: str, *, error_code: str, generation: str | None = None, error_detail: str | None = None):
         """Called only after confirmed execution loss or a pre-dispatch failure."""
         if error_code not in {
             "execution_lost",
@@ -354,7 +354,7 @@ class WorkflowHistoryRepo:
             run,
             status="failed",
             error_code=error_code,
-            result={"final_outputs": {}, "error_dict": {"__engine__": error_code}, "execution_time": None},
+            result={"final_outputs": {}, "error_dict": {"__engine__": error_detail or error_code}, "execution_time": None},
         )
 
     async def request_decision(

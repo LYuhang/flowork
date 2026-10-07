@@ -1,3 +1,4 @@
+import { watchChatActivity } from '@/lib/api/sse/chat-activity';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { CanvasChatContext, CanvasChatControlsContext, CanvasChatReferenceContext, type OpenCanvasChat, type CanvasChatPoint as Point } from './CanvasChatContext';
 import { MessageSquare, WandSparkles, X } from 'lucide-react';
@@ -10,7 +11,7 @@ import { SSEStatusBanner } from '@/components/agent-sidebar/SSEStatusBanner';
 import { useChatSessions, useChatWorkspace, useCreateChatSession, type ChatListItem } from '@/lib/api/queries/chats';
 import { useCommitWorkflow } from '@/lib/api/mutations/workflow-ops';
 import { useConversationHistory } from '@/lib/chat/use-conversation-history';
-import { CHAT_RECONCILE_INTERVAL_MS, reconcileChatWithServer } from '@/lib/api/sse/chat-reconcile';
+import { reconcileChatWithServer } from '@/lib/api/sse/chat-reconcile';
 import { runAgentTurn } from '@/lib/api/sse/run-agent-turn';
 import { toast } from 'sonner';
 import { workflowReference } from '@/lib/preview/workflow-reference';
@@ -141,12 +142,12 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
       void reconcileChatWithServer({ wfId, chatId: selectedId, surface: 'chat' });
     };
     reconcile();
-    const interval = window.setInterval(reconcile, CHAT_RECONCILE_INTERVAL_MS);
+    const stopWatching = watchChatActivity({ wfId, chatId: selectedId, surface: 'chat' });
     window.addEventListener('focus', reconcile);
     window.addEventListener('online', reconcile);
     document.addEventListener('visibilitychange', reconcile);
     return () => {
-      window.clearInterval(interval);
+      stopWatching();
       window.removeEventListener('focus', reconcile);
       window.removeEventListener('online', reconcile);
       document.removeEventListener('visibilitychange', reconcile);

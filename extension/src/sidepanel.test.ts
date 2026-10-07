@@ -83,3 +83,21 @@ describe('side-panel app readiness', () => {
     expect(document.getElementById('shell-status')!.hidden).toBe(true);
   });
 });
+
+
+it('refreshes download confirmation on events without idle polling', async () => {
+  await import('./sidepanel');
+  await vi.advanceTimersByTimeAsync(1);
+  const send = vi.mocked(chrome.runtime.sendMessage);
+  const count = () => send.mock.calls.filter(([message]) => (message as unknown as { type?: string } | null)?.type === 'DOWNLOAD_CONFIRM_LIST').length;
+  expect(count()).toBe(1);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(count()).toBe(1);
+  const receive = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
+  receive({ type: 'DOWNLOAD_CONFIRM_CHANGED' }, {}, vi.fn());
+  await vi.advanceTimersByTimeAsync(1);
+  expect(count()).toBe(2);
+  receive({ type: 'WS_OPEN' }, {}, vi.fn());
+  await vi.advanceTimersByTimeAsync(1);
+  expect(count()).toBe(3);
+});

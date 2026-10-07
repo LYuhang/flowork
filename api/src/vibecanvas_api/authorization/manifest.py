@@ -959,10 +959,6 @@ WORKER_PERMISSION_MANIFEST = (
         "kb_file_to_knowledge_base",
     ),
     WorkerPermission(
-        "background.reconcile_queued", "platform_worker",
-        ResourceType.TASK, Action.RESUME, "task_inventory",
-    ),
-    WorkerPermission(
         "tasks.recover_workers", "platform_worker",
         ResourceType.TASK, Action.CANCEL, "stale_task_worker_lease_inventory",
     ),

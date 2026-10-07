@@ -196,6 +196,16 @@ function MessageItemComponent({
             </Markdown>
           ))}
         </MessageQuoteSelection>
+        {isUser && message.turnError ? (
+          <div role="status" data-role="agent-turn-error" className="mt-2 border-t border-destructive/20 pt-2 text-xs text-destructive">
+            <p className="font-medium">{t('agent.turn_failed', 'This request failed.')}</p>
+            <p className="mt-1 break-words">{t(`notice.${message.turnError.code}`, {
+              defaultValue: t(`notice.${message.turnError.message}`, {
+                defaultValue: message.turnError.message || message.turnError.code,
+              }),
+            })}</p>
+          </div>
+        ) : null}
         {isUser && attachments.length > 0 ? (
           <ContextAttachmentList attachments={attachments} />
         ) : null}
@@ -225,6 +235,8 @@ function sameVisibleMessage(previous: MessageItemProps, next: MessageItemProps):
     a.id !== b.id
     || a.role !== b.role
     || a.content !== b.content
+    || a.turnError?.code !== b.turnError?.code
+    || a.turnError?.message !== b.turnError?.message
     || a.activity?.delivery_batch_id !== b.activity?.delivery_batch_id
   ) return false;
   const aAttachments = a.attachments ?? [];

@@ -1,19 +1,4 @@
-"""Strict SSE ordering without loss or duplication.
-
-The ``sse_bridge.task_event_stream`` ordering guarantee comes from
-``task_events.id`` BIGSERIAL + cursor-based resume. This file exercises
-the bridge against pre-inserted events on the no-Redis path
-(``redis_url=None``) — the realtime-pubsub race scenario needs a live
-Redis and is deferred to staging.
-
-Companion test: ``test_sse_emits_replay_after_last_event_id`` in
-``test_tasks_list_and_sse.py`` covers a 6-event resume. This file extends
-it with:
-  1. A 100-event volume test — strict id-order over a larger batch where
-     a counter wraparound or off-by-one would be visible.
-  2. A clean resume-cursor test isolated from other concerns.
-  3. A skip-marker for the Redis adversarial-timing variant (staging).
-"""
+"""Task event replay and commit-driven live delivery."""
 from __future__ import annotations
 
 import uuid
@@ -96,7 +81,6 @@ async def test_sse_strict_order_no_gaps(pg_engine):
         task_id=task_id,
         last_event_id=0,
         tenant_id=str(tenant_id),
-        redis_url=None,
     ):
         collected_ids.append(_frame_id(frame))
         if len(collected_ids) >= 110:
@@ -164,7 +148,6 @@ async def test_sse_last_event_id_resume(pg_engine):
         task_id=task_id,
         last_event_id=cursor,
         tenant_id=str(tenant_id),
-        redis_url=None,
     ):
         seen.append(_frame_id(frame))
         if len(seen) >= 20:
@@ -175,13 +158,84 @@ async def test_sse_last_event_id_resume(pg_engine):
     )
 
 
-@pytest.mark.skip(
-    reason="Needs Redis publish + concurrent writer/reader race — run in staging."
-)
 @pytest.mark.asyncio
-async def test_sse_no_dup_under_redis_race():
-    """G6b §3 — adversarial-timing variant covered in staging where
-    Redis runs. The bridge's pubsub dedupe logic
-    (``if ev['id'] <= cursor: continue``) guarantees no duplicates even
-    when a SELECT-replay row and a pubsub message arrive for the same
-    BIGSERIAL id, but exercising it needs a live broker."""
+async def test_sse_live_commit_wakes_idle_reader(pg_engine, monkeypatch):
+    import asyncio
+    from vibecanvas_api.services import sse_bridge, state_notifications
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.repo_tasks import TasksRepo
+
+    monkeypatch.setenv('STATE_NOTIFICATION_DATABASE_URL',
+        pg_engine.url.render_as_string(hide_password=False))
+    tenant, user, task = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await _seed_tenant_user(pg_engine, tenant, user, 'live')
+    async with session_scope(tenant_id=str(tenant)) as session:
+        await TasksRepo(session).create(task_id=task, tenant_id=tenant,
+            user_id=user, workflow_id=None, task_type='batch_exec',
+            payload={}, background_job_id=str(task))
+    reads = 0
+    original = sse_bridge._select_events_after
+    async def read(*args):
+        nonlocal reads
+        reads += 1
+        return await original(*args)
+    monkeypatch.setattr(sse_bridge, '_select_events_after', read)
+    stream = sse_bridge.task_event_stream(task_id=task, last_event_id=0, tenant_id=str(tenant))
+    pending = asyncio.create_task(anext(stream))
+    try:
+        # Allow initial connection/reconciliation, then prove idle does not poll.
+        await asyncio.sleep(0.5)
+        count = reads
+        await asyncio.sleep(0.5)
+        assert reads == count and not pending.done()
+        async with session_scope(tenant_id=str(tenant)) as session:
+            event_id = await TasksRepo(session).insert_event(task, 'terminal',
+                {'action': 'task.finished'}, tenant)
+            await asyncio.sleep(0.1)
+            assert not pending.done(), 'uncommitted event must not be delivered'
+        frame = await asyncio.wait_for(pending, 3)
+        assert _frame_id(frame) == event_id
+        with pytest.raises(StopAsyncIteration):
+            await anext(stream)
+    finally:
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        await stream.aclose()
+    assert not state_notifications._listeners
+
+
+@pytest.mark.asyncio
+async def test_concurrent_event_writer_waits_for_previous_commit(pg_engine):
+    import asyncio
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.repo_tasks import TasksRepo
+
+    tenant, user, task = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await _seed_tenant_user(pg_engine, tenant, user, 'ordered')
+    async with session_scope(tenant_id=str(tenant)) as session:
+        await TasksRepo(session).create(task_id=task, tenant_id=tenant,
+            user_id=user, workflow_id=None, task_type='batch_exec',
+            payload={}, background_job_id=str(task))
+    entered = asyncio.Event()
+    async def second_writer():
+        async with session_scope(tenant_id=str(tenant)) as session:
+            entered.set()
+            return await TasksRepo(session).insert_event(task, 'progress', {'i': 2}, tenant)
+    pending = None
+    try:
+        async with session_scope(tenant_id=str(tenant)) as session:
+            first = await TasksRepo(session).insert_event(task, 'progress', {'i': 1}, tenant)
+            pending = asyncio.create_task(second_writer())
+            await asyncio.wait_for(entered.wait(), 2)
+            await asyncio.sleep(0.2)
+            assert not pending.done(), 'second writer must wait for first commit'
+        second = await asyncio.wait_for(pending, 3)
+        assert second > first
+        async with session_scope(tenant_id=str(tenant)) as session:
+            rows = await TasksRepo(session).events_for_task(task_id=task, after_seq=0)
+            assert [row.id for row in rows] == [first, second]
+            assert [row.payload['i'] for row in rows] == [1, 2]
+    finally:
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)

@@ -1,4 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { refreshResourceQuery, watchResourceActivity } from '@/lib/api/sse/resource-activity';
 import { resolveApiUrl } from '@/lib/base-path';
 import { sessionFetch } from '@/lib/api/session-fetch';
 import type { WorkflowDraft } from '@/stores/workflow-edit';
@@ -64,11 +66,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function useExecutionDetail(id: string) {
+  const client = useQueryClient();
+  useEffect(() => {
+    if (!id) return;
+    return watchResourceActivity(`/api/v1/workflow-executions/${encodeURIComponent(id)}/activity`, async () => {
+      await Promise.all([
+        refreshResourceQuery(client, executionDetailKey(id)),
+        refreshResourceQuery(client, ['workflow-execution-events', id]),
+      ]);
+    });
+  }, [client, id]);
   return useQuery({
     queryKey: executionDetailKey(id),
     enabled: Boolean(id),
     queryFn: async () => ({ ...await request<ExecutionDetail>(`/${encodeURIComponent(id)}`), received_at: Date.now() }),
-    refetchInterval: (query) => executionActive(query.state.data?.status) ? 1000 : false,
     retry: false,
   });
 }
@@ -103,19 +114,34 @@ export function useExecutionEvents(id: string) {
   return useQuery({
     queryKey: key,
     enabled: Boolean(id),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const previous = client.getQueryData<ExecutionEvents>(key)?.events ?? [];
-      const after = previous.at(-1)?.seq ?? 0;
-      const next = await request<ExecutionEvents>(`/${encodeURIComponent(id)}/events?after=${after}&limit=500`);
-      return { ...next, events: [...previous, ...next.events] };
-    },
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if ((data?.events.at(-1)?.seq ?? 0) < (data?.last_seq ?? 0)) return 100;
-      return executionActive(data?.status) ? 1000 : false;
+      return readExecutionEvents(id, previous, signal);
     },
     retry: false,
   });
+}
+
+export async function readExecutionEvents(id: string, previous: ExecutionFrame[], signal?: AbortSignal): Promise<ExecutionEvents> {
+  const frames = [...previous];
+  let cursor = frames.at(-1)?.seq ?? 0;
+  let target: number | undefined;
+  let next: ExecutionEvents;
+  do {
+    next = await request<ExecutionEvents>(`/${encodeURIComponent(id)}/events?after=${cursor}&limit=500`, { signal });
+    // Catch up to the head observed at the start, rather than chasing a
+    // continuously growing producer forever. Later invalidations catch the tail.
+    target ??= next.last_seq;
+    const before = cursor;
+    for (const frame of next.events) {
+      if (frame.seq <= cursor) continue;
+      if (frame.seq !== cursor + 1) throw new Error('Execution event sequence is incomplete');
+      frames.push(frame);
+      cursor = frame.seq;
+    }
+    if (cursor === before && cursor < target) throw new Error('Execution events are missing');
+  } while (cursor < target);
+  return { ...next, events: frames };
 }
 
 export function useApprovalDecision(executionId: string) {
@@ -126,9 +152,9 @@ export function useApprovalDecision(executionId: string) {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved }) },
     ),
     onSuccess: () => Promise.all([
-      client.invalidateQueries({ queryKey: executionDetailKey(executionId) }),
+      refreshResourceQuery(client, executionDetailKey(executionId)),
       client.invalidateQueries({ queryKey: ['workflow-execution-history'] }),
     ]),
-    onError: () => client.invalidateQueries({ queryKey: executionDetailKey(executionId) }),
+    onError: () => refreshResourceQuery(client, executionDetailKey(executionId)),
   });
 }

@@ -5,10 +5,7 @@ Workflow-page batch execution share one runtime contract: one task-scoped
 sandbox, in-sandbox bounded row workers, row-level ledgers, and ordered final
 artifacts.
 
-Event ordering: ``INSERT`` the ``task_events`` row first, then best-effort
-``redis.publish``. The DB row is the authoritative event log; SSE consumers
-fall back to polling if Redis is down. Event types use the unified protocol:
-``state | progress | log | result | terminal``.
+Event inserts notify SSE subscribers transactionally through PostgreSQL.
 
 Cancellation is durable: the Task row is authoritative and a watcher mirrors
 its state into a task-local ``threading.Event``. The shared batch runtime stops
@@ -18,21 +15,14 @@ artifacts, and leaves the task resumable.
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 import uuid
 from contextlib import suppress
 from datetime import datetime, timezone
 
-import redis
-from vibecanvas_api.config import config
 from vibecanvas_api.services.batch_runtime import BatchProgress, run_batch_workflow
 from vibecanvas_api.services.llm_credentials_inject import (
     inject_into_run_context_sync,
-)
-from vibecanvas_api.services.redis_channels import (
-    task_event_channel,
-    task_event_envelope,
 )
 from vibecanvas_api.services.sandbox.coordinator import (
     dispose_sandbox_rpc_client,
@@ -51,40 +41,6 @@ from vibecanvas_api.storage.sync_session import (
     current_sync_tenant_id,
     run_in_short_session,
 )
-
-# --- best-effort redis publish ---------------------------------------------
-#
-# In production this notifies SSE consumers immediately. In the sandbox
-# (no Redis daemon) every call fails fast and is swallowed — the DB
-# task_events rows are the source of truth, and SSE consumers fall back
-# to polling. Short connect/socket timeouts keep retry latency bounded.
-
-def _publish(
-    task_id: uuid.UUID,
-    tenant_id: uuid.UUID,
-    message: dict,
-) -> None:
-    try:
-        r = redis.from_url(
-            config.redis.url,
-            socket_connect_timeout=0.2,
-            socket_timeout=0.2,
-        )
-        r.publish(
-            task_event_channel(tenant_id, task_id),
-            json.dumps(
-                task_event_envelope(
-                    organization_id=tenant_id,
-                    task_id=task_id,
-                    event=message,
-                ),
-                default=str,
-            ),
-        )
-    except Exception:
-        # Best-effort — DB rows in task_events remain authoritative.
-        pass
-
 
 # --- short-session helpers --------------------------------------------------
 #
@@ -105,18 +61,13 @@ def _emit(
     event_type: str,
     payload: dict,
 ) -> None:
-    """§8.2 ordering: INSERT first, then best-effort publish."""
+    """Persist the event; its transaction emits the notification."""
     async def _runner(session) -> int:
         await assert_worker_owner(session)
         repo = TasksRepo(session)
         return await repo.insert_event(task_id, event_type, payload, tenant_id)
 
-    ev_id = run_in_short_session(_runner)
-    _publish(
-        task_id,
-        tenant_id,
-        {"id": ev_id, "event_type": event_type, "payload": payload},
-    )
+    run_in_short_session(_runner)
 
 
 def _update(task_id: uuid.UUID, **fields: object) -> None:
@@ -148,25 +99,17 @@ def _task_snapshot(task_id: uuid.UUID) -> dict:
     return run_in_short_session(_runner)
 
 
-async def _watch_durable_cancel(
-    task_id: uuid.UUID,
-    stop_event: threading.Event,
-    *,
-    poll_seconds: float = 0.25,
-) -> None:
-    """Mirror the durable Task cancellation state into the worker event.
-
-    DBOS cancellation removes queued delivery and marks its workflow cancelled,
-    while the database remains the authoritative business-level soft-cancel
-    channel for partial results. Polling runs in a thread because the sync
-    short-session bridge owns its own event loop.
-    """
-    while not stop_event.is_set():
-        snapshot = await asyncio.to_thread(_task_snapshot, task_id)
-        if snapshot.get("status") in {"cancelling", "cancelled"}:
-            stop_event.set()
-            return
-        await asyncio.sleep(max(0.05, poll_seconds))
+async def _watch_durable_cancel(task_id: uuid.UUID, stop_event: threading.Event) -> None:
+    """Mirror committed cancellation into the worker without polling."""
+    from vibecanvas_api.services.state_notifications import state_changes
+    async with state_changes('flowork_task_command', str(task_id)) as changed:
+        while not stop_event.is_set():
+            changed.clear()
+            snapshot = await asyncio.to_thread(_task_snapshot, task_id)
+            if snapshot.get("status") in {"cancelling", "cancelled"}:
+                stop_event.set()
+                return
+            await changed.wait()
 
 
 def _task_execution_lease(

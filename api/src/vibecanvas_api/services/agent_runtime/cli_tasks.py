@@ -538,6 +538,12 @@ async def execute(call, arguments):
             return jsonable_encoder(_feedback({"id": str(task_id), "task_type": arguments["task_type"], **result}, task_id,
                 execution=execution_id, plan="schedule" in result))
     except HTTPException as exc:
+        if isinstance(exc.detail, dict) and exc.detail.get("task_id"):
+            task_id = exc.detail["task_id"]
+            return {**error(exc.detail.get("error", "task_submission_failed"),
+                exc.detail.get("message", "Task submission failed."),
+                f"flowork-cli task status --task-id {task_id} --task-type batch_exec"),
+                "task_id": task_id, "task_type": "batch_exec", "status": exc.detail.get("status")}
         code = {403: "permission_denied", 404: "resource_unavailable", 409: "state_conflict", 422: "invalid_arguments"}.get(exc.status_code, "platform_error")
         return error(code, str(exc.detail), "Inspect task status and this command's --help before retrying.")
     except (ValueError, ValidationError) as exc:

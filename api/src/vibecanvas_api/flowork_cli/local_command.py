@@ -11,13 +11,107 @@ import signal
 import time
 from uuid import uuid4
 
-from vibecanvas_api.services.sandbox.local_activity import execution_activity
+from vibecanvas_api.services.sandbox.local_activity import execution_activity, execution_alive
+from vibecanvas_api.flowork_cli.local_output import TERMINAL, describe
+
+RUN_ROOT = Path('/data/runs')
+
+
+def query(args, cli):
+    """Read this sandbox's persisted execution evidence without submitting work."""
+    try:
+        return _query(args, cli)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return cli.emit_result({'run_id': args.run_id, 'error': 'execution_evidence_unavailable',
+            'error_type': type(exc).__name__,
+            'message': 'The saved execution status or result could not be read.',
+            'hint': 'Verify this sandbox and the saved result files. Do not submit a replacement execution automatically.'},
+            exit_code=1)
+
+
+def _query(args, cli):
+    from uuid import UUID
+    try:
+        run_id = UUID(args.run_id).hex
+    except ValueError:
+        return cli.emit_result({'error': 'invalid_run_id'}, exit_code=2)
+    try:
+        summary = json.loads((RUN_ROOT / run_id / 'status.json').read_text())
+    except FileNotFoundError:
+        return cli.emit_result({'error': 'run_not_found', 'run_id': run_id,
+            'hint': 'Query in the original workspace and verify the run ID. Absence here does not prove execution failure; do not automatically rerun.'}, exit_code=1)
+    if summary['status'] not in TERMINAL:
+        alive = execution_alive(run_id)
+        if alive is not True:
+            # Completion may have committed between the first read and lock check.
+            summary = json.loads((RUN_ROOT / run_id / 'status.json').read_text())
+            if summary['status'] not in TERMINAL:
+                summary.update(last_known_status=summary['status'],
+                    status='interrupted' if alive is False else 'unknown', approvals=[],
+                    error='execution_process_exited' if alive is False else 'execution_runtime_unavailable')
+    if args.action == 'status':
+        return cli.emit_result(describe(summary), state_field='execution_status')
+    if args.offset < 0 or not 1 <= args.limit <= 1000 or (args.index is not None and args.index < 0):
+        return cli.emit_result({'error': 'invalid_pagination'}, exit_code=2)
+    records = []
+    matched = 0
+    with Path(summary['path']).open(encoding='utf-8') as source:
+        for line in source:
+            # A concurrently appended final line is not committed until newline.
+            if not line.endswith('\n'):
+                break
+            record = json.loads(line)
+            if args.index is not None and record['index'] != args.index:
+                continue
+            if matched >= args.offset:
+                records.append(record)
+            matched += 1
+            if len(records) > args.limit:
+                break
+    more = len(records) > args.limit
+    terminal = summary['status'] in TERMINAL
+    complete = terminal and summary.get('total') is not None and summary.get('completed') == summary['total']
+    next_offset = args.offset + args.limit if more else None
+    next_command = None
+    if more:
+        next_command = (f'flowork-cli workflow result --run-id {run_id}'
+                        f' --offset {next_offset} --limit {args.limit}')
+        if args.index is not None:
+            next_command += f' --index {args.index}'
+    value = {**describe(summary), 'results': records[:args.limit],
+        'results_complete': complete,
+        'pagination': {'offset': args.offset, 'limit': args.limit, 'index': args.index,
+                       'next_offset': next_offset, 'next_command': next_command},
+        'partial': not complete,
+        'result_available': bool(records),
+        'next_offset': next_offset}
+    if terminal:
+        value['next_action'] = ({'type': 'read_next_page',
+            'message': 'Read the next result page before drawing conclusions about the whole execution.',
+            'command': next_command} if more else {'type': 'analyze_results',
+            'message': 'Analyze the returned sample outcomes and errors. End of available pages is not proof that all samples succeeded or finished. Do not automatically rerun.',
+            'command': None})
+    return cli.emit_result(value, state_field='execution_status')
 
 
 def execute(args, endpoint, cli):
+    from vibecanvas_api.flowork_cli.local_process import launch
+    return launch(args, endpoint, cli, RUN_ROOT)
+
+
+def execute_in_process(args, endpoint, cli):
+    run_id = getattr(args, '_run_id', None) or uuid4().hex
+    with execution_activity(run_id=run_id):
+        return _execute(args, endpoint, cli, run_id)
+
+
+def _execute(args, endpoint, cli, run_id):
     from vibecanvas_api.flowork_cli.local_workflow import run_rows
-    run_id = uuid4().hex
-    summary = {'run_id': run_id, 'pid': os.getpid(), 'started_at': time.time(), 'status': 'preparing'}
+    summary = {'run_id': run_id, 'pid': os.getpid(), 'started_at': time.time(), 'status': 'preparing',
+               'workflow_id': args.workflow_id, 'mode': 'batch' if args.action == 'run-batch' else 'single',
+               'async': False, 'approvals': [],
+               'status_command': f'flowork-cli workflow status --run-id {run_id}',
+               'result_command': f'flowork-cli workflow result --run-id {run_id}'}
     state_path = None
     try:
         if args.overwrite and not args.output:
@@ -47,18 +141,20 @@ def execute(args, endpoint, cli):
             preparation['workflow'] = cli.read_workflow(args.file)
             sources.append(args.file)
         if getattr(args, 'node', None):preparation['node'] = args.node
-        path = os.path.abspath(args.output) if args.output else f'/data/runs/{run_id}/results.jsonl'
-        if args.output is None:os.makedirs(os.path.dirname(path), exist_ok=False)
+        directory = RUN_ROOT / run_id
+        directory.mkdir(parents=True, mode=0o700, exist_ok=bool(getattr(args, '_run_id', None)))
+        path = os.path.abspath(args.output) if args.output else str(directory / 'results.jsonl')
         with ExitStack() as files:
-            files.enter_context(execution_activity(run_id=run_id))
             output = files.enter_context(cli._open_run_output(path, overwrite=args.overwrite, sources=sources))
-            directory = Path(path).parent / '.flowork-runs' / run_id
-            directory.mkdir(parents=True, mode=0o700)
             state_path = directory / 'status.json'
             events = files.enter_context((directory / 'events.jsonl').open('x', encoding='utf-8'))
             summary.update(name=getattr(args, 'name', None) or (Path(args.input_file).name if args.input_file else 'workflow run'), path=path, status_path=str(state_path), events_path=str(directory / 'events.jsonl'), total=len(rows), completed=0, failed=0)
             def report(update):
                 summary.update(update)
+                summary['updated_at'] = time.time()
+                if update.get('status') == 'waiting_approval':
+                    summary['async'] = True
+                summary.update(describe(summary))
                 temporary = state_path.with_suffix('.tmp')
                 temporary.write_text(json.dumps(summary, ensure_ascii=False, allow_nan=False), encoding='utf-8')
                 os.replace(temporary, state_path)
@@ -101,6 +197,7 @@ def execute(args, endpoint, cli):
         # Store exception type, not a provider body or a resource capability.
         summary.update(status='failed', error='local_execution_failed', error_type=type(exc).__name__, exit_code=1)
     summary['finished_at'] = time.time()
+    summary.update(describe(summary))
     if state_path:
         temporary = state_path.with_suffix('.tmp')
         temporary.write_text(json.dumps(summary, ensure_ascii=False), encoding='utf-8')

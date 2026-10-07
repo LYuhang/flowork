@@ -106,11 +106,12 @@ def execution_result(summary, detail):
                   outputs=final["__end__"] if available else None,
                   result_unavailable_reason=reason)
     if terminal and state != "succeeded":
+        result["errors"] = execution_errors(evidence.get("error_dict") or {})
         result["execution_error"] = (summary.get("execution_error")
             or (detail or {}).get("error_code") or state)
     result["message"] = ("Complete business outputs retrieved." if available else
         "Execution is still pending. Query this execution again; do not submit another call." if not terminal else
-        "Execution did not succeed. Inspect execution_error and logs." if state != "succeeded" else
+        "Execution did not succeed. Inspect execution_error, errors and logs." if state != "succeeded" else
         "This execution has no retained complete result; the summary is not a substitute.")
     result["hint"] = (f"flowork-cli deployment result --deployment-id {result['deployment_id']} "
                       f"--execution-id {result['execution_id']}")

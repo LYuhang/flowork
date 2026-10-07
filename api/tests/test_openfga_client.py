@@ -155,68 +155,41 @@ async def test_list_objects_rejects_wrong_object_type():
 
 
 @pytest.mark.asyncio
-async def test_batch_internal_failure_rechecks_entire_chunk_and_uses_fresh_denial():
-    requests = []
-    def handler(request):
-        requests.append(json.loads(request.content))
-        if len(requests) == 1:
-            return httpx.Response(200, json={'result': {
-                '0': {'allowed': True},
-                '1': {'error': {'internal_error': 'internal_error', 'message': 'private database timeout'}}}})
-        return httpx.Response(200, json={'result': {'0': {'allowed': False}, '1': {'allowed': True}}})
-    result = await _client(handler).batch_check(
-        [('user:alice', 'can_view', 'workflow:a'), ('user:alice', 'can_view', 'workflow:b')],
-        consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
-    assert result == (False, True)
-    assert len(requests) == 2 and requests[0] == requests[1]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('item,expected_attempts', [
-    ({'error': {'internal_error': 'internal_error'}}, 2),
-    ({'error': {'input_error': 'validation_error'}}, 1),
-    ({'error': {'internal_error': 'unknown'}}, 1),
-    ({'allowed': 'true'}, 1),
-])
-async def test_batch_retry_is_bounded_and_only_for_known_internal_failure(item, expected_attempts):
-    attempts = []
-    def handler(request):
-        attempts.append(request)
-        return httpx.Response(200, json={'result': {'0': item}})
-    with pytest.raises(OpenFgaUnavailableError):
-        await _client(handler).batch_check([('user:alice', 'can_view', 'workflow:a')],
-                                          consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
-    assert len(attempts) == expected_attempts
-
-
-@pytest.mark.asyncio
-async def test_batch_denial_is_not_retried():
-    attempts = []
-    def handler(request):
-        attempts.append(request)
-        return httpx.Response(200, json={'result': {'0': {'allowed': False}}})
-    assert await _client(handler).batch_check([('user:alice', 'can_view', 'workflow:a')],
-        consistency=ConsistencyPreference.HIGHER_CONSISTENCY) == (False,)
-    assert len(attempts) == 1
-
-
-@pytest.mark.asyncio
-async def test_batch_retry_respects_cancellation_and_does_not_log_provider_message(monkeypatch):
-    import asyncio
-    from unittest.mock import AsyncMock, Mock
+async def test_batch_failure_does_not_retry_or_use_partial_grants(monkeypatch):
+    from unittest.mock import Mock
     from vibecanvas_api.authorization import openfga_client as module
     warning = Mock()
     monkeypatch.setattr(module.logger, 'warning', warning)
-    monkeypatch.setattr(module.asyncio, 'sleep', AsyncMock(side_effect=asyncio.CancelledError))
-    attempts = []
+    requests = []
     def handler(request):
-        attempts.append(request)
-        return httpx.Response(200, json={'result': {'0': {'error': {
-            'internal_error': 'internal_error', 'message': 'private-connection-details'}}}})
-    with pytest.raises(asyncio.CancelledError):
-        await _client(handler).batch_check([('user:alice', 'can_view', 'workflow:a')],
+        requests.append(request)
+        return httpx.Response(200, json={'result': {
+            '0': {'allowed': True},
+            '1': {'error': {'internal_error': 'internal_error', 'message': 'private database timeout'}}}})
+    with pytest.raises(OpenFgaUnavailableError):
+        await _client(handler).batch_check(
+            [('user:alice', 'can_view', 'workflow:a'), ('user:alice', 'can_view', 'workflow:b')],
             consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
-    assert len(attempts) == 1
-    assert warning.call_args.kwargs == dict(attempt=1, will_retry=True,
-        reason_code='authorization_check_internal_error')
-    assert 'private-connection-details' not in str(warning.call_args)
+    assert len(requests) == 1
+    assert 'private database timeout' not in str(warning.call_args)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('operation', ['check', 'list_objects'])
+@pytest.mark.parametrize('failure', ['timeout', 'server', 'configuration'])
+async def test_authorization_failure_is_not_retried(operation, failure):
+    requests = []
+    def handler(request):
+        requests.append(request)
+        if failure == 'timeout':
+            raise httpx.ReadTimeout('private details', request=request)
+        return httpx.Response(500 if failure == 'server' else 403, json={'code': 'error'})
+    client = _client(handler)
+    with pytest.raises(OpenFgaUnavailableError):
+        if operation == 'check':
+            await client.check(user='user:alice', relation='can_view', object_='workflow:a',
+                               consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+        else:
+            await client.list_objects(user='user:alice', relation='can_view', object_type='workflow',
+                                      consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    assert len(requests) == 1

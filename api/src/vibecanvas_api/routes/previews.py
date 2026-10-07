@@ -655,13 +655,11 @@ async def stream_preview_file_events(
     run_id: str | None = Query(default=None),
     auth: AuthContext = Depends(current_user),
 ) -> StreamingResponse:
-    """Reconcile once, then follow durable changes for one Preview FileRef.
+    """Reconcile current content, then notify Preview when it changes.
 
-    The browser never polls descriptors. Database triggers append a cursor in
-    the same transaction as every VFS content mutation, so any API worker can
-    replay changes after reconnect or another worker's write. The initial
-    ``preview_ready`` frame carries the authoritative revision and closes the
-    resolve/subscribe race without replaying unbounded historical changes.
+    POSIX files use metadata checks without database change records. Object-backed
+    VFS rows use durable events. Every connection starts with preview_ready so a
+    reconnect reconciles current content even when intermediate edits coalesce.
     """
 
     file_ref = _event_file_ref(
@@ -708,23 +706,25 @@ async def stream_preview_file_events(
             service=initial_service,
             action=Action.VIEW,
         )
-        # For a fresh subscription, establish the tail cursor before resolving
-        # the current row. A write in either side of these statements is then
-        # caught by the ready revision or by replay after the cursor.
-        latest_event = (
-            await initial_session.execute(
-                select(VfsArtifactEvent)
-                .where(
-                    VfsArtifactEvent.scope_kind == scope_kind,
-                    VfsArtifactEvent.scope_id == storage_scope_id,
-                    VfsArtifactEvent.path.in_(watched_paths),
+        latest_event = None
+        if config.workspace_storage_backend != "posix":
+            # For a fresh subscription, establish the tail cursor before resolving
+            # the current row. A write in either side of these statements is then
+            # caught by the ready revision or by replay after the cursor.
+            latest_event = (
+                await initial_session.execute(
+                    select(VfsArtifactEvent)
+                    .where(
+                        VfsArtifactEvent.scope_kind == scope_kind,
+                        VfsArtifactEvent.scope_id == storage_scope_id,
+                        VfsArtifactEvent.path.in_(watched_paths),
+                    )
+                    .order_by(VfsArtifactEvent.event_id.desc())
+                    .limit(1)
                 )
-                .order_by(VfsArtifactEvent.event_id.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if cursor == 0:
-            cursor = int(latest_event.event_id) if latest_event is not None else 0
+            ).scalar_one_or_none()
+            if cursor == 0:
+                cursor = int(latest_event.event_id) if latest_event is not None else 0
         resolved = await _resolve_file(
             file_ref=file_ref,
             auth=auth,
@@ -782,10 +782,37 @@ async def stream_preview_file_events(
             },
             event_id=cursor,
         )
-        idle_ticks = 0
-        while not await request.is_disconnected():
-            if not await authorized():
-                return
+        if resolved.workspace_identity is not None:
+            # POSIX writes (including sandbox tools) do not mutate VFS rows.
+            # Observe file metadata rather than waiting for nonexistent DB events.
+            # On reconnect preview_ready reconciles the latest revision; these
+            # refresh hints are not a durable file-operation history.
+            from vibecanvas_api.services.preview_workspace_events import workspace_changes
+
+            async for kind, revision in workspace_changes(
+                PosixWorkspaceStorage(config.workspace_storage_root),
+                resolved.workspace_identity, resolved.relative_path,
+                current_revision, authorized,
+            ):
+                if kind == "heartbeat":
+                    yield b": heartbeat\n\n"
+                    continue
+                cursor += 1
+                yield format_event(
+                    "preview_file",
+                    {
+                        "event_id": cursor, "path": path, "changed_path": path,
+                        "event_type": "delete" if revision is None else "upsert",
+                        "revision": revision, "derived": False,
+                    },
+                    event_id=cursor,
+                )
+            return
+
+        from contextlib import aclosing
+        from vibecanvas_api.services.state_notifications import event_batches
+
+        async def read_events():
             async with session_scope(tenant_id=auth.tenant_id, user_id=auth.user_id) as event_session:
                 events = (
                     await event_session.execute(
@@ -800,8 +827,15 @@ async def stream_preview_file_events(
                         .limit(100)
                     )
                 ).scalars().all()
-            if events:
-                idle_ticks = 0
+            return events
+
+        async with aclosing(event_batches(
+            "flowork_preview_state", f"{scope_kind}:{storage_scope_id}", read_events, authorized,
+        )) as batches:
+            async for events in batches:
+                if events is None:
+                    yield b": heartbeat\n\n"
+                    continue
                 for event in events:
                     cursor = int(event.event_id)
                     is_source = event.path == path
@@ -825,14 +859,6 @@ async def stream_preview_file_events(
                         },
                         event_id=cursor,
                     )
-                continue
-            idle_ticks += 1
-            if idle_ticks >= 15:
-                idle_ticks = 0
-                yield b": heartbeat\n\n"
-            # Only the backend observes its durable event cursor. The browser
-            # receives frames on change and never refetches on a timer.
-            await asyncio.sleep(1.0)
 
     return StreamingResponse(
         event_stream(),

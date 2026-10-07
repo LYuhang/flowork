@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -83,6 +84,11 @@ _ROOTS = ("mount", "workflow", "project", "task")
 _DIR_MARKER = ".keep"
 _HIDDEN_DIR_MARKERS = {".keep", ".vibekeep"}
 _MAX_INLINE_BYTES = 5 * 1024 * 1024
+
+
+def _download_disposition(filename: str) -> str:
+    name = "".join("_" if ord(ch) < 32 or ord(ch) == 127 else ch for ch in filename)
+    return "attachment; filename*=UTF-8''" + quote(name, safe="")
 
 
 def _clean_logical_path(path: str) -> str:
@@ -917,7 +923,7 @@ async def raw_storage_content(
         return Response(
             content=data,
             media_type=_infer_content_type(name, "application/octet-stream"),
-            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+            headers={"Content-Disposition": _download_disposition(name)},
         )
     if not resolved.vfs_path:
         raise HTTPException(status_code=400, detail="not_a_file")
@@ -928,7 +934,7 @@ async def raw_storage_content(
             wf_id=resolved.scope_id, run_id="", path=resolved.vfs_path,
             range_header=request.headers.get("range"),
         )
-        response.headers["Content-Disposition"] = f'attachment; filename="{os.path.basename(resolved.vfs_path)}"'
+        response.headers["Content-Disposition"] = _download_disposition(os.path.basename(resolved.vfs_path))
         return response
     entry = await VfsRepo(session, object_store=get_object_store()).read(
         wf_id=resolved.scope_id, path=resolved.vfs_path, touch=False)
@@ -940,7 +946,7 @@ async def raw_storage_content(
     return Response(
         content=data,
         media_type=ct or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{os.path.basename(resolved.vfs_path)}"'},
+        headers={"Content-Disposition": _download_disposition(os.path.basename(resolved.vfs_path))},
     )
 
 

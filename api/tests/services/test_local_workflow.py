@@ -7,6 +7,14 @@ from vibecanvas_api.flowork_cli.local_workflow import run_rows
 @pytest.mark.asyncio
 async def test_local_rows_reach_terminal_without_host(monkeypatch):
     from vibecanvas_engine.workflow import Workflow
+    from vibecanvas_engine.runtime.executions import WorkflowRuntime
+    original_acknowledge = WorkflowRuntime.acknowledge
+    def acknowledge(runtime, *args, **kwargs):
+        original_acknowledge(runtime, *args, **kwargs)
+        assert len(runtime.executions) <= 2
+        assert not hasattr(runtime, 'slots')
+        assert not hasattr(runtime, 'completed')
+    monkeypatch.setattr(WorkflowRuntime, 'acknowledge', acknowledge)
     active=maximum=0
     async def stream(self, inputs, run_context=None, stop_event=None):
         nonlocal active,maximum
@@ -26,6 +34,10 @@ async def test_local_rows_reach_terminal_without_host(monkeypatch):
     assert sorted(r['index'] for r in records)==list(range(20))
     assert all(r['output']==r['input'] for r in records)
     assert states[-1]['status']=='completed' and states[-1]['completed']==20
+    for state in states:
+        progress = state['progress']
+        assert sum(progress[key] for key in ('queued', 'running', 'waiting_approval', 'completed', 'unprocessed')) == 20
+    assert states[-1]['progress']['succeeded'] == 20
 
 @pytest.mark.asyncio
 async def test_missing_terminal_is_explicit_failure(monkeypatch):
@@ -48,7 +60,7 @@ def test_cli_local_command_closes_authorization_connection_before_execution(tmp_
     from vibecanvas_api.flowork_cli import cli, local_workflow, local_command
     from vibecanvas_api.services.sandbox.local_activity import execution_activity
     monkeypatch.setattr(local_command, 'execution_activity', lambda **kwargs: execution_activity(tmp_path / 'work', **kwargs))
-    import asyncio
+    monkeypatch.setattr(local_command, 'RUN_ROOT', tmp_path / 'runs')
     input_path=tmp_path/'inputs.jsonl';input_path.write_text('{"x":1}\n')
     output_path=tmp_path/'results.jsonl'
     args=cli.parser().parse_args(['workflow','run-batch','--workflow-id','wf','--major','v1',
@@ -64,8 +76,8 @@ def test_cli_local_command_closes_authorization_connection_before_execution(tmp_
         kwargs['status']({'status':'completed','completed':1,'failed':0})
         return 0
     monkeypatch.setattr(local_workflow,'run_rows',run_rows)
-    assert cli.execute_command(args,'unused')==0
-    states=list((tmp_path/'.flowork-runs').glob('*/status.json'))
+    assert local_command.execute_in_process(args,'unused',cli)==0
+    states=list((tmp_path/'runs').glob('*/status.json'))
     summary=json.loads(states[0].read_text())
     assert summary['status']=='completed' and summary['completed']==1 and summary['exit_code']==0
     assert calls==['workflow.prepare']
@@ -176,6 +188,12 @@ async def test_local_human_approval_preserves_decision_and_timeout(executable_gr
         assert code == 0
         assert record['output'] == {'approved': decision}
     assert states[-1]['completed'] == 1
+    waiting = [state for state in states if state['status'] == 'waiting_approval']
+    assert waiting and waiting[0]['approvals'][0]['index'] == 0
+    approval = waiting[0]['approvals'][0]
+    assert approval['execution_url'] == f"/workflow-executions/{approval['execution_id']}"
+    assert approval['approval_id'] and approval['deadline']
+    assert states[-1]['approvals'] == []
 
 
 @pytest.mark.asyncio
@@ -197,14 +215,14 @@ async def test_local_runtime_enforces_whole_workflow_timeout(executable_graph):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('human', [False, True, 'cancel'])
+@pytest.mark.parametrize('human', [False, True, 'reject', 'timeout', 'remote_cancel', 'cancel'])
 async def test_local_approval_transport_only_contacts_platform_for_human(executable_graph, tmp_path, human):
     import httpx
     from vibecanvas_api.flowork_cli.local_approval_client import LocalApprovalClient
     graph = executable_graph
     if human:
         graph['node_2'].update(node_type='HumanApprovalNode', node_name='review',
-            node_config={'instruction': 'Review sample', 'timeout_seconds': 5},
+            node_config={'instruction': 'Review sample', 'timeout_seconds': 1 if human == 'timeout' else 5},
             output_fields={'approved': {'type': 'boolean', 'description': 'Decision'}})
         graph['node_3']['input_fields'] = {'approved': {'type': 'boolean', 'value': False, 'reference': 'review.approved'}}
         graph['node_3']['output_fields'] = graph['node_2']['output_fields']
@@ -213,7 +231,7 @@ async def test_local_approval_transport_only_contacts_platform_for_human(executa
     def report_progress(value):
         progress.append(value)
         waiting.set()
-    def handle(request):
+    async def handle(request):
         assert request.headers['authorization'] == 'Bearer private-test-token'
         calls.append(request.url.path)
         body = json.loads(request.content)
@@ -221,10 +239,12 @@ async def test_local_approval_transport_only_contacts_platform_for_human(executa
             frames.extend(body['events'])
             return httpx.Response(200, json={'last_seq': frames[-1]['seq']})
         pending = next(frame for frame in frames if frame['type'] == 'approval_requested')
-        if human == 'cancel':
-            return httpx.Response(200, json={'cancel_requested': False, 'decisions': []})
+        if human in {'cancel', 'timeout'}:
+            await asyncio.Event().wait()
+        if human == 'remote_cancel':
+            return httpx.Response(200, json={'cancel_requested': True, 'decisions': []})
         return httpx.Response(200, json={'cancel_requested': False, 'decisions': [
-            {'id': pending['approval_id'], 'requested_decision': True}]})
+            {'id': pending['approval_id'], 'requested_decision': human != 'reject'}]})
     rows = [{'text': 'hi', 'count': 1}]
     path = tmp_path/'events.jsonl'
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
@@ -241,11 +261,15 @@ async def test_local_approval_transport_only_contacts_platform_for_human(executa
                 with pytest.raises(asyncio.CancelledError):
                     await asyncio.wait_for(task, 3)
             else:
-                assert await task == 0
+                assert await task == (1 if human in {'timeout', 'remote_cancel'} else 0)
     if human == 'cancel':
         assert frames[-1]['type'] == 'result' and frames[-1]['status'] == 'cancelled'
+    elif human in {'timeout', 'remote_cancel'}:
+        expected = 'timed_out' if human == 'timeout' else 'cancelled'
+        assert json.loads(output.getvalue())['status'] == expected
+        assert frames[-1]['status'] == expected
     elif human:
-        assert json.loads(output.getvalue())['output'] == {'approved': True}
+        assert json.loads(output.getvalue())['output'] == {'approved': human != 'reject'}
         assert frames[-1]['type'] == 'result' and frames[-1]['status'] == 'succeeded'
         assert [frame['seq'] for frame in frames] == list(range(1, frames[-1]['seq'] + 1))
         assert progress[0]['execution_id'] == frames[0]['invocation_id']
@@ -253,3 +277,41 @@ async def test_local_approval_transport_only_contacts_platform_for_human(executa
     else:
         assert calls == []
     assert 'private-test-token' not in path.read_text()
+
+
+@pytest.mark.asyncio
+async def test_batch_mixed_approval_outcomes_keep_counts_and_sample_ids(executable_graph):
+    graph = executable_graph
+    human = graph['node_2']
+    human.update(node_type='HumanApprovalNode', node_name='review',
+        node_config={'instruction': 'Review this sample', 'timeout_seconds': 1},
+        output_fields={'approved': {'type': 'boolean', 'description': 'Decision'}})
+    graph['node_3']['input_fields'] = {'approved': {'type': 'boolean', 'value': False, 'reference': 'review.approved'}}
+    graph['node_3']['output_fields'] = human['output_fields']
+    arrived = set()
+    ready = asyncio.Event()
+    async def approve(runtime, invocation_id, index, event):
+        arrived.add(index)
+        if len(arrived) == 3:
+            ready.set()
+        await ready.wait()
+        if index < 2:
+            await runtime.decide(invocation_id, event['approval_id'], index == 0)
+    output, states = io.StringIO(), []
+    code = await asyncio.wait_for(run_rows(workflow=graph,
+        rows=[{'text': str(i), 'count': 1} for i in range(3)], concurrency=3,
+        output=output, events=io.StringIO(), status=states.append,
+        context_factory=lambda index: {}, approval_handler=approve), 8)
+    assert code == 1
+    assert any(state['progress']['waiting_approval'] == 3 for state in states)
+    for state in states:
+        p = state['progress']
+        assert sum(p[k] for k in ('queued', 'running', 'waiting_approval', 'completed', 'unprocessed')) == 3
+    final = states[-1]
+    assert final['status'] == 'completed_with_errors' and final['approvals'] == []
+    assert final['progress']['succeeded'] == 2 and final['progress']['timed_out'] == 1
+    records = sorted(map(json.loads, output.getvalue().splitlines()), key=lambda x: x['index'])
+    assert len({row['execution_id'] for row in records}) == 3
+    assert records[0]['output'] == {'approved': True}
+    assert records[1]['output'] == {'approved': False}
+    assert records[2]['output'] is None and records[2]['error_code'] == 'approval_timeout'

@@ -256,7 +256,8 @@ async def test_replay_and_ack_never_restart_execution():
         state = await wait_for(rt, run, lambda s: s["status"] == "succeeded")
         rt.acknowledge(run, state["seq"])
         assert run not in rt.executions
-        assert rt.invoke(run, "v1", {})["status"] == "succeeded"
+        with pytest.raises(KeyError):
+            rt.status(run)  # Persisted history belongs to the host, not this worker.
         changed = deepcopy(wf)
         changed["node_2"]["node_config"]["instruction"] = "different"
         with pytest.raises(ExecutionConflict):

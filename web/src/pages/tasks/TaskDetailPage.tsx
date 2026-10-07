@@ -1,32 +1,8 @@
 import '@/components/layout/execution-resource-detail.css';
+import { refreshResourceQuery, watchResourceActivity } from '@/lib/api/sse/resource-activity';
 import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
-/**
- * `/tasks/:taskId` task detail page.
- *
- * Two data sources, one screen:
- *   * TanStack Query polls `GET /tasks/{id}` for the canonical row
- *     (status, progress, result summary, results_uri). Polling pauses
- *     when the task reaches a terminal state — there is nothing left to
- *     refresh, and a stale 5s tick wastes a request.
- *   * `useTaskStream` opens the SSE channel for the live event log
- *     (`progress`, `started`, `finished`, `cancelled`, `error`,
- *     and any custom worker emissions).
- *
- * Why two channels instead of "compute everything from SSE":
- *   * The polled GET is RLS-bound to the same tenant + reuses the
- *     auth middleware (the 401 dialog), and it stays consistent across
- *     reconnects.
- *   * SSE is a delta channel — the worker emits `progress` frames as
- *     batch rows finish, but the canonical `progress` value lives in
- *     `tasks.progress` and is what the list page shows. Reading both
- *     and trusting the polled value avoids drift if the user opens
- *     this page after a stream drop.
- *
- * Cancel UX: one user-facing Cancel action safely stops the batch and preserves
- * partial artifacts. Internal cleanup/escalation details are not exposed.
- *
- * Download UX:
- *   * Result-bearing rows expose CSV, JSONL, and on-demand Excel downloads.
+/** Task snapshots refresh on resource changes; logs replay their own durable stream.
+ * A low-frequency permission refresh remains until sharing has its own notifications.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useSearchParams } from "react-router";
@@ -94,7 +70,6 @@ import { useFormatDateTime } from "@/lib/timezone";
 import { ExecutionHistory } from "@/components/logs/execution-history";
 import { describeCronExpression, scheduleLocale } from "@/lib/cron-description";
 
-const POLL_INTERVAL_MS = 5_000;
 const ACTIVE_STATUSES: TaskStatus[] = ["queued", "running", "resuming", "cancelling"];
 const CANCELLABLE: TaskStatus[] = ["queued", "running", "resuming"];
 const RESUMABLE: TaskStatus[] = ["cancelled", "failed", "interrupted", "finished_with_errors"];
@@ -400,14 +375,8 @@ export function TaskDetailPage() {
     queryKey: ["task", taskId],
     queryFn: () => getTask(taskId!),
     enabled: !!taskId,
-    // Completed tasks still need to refresh sharing permissions.
-    refetchInterval: (q) => {
-      const data = q.state.data as Task | undefined;
-      if (!data) return POLL_INTERVAL_MS;
-      return ACTIVE_STATUSES.includes(data.status)
-        ? POLL_INTERVAL_MS
-        : 15_000;
-    },
+    // Sharing capability changes are not covered by task-row notifications yet.
+    refetchInterval: 15_000,
     refetchOnWindowFocus: 'always',
   });
 
@@ -415,24 +384,26 @@ export function TaskDetailPage() {
     queryKey: ["task", taskId, "scheduled-run"],
     queryFn: () => getScheduledRun(taskId!),
     enabled: !!taskId && taskQuery.data?.task_type === "scheduled_run",
-    refetchInterval: (q) => {
-      const data = q.state.data;
-      return data?.schedule.enabled || ["queued", "running"].includes(data?.task.status ?? "") ? POLL_INTERVAL_MS : false;
-    },
     refetchOnWindowFocus: false,
   });
   const executionsQuery = useQuery({
     queryKey: ["task", taskId, "scheduled-run", "executions"],
     queryFn: () => listScheduledRunExecutions(taskId!, { limit: 50 }),
     enabled: !!taskId && taskQuery.data?.task_type === "scheduled_run",
-    refetchInterval: (q) => {
-      const data = q.state.data;
-      return scheduledQuery.data?.schedule.enabled || data?.items.some((x) => x.status === "running" || x.status === "queued")
-        ? POLL_INTERVAL_MS
-        : false;
-    },
     refetchOnWindowFocus: false,
   });
+  useEffect(() => {
+    if (!taskId) return;
+    return watchResourceActivity(`/api/v1/tasks/${encodeURIComponent(taskId)}/activity`, async () => {
+      await Promise.all([
+        refreshResourceQuery(qc, ['task', taskId]),
+        refreshResourceQuery(qc, ['evaluation', taskId]),
+        refreshResourceQuery(qc, ['task', taskId, 'scheduled-run']),
+        refreshResourceQuery(qc, ['task', taskId, 'scheduled-run', 'executions']),
+      ]);
+    }, 1000);
+  }, [qc, taskId]);
+
   const executions = useMemo(() => executionsQuery.data?.items ?? [], [executionsQuery.data?.items]);
   const selectedExecution = useMemo(() => {
     if (!executions.length) return null;

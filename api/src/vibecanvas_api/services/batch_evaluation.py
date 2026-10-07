@@ -63,11 +63,11 @@ def result_uri(task) -> str:
     return uri
 
 
-def load_results(uri: str) -> tuple[list[dict], str]:
+def load_results(uri: str, *, store=None) -> tuple[list[dict], str]:
     # Bound memory independently of the client-requested page size.
     chunks, size = [], 0
     try:
-        for chunk in get_task_result_store().iter_bytes(uri_to_key(uri)):
+        for chunk in (store or get_task_result_store()).iter_bytes(uri_to_key(uri)):
             size += len(chunk)
             if size > MAX_RESULT_BYTES:
                 raise HTTPException(413, "Result exceeds the 32 MiB interactive evaluation limit; use Download.")

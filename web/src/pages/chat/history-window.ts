@@ -13,13 +13,16 @@ function historyChunkKey(chunk: RawChunk): string {
 export function mergeHistoryWindow(
   previous: ChatHistoryWindow | undefined,
   page: ChatHistoryPage,
+  beforePosition?: number,
 ): ChatHistoryWindow {
   // Keep absolute positions: retained pages can be disjoint after a long
   // background Turn. A minimum offset cannot describe that coverage.
   const rows = new Map<string, { item: RawChunk; position: number }>();
   previous?.items.forEach((item, index) => {
+    const position = previous.positions?.[index] ?? previous.offset + index;
+    if (beforePosition !== undefined && position >= beforePosition) return;
     rows.set(historyChunkKey(item), {
-      item, position: previous.positions?.[index] ?? previous.offset + index,
+      item, position,
     });
   });
   (page.items as RawChunk[]).forEach((item, index) => {
@@ -41,13 +44,14 @@ export function mergeHistoryWindow(
   ];
   ranges.sort((a, b) => a[0] - b[0]);
   const coverage: [number, number][] = [];
-  for (const range of ranges) {
+  for (const sourceRange of ranges) {
+    const range: [number, number] = [sourceRange[0], Math.min(sourceRange[1], beforePosition ?? Infinity)];
     if (range[0] >= range[1]) continue;
     const last = coverage.at(-1);
     if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
     else coverage.push([...range]);
   }
-  const total = Math.max(previous?.total ?? 0, page.total);
+  const total = Math.min(Math.max(previous?.total ?? 0, page.total), beforePosition ?? Infinity);
   // The pagination cursor walks backwards from the newest known boundary,
   // stopping at the first gap even if the beginning is already cached.
   let offset = total;

@@ -77,3 +77,30 @@ it('keeps a pagination entry for a gap after a long background response', async 
  expect(result.current.hasOlder).toBe(false);
  expect(result.current.items?.map(m=>m.id)).toEqual(Array.from({length:100},(_,i)=>String(i+1)));
 });
+
+it('drops the active Turn tail but retains older pages after refresh', async () => {
+ const { useChatStreamStore } = await import('@/stores/chat-stream');
+ useChatStreamStore.getState().reset();
+ state.page = page(31,60,60); state.older = page(1,30,60);
+ const { result, rerender } = renderHook(() => useConversationHistory('scope','resume-boundary',true));
+ await act(async () => { await result.current.loadOlder(); });
+ state.page = page(21,50,50);
+ act(() => useChatStreamStore.getState().beginTurn('resume-boundary','turn'));
+ rerender();
+ expect(result.current.items?.map(m=>m.id)).toEqual(Array.from({length:50},(_,i)=>String(i+1)));
+ expect(result.current.hasOlder).toBe(false);
+ act(() => useChatStreamStore.getState().reset());
+});
+
+it('removes first-Turn history when the pre-Turn checkpoint is empty', async () => {
+ const { useChatStreamStore } = await import('@/stores/chat-stream');
+ useChatStreamStore.getState().reset();
+ state.page = page(1,20,20);
+ const { result, rerender } = renderHook(() => useConversationHistory('scope','first-resume',true));
+ state.page = {items:[],total:0,offset:0,limit:30};
+ act(() => useChatStreamStore.getState().beginTurn('first-resume','turn'));
+ rerender();
+ expect(result.current.items).toEqual([]);
+ expect(result.current.hasOlder).toBe(false);
+ act(() => useChatStreamStore.getState().reset());
+});

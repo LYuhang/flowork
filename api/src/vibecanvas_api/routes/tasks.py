@@ -13,6 +13,7 @@ from vibecanvas_api.services.task_notifications import DEFAULT_NOTIFICATION_POLI
 import asyncio
 import json
 import uuid
+from contextlib import aclosing
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from typing import Annotated, Literal
@@ -1744,16 +1745,10 @@ async def stream_task_events(
     live tail. Absent / unparsable header is treated as ``0`` (replay
     everything).
 
-    Ordering: ``task_events.id`` is BIGSERIAL — strictly monotonic
-    per row insertion. The SELECT-replay is ``ORDER BY id``; the
-    live tail dedupes on the same id; the worker publishes to
-    Redis with the same id. End-to-end: strict, gap-free ordering.
-
-    Tenant binding: the pre-check uses the request's tenant-bound DI
-    session (RLS) — cross-tenant or absent tasks surface as 404. The
-    stream then opens its own short ``session_scope(tenant_id=...)``
-    sessions inside the generator so RLS keeps applying for every
-    poll cycle.
+    Event writers serialize per task. The stream reads committed events in ID
+    order, then waits for commit notifications. Reconnect replays after the
+    cursor. Every read uses the resource tenant and periodically revalidates
+    the caller's authorization.
     """
     await _authorize_task(
         request=request,
@@ -1774,12 +1769,22 @@ async def stream_task_events(
     except ValueError:
         last_event_id = 0
 
+    # A page may already contain the final event. Do not keep a completed
+    # batch subscribed forever when its cursor is exactly that terminal row.
+    if t.task_type == "batch_exec" and t.status in {
+        "finished", "finished_with_errors", "failed", "cancelled", "interrupted",
+    }:
+        latest = await TasksRepo(session).events_for_task(
+            task_id=task_id, limit=1, descending=True,
+        )
+        if latest and latest[0].event_type == "terminal" and latest[0].id == last_event_id:
+            return Response(status_code=204)
+
     return StreamingResponse(
         task_event_stream(
             task_id=task_id,
             last_event_id=last_event_id,
             tenant_id=str(t.tenant_id),
-            redis_url=_config.redis.url,
             authorization_guard=lambda: authorization_lease_is_valid(
                 auth=ctx,
                 openfga_client=getattr(
@@ -1795,6 +1800,33 @@ async def stream_task_events(
             "X-Accel-Buffering": "no",   # disable nginx buffering
         },
     )
+
+
+@router.get("/{task_id}/activity")
+async def task_activity(
+    task_id: uuid.UUID, request: Request,
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    """Resource invalidations remain available after inference finishes."""
+    from vibecanvas_api.services.state_notifications import invalidations
+    await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id, action=Action.VIEW)
+    if await TasksRepo(session).get(task_id) is None:
+        raise HTTPException(404, 'Task not found.')
+    await session.commit()
+
+    async def authorized():
+        return await authorization_lease_is_valid(
+            auth=ctx, openfga_client=getattr(request.app.state, 'openfga_client', None),
+            resource=_task_resource(ctx, task_id), action=Action.VIEW)
+
+    async def stream():
+        async with aclosing(invalidations('flowork_task_activity', str(task_id), authorized)) as changes:
+            async for changed in changes:
+                yield 'event: changed\ndata: {}\n\n' if changed else ': heartbeat\n\n'
+
+    return StreamingResponse(stream(), media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @router.get("/{task_id}/download")
@@ -1940,28 +1972,16 @@ async def query_results(
     ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
-    from vibecanvas_api.services.batch_evaluation import load_results, result_uri
+    from vibecanvas_api.services.batch_evaluation import result_uri
+    from vibecanvas_api.services.result_tables import query_result_table
     await _authorize_task(request=request, ctx=ctx, service=service, task_id=task_id, action=Action.VIEW)
     task = await TasksRepo(session).get(task_id)
     if task is None:
         raise HTTPException(404, "Task not found.")
-    rows, version = await asyncio.to_thread(load_results, result_uri(task))
-    total = len(rows)
-    counts = {name: sum(row.get("status") == name for row in rows) for name in ("success", "error", "cancelled")}
-    def cell(row, key):
-        value = row.get(key)
-        return json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value if value is not None else "")
-    if body.search:
-        needle = body.search.casefold()
-        rows = [r for r in rows if needle in json.dumps(r, ensure_ascii=False).casefold()]
-    if body.row_status:
-        rows = [r for r in rows if r.get("status") == body.row_status]
-    for key, needle in body.filters.items():
-        rows = [r for r in rows if needle.casefold() in cell(r, key).casefold()]
-    numeric = body.sort in {"index", "i", "attempt", "execution_time", "elapsed_ms"}
-    rows.sort(key=lambda r: (float(r.get(body.sort) or 0) if numeric else cell(r, body.sort).casefold()), reverse=body.descending)
-    return {"rows": rows[body.offset:body.offset + body.limit], "filtered": len(rows), "total": total,
-            "counts": counts, "version": version, "partial": task.status not in {"finished", "finished_with_errors"}}
+    result = await asyncio.to_thread(query_result_table,
+        (str(ctx.tenant_id), str(ctx.user_id), str(task_id)), result_uri(task), body)
+    return {**result, "partial": task.status not in {"finished", "finished_with_errors"}}
+
 
 
 @router.get("/{task_id}/evaluation")

@@ -1,4 +1,6 @@
 {
+  "agent.turn_failed": "This request failed.",
+  "notice.authorization_unavailable": "Authorization is temporarily unavailable. Please try again later.",
   "agent.preparing_message": "Preparing message…",
   "evaluation.not_started": "Not started",
   "evaluation.previousVersion": "Earlier result version",

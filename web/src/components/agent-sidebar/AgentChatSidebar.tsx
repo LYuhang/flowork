@@ -1,3 +1,4 @@
+import { watchChatActivity } from '@/lib/api/sse/chat-activity';
 /**
  * Browser-extension conversation surface, mounted by EmbedShell.
  * The carrier scope selects history; each Chat owns an automatically created
@@ -26,7 +27,6 @@ import { useChatStreamStore } from '@/stores/chat-stream';
 import { resumeActiveTurn } from '@/lib/api/sse/resume-turn';
 import { readServerActiveTurns } from '@/lib/api/sse/server-active-turn';
 import {
-  CHAT_RECONCILE_INTERVAL_MS,
   reconcileChatWithServer,
 } from '@/lib/api/sse/chat-reconcile';
 import { runAgentTurn } from '@/lib/api/sse/run-agent-turn';
@@ -182,6 +182,11 @@ export function AgentChatSidebar({
     maxWidth: MAX_AGENT_WIDTH,
   });
 
+  useEffect(() => {
+    if (!selectedChatIsPersisted) return;
+    return watchChatActivity({ wfId: lastWfId, chatId: activeChatId, surface: chatSurface });
+  }, [lastWfId, activeChatId, chatSurface, selectedChatIsPersisted]);
+
   const reconcileRef = useRef(0);
   useEffect(() => {
     if (!lastWfId) return;
@@ -199,12 +204,10 @@ export function AgentChatSidebar({
     const onVisibility = () => {
       if (document.visibilityState === 'visible') reconcile();
     };
-    const interval = window.setInterval(reconcile, CHAT_RECONCILE_INTERVAL_MS);
     window.addEventListener('online', reconcile);
     window.addEventListener('focus', reconcile);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      window.clearInterval(interval);
       window.removeEventListener('online', reconcile);
       window.removeEventListener('focus', reconcile);
       document.removeEventListener('visibilitychange', onVisibility);

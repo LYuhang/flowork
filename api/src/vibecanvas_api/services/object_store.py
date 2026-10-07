@@ -32,6 +32,7 @@ Design:
 from __future__ import annotations
 
 import io
+import hashlib
 import os
 import stat
 from collections.abc import Iterator
@@ -48,6 +49,10 @@ from vibecanvas_api.security.object_cipher import LocalObjectCipher
 
 class ObjectStore(Protocol):
     """Minimum surface ``batch_exec`` and the results download route need."""
+
+    def revision(self, key: str) -> str:
+        """Opaque identity of the current bytes; missing keys raise KeyError."""
+        ...
 
     def put_bytes(
         self, key: str, data: bytes, content_type: str = "application/octet-stream",
@@ -148,6 +153,9 @@ class InMemoryObjectStore:
         if key not in self._data:
             raise KeyError(f"key not found in in-memory store: {key}")
         return self._data[key]
+
+    def revision(self, key: str) -> str:
+        return hashlib.sha256(self.fetch_bytes(key)).hexdigest()
 
     def iter_bytes(
         self,
@@ -449,6 +457,18 @@ class FilesystemObjectStore:
             self._write_encrypted_atomic(self._path(key), key=key, data=data)
         return f"fs://{key}"
 
+    def revision(self, key: str) -> str:
+        with self._lock:
+            mirror = self._active_materialized_path(key)
+        for path in ([mirror] if mirror is not None else []) + [self._path(key)]:
+            try:
+                value = os.stat(path)
+                return repr((path, value.st_dev, value.st_ino, value.st_size,
+                             value.st_mtime_ns, value.st_ctime_ns))
+            except FileNotFoundError:
+                continue
+        raise KeyError(key)
+
     def fetch_bytes(self, key: str) -> bytes:
         # A resident sandbox already operates on this process-private 0600
         # plaintext tree. Prefer that authoritative hot copy so Preview and
@@ -696,6 +716,17 @@ class S3ObjectStore:
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=ttl_seconds,
         )
+
+    def revision(self, key: str) -> str:
+        from botocore.exceptions import ClientError
+        try:
+            value = self.client.head_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            if str(exc.response.get('Error', {}).get('Code')) in {'404', 'NoSuchKey', 'NotFound'}:
+                raise KeyError(key) from exc
+            raise
+        return repr((self.bucket, value.get('VersionId'), value['ETag'],
+                     value['ContentLength'], value['LastModified']))
 
     def fetch_bytes(self, key: str) -> bytes:
         """KB indexer entry point — server-side download (used by background worker

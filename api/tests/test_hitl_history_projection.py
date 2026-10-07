@@ -206,10 +206,40 @@ async def test_history_pagination_counts_durable_rows_not_projection_cards(monke
     result = await chats.get_chat_history(
         scope_id='scope', chat_id='chat', request=Request({'type': 'http'}),
         page=PageRequest(limit=30), chat_repo=repo, hitl_repo=hitl,
-        auth=SimpleNamespace(), debug=False, tail=True, before_turn_id=None, service=None,
+        auth=SimpleNamespace(user_id="00000000-0000-0000-0000-000000000001"), debug=False, tail=True, before_turn_id=None, service=None,
     )
     assert result.total == 32
     assert result.offset == 30
     assert len(result.items) == 3
     assert result.items[0].history_position == 31
     assert result.items[-1].history_position is None
+
+@pytest.mark.asyncio
+async def test_history_attaches_failure_only_to_its_user_message(monkeypatch):
+    from unittest.mock import AsyncMock
+    from starlette.requests import Request
+    from vibecanvas_api.routes import chats
+    from vibecanvas_api.schemas.pagination import PageRequest
+    monkeypatch.setattr(chats, '_authorize_chat', AsyncMock())
+    failed = AsyncMock(return_value={'failed_turn': {'code': 'engine_error', 'message': 'authorization_unavailable'}})
+    monkeypatch.setattr(chats, 'AgentRunsRepo', lambda session: SimpleNamespace(failed_turns_for_history=failed))
+    repo = SimpleNamespace(
+        get_authorized_inventory=AsyncMock(return_value={'scope_id': 'scope'}),
+        list_message_page=AsyncMock(return_value=([
+            {'message_id': 'user-1', 'role': 'user', 'turn_id': 'failed_turn', 'content': {'text': 'First request'}},
+            {'message_id': 'user-2', 'role': 'user', 'turn_id': 'next_turn', 'content': {'text': 'Next request'}},
+            {'message_id': 'reply', 'role': 'assistant', 'turn_id': 'next_turn', 'content': {'text': 'Hello'}},
+        ], 3, 0)),
+    )
+    result = await chats.get_chat_history(
+        scope_id='scope', chat_id='chat', request=Request({'type': 'http'}),
+        page=PageRequest(limit=30), chat_repo=repo,
+        hitl_repo=SimpleNamespace(list_artifact_refs_for_chat=AsyncMock(return_value=[])),
+        auth=SimpleNamespace(user_id='actor'), debug=False, tail=True,
+        before_turn_id=None, service=None, session=None,
+    )
+    assert result.items[0].meta == {'turn_error': {'code': 'engine_error', 'message': 'authorization_unavailable'}}
+    assert result.items[1].meta is None
+    assert result.items[2].meta is None
+    assert failed.call_args.kwargs == {'creator_user_id': 'actor'}
+    assert set(failed.call_args.args[1]) == {'failed_turn', 'next_turn'}

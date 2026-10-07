@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import aclosing
 from typing import Literal
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, StrictBool
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +58,55 @@ async def _authorize_detail(request, auth, service, repo, execution_id):
         await _require_workflow_run_visibility(repo, auth, run)
         await _authorize_source(request, auth, service, run["source_type"], run["source_id"], session=repo.session)
     return run
+
+
+async def _stream_authorized(request, auth, execution_id):
+    """Revalidate the same assignee/private-history rules as an ordinary read."""
+    from vibecanvas_api.auth.deps import _admit_shared_resource
+    from vibecanvas_api.auth.live_identity import resolve_live_authorization_identity
+    from vibecanvas_api.storage.db import session_scope
+    try:
+        async with session_scope() as identity:
+            fresh = await resolve_live_authorization_identity(identity, session_id=auth.session_id,
+                user_id=auth.user_id, organization_id=auth.active_organization_id,
+                session_generation=auth.session_generation, membership_id=auth.membership_id)
+        async with session_scope(tenant_id=fresh.active_organization_id, user_id=fresh.user_id) as session:
+            current = Request({**request.scope, 'state': {}})
+            await _admit_shared_resource(current, fresh, session)
+            repo = WorkflowHistoryRepo(session)
+            run = await repo.get(execution_id)
+            if run is None:
+                return False
+            if not await repo.is_assignee(execution_id, fresh.user_id):
+                await _require_workflow_run_visibility(repo, fresh, run)
+                async with authorized_resource_scope(request=current, auth=fresh, session=session,
+                        resource_type=ResourceType(run['source_type']), resource_id=run['source_id'],
+                        action=Action.INSPECT_RUNS):
+                    pass
+        return True
+    except Exception:
+        return False
+
+
+@router.get("/{execution_id}/activity")
+async def activity(
+    request: Request, execution_id: uuid.UUID,
+    auth: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from vibecanvas_api.services.state_notifications import invalidations
+    identifier = str(execution_id)
+    await _authorize_detail(request, auth, service, WorkflowHistoryRepo(session), identifier)
+    await session.commit()
+
+    async def stream():
+        async with aclosing(invalidations('flowork_execution_activity', identifier,
+                lambda: _stream_authorized(request, auth, identifier))) as changes:
+            async for changed in changes:
+                yield 'event: changed\ndata: {}\n\n' if changed else ': heartbeat\n\n'
+
+    return StreamingResponse(stream(), media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @router.get("")

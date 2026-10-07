@@ -35,7 +35,8 @@ export function initAuthExtensionSync(): void {
     if (
       state.authenticated !== previous.authenticated ||
       state.bootstrapped !== previous.bootstrapped ||
-      state.user?.tenant_id !== previous.user?.tenant_id
+      state.user?.tenant_id !== previous.user?.tenant_id ||
+      state.user?.user_id !== previous.user?.user_id
     ) {
       push();
     }

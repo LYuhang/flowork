@@ -51,6 +51,16 @@ describe('initAuthExtensionSync', () => {
 
     expect(syncMock).toHaveBeenLastCalledWith(true, 'tenant_1');
 
+    const callsBeforeAccountSwitch = syncMock.mock.calls.length;
+    useAuthStore.setState({
+      user: {
+        user_id: 'u2', tenant_id: 'tenant_1',
+        email: 'other@example.com', displayName: 'Other',
+      },
+    });
+    expect(syncMock).toHaveBeenCalledTimes(callsBeforeAccountSwitch + 1);
+    expect(syncMock).toHaveBeenLastCalledWith(true, 'tenant_1');
+
     useAgentSettingsStore.getState().setAll({
       modelId: 'codex:credential:cred_1',
       temperature: 0.2,

@@ -1,4 +1,6 @@
 {
+  "agent.turn_failed": "本次请求失败。",
+  "notice.authorization_unavailable": "授权服务暂时不可用，请稍后重试。",
   "agent.preparing_message": "正在准备消息…",
   "evaluation.not_started": "未开始",
   "evaluation.previousVersion": "历史结果版本",

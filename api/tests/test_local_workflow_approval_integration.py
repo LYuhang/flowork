@@ -11,7 +11,7 @@ from vibecanvas_api.services.agent_runtime.local_approval_capability import (
 )
 from vibecanvas_api.services.agent_runtime.model_capability import authorization_model_generation
 from tests.test_workflow_authorization_integration import (
-    _browser_sessions, _register, _headers, _RelationshipStore,
+    _browser_sessions as _browser_sessions, _register, _headers, _RelationshipStore,
 )
 
 
@@ -28,6 +28,7 @@ async def test_local_approval_real_database_and_browser_decision(pg_engine):
             'node_config': {'instruction': 'Confirm', 'timeout_seconds': 60}}}
         token = mint_local_approval_capability(organization_id=owner['active_organization_id'],
             user_id=owner['user_id'], workflow_id=workflow_id, run_id=str(uuid4()), sandbox_id='test-sandbox',
+            runtime_process={'host_id': 'a' * 64, 'boot_id': str(uuid4()), 'pid': 123, 'group': 123, 'start': 1},
             workflow_digest=workflow_digest(graph), workflow_version='v1.sv0',
             authorization_generation=authorization_model_generation(model_id=config.openfga_authorization_model_id),
             secret=config.signing_secret, ttl_s=120)

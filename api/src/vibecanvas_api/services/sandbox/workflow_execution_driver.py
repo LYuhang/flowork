@@ -21,7 +21,7 @@ from vibecanvas_api.storage.workflow_history_repo import TERMINAL_STATUSES, Work
 
 from .workflow_rpc import WorkflowRpcError
 from .workflow_event_wait import wait_for_execution_event
-from ..execution_notifications import execution_changes
+from ..state_notifications import execution_changes
 
 logger = structlog.get_logger(__name__)
 TRANSPORT_ERRORS = (OSError, TimeoutError, asyncio.IncompleteReadError)
@@ -134,26 +134,9 @@ class WorkflowExecutionDriver:
                 generation,
                 process=self.slot.process_identity(),
             )
-        # A lost acceptance response is reconciled against the SAME process and
-        # ID. Only a confirmed not_found on that generation permits resending.
-        try:
-            await self.slot.invoke(self.execution_id, inputs, context, require_approval_resume=True)
-        except TRANSPORT_ERRORS:
-            while self.slot.alive:
-                try:
-                    await self.slot.client.call("status", invocation_id=self.execution_id, timeout=2)
-                    break
-                except WorkflowRpcError as exc:
-                    if exc.code == "not_found":
-                        await self.slot.invoke(self.execution_id, inputs, context, require_approval_resume=True)
-                        break
-                    raise
-                except TRANSPORT_ERRORS:
-                    # Unreachable control process: require confirmed execution
-                    # stop before recording loss; never kill sibling calls.
-                    return await self._lost()
-            else:
-                return await self._lost()
+        # One submission per execution. Propagate dispatch failures to run(),
+        # which stops this invocation and records failure; never resubmit.
+        await self.slot.invoke(self.execution_id, inputs, context, require_approval_resume=True)
         after = 0
         disconnected_since = None
         sent_commands: set[str] = set()

@@ -68,6 +68,8 @@ def test_workflow_stream_and_saved_business_result_are_independent(tmp_path, cap
     from vibecanvas_api.flowork_cli import local_command, local_workflow
     from vibecanvas_api.services.sandbox.local_activity import execution_activity
     monkeypatch.setattr(local_command, 'execution_activity', lambda **kw: execution_activity(tmp_path / 'work', **kw))
+    monkeypatch.setattr(local_command, 'RUN_ROOT', tmp_path / 'runs')
+    monkeypatch.setattr(local_command, 'execute', local_command.execute_in_process)
     result_file = tmp_path / 'result.jsonl'
     prepared = {'workflow': {}, 'context': {}, 'id': 'wf', 'version': 'v1.sv0', 'source': 'saved'}
     async def run_rows(**kwargs):
@@ -128,3 +130,25 @@ def test_invalid_arguments_are_one_terminal_json(capsys):
     assert cli.main(['task','not-a-command'])==2
     result=json.loads(capsys.readouterr().out)
     assert result['event']=='error' and result['command_status']=='failed'
+
+
+def test_real_local_worker_sync_execution_and_query(tmp_path, monkeypatch, capsys):
+    from pathlib import Path
+    import vibecanvas_engine
+    from vibecanvas_api.flowork_cli import local_command
+    monkeypatch.setattr(local_command, 'RUN_ROOT', tmp_path / 'runs')
+    graph_file = Path(vibecanvas_engine.__file__).resolve().parents[2] / 'tests' / 'example_workflow.json'
+    prepared = {'workflow': json.loads(graph_file.read_text()), 'context': {},
+                'id': 'wf', 'version': 'v1.sv0', 'source': 'saved'}
+    with peer(tmp_path, [prepared]) as (endpoint, received):
+        assert cli.main(['workflow', 'run', '--workflow-id', 'wf', '--major', 'v1',
+                         '--input', '{"text":"hello","count":2}'], socket_path=endpoint) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['execution_status'] == 'completed' and result['async'] is False
+    assert result['progress']['succeeded'] == 1
+    assert cli.main(['workflow', 'result', '--run-id', result['run_id']]) == 0
+    queried = json.loads(capsys.readouterr().out)
+    assert queried['results_complete'] is True
+    assert queried['results'][0]['output']['repeated'] == 'hello hello'
+    assert queried['results'][0]['execution_id']
+    assert len(received) == 1

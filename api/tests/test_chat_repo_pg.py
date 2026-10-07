@@ -660,3 +660,49 @@ async def test_goal_snapshot_is_private_encrypted_and_preserves_other_chat_metad
     await repo.set_goal(cid, None)
     assert await repo.get_goal(cid) is None
     assert await repo.get_active_modes(cid) == {'workflow'}
+
+
+@pytest.mark.asyncio
+async def test_chat_event_cursor_orders_concurrent_jobs(pg_session):
+    import asyncio
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.services.state_notifications import state_changes
+
+    await _seed_and_bind(pg_session)
+    chat = await ChatRepo(pg_session, str(USER)).register_session('__chat_jobs', project_id=PROJECT)
+    jobs = [f'job_{uuid.uuid4().hex}' for _ in range(2)]
+    for job in jobs:
+        await BackgroundJobsRepo(pg_session).create_idempotent(job_id=job,
+            tenant_id=TENANT, chat_id=chat, creator_user_id=USER, parent_run_id=None,
+            runtime_type='codex', executor_type='runtime_task', tool_name='subagent',
+            title='Ordering test', input_snapshot={}, idempotency_key=job)
+    await pg_session.commit()
+    entered = asyncio.Event()
+    async def append_second():
+        async with session_scope(tenant_id=str(TENANT)) as session:
+            entered.set()
+            event = await BackgroundJobsRepo(session).append_event(jobs[1], 'progress', {'i': 2})
+            return event.event_id
+    pending = None
+    try:
+        async with state_changes('flowork_background_state', chat) as changed:
+            await asyncio.wait_for(changed.wait(), 5)
+            changed.clear()
+            async with session_scope(tenant_id=str(TENANT)) as session:
+                event = await BackgroundJobsRepo(session).append_event(jobs[0], 'progress', {'i': 1})
+                first = event.event_id
+                pending = asyncio.create_task(append_second())
+                await asyncio.wait_for(entered.wait(), 2)
+                await asyncio.sleep(0.2)
+                assert not pending.done() and not changed.is_set()
+            await asyncio.wait_for(changed.wait(), 5)
+            second = await asyncio.wait_for(pending, 5)
+        assert first < second
+        async with session_scope(tenant_id=str(TENANT)) as session:
+            events = await BackgroundJobsRepo(session).list_chat_events_for_user(
+                chat_id=chat, creator_user_id=USER, after_event_id=first)
+            assert [e.event_id for e in events] == [second]
+    finally:
+        if pending:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)

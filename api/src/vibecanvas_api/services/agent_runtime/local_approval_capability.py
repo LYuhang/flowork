@@ -26,6 +26,7 @@ class LocalApprovalCapability:
     workflow_id: str
     run_id: str
     sandbox_id: str
+    runtime_process: dict
     workflow_digest: str
     workflow_version: str
     authorization_generation: str
@@ -56,6 +57,15 @@ def _valid(value, now):
     UUID(value.organization_id)
     UUID(value.user_id)
     UUID(value.run_id)
+    process = value.runtime_process
+    if not isinstance(process, dict) or set(process) != {'host_id', 'boot_id', 'pid', 'group', 'start'}:
+        return False
+    if (not isinstance(process['host_id'], str) or not re.fullmatch(r'[a-f0-9]{64}', process['host_id'])
+            or type(process['pid']) is not int or process['pid'] <= 1
+            or type(process['group']) is not int or process['group'] != process['pid']
+            or type(process['start']) is not int or process['start'] < 0):
+        return False
+    UUID(process['boot_id'])
     return bool(value.audience == _AUDIENCE
         and isinstance(value.sandbox_id, str) and value.sandbox_id
         and isinstance(value.workflow_id, str) and value.workflow_id

@@ -1,8 +1,27 @@
 import json
 import subprocess
 import sys
+import pytest
 
 from vibecanvas_api.services.sandbox.local_activity import active_executions, execution_activity
+
+
+def test_finished_runs_leave_scan_directory_but_preserve_exit_evidence(tmp_path):
+    from uuid import uuid4
+    from vibecanvas_api.services.sandbox.local_activity import execution_alive
+    run_id = uuid4().hex
+    assert execution_alive(run_id, tmp_path) is None
+    with execution_activity(tmp_path, run_id=run_id):
+        assert execution_alive(run_id, tmp_path) is True
+        assert active_executions(tmp_path) == 1
+    assert execution_alive(run_id, tmp_path) is False
+    assert active_executions(tmp_path) == 0
+    assert list((tmp_path / 'local-executions').iterdir()) == []
+    assert execution_alive(run_id, tmp_path) is False
+    assert active_executions(tmp_path) == 0
+    with pytest.raises(FileExistsError):
+        with execution_activity(tmp_path, run_id=run_id):
+            pytest.fail('a completed ID must not acquire a new lifetime')
 
 
 def test_activity_tracks_each_process_lifetime(tmp_path):
@@ -32,6 +51,27 @@ def test_killed_process_does_not_leave_false_busy_marker(tmp_path):
             child.kill()
         child.wait(timeout=5)
         child.stdout.close()
+
+
+async def test_cli_owner_identity_comes_from_live_runtime_handle():
+    import asyncio
+    from types import SimpleNamespace
+    from vibecanvas_api.services.sandbox.manager import SandboxSession
+    process = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
+                               start_new_session=True)
+    session = SimpleNamespace(_lock=asyncio.Lock(), _runtime_handle=SimpleNamespace(proc=process))
+    try:
+        record = await SandboxSession.local_execution_process(session)
+        assert record['pid'] == record['group'] == process.pid
+        assert record['host_id'] and record['boot_id'] and record['start'] >= 0
+        process.kill()
+        process.wait(timeout=5)
+        with pytest.raises(RuntimeError, match='execution_lost'):
+            await SandboxSession.local_execution_process(session)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
 
 
 def test_supervisor_publishes_local_activity_for_idle_sweep(tmp_path):
@@ -83,12 +123,15 @@ async def test_manager_requires_positive_exit_evidence(tmp_path):
 
 
 async def test_sandbox_close_records_exit_only_after_success(tmp_path):
-    import asyncio
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from uuid import uuid4
     from vibecanvas_api.services.sandbox.manager import SandboxManager
     run_id = uuid4().hex
+    finished_id = uuid4().hex
+    with execution_activity(tmp_path, run_id=finished_id):
+        pass
+    assert active_executions(tmp_path) == 0
     with execution_activity(tmp_path, run_id=run_id):
         session = SimpleNamespace(tenant_id='tenant', wf_id='sandbox',
             _fileop_pool=SimpleNamespace(work_root=str(tmp_path)), close=AsyncMock(side_effect=RuntimeError('close failed')))
@@ -98,3 +141,4 @@ async def test_sandbox_close_records_exit_only_after_success(tmp_path):
         session.close = AsyncMock()
         await SandboxManager._close_session_best_effort(manager, session, reason='test')
         assert ('tenant', 'sandbox', run_id) in manager._closed_local_executions
+        assert ('tenant', 'sandbox', finished_id) in manager._closed_local_executions

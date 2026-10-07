@@ -3,6 +3,12 @@ import type { fetchEventSource } from '@microsoft/fetch-event-source';
 
 import { resumeActiveTurn } from '@/lib/api/sse/resume-turn';
 import { useChatStreamStore } from '@/stores/chat-stream';
+import { fetchChatHistory } from '@/lib/api/queries/chats';
+import { queryClient } from '@/app/query-client';
+vi.mock('@/lib/api/queries/chats', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/api/queries/chats')>(),
+  fetchChatHistory: vi.fn(async () => ({ items: [], total: 0, offset: 0, limit: 30 })),
+}));
 import {
   releaseTurnStream,
   tryAcquireTurnStream,
@@ -13,12 +19,41 @@ describe('resumeActiveTurn HITL projection', () => {
     vi.restoreAllMocks();
     localStorage.clear();
     useChatStreamStore.getState().reset();
+    queryClient.clear();
+  });
+
+  it('waits for fixed history before exposing replayed messages', async () => {
+    let resolveHistory!: (value: Awaited<ReturnType<typeof fetchChatHistory>>) => void;
+    vi.mocked(fetchChatHistory).mockImplementationOnce(() => new Promise(resolve => { resolveHistory = resolve; }));
+    const stream: typeof fetchEventSource = async (_url, opts) => {
+      const opening = opts.onopen?.(new Response('', { status: 200 }));
+      expect(useChatStreamStore.getState().runtimes.chat_order?.projectionActive).not.toBe(true);
+      resolveHistory({ items: [], total: 0, offset: 0, limit: 30 });
+      await opening;
+      expect(useChatStreamStore.getState().runtimes.chat_order.projectionActive).toBe(true);
+      opts.onmessage?.({ id: '1', event: 'done', data: JSON.stringify({ ok: true }) });
+    };
+    await expect(resumeActiveTurn({ wfId: 'scope_order', chatId: 'chat_order', turnId: 'turn_order' }, stream)).resolves.toBe(true);
+  });
+
+  it('shows confirmed running state before transport and history are ready', async () => {
+    const stream: typeof fetchEventSource = async (_url, opts) => {
+      const before = useChatStreamStore.getState().runtimes.chat_slow;
+      expect(before.state).toBe('streaming');
+      expect(before.projectionActive).toBe(false);
+      expect(before.messages).toEqual([]);
+      await opts.onopen?.(new Response('', { status: 200 }));
+      opts.onmessage?.({ id: '1', event: 'done', data: JSON.stringify({ ok: true }) });
+    };
+    await resumeActiveTurn({ wfId: 'scope_slow', chatId: 'chat_slow', turnId: 'slow', status: 'running' }, stream);
   });
 
   it('restores the durable active-Turn user message before replaying events', async () => {
     const stream: typeof fetchEventSource = async (_url, opts) => {
       await opts.onopen?.(new Response('', { status: 200 }));
       const runtime = useChatStreamStore.getState().runtimes.chat_input;
+      expect(fetchChatHistory).toHaveBeenCalledWith('scope_input', 'chat_input', 'turn_input');
+      expect(queryClient.getQueryData(['chat-history', 'scope_input', 'chat_input', 'turn_input'])).toMatchObject({ total: 0 });
       expect(runtime.messages).toEqual([
         expect.objectContaining({
           role: 'user',
@@ -89,6 +124,10 @@ describe('resumeActiveTurn HITL projection', () => {
           status: 'done',
         }),
       });
+      const call = useChatStreamStore.getState().runtimes.chat_1.messages
+        .flatMap((message) => message.tool_calls).find((item) => item.id === 'call_approval');
+      expect(call?.status).toBe('done');
+      expect(call?.result).toBe('Clicked.');
       opts.onmessage?.({
         id: '3',
         event: 'done',
@@ -114,11 +153,7 @@ describe('resumeActiveTurn HITL projection', () => {
     }, stream);
 
     expect(resumed).toBe(true);
-    const runtime = useChatStreamStore.getState().runtimes.chat_1;
-    const call = runtime.messages.flatMap((message) => message.tool_calls)
-      .find((item) => item.id === 'call_approval');
-    expect(call?.status).toBe('done');
-    expect(call?.result).toBe('Clicked.');
+
   });
 
   it('deduplicates concurrent reconciliation streams for the same run', async () => {

@@ -48,6 +48,7 @@ async def prepare(context, arguments):
             'url': config.mcp.platform_internal_base_url.rstrip('/') + '/api/internal/local-workflow-approvals/v1',
             'capability': mint_local_approval_capability(organization_id=context.tenant_id,
                 user_id=context.username, workflow_id=workflow_id, run_id=arguments['run_id'], sandbox_id=session.wf_id,
+                runtime_process=await session.local_execution_process(),
                 workflow_digest=workflow_digest(workflow), workflow_version=snapshot['version'],
                 authorization_generation=authorization_model_generation(model_id=config.openfga_authorization_model_id),
                 secret=config.signing_secret, ttl_s=config.mcp.runtime_model_capability_ttl_s),

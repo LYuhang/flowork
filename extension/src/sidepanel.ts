@@ -140,9 +140,6 @@ async function decideLocalDownload(allow: boolean): Promise<void> {
   else localDownloadFeedback = shellLang === "zh" ? "确认已失效或文件发生变化，请检查下载记录。" : "Confirmation expired or the file changed. Inspect browser Downloads.";
   renderLocalDownload(); void refreshLocalDownload();
 }
-// Also restores pending confirmation after reloading the shell and removes
-// expired controls even if a one-shot service-worker notification was missed.
-setInterval(() => { void refreshLocalDownload(); }, 1000);
 const COOKIE_COPY = {
   zh: {
     title: "Cookie 导出权限",
@@ -329,8 +326,9 @@ async function reportWindow(): Promise<void> {
     const w = await chrome.windows.getCurrent();
     if (typeof w?.id === "number") {
       currentWindowId = w.id;
-      void sendToSw({ type: "SIDEPANEL_WINDOW", windowId: w.id, panelContextId });
+      await sendToSw({ type: "SIDEPANEL_WINDOW", windowId: w.id, panelContextId });
       void refreshCookieConsents();
+      void refreshLocalDownload();
     }
   } catch {
     /* windows API unavailable — non-fatal */
@@ -349,6 +347,9 @@ async function mount(): Promise<void> {
   showShellState("loading");
   await reportWindow();
   window.addEventListener("focus", () => void reportWindow());
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) void reportWindow();
+  });
   const b = (await sendToSw<Binding>({
     type: "GET_BINDING",
     panelContextId,
@@ -485,6 +486,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, sender, respond) => {
   }
   if (m?.type === "WS_OPEN" || m?.type === "WS_CLOSED") {
     postToIframe({ type: "BROWSER_TRANSPORT_STATE", connected: m.type === "WS_OPEN" });
+    if (m.type === "WS_OPEN") void refreshLocalDownload();
   }
   if (m?.type === "WS_AUTH_REQUIRED") {
     postToIframe({ type: "BROWSER_WS_AUTH_REQUIRED" });

@@ -119,6 +119,7 @@ export interface MergedToolCall {
 }
 
 export interface MergedMessage {
+  turnError?: { code: string; message: string };
   id?: string | null;
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -299,6 +300,12 @@ export function mergeChunks(chunks: ReadonlyArray<RawChunk>): MergedMessage[] {
     }
 
     merged.push({
+      turnError: chunk.meta?.turn_error && typeof chunk.meta.turn_error === 'object'
+        ? {
+            code: String((chunk.meta.turn_error as Record<string, unknown>).code ?? ''),
+            message: String((chunk.meta.turn_error as Record<string, unknown>).message ?? ''),
+          }
+        : undefined,
       id: chunk.id,
       role,
       content: visibleContent,

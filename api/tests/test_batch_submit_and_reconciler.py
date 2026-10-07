@@ -1,15 +1,4 @@
-"""Atomic submission and reconciler unit tests.
-
-Covers:
-
-* The DBOS schedule includes the queued-row reconciler.
-* The reconciler implementation remains runtime-neutral.
-* The submit body silently drops smuggled tenant/user/dbos fields —
-  defence in depth: those are derived from the authenticated context,
-  never from the request body.
-* The reconciler re-publishes a stuck ``queued`` row whose
-  ``submitted_at`` exceeds the §6.3 threshold.
-"""
+"""Single-attempt batch submission and durable failure state."""
 from __future__ import annotations
 
 import uuid
@@ -21,27 +10,11 @@ from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.repo_tasks import TasksRepo
 
 
-def test_dbos_schedule_has_reconciler():
-    from vibecanvas_api.background_workflows import SCHEDULES
-
-    entry = next(
-        item for item in SCHEDULES
-        if item["schedule_name"] == "flowork-queued-reconciler"
-    )
-    assert entry["schedule"] == "0 */5 * * * *"
-    assert entry["queue_name"] == "control"
-
-    purge = next(
-        item for item in SCHEDULES
-        if item["schedule_name"] == "flowork-data-purge"
-    )
-    assert purge["schedule"] == "0 */5 * * * *"
-
-
-def test_reconciler_is_runtime_neutral():
-    from vibecanvas_api.background_tasks.reconciler import resubmit_stuck_queued
-    assert callable(resubmit_stuck_queued)
-    assert not hasattr(resubmit_stuck_queued, "delay")
+def test_batch_submission_is_not_automatically_republished():
+    from vibecanvas_api.background_workflows import RETIRED_SCHEDULES, SCHEDULES, SCHEDULE_WORKFLOWS
+    assert not any(item["schedule_name"] == "flowork-queued-reconciler" for item in SCHEDULES)
+    assert "flowork-queued-reconciler" in RETIRED_SCHEDULES
+    assert "background.reconcile_queued" not in SCHEDULE_WORKFLOWS
 
 
 def test_submit_body_silently_drops_smuggled_fields():
@@ -72,52 +45,39 @@ def test_submit_body_silently_drops_smuggled_fields():
 
 
 @pytest.mark.asyncio
-async def test_reconciler_resubmits_stuck_queued_rows(monkeypatch, pg_engine):
-    """Seed a stuck queued row via pg_engine (superuser, RLS-bypassing);
-    point the admin engine at it; call _resubmit(); assert enqueue fired."""
-    from vibecanvas_api.storage import db as db_mod
-    monkeypatch.setattr(db_mod, "_admin_engine", pg_engine)
+@pytest.mark.parametrize("started", [False, True])
+async def test_submission_error_preserves_actual_worker_state(monkeypatch, pg_engine, started):
+    from fastapi import HTTPException
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from vibecanvas_api.routes import workflows
+    from vibecanvas_api.services.task_worker import claim_worker
 
-    tenant_id = uuid.uuid4()
-    user_id = uuid.uuid4()
-    task_id = uuid.uuid4()
-
+    tenant_id, user_id, task_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     async with pg_engine.begin() as c:
-        await c.execute(text(
-            "INSERT INTO tenants(tenant_id, name) VALUES (:t, 'x')"
-        ), {"t": tenant_id})
-        await c.execute(text(
-            "INSERT INTO users(user_id, tenant_id, email) VALUES (:u, :t, :e)"
-        ), {"u": user_id, "t": tenant_id, "e": f"recon-{uuid.uuid4().hex[:6]}@example.com"})
+        await c.execute(text("INSERT INTO tenants(tenant_id, name) VALUES (:t, 'x')"), {"t": tenant_id})
+        await c.execute(text("INSERT INTO users(user_id, tenant_id, email) VALUES (:u, :t, :e)"),
+            {"u": user_id, "t": tenant_id, "e": f"submit-{user_id}@example.com"})
     async with session_scope(tenant_id=str(tenant_id)) as session:
-        await TasksRepo(session).create(
-            task_id=task_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            workflow_id=None,
-            task_type="batch_exec",
-            payload={},
-            background_job_id=str(task_id),
-        )
-        await session.execute(
-            text(
-                "UPDATE tasks SET submitted_at=now() - interval '120 seconds' "
-                "WHERE id=:id"
-            ),
-            {"id": task_id},
-        )
-
-    sent: list[dict] = []
-    import vibecanvas_api.background_tasks.reconciler as recon
-    monkeypatch.setattr(
-        recon,
-        "enqueue_background_job",
-        lambda name, **kw: sent.append({"name": name, **kw}),
-    )
-
-    await recon._resubmit()
-
-    by_id = [s for s in sent if s.get("job_id") == str(task_id)]
-    assert by_id, f"Expected re-submit for task {task_id}; got {sent}"
-    assert by_id[0]["name"] == "batch_exec"
-    assert by_id[0]["kwargs"] == {"task_id": str(task_id)}
+        await TasksRepo(session).create(task_id=task_id, tenant_id=tenant_id, user_id=user_id,
+            workflow_id=None, task_type="batch_exec", payload={}, background_job_id=str(task_id))
+        if started:
+            assert await claim_worker(session, "batch", task_id) is not None
+    monkeypatch.setattr(workflows, "_rebind_request_organization", AsyncMock())
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        with pytest.raises(HTTPException) as caught:
+            await workflows._batch_submission_failed(session, SimpleNamespace(), task_id,
+                "task_dispatch_failed", TimeoutError("queue acknowledgement unavailable"))
+        assert caught.value.status_code == 503
+        assert caught.value.detail["task_id"] == str(task_id)
+        assert caught.value.detail["status"] == ("running" if started else "failed")
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        task = await TasksRepo(session).get(task_id)
+        assert task.status == ("running" if started else "failed")
+        if started:
+            assert task.error is None and task.finished_at is None
+        else:
+            assert "queue acknowledgement unavailable" in task.error
+            assert task.finished_at is not None
+        # Late arrival or duplicate delivery cannot start this task again.
+        assert await claim_worker(session, "batch", task_id) is None

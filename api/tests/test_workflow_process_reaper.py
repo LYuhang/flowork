@@ -72,7 +72,11 @@ def test_inspection_failure_is_not_proof_of_exit(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel", [False, True])
-async def test_lost_process_closes_pending_approval_without_replay(pg_engine, monkeypatch, cancel):
+@pytest.mark.parametrize("local_cli", [False, True])
+async def test_lost_process_closes_pending_approval_without_replay(pg_engine, monkeypatch, cancel, local_cli):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from vibecanvas_api.services.sandbox import manager
     tenant, actor, _ = await owner()
     run_id, approval_id, _ = await waiting_run(tenant, actor)
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
@@ -85,6 +89,11 @@ async def test_lost_process_closes_pending_approval_without_replay(pg_engine, mo
     monkeypatch.setattr(reaper, "session_scope_admin", scoped_admin)
     try:
         record = identity.capture_process(process.pid)
+        observation = AsyncMock(return_value=None)
+        if local_cli:
+            record.update(kind='local_cli', sandbox_id='test-sandbox', run_id=run_id)
+            monkeypatch.setattr(manager, 'get_sandbox_manager',
+                                lambda: SimpleNamespace(local_execution_exited=observation))
         async with short_session_scope(tenant_id=tenant) as db:
             await db.execute(
                 text("UPDATE workflow_execution_runs SET runtime_process=CAST(:process AS jsonb) WHERE id=:id"),
@@ -99,8 +108,11 @@ async def test_lost_process_closes_pending_approval_without_replay(pg_engine, mo
             assert "runtime_process" not in detail
         process.terminate()
         process.wait(timeout=5)
+        observation.reset_mock()
         await reaper.reap_lost_workflow_processes()
         await reaper.reap_lost_workflow_processes()  # Idempotent maintenance.
+        if local_cli:
+            observation.assert_not_awaited()  # Works even when guest state is gone.
         async with short_session_scope(tenant_id=tenant) as db:
             history = WorkflowHistoryRepo(db)
             detail = await history.detail(run_id)

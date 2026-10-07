@@ -5,11 +5,7 @@ under a real tenant-scoped ``session_scope`` — same pattern as T11's
 ``test_tasks_routes_v2.py``, which keeps the suite asyncpg-friendly
 (TestClient uses sync httpx, which can't drive async SSE generators).
 
-The SSE generator is exercised directly with ``redis_url=None`` so the
-no-Redis fallback path runs end-to-end against Postgres. That path is
-the one that GUARANTEES strict ordering (BIGSERIAL on
-``task_events.id``); the Redis path is best-effort latency optimization
-on top.
+The stream replays persisted events and waits for PostgreSQL commit notifications.
 """
 from __future__ import annotations
 
@@ -108,7 +104,7 @@ async def test_list_tasks_filters_by_status_and_type(pg_engine):
 
 @pytest.mark.asyncio
 async def test_sse_emits_replay_after_last_event_id(pg_engine):
-    """``Last-Event-ID`` resume + terminal-event close on the no-Redis
+    """``Last-Event-ID`` resume + terminal-event close on the durable
     fallback path.
 
     Seeds 5 ``progress`` events + 1 ``terminal`` event, asks the
@@ -154,7 +150,6 @@ async def test_sse_emits_replay_after_last_event_id(pg_engine):
         task_id=task_id,
         last_event_id=last_seen,
         tenant_id=str(tenant_id),
-        redis_url=None,            # force the DB-only fallback
     )
     async for frame in gen:
         collected.append(frame)
@@ -193,3 +188,37 @@ def test_router_has_list_and_stream_routes():
         f"GET /api/v1/tasks/{{task_id}}/stream not mounted; "
         f"got: {sorted(paths)}"
     )
+
+
+@pytest.mark.asyncio
+async def test_task_activity_commit_rollback_and_heartbeat(pg_engine):
+    import asyncio
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.repo_tasks import TasksRepo
+    from vibecanvas_api.services.state_notifications import state_changes
+    tenant_id, user_id, task_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await _seed_tenant_user(pg_engine, tenant_id, user_id)
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        await TasksRepo(session).create(task_id=task_id, tenant_id=tenant_id, user_id=user_id,
+            workflow_id=None, task_type='batch_exec', payload={}, background_job_id=str(task_id))
+    async with state_changes('flowork_task_activity', str(task_id)) as changed:
+        await asyncio.wait_for(changed.wait(), 5)
+        changed.clear()
+        async with session_scope(tenant_id=str(tenant_id)) as session:
+            await TasksRepo(session).update_status(task_id, payload={'evaluation': {'enabled': False, 'script': 'x'}})
+            await session.flush()
+            assert not changed.is_set()
+        await asyncio.wait_for(changed.wait(), 5)
+        changed.clear()
+        async with session_scope(tenant_id=str(tenant_id)) as session:
+            await session.execute(text('UPDATE tasks SET worker_heartbeat_at=now() WHERE id=:id'), {'id':task_id})
+        await asyncio.sleep(.1)
+        assert not changed.is_set()
+        async with session_scope(tenant_id=str(tenant_id)) as session:
+            await TasksRepo(session).update_status(task_id, status='running')
+            await session.rollback()
+        await asyncio.sleep(.1)
+        assert not changed.is_set()
+        async with session_scope(tenant_id=str(tenant_id)) as session:
+            await TasksRepo(session).update_status(task_id, status='running')
+        await asyncio.wait_for(changed.wait(), 5)

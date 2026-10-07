@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from vibecanvas_api.services import execution_notifications as notifications
+from vibecanvas_api.services import state_notifications as notifications
 
 
 @pytest.mark.asyncio
@@ -77,7 +77,7 @@ async def test_notifications_are_commit_bound_and_reconnect_wakes(pg_engine):
         changed.clear()
         async with pg_engine.connect() as connection:
             pids = (await connection.execute(text(
-                "SELECT pid FROM pg_stat_activity WHERE application_name='flowork-execution-listener' AND datname=current_database()"
+                "SELECT pid FROM pg_stat_activity WHERE application_name='flowork-state-listener' AND datname=current_database()"
             ))).scalars().all()
             assert len(pids) == 1
             await connection.execute(text('SELECT pg_terminate_backend(:pid)'), {'pid': pids[0]})
@@ -126,6 +126,6 @@ async def test_notification_racing_last_subscriber_exit_releases_connection(pg_e
         assert not notifications._listeners
     async with pg_engine.connect() as connection:
         count = await connection.scalar(text(
-            "SELECT count(*) FROM pg_stat_activity WHERE application_name='flowork-execution-listener' AND datname=current_database()"
+            "SELECT count(*) FROM pg_stat_activity WHERE application_name='flowork-state-listener' AND datname=current_database()"
         ))
     assert count == 0

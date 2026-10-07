@@ -78,10 +78,10 @@ import {
   useGeneralChatBootstrap,
   type ChatListItem,
 } from '@/lib/api/queries/chats';
+import { watchChatActivity } from '@/lib/api/sse/chat-activity';
 import { resumeActiveTurn } from '@/lib/api/sse/resume-turn';
 import { readServerActiveTurns } from '@/lib/api/sse/server-active-turn';
 import {
-  CHAT_RECONCILE_INTERVAL_MS,
   reconcileChatWithServer,
 } from '@/lib/api/sse/chat-reconcile';
 import { runAgentTurn } from '@/lib/api/sse/run-agent-turn';
@@ -450,12 +450,10 @@ export function ChatPage() {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') reconcile();
     };
-    const interval = window.setInterval(reconcile, CHAT_RECONCILE_INTERVAL_MS);
     window.addEventListener('online', reconcile);
     window.addEventListener('focus', reconcile);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      window.clearInterval(interval);
       window.removeEventListener('online', reconcile);
       window.removeEventListener('focus', reconcile);
       document.removeEventListener('visibilitychange', onVisibility);
@@ -468,6 +466,10 @@ export function ChatPage() {
       ),
     [activeChatId, chatSessions.data?.items, resumedChat.isSuccess, resumedChat.data],
   );
+  useEffect(() => {
+    if (!activeChatIsPersisted) return;
+    return watchChatActivity({ wfId: carrierScopeId, chatId: activeChatId, surface: 'chat' });
+  }, [carrierScopeId, activeChatId, activeChatIsPersisted]);
   useEffect(() => {
     if (activeChatId && activeChatIsPersisted) {
       writeRecentChatSelection(account, 'chat', activeChatId, carrierScopeId);
@@ -594,6 +596,7 @@ export function ChatPage() {
         return;
       }
       for (const turn of turns) {
+        if (turn.chatId !== activeChatId) continue;
         markChatStarted(turn.chatId);
         void resumeActiveTurn(turn);
       }
@@ -678,7 +681,7 @@ export function ChatPage() {
         if (runningChat?.project_id) setActiveProjectId(runningChat.project_id);
         setActiveChatId('chat', at.chatId);
         for (const turn of turns) markChatStarted(turn.chatId);
-        for (const turn of turns) void resumeActiveTurn(turn);
+        void resumeActiveTurn(at);
         setChatEntryIntent(null);
         setActiveRunDiscoveryStatus('ready');
         return;
@@ -1162,7 +1165,7 @@ export function ChatPage() {
                       : 'mx-auto max-w-[1360px]',
                   )}
                 >
-                  <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-clip">
                 {projects.isFetched && (projects.data?.length ?? 0) === 0 ? (
                   <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10">
                     <form

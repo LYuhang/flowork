@@ -53,12 +53,12 @@ it('uses CLI target IDs and the source window destination without attaching debu
 });
 
 it('restores only the quoted chat targets with matching live window and target IDs', async () => {
-  const saved = { 'pageQuoteTabs:chat': [
-    { tabId: 1, windowId: 7, targetId: 'a' },
-    { tabId: 2, windowId: 8, targetId: 'b' },
-    { tabId: 3, windowId: 9, targetId: 'stale' },
-    { tabId: 4, windowId: 10, targetId: 'moved' },
-  ] };
+  const saved = {
+    'pageQuoteTabs:chat:1': { tabId: 1, windowId: 7, targetId: 'a' },
+    'pageQuoteTabs:chat:2': { tabId: 2, windowId: 8, targetId: 'b' },
+    'pageQuoteTabs:chat:3': { tabId: 3, windowId: 9, targetId: 'stale' },
+    'pageQuoteTabs:chat:4': { tabId: 4, windowId: 10, targetId: 'moved' },
+  };
   vi.stubGlobal('chrome', {
     storage: { session: { get: vi.fn(async () => saved) } },
     debugger: { getTargets: vi.fn(async () => [
@@ -83,4 +83,29 @@ it.each([false, true])('ensures the menu at worker startup (missing=%s)', async 
   registerPageQuotes();
   expect(update).toHaveBeenCalledWith('flowork-quote', expect.objectContaining({ contexts: ['selection'] }), expect.any(Function));
   expect(create).toHaveBeenCalledTimes(missing ? 1 : 0);
+});
+
+it('retains every tab grant when the same chat quotes concurrently', async () => {
+  let click!: (info: unknown, tab: unknown) => void;
+  const saved: Record<string, unknown> = {};
+  const send = vi.fn(async (message) => message.type === 'PAGE_QUOTE_CONTEXT_REQUEST'
+    ? { chatId: 'chat', account: 'owner' } : {});
+  vi.stubGlobal('chrome', {
+    runtime: { sendMessage: send },
+    contextMenus: { update: vi.fn(), onClicked: { addListener: (handler: typeof click) => { click = handler; } } },
+    debugger: { getTargets: vi.fn(async () => [{ id: 'a', tabId: 1 }, { id: 'b', tabId: 2 }]) },
+    storage: { session: {
+      get: vi.fn(async () => ({ ...saved })),
+      set: vi.fn(async (entries) => { Object.assign(saved, entries); }),
+    } },
+    tabs: { get: vi.fn(async (id: number) => ({ id, windowId: id })) },
+    scripting: { executeScript: vi.fn(async () => []) },
+  });
+  const { registerPageQuotes, quotedTabsForChat } = await import('./page-quotes');
+  registerPageQuotes();
+  for (const id of [1, 2]) click({ menuItemId: 'flowork-quote', selectionText: `quote ${id}`, pageUrl: 'https://example.com' },
+    { id, windowId: id, title: 'Report' });
+  await vi.waitFor(() => expect(send.mock.calls.filter(([message]) => message.type === 'PAGE_QUOTE')).toHaveLength(2));
+  expect(await quotedTabsForChat('chat')).toEqual([{ id: 1, windowId: 1 }, { id: 2, windowId: 2 }]);
+  expect(await quotedTabsForChat('cha')).toEqual([]);
 });

@@ -1196,3 +1196,27 @@ async def test_execution_lease_prevents_eviction_between_rpc_calls():
     manager._build_session.assert_not_awaited()
     await manager.close_session('tenant', 'schedule')
     assert await manager.get_loaded_session('tenant', 'schedule') is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("op", ["read", "write", "run_command"])
+@pytest.mark.parametrize("failure", [
+    "worker died (restarted; resubmit)",
+    "while QUEUED on slot 1 (worker busy with another job; resubmit)",
+    "not_found",
+])
+async def test_fileop_failure_is_returned_without_resubmission(tmp_path, op, failure):
+    session = SandboxSession(
+        tenant_id="tenant", wf_id="workflow", run_dir=str(tmp_path),
+        overlay_dir=None, provider=MagicMock(), base_binds=[], expose_run=False,
+    )
+    result = {"ok": False, "error": failure}
+    pool = MagicMock()
+    pool.submit_fileop.return_value = result
+    session._get_fileop_pool = AsyncMock(return_value=pool)
+    request = {"op": op, "path": "/data/test.txt"}
+
+    actual = await session._submit_fileop_inner(request, timeout=2)
+
+    assert actual is result
+    pool.submit_fileop.assert_called_once_with(request, timeout=2)

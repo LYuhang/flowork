@@ -163,24 +163,6 @@ def _empty_leaf_dirs(root: str) -> list[str]:
     return out
 
 
-def _fileop_should_resubmit(res: dict) -> bool:
-    """Whether a warm fileop result is an infrastructure miss worth retrying.
-
-    User errors (not_found/path_outside_roots/etc.) must surface immediately.
-    Warm-pool transport errors that explicitly say "resubmit" are recoverable.
-    The pool reports recoverable transport misses; the session retries the exact
-    op once without forcing a sandbox rebuild.
-    """
-    if res.get("ok"):
-        return False
-    err = str(res.get("error") or "")
-    return "resubmit" in err and (
-        "while QUEUED" in err
-        or ("worker" in err and "died" in err)
-        or "worker busy" in err
-    )
-
-
 def _session_inflight_operations(session: object) -> int:
     """Return a real activity count while keeping lightweight test doubles idle."""
     value = getattr(session, "_inflight_operations", 0)
@@ -1750,6 +1732,15 @@ class SandboxSession:
         if persist_account_auth:
             self._persist_codex_account_auth()
 
+    async def local_execution_process(self) -> dict:
+        """Capture the existing Agent sandbox owner, never a caller-supplied PID."""
+        from .process_identity import capture_process
+        async with self._lock:
+            handle = self._runtime_handle
+            if handle is None or handle.proc.poll() is not None:
+                raise RuntimeError("execution_lost")
+            return capture_process(handle.proc.pid)
+
     async def send_agent_runtime_control(self, turn_id: str, response: dict) -> None:
         """Send a durable platform decision to the active sandbox Runtime.
 
@@ -2256,38 +2247,16 @@ class SandboxSession:
                 "workflow); the warm file API is unavailable")
         submit_started = time.perf_counter()
         res = await asyncio.to_thread(pool.submit_fileop, op, timeout=timeout)
-        if not _fileop_should_resubmit(res):
-            logger.warning(
-                "agent_sandbox_fileop_submit_done",
-                wf_id=self.wf_id,
-                op=op.get("op"),
-                ok=bool(res.get("ok")),
-                retried=False,
-                exec_elapsed_ms=res.get("exec_elapsed_ms"),
-                submit_elapsed_ms=int((time.perf_counter() - submit_started) * 1000),
-                elapsed_ms=int((time.perf_counter() - total_started) * 1000),
-            )
-            return res
-        logger.warning(
-            "agent_fileop_submit_resubmit",
-            wf_id=self.wf_id,
-            op=op.get("op"),
-            error=res.get("error"),
-            elapsed_ms=int((time.perf_counter() - submit_started) * 1000),
-        )
-        retry_started = time.perf_counter()
-        retry = await asyncio.to_thread(pool.submit_fileop, op, timeout=timeout)
         logger.warning(
             "agent_sandbox_fileop_submit_done",
             wf_id=self.wf_id,
             op=op.get("op"),
-            ok=bool(retry.get("ok")),
-            retried=True,
-            exec_elapsed_ms=retry.get("exec_elapsed_ms"),
-            submit_elapsed_ms=int((time.perf_counter() - retry_started) * 1000),
+            ok=bool(res.get("ok")),
+            exec_elapsed_ms=res.get("exec_elapsed_ms"),
+            submit_elapsed_ms=int((time.perf_counter() - submit_started) * 1000),
             elapsed_ms=int((time.perf_counter() - total_started) * 1000),
         )
-        return retry
+        return res
 
     async def read_file(self, path: str) -> dict:
         """Read ``path`` inside the sandbox. Returns the raw fileop result dict
@@ -3512,10 +3481,11 @@ class SandboxManager:
         work_root = getattr(pool, "work_root", None)
         local_ids = set(getattr(session, "_local_execution_ids", ()))
         if isinstance(work_root, str):
-            directory = Path(work_root) / "local-executions"
-            if directory.is_dir():
-                local_ids.update(path.name for path in directory.iterdir()
-                    if len(path.name) == 32 and all(char in "0123456789abcdef" for char in path.name))
+            for name in ("local-executions", "local-execution-finished"):
+                directory = Path(work_root) / name
+                if directory.is_dir():
+                    local_ids.update(path.name for path in directory.iterdir()
+                        if len(path.name) == 32 and all(char in "0123456789abcdef" for char in path.name))
         session._local_execution_ids = local_ids
         close = asyncio.create_task(session.close())
         try:
@@ -3731,10 +3701,30 @@ class SandboxManager:
             if session is None or session.closed:
                 return None
             pool = getattr(session, "_fileop_pool", None)
-            if pool is None:
-                return None
-            marker = Path(pool.work_root) / "local-execution-finished" / identifier
-            return True if marker.is_file() else None
+            if pool is not None:
+                marker = Path(pool.work_root) / "local-execution-finished" / identifier
+                if marker.is_file():
+                    return True
+            router = getattr(session, "_runtime_router", None)
+        # CLI children of the Agent runtime live in that runtime's namespace,
+        # not in the optional file-job supervisor. Ask the existing bus; never
+        # start a new runtime or interpret a lost response as an execution exit.
+        if router is None:
+            return None
+        turn = None
+        try:
+            async with asyncio.timeout(2):
+                turn = router.attach(f"execution-status:{uuid.uuid4().hex}")
+                await turn.send({"type": "runtime_execution_status", "run_id": identifier})
+                async for message in turn.messages():
+                    if message.get("type") != "runtime_execution_status" or message.get("run_id") != identifier:
+                        return None
+                    return True if message.get("alive") is False else None
+        except (ConnectionError, TimeoutError):
+            return None
+        finally:
+            if turn is not None:
+                turn.detach()
 
     async def get_loaded_session(
         self, tenant_id: str, wf_id: str,

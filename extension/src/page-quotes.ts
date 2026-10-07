@@ -2,7 +2,7 @@
 type Destination = { chatId: string; account: string };
 const menuId = 'flowork-quote';
 type QuotedTab = { tabId: number; windowId: number; targetId: string };
-const quoteKey = (chatId: string) => `pageQuoteTabs:${chatId}`;
+const quoteKey = (chatId: string) => `pageQuoteTabs:${chatId}:`;
 
 export async function clearQuotedTabs(): Promise<void> {
   const saved = await chrome.storage.session.get(null);
@@ -12,7 +12,8 @@ export async function clearQuotedTabs(): Promise<void> {
 /** Only native user quotes create these tab grants; attachment JSON cannot. */
 export async function quotedTabsForChat(chatId: string): Promise<chrome.tabs.Tab[]> {
   const key = quoteKey(chatId);
-  const records = ((await chrome.storage.session.get(key))[key] ?? []) as QuotedTab[];
+  const saved = await chrome.storage.session.get(null);
+  const records = Object.entries(saved).filter(([name]) => name.startsWith(key)).map(([, value]) => value as QuotedTab);
   if (!records.length) return [];
   const targets = await chrome.debugger.getTargets();
   const tabs: chrome.tabs.Tab[] = [];
@@ -76,10 +77,9 @@ export function registerPageQuotes() {
       if (text.length > 32768) { await deliver({ error: 'Select at most 32768 characters for a quote.' }); return; }
       const target = (await chrome.debugger.getTargets()).find(target => target.tabId === tab.id);
       if (!target) { await deliver({ error: 'The selected tab is no longer available. Select the text again.' }); return; }
-      const key = quoteKey(destination.chatId);
-      const records = ((await chrome.storage.session.get(key))[key] ?? []) as QuotedTab[];
-      await chrome.storage.session.set({ [key]: [...records.filter(record => record.tabId !== tab.id),
-        { tabId: tab.id, windowId: tab.windowId, targetId: target.id }] });
+      // Independent keys avoid lost updates when two windows quote concurrently.
+      await chrome.storage.session.set({ [quoteKey(destination.chatId) + tab.id]:
+        { tabId: tab.id, windowId: tab.windowId, targetId: target.id } });
       let selection: ReturnType<typeof capturePageSelection> = null;
       try {
         const results = await chrome.scripting.executeScript({ target: { tabId: tab.id!, frameIds: [info.frameId ?? 0] }, func: capturePageSelection });

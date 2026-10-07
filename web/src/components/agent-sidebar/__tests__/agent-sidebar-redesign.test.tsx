@@ -184,6 +184,32 @@ describe('ChatMessageList', () => {
     }
   });
 
+  it('fills two viewport heights initially and prepends two more on explicit load', async () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    let height = 900;
+    let rows = [{ id: 'recent', role: 'user', content: 'recent request' }];
+    let update: () => void;
+    const load = vi.fn(async () => {
+      height += load.mock.calls.length <= 2 ? 200 : 650;
+      rows = [{ id: `older-${height}`, role: 'user', content: 'older request' }, ...rows];
+      update();
+    });
+    const props = { wfId: 'wf', activeChatId: 'two-screens', hasOlderHistory: true, onLoadOlderHistory: load };
+    const view = render(<ChatMessageList {...props} historyItems={rows} olderHistoryLoading />);
+    const log = screen.getByRole('log', { name: 'Conversation' });
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, get: () => height },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    update = () => view.rerender(<ChatMessageList {...props} historyItems={rows} olderHistoryLoading={false} />);
+    update();
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(height).toBe(1300);
+    fireEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(4));
+    expect(height).toBe(2600);
+  });
+
   it('loads another history page when the user scrolls near the top', async () => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     const onLoadOlderHistory = vi.fn().mockResolvedValue(undefined);

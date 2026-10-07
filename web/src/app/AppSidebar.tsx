@@ -26,6 +26,7 @@ import {
   FolderPlus,
   Plus,
   Pencil,
+  Power,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -601,6 +602,7 @@ export function AppSidebar({
                           if (sandboxState === 'idle' || sandboxState === 'closed') void changeSandbox(project.project_id, 'start');
                           else setReleaseProject(project);
                         }}>
+                          <Power aria-hidden="true" className="mr-2 size-4" />
                           {sandboxState === 'idle' || sandboxState === 'closed'
                             ? t('chat.sandbox.start_hint', 'Start sandbox')
                             : t('chat.sandbox.close_hint', 'Release sandbox')}
@@ -764,6 +766,7 @@ export function AppSidebar({
           <DialogFooter>
             <Button variant="outline" onClick={() => setReleaseProject(null)}>{t('cancel', 'Cancel')}</Button>
             <Button disabled={sandboxAction.isPending} onClick={() => releaseProject && void changeSandbox(releaseProject.project_id, 'release')}>
+              <Power aria-hidden="true" className="size-4" />
               {t('chat.sandbox.close_hint', 'Release sandbox')}
             </Button>
           </DialogFooter>

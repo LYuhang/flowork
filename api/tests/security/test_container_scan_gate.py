@@ -28,7 +28,7 @@ if name == 'syft':
 # All original upstream layers have a fixed High finding. Only an explicitly
 # selected runtime label has one, allowing us to test both sides of admission.
 bad = label in {'rust-build', 'python-base', 'node-runtime', 'node-build',
-               'nginx-runtime', 'openfga-postgres-base', 'clamav-base', os.environ.get('FAIL_RUNTIME')}
+               'nginx-runtime', 'openfga-postgres-base', 'clamav-base', 'valkey-base', os.environ.get('FAIL_RUNTIME')}
 report = {'matches': [{'vulnerability': {'id': 'CVE-2099-0001', 'severity': 'High',
     'fix': {'state': 'fixed', 'versions': ['2']}},
     'artifact': {'name': 'test-package', 'version': '1', 'type': 'deb'}}] if bad else []}
@@ -39,7 +39,7 @@ sys.exit(2 if bad else 0)
 
 @pytest.mark.parametrize('runtime,sbom,expected', [
     ('', '', 0), ('api', '', 2), ('openfga-postgres', '', 2),
-    ('node-build-patched', '', 2), ('clamav', '', 2), ('', 'python-base', 2),
+    ('valkey', '', 2), ('node-build-patched', '', 2), ('clamav', '', 2), ('', 'python-base', 2),
 ])
 def test_scan_blocks_actual_components_and_cannot_ignore_failed_sboms(tmp_path, runtime, sbom, expected):
     for name in ('docker', 'syft', 'grype'):
@@ -59,4 +59,4 @@ def test_scan_blocks_actual_components_and_cannot_ignore_failed_sboms(tmp_path, 
     if not sbom:
         upstream = json.loads((output / 'vulnerabilities/python-base.json').read_text())
         assert upstream['matches'][0]['vulnerability']['severity'] == 'High'
-        assert len(list((output / 'vulnerabilities').glob('*.json'))) == 18
+        assert len(list((output / 'vulnerabilities').glob('*.json'))) == 19

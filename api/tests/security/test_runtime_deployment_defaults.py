@@ -73,7 +73,7 @@ def test_rendered_release_preserves_runtime_selection(explicit):
         'OPENFGA_API_TOKEN': 'test-only', 'OPENFGA_STORE_ID': 'test-store',
         'OPENFGA_AUTHORIZATION_MODEL_ID': 'test-model', 'OPENFGA_MODEL_SHA256': '0' * 64,
     })
-    for name in ('API', 'SANDBOX', 'WEB', 'POSTGRES', 'OPENFGA_POSTGRES'):
+    for name in ('API', 'SANDBOX', 'WEB', 'POSTGRES', 'OPENFGA_POSTGRES', 'VALKEY'):
         env[f'VIBECANVAS_{name}_IMAGE'] = 'example.invalid/flowork-' + name.lower() + '@sha256:' + '0' * 64
     if explicit:
         env.update(SANDBOX_RUNTIME='gvisor', SANDBOX_TYPE='rootful-snapshot')

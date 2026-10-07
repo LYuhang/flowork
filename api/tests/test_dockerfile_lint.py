@@ -85,6 +85,7 @@ def test_dockerfile_pins_and_verifies_external_runtime_assets():
     drawio_package = json.loads((API_ROOT / "drawio-runtime/package.json").read_text())
     drawio_lock = json.loads((API_ROOT / "drawio-runtime/package-lock.json").read_text())
     assert drawio_package["overrides"] == {
+        "@modelcontextprotocol/sdk": "1.31.0",
         "fast-uri": "4.2.1",
         "proxy-addr": "2.0.8",
         "hono": "4.13.9",

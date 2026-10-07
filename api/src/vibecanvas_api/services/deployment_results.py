@@ -5,6 +5,7 @@ receive only the final EndNode output, never intermediate values or tracebacks.
 """
 
 import json
+from datetime import datetime
 from urllib.parse import quote
 
 from fastapi.responses import JSONResponse
@@ -26,7 +27,12 @@ def external_result(detail: dict) -> dict:
     payload = {"invocation_id": str(detail["id"]), "status": state, "error": None}
     if state not in TERMINAL_STATUSES:
         return payload
-    payload["exec_time_ms"] = float(result.get("execution_time") or 0) * 1000
+    elapsed = result.get("execution_time")
+    if elapsed is None and detail.get("started_at") and detail.get("finished_at"):
+        elapsed = (
+            datetime.fromisoformat(detail["finished_at"]) - datetime.fromisoformat(detail["started_at"])
+        ).total_seconds()
+    payload["exec_time_ms"] = float(elapsed) * 1000 if elapsed is not None else None
     outputs = result.get("final_outputs") or {}
     payload["outputs"] = outputs.get("__end__", {})
     if state != "succeeded":

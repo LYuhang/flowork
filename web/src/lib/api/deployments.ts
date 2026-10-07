@@ -173,7 +173,7 @@ export interface TestInvokeResponse {
   status: string;
   outputs?: unknown;
   errors?: unknown;
-  exec_time_ms?: number;
+  exec_time_ms?: number | null;
 }
 
 export type MetricsBucket = 'minute' | 'hour' | 'day';

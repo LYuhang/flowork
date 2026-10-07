@@ -36,6 +36,22 @@ def test_external_result_excludes_internal_outputs_and_raw_errors(state, code):
     assert (200 if isinstance(response, dict) else response.status_code) == code
 
 
+def test_forced_timeout_uses_recorded_duration_instead_of_zero():
+    detail = {
+        "id": str(uuid.uuid4()),
+        "status": "timed_out",
+        "started_at": "2026-10-07T04:00:00+00:00",
+        "finished_at": "2026-10-07T04:01:00.250000+00:00",
+        "result": {"execution_time": None},
+    }
+    assert external_result(detail)["exec_time_ms"] == 60250
+    detail["result"]["execution_time"] = 0
+    assert external_result(detail)["exec_time_ms"] == 0
+    detail["result"]["execution_time"] = None
+    detail["started_at"] = None
+    assert external_result(detail)["exec_time_ms"] is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("disconnect", [False, True])
 async def test_http_wait_does_not_convert_sync_or_cancel_dispatch(pg_engine, monkeypatch, disconnect):

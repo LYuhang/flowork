@@ -1,0 +1,130 @@
+/* Task and Deployment share one detail-page rhythm; other resource pages keep
+   their existing presentation. Colors remain semantic in both themes. */
+.execution-resource-detail > [data-page-region='header'] {
+  padding-bottom: 1.25rem;
+}
+.execution-resource-detail [data-page-region='detail-content'] > [data-orientation='horizontal'] > [role='tabpanel'] {
+  margin-top: 1.25rem;
+}
+.execution-resource-detail [data-slot='section-title'],
+.execution-resource-detail section > header h2 {
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+}
+.execution-resource-detail [data-slot='section-description'] {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  margin-top: 0.25rem;
+}
+.execution-resource-detail [data-slot='section-header'] {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.execution-resource-detail dl dt {
+  @apply text-content-secondary;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.execution-resource-detail dl dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.execution-resource-detail [data-slot='detail-properties'] {
+  gap: 0 2rem;
+}
+.execution-resource-detail [data-slot='detail-properties'] > div {
+  @apply border-b border-edge-subtle;
+  display: grid;
+  grid-template-columns: minmax(7rem, 35%) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.875rem 0;
+}
+.execution-resource-detail [data-slot='detail-properties'] dd {
+  margin-top: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.5rem;
+}
+.execution-resource-detail [data-slot='operational-summary'] {
+  @apply rounded-lg bg-surface-raised;
+}
+.execution-resource-detail [data-slot='operational-summary'] > div[aria-hidden] {
+  display: none;
+}
+.execution-resource-detail [data-slot='operational-summary'] dl {
+  padding-left: 0;
+}
+.execution-resource-detail table {
+  font-size: 0.8125rem;
+  line-height: 1.5rem;
+}
+.execution-resource-detail thead th {
+  @apply border-b border-edge-subtle bg-surface-sunken text-content-secondary;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.execution-resource-detail tbody td {
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+.execution-resource-detail tbody tr + tr {
+  @apply border-t border-edge-subtle;
+}
+.execution-resource-detail tbody tr:hover {
+  @apply bg-surface-hover;
+}
+@media (max-width: 639px) {
+  .execution-resource-detail [data-slot='detail-properties'] > div {
+    grid-template-columns: minmax(6rem, 36%) minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+}
+
+.execution-resource-detail [data-slot='detail-section'] {
+  @apply bg-surface-raised;
+}
+.execution-resource-detail [data-slot='section-header'] > :first-child {
+  flex-basis: 12rem;
+}
+@media (max-width: 639px) {
+  .execution-resource-detail [data-slot='execution-table'],
+  .execution-resource-detail [data-slot='execution-table'] tbody {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+  .execution-resource-detail [data-slot='execution-table'] thead {
+    display: none;
+  }
+  .execution-resource-detail [data-slot='execution-table'] tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    padding: 0.875rem;
+  }
+  .execution-resource-detail [data-slot='execution-table'] td {
+    min-width: 0;
+    padding: 0;
+    white-space: normal;
+  }
+  .execution-resource-detail [data-slot='execution-table'] td:first-child {
+    grid-column: 1 / -1;
+  }
+  .execution-resource-detail [data-slot='execution-table'] td:nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .execution-resource-detail [data-slot='execution-table'] td:nth-child(3) {
+    @apply text-content-secondary;
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  .execution-resource-detail [data-slot='execution-table'] td:last-child {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}

@@ -1,3 +1,5 @@
+import { SectionBlock } from '@/components/layout/section-block';
+import { CopyButton } from '@/components/ui/copy-button';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -35,9 +37,8 @@ export function ExecutionHistory({ source, sourceId }: { source: ExecutionSource
     return () => window.clearInterval(timer);
   }, [hasPending]);
   return (
-    <section className="mb-6 min-w-0 space-y-3" aria-label={t('execution.history')}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">{t('execution.history')}</h2>
+    <SectionBlock title={t('execution.history')}
+      actions={
         <div className="flex items-center gap-2">
           <Select value={filter} onValueChange={(value) => setFilter(value as typeof filter)}>
             <SelectTrigger className="w-44" aria-label={t('execution.filter')}><SelectValue /></SelectTrigger>
@@ -49,19 +50,32 @@ export function ExecutionHistory({ source, sourceId }: { source: ExecutionSource
           </Select>
           <Button size="sm" variant="outline" aria-label={t('execution.refreshHistory')} disabled={query.isFetching} onClick={() => void query.refetch()}>{t('execution.refresh')}</Button>
         </div>
-      </div>
+      }
+    >
       {query.isError ? <p role="alert" className="text-sm text-state-danger">{t('execution.unavailable')}</p>
         : query.isLoading ? <p role="status" className="text-sm text-content-secondary">{t('execution.loading')}</p>
           : items.length === 0 ? <p className="text-sm text-content-secondary">{t('execution.empty')}</p>
-            : <ul className="max-h-96 overflow-y-auto divide-y divide-edge-structural rounded-md border border-edge-structural">
-              {items.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge status={tones[item.status]}>{t(`execution.status.${item.status}`)}</StatusBadge>
-                    {item.input_index != null && <span className="text-sm">{t('execution.inputIndex', { index: item.input_index + 1 })}</span>}
-                    <time dateTime={item.created_at} className="text-xs text-content-secondary">{formatDateTime(item.created_at)}</time>
+            : <div className="app-scrollbar max-h-[32rem] overflow-auto rounded-lg border border-edge-subtle">
+              <table data-slot="execution-table" className="w-full min-w-[680px] text-left text-sm" aria-label={t('execution.history')}>
+                <thead className="sticky top-0 z-10 bg-surface-sunken">
+                  <tr>
+                    <th scope="col" className="px-4 py-3">{t('execution.id')}</th>
+                    <th scope="col" className="px-4 py-3">{t('tasks.col.status', 'Status')}</th>
+                    <th scope="col" className="px-4 py-3">{t('taskDetail.submittedAt', 'Submitted')}</th>
+                    <th scope="col" className="px-4 py-3"><span className="sr-only">{t('execution.detail')}</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+              {items.map((item) => <tr key={item.id}>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1">
+                    <span className="max-w-[16rem] truncate font-mono text-xs" title={item.id}>{item.id}</span>
+                    <CopyButton value={item.id} />
                   </div>
-                  <p className="mt-1 break-all font-mono text-xs text-content-tertiary">{item.id}</p>
+                  {item.input_index != null && <span className="text-xs text-content-secondary">{t('execution.inputIndex', { index: item.input_index + 1 })}</span>}
+                </td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={tones[item.status]}>{t(`execution.status.${item.status}`)}</StatusBadge>
                   {item.pending_approvals?.map((approval) => {
                     const serverNow = item.serverTime && item.receivedAt
                       ? Date.parse(item.serverTime) + Math.max(0, now - item.receivedAt) : now;
@@ -73,13 +87,18 @@ export function ExecutionHistory({ source, sourceId }: { source: ExecutionSource
                       {' · '}<span role="timer">{seconds > 0 ? t('approval.remaining', { time }) : t('approval.expiring')}</span>
                     </p>;
                   })}
-                </div>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3"><time dateTime={item.created_at}>{formatDateTime(item.created_at)}</time></td>
+                <td className="whitespace-nowrap px-4 py-3 text-right">
                 <Link className="shrink-0 text-sm font-medium text-primary underline underline-offset-4" to={`/workflow-executions/${item.id}`}>
                   {t('execution.detail')}
                 </Link>
-              </li>)}
-            </ul>}
+                </td>
+              </tr>)}
+                </tbody>
+              </table>
+            </div>}
       {query.hasNextPage && <Button variant="outline" size="sm" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{t('execution.loadMore')}</Button>}
-    </section>
+    </SectionBlock>
   );
 }

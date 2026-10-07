@@ -8,6 +8,8 @@ export interface OperationalSummaryItem {
   label: ReactNode;
   value: ReactNode;
   hint?: ReactNode;
+  /** Dates and descriptive states use body-sized text instead of metric sizing. */
+  compactValue?: boolean;
   tone?: SummaryTone;
   icon?: ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
 }
@@ -31,6 +33,7 @@ export function OperationalSummary({
 }) {
   return (
     <section
+      data-slot="operational-summary"
       aria-label={label}
       className={cn(
         'relative overflow-hidden rounded-xl border border-edge-subtle bg-surface-sunken/35',
@@ -56,7 +59,8 @@ export function OperationalSummary({
               <dd className="mt-1.5 min-w-0 break-words">
                 <span
                   className={cn(
-                    'block text-lg font-semibold leading-6 tabular-nums',
+                    'block font-semibold leading-6 tabular-nums',
+                    item.compactValue ? 'text-sm' : 'text-lg',
                     valueTone[tone],
                   )}
                 >

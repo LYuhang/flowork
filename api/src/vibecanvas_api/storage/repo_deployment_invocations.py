@@ -293,23 +293,38 @@ class DeploymentInvocationsRepo:
         to: datetime,
         bucket: str,
     ) -> list[dict]:
-        trunc = "hour" if bucket == "hour" else "day"
+        trunc = {"minute": "minute", "hour": "hour", "day": "day"}[bucket]
         rows = (
             await self.session.execute(
                 text(
                     f"""
-                    SELECT date_trunc('{trunc}', finished_at) AS ts,
-                           count(*)::int AS calls,
-                           count(*) FILTER (WHERE status = 'failed')::int AS errors,
-                           percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms)
-                               FILTER (WHERE latency_ms IS NOT NULL) AS latency_p50,
-                           percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms)
-                               FILTER (WHERE latency_ms IS NOT NULL) AS latency_p95
-                    FROM deployment_invocations
-                    WHERE deployment_id = :deployment_id
-                      AND finished_at >= :from_
-                      AND finished_at <= :to
-                    GROUP BY 1
+                    WITH arrivals AS (
+                        SELECT date_trunc('{trunc}', submitted_at) AS ts, count(*)::int AS calls
+                        FROM deployment_invocations
+                        WHERE deployment_id = :deployment_id
+                          AND submitted_at >= :from_ AND submitted_at < :to
+                        GROUP BY 1
+                    ), completions AS (
+                        SELECT date_trunc('{trunc}', finished_at) AS ts,
+                               count(*)::int AS completed,
+                               count(*) FILTER (WHERE status IN ('failed', 'timed_out'))::int AS errors,
+                               percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms)
+                                   FILTER (WHERE latency_ms IS NOT NULL) AS latency_p50,
+                               percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms)
+                                   FILTER (WHERE latency_ms IS NOT NULL) AS latency_p95
+                        FROM deployment_invocations
+                        WHERE deployment_id = :deployment_id
+                          AND finished_at >= :from_ AND finished_at < :to
+                        GROUP BY 1
+                    )
+                    SELECT COALESCE(a.ts, c.ts) AS ts, COALESCE(a.calls, 0) AS calls,
+                           COALESCE(c.errors, 0) AS errors, c.latency_p50, c.latency_p95,
+                           COALESCE(a.calls, 0) / NULLIF(EXTRACT(EPOCH FROM (
+                               LEAST(CAST(:to AS timestamptz), COALESCE(a.ts, c.ts) + INTERVAL '1 {trunc}')
+                               - GREATEST(CAST(:from_ AS timestamptz), COALESCE(a.ts, c.ts))
+                           )), 0) AS qps,
+                           100.0 * c.errors / NULLIF(c.completed, 0) AS error_rate
+                    FROM arrivals a FULL JOIN completions c USING (ts)
                     ORDER BY 1
                     """
                 ),
@@ -321,6 +336,8 @@ class DeploymentInvocationsRepo:
                 "ts": row["ts"].isoformat(),
                 "calls": row["calls"],
                 "errors": row["errors"],
+                "qps": float(row["qps"] or 0),
+                "error_rate": float(row["error_rate"]) if row["error_rate"] is not None else None,
                 "latency_p50": row["latency_p50"],
                 "latency_p95": row["latency_p95"],
             }

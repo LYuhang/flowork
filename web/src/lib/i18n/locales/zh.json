@@ -3999,5 +3999,16 @@
   "dateTime.placeholder": "YYYY-MM-DD HH:mm:ss",
   "tasks.notifications.emailPlaceholder": "user@example.com",
   "evaluation.downloadJsonl": "下载 JSONL ↓"
-,"deployments.code.asyncResultHint": "HTTP 200 直接返回 outputs；HTTP 202 返回执行 ID 和 status_url，请使用同一凭据查询该地址。等待审批不是失败。状态变为 succeeded、failed、timed_out 或 cancelled 后停止查询，不要重复提交原调用。"
+,"deployments.code.asyncResultHint": "HTTP 200 直接返回 outputs；HTTP 202 返回执行 ID 和 status_url，请使用同一凭据查询该地址。等待审批不是失败。状态变为 succeeded、failed、timed_out 或 cancelled 后停止查询，不要重复提交原调用。",
+  "deployments.metrics.last6h": "最近 6 小时",
+  "deployments.metrics.max": "最大值",
+  "deployments.metrics.noSamples": "当前时段暂无采样数据",
+  "deployments.metrics.values": "指标明细",
+  "execution.id": "执行 ID",
+  "deployments.metrics.minute": "固定 1 分钟窗口，全量统计；每 15 秒刷新。当前分钟仍在统计中；无完成调用时错误率和延迟为空。",
+  "deployments.metrics.qpsUnit": "次/秒",
+  "deployments.metrics.qpsHelp": "该分钟接收的调用数 ÷ 窗口秒数；当前分钟按已过去的秒数计算。不含鉴权或限流拒绝。",
+  "deployments.metrics.errorRate": "错误率",
+  "deployments.metrics.errorHelp": "该分钟结束的调用中，失败或超时的比例；等待审批中的调用不计入。",
+  "deployments.metrics.latencyHelp": "该分钟结束的调用耗时 P95（秒）：95% 的已记录耗时不超过此值。"
 }

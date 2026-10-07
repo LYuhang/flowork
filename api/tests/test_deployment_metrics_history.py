@@ -151,7 +151,7 @@ async def test_metrics_invalid_bucket_400(
                 request=_StubRequest(),
                 from_=base,
                 to=base + timedelta(hours=1),
-                bucket="minute",
+                bucket="second",
                 ctx=ctx,
                 session=s,
                 service=_AllowAuthz(),
@@ -462,3 +462,46 @@ def test_routes_mounted():
     paths = {r.path for r in application_route_contexts(app)}
     assert any("/deployments/{dep_id}/metrics" in p for p in paths)
     assert any("/deployments/{dep_id}/history" in p for p in paths)
+
+
+@pytest.mark.asyncio
+async def test_minute_metrics_separate_arrivals_completions_and_count_timeouts(
+    pg_engine, app_engine, monkeypatch, pg_url,
+):
+    from vibecanvas_api.storage import db as db_mod
+    from vibecanvas_api.storage.db import session_scope
+    from vibecanvas_api.storage.repo_deployment_invocations import DeploymentInvocationsRepo
+
+    monkeypatch.setattr(db_mod, "_admin_engine", None)
+    monkeypatch.setenv("ADMIN_DATABASE_URL", pg_url)
+    tenant_id, _, dep_id, base = await _seed_dep(pg_engine, app_engine)
+    base = base.replace(second=0, microsecond=0)
+    async with app_engine.connect() as c:
+        await c.execute(text("SELECT set_config('app.tenant_id', :t, false)"), {"t": str(tenant_id)})
+        wf_id = (await c.execute(text("SELECT wf_id FROM deployments WHERE id=:id"), {"id": dep_id})).scalar_one()
+        for status, finish, latency in [
+            ('succeeded', base + timedelta(seconds=70), 1000),
+            ('timed_out', base + timedelta(seconds=80), 3000),
+            ('running', None, None),
+        ]:
+            await c.execute(text("""
+                INSERT INTO deployment_invocations
+                    (id, tenant_id, deployment_id, wf_id, trigger_type, source,
+                     status, submitted_at, started_at, finished_at, latency_ms)
+                VALUES (:id, :t, :d, :w, 'api', 'sync_api', :status, :ts, :ts, :finish, :latency)
+            """), dict(id=uuid.uuid4(), t=tenant_id, d=dep_id, w=wf_id,
+                       status=status, ts=base + timedelta(seconds=5), finish=finish, latency=latency))
+        await c.commit()
+    async with session_scope(tenant_id=str(tenant_id)) as s:
+        repo = DeploymentInvocationsRepo(s)
+        rows = await repo.metrics(deployment_id=dep_id, from_=base, to=base + timedelta(minutes=2), bucket='minute')
+        partial = await repo.metrics(deployment_id=dep_id, from_=base, to=base + timedelta(seconds=30), bucket='minute')
+    assert len(rows) == 2
+    assert rows[0]['qps'] == pytest.approx(3 / 60)
+    assert rows[0]['error_rate'] is None
+    assert rows[0]['latency_p95'] is None
+    assert rows[1]['qps'] == 0
+    assert rows[1]['error_rate'] == 50
+    assert rows[1]['errors'] == 1
+    assert rows[1]['latency_p95'] == pytest.approx(2900)
+    assert partial[0]['qps'] == pytest.approx(3 / 30)

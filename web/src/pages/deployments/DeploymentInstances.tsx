@@ -18,8 +18,8 @@ export function DeploymentInstances({ dep }: { dep: Deployment }) {
     {dep.runtime.instances.length === 0 ? <p className="rounded-lg border border-dashed border-edge-subtle p-5 text-sm text-content-tertiary">
       {t('deployments.runtime.empty', 'No resident instance is running.')}
     </p> : <ul className="space-y-3">
-      {dep.runtime.instances.map(instance => <li key={instance.id} className="min-w-0 rounded-xl border border-edge-subtle p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {dep.runtime.instances.map(instance => <li key={instance.id} className="min-w-0 overflow-hidden rounded-lg border border-edge-subtle">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge-subtle bg-surface-sunken/40 px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate font-mono text-xs" title={instance.id}>{instance.id}</span>
             <CopyButton value={instance.id} className="shrink-0" />
@@ -28,7 +28,7 @@ export function DeploymentInstances({ dep }: { dep: Deployment }) {
             {t(`deployments.runtime.${instance.state}`, { active: 'Serving', preparing: 'Starting', draining: 'Draining requests' }[instance.state])}
           </StatusBadge>
         </div>
-        <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-4">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-4 p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div><dt className="text-xs text-content-tertiary">{t('tasks.version.label', 'Workflow version')}</dt><dd className="mt-1 font-mono"><WorkflowVersionLink source={{ type: 'deployment', id: dep.id }} workflowId={dep.wf_id} version={instance.version} inline /></dd></div>
           <div><dt className="text-xs text-content-tertiary">{t('deployments.workers.runtime', 'Workers × concurrency')}</dt><dd className="mt-1 tabular-nums">{instance.worker_count ?? 1} × {(instance.worker_concurrency ?? -1) === -1 ? t('deployments.workers.unlimited', 'Unlimited') : (instance.worker_concurrency ?? -1)}</dd></div>
           <div><dt className="text-xs text-content-tertiary">/mount</dt><dd className="mt-1">{instance.mount_enabled ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off')}</dd></div>

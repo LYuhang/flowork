@@ -486,7 +486,7 @@ describe("<TaskDetailPage>", () => {
     expect(screen.getByText(/未发送/)).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "配置" }));
     const scheduleConfiguration = screen.getByTestId("schedule-configuration-details");
-    expect(scheduleConfiguration.querySelector("dl")).toHaveClass("max-w-3xl", "sm:grid-cols-2");
+    expect(scheduleConfiguration.querySelector("dl")).toHaveAttribute("data-slot", "detail-properties");
     expect(screen.getByText("每日汇总").closest("div")).not.toHaveClass(
       "sm:grid-cols-[8.5rem_minmax(0,1fr)]",
     );

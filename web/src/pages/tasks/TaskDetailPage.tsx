@@ -1,3 +1,4 @@
+import '@/components/layout/execution-resource-detail.css';
 import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 /**
  * `/tasks/:taskId` task detail page.
@@ -346,10 +347,10 @@ function EventRow({
   }, [expanded, payload]);
 
   return (
-    <li className="border-b border-edge-subtle py-2.5 last:border-b-0">
+    <li className="border-b border-edge-subtle last:border-b-0">
       <button
         type="button"
-        className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-md px-1 py-1 text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        className="grid w-full grid-cols-[5.5rem_minmax(0,1fr)_auto] items-start gap-3 px-4 py-3 text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
@@ -357,7 +358,7 @@ function EventRow({
           {t(`taskDetail.level.${level}`, level)}
         </StatusBadge>
         <span className="min-w-0">
-          <span className="block break-words text-xs font-medium leading-5 [overflow-wrap:anywhere]">{message}</span>
+          <span className="block break-words text-sm leading-6 [overflow-wrap:anywhere]">{message}</span>
           <span className="mt-0.5 block truncate text-xs text-content-tertiary">
             {(payload as TaskEventPayload & { _event_ts?: string })._event_ts
               ? formatTime((payload as TaskEventPayload & { _event_ts?: string })._event_ts)
@@ -366,9 +367,10 @@ function EventRow({
             {scope ? ` · ${scope}` : ""}
           </span>
         </span>
+        <ChevronDown className={`mt-1 h-4 w-4 text-content-tertiary ${expanded ? "" : "-rotate-90"}`} aria-hidden="true" />
       </button>
       {expanded && payloadStr !== "{}" && (
-        <CodeSnippet className="mt-2" code={payloadStr} language="json" />
+        <CodeSnippet className="mx-4 mb-3" code={payloadStr} language="json" />
       )}
     </li>
   );
@@ -684,6 +686,7 @@ export function TaskDetailPage() {
 
   return (
     <EntityDetailShell
+      className="execution-resource-detail"
       resourceKind="task"
       backTo="/tasks"
       backLabel={t("taskDetail.backToList", "Back to tasks")}
@@ -815,7 +818,6 @@ export function TaskDetailPage() {
               ) : null}
         </>
       }
-      className="max-w-5xl gap-0"
     >
       <Tabs
         value={isScheduledRun && activeTab === "evaluation" ? "overview" : activeTab}
@@ -837,11 +839,11 @@ export function TaskDetailPage() {
           {!isScheduledRun && <TabsTrigger value="evaluation">{t("evaluation.title", "Evaluation")}</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="overview" className="mt-0">
+        <TabsContent value="overview" className="space-y-5">
 
         {/* An idle schedule has no meaningful completion percentage. */}
         {(!isScheduledRun || task.status === "running") && <SectionBlock
-          variant="plain"
+          variant="card"
           title={summary ? t("taskDetail.summary", "Summary") : t("tasks.col.progress", "Progress")}
           description={!summary && rowCounts
             ? t("taskDetail.rowsProgress", "{{done}} of {{total}} rows done", { done: rowCounts.done, total: rowCounts.total })
@@ -852,7 +854,7 @@ export function TaskDetailPage() {
             {t("taskDetail.rowsProgress", "{{done}} of {{total}} rows done", { done: rowCounts.done, total: rowCounts.total })}
           </span> : null}
           {summary ? (
-            <dl className="grid grid-cols-3 gap-x-6 gap-y-2 text-sm">
+            <dl className="grid grid-cols-3 gap-x-6 gap-y-2 text-sm [&_dd]:mt-2 [&_dd]:text-2xl [&_dd]:font-semibold">
               <div className="flex flex-col">
                 <dt className="text-xs text-muted-foreground">
                   {t("taskDetail.rowsTotal", "Rows total")}
@@ -882,7 +884,7 @@ export function TaskDetailPage() {
             progressLabel={t("tasks.col.progress", "Progress")}
             value={pct}
           />}
-          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-xs sm:grid-cols-3">
+          <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 border-t border-edge-subtle pt-4 text-sm sm:grid-cols-3">
             <div className="flex flex-col">
               <dt className="text-muted-foreground">
                 {t("taskDetail.submittedAt", "Submitted")}
@@ -909,10 +911,11 @@ export function TaskDetailPage() {
             {scheduledQuery.data ? (
               <OperationalSummary
                 label={t("tasks.scheduled.operationalSummary", "Schedule summary")}
-                className="mt-5"
+                className=""
                 items={[
                   {
                     label: t('tasks.scheduled.activeRuns', 'Active executions'),
+                    compactValue: true,
                     value: t('tasks.scheduled.activeSummary', '{{running}} running · {{queued}} queued', {
                       running: Number((task.payload as Record<string, unknown> | null)?.running_count ?? 0),
                       queued: Number((task.payload as Record<string, unknown> | null)?.queued_count ?? 0),
@@ -920,15 +923,18 @@ export function TaskDetailPage() {
                   },
                   {
                     label: t("tasks.scheduled.nextRun", "Next run"),
+                    compactValue: true,
                     value: formatTime(scheduledQuery.data.schedule.next_run_at),
                     tone: task.status === "paused" ? "neutral" : "info",
                   },
                   {
                     label: t("taskDetail.lastRun", "Last run"),
+                    compactValue: true,
                     value: formatTime(scheduledQuery.data.schedule.last_run_at),
                   },
                   {
                     label: t("tasks.scheduled.lastStatus", "Last status"),
+                    compactValue: true,
                     value: scheduledQuery.data.schedule.last_status
                       ? t(`tasks.executionStatus.${scheduledQuery.data.schedule.last_status}`, scheduledQuery.data.schedule.last_status)
                       : "—",
@@ -954,18 +960,18 @@ export function TaskDetailPage() {
 
         </TabsContent>
 
-        <TabsContent value="settings" className="mt-0">
+        <TabsContent value="settings" className="space-y-5">
         {!isScheduledRun && !batchSetup && <p className="py-6 text-sm text-muted-foreground">{t("taskDetail.noConfiguration", "No saved input configuration is available for this task.")}</p>}
         {batchSetup && (
           <SectionBlock
-            variant="plain"
+            variant="card"
             title={t("taskDetail.setup", "Task setup")}
             description={t(
               "taskDetail.setupDescription",
               "Input and processing settings captured when this batch was submitted.",
             )}
           >
-            <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-xs text-content-tertiary">{t("taskDetail.inputRows", "Input rows")}</dt>
                 <dd className="mt-1 font-medium tabular-nums">{batchSetup.rows}</dd>
@@ -991,7 +997,7 @@ export function TaskDetailPage() {
 
           {isScheduledRun && (
             <SectionBlock
-              variant="plain"
+              variant="card"
               title={t("tasks.scheduled.configuration", "Schedule configuration")}
               description={t("tasks.scheduled.configurationDescription", "Timing and workflow settings used for each scheduled execution.")}
             >
@@ -1002,7 +1008,7 @@ export function TaskDetailPage() {
               ) : scheduledQuery.data ? (
                 <div data-testid="schedule-configuration-details">
                   <DetailSummary
-                    className="mt-1 max-w-3xl gap-x-10 gap-y-6"
+                    className="gap-x-8"
                     items={[
                     {
                       label: t("tasks.scheduled.timing", "Timing"),
@@ -1047,11 +1053,11 @@ export function TaskDetailPage() {
         </TabsContent>
 
         {/* Live event log */}
-        <TabsContent value="logs" className="mt-0">
+        <TabsContent value="logs" className="space-y-5">
           {capabilities.has("inspect_runs") && <ExecutionHistory key={taskId} source="task" sourceId={taskId ?? ''} />}
           {isScheduledRun && (
             <SectionBlock
-              variant="plain"
+              variant="card"
               collapsible
               defaultOpen={false}
               title={t("taskDetail.triggerHistory", "Schedule triggers")}
@@ -1116,7 +1122,7 @@ export function TaskDetailPage() {
                     <CopyButton value={selectedExecution.id} />
                     <WorkflowVersionLink source={{ type: "execution", id: selectedExecution.id }} workflowId={selectedExecution.workflow_id} version={selectedExecution.version} kind="execution" />
                   </div>
-                  <DetailSummary className="mt-4 sm:grid-cols-3" items={[
+                  <DetailSummary className="mt-4" items={[
                     { label: t("taskDetail.startedAt", "Started"), value: formatTime(selectedExecution.started_at) },
                     { label: t("taskDetail.finishedAt", "Finished"), value: formatTime(selectedExecution.finished_at) },
                     { label: t("tasks.scheduled.notification", "Notification"), value: selectedExecution.notification_state?.status
@@ -1135,7 +1141,7 @@ export function TaskDetailPage() {
             </SectionBlock>
           )}
           <SectionBlock
-            variant="plain"
+            variant="card"
             collapsible
             defaultOpen={false}
             title={t("taskDetail.events", "Events")}
@@ -1198,7 +1204,7 @@ export function TaskDetailPage() {
           </div>
           <div
             ref={eventLogRegionRef}
-            className="app-scrollbar max-h-[65dvh] min-h-48 overflow-y-auto overscroll-contain pr-2"
+            className="app-scrollbar max-h-[65dvh] min-h-48 overflow-y-auto overscroll-contain rounded-lg border border-edge-subtle"
             data-role="task-event-log-scroll-region"
           >
             {eventsQuery.isLoading ? (

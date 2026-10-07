@@ -1,3 +1,5 @@
+import { DeploymentMetricChart } from './DeploymentMetricChart';
+import '@/components/layout/execution-resource-detail.css';
 import { deploymentCodeExamples, endpointFor, type CodeLanguage } from './deployment-code-examples';
 import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -90,9 +92,12 @@ function deploymentDetailTab(value: string | null): TabKey {
 }
 
 
-function last24HoursRange() {
+type MetricsRange = '6h' | '24h' | '7d' | '30d';
+
+function metricsTimeRange(range: MetricsRange) {
   const to = new Date();
-  const from = new Date(to.getTime() - 24 * 3600 * 1000);
+  const hours = { '6h': 6, '24h': 24, '7d': 168, '30d': 720 }[range];
+  const from = new Date(to.getTime() - hours * 3600 * 1000);
   return { from: from.toISOString(), to: to.toISOString() };
 }
 
@@ -111,15 +116,15 @@ function OverviewTab({
   const { t } = useTranslation();
   const formatTime = useFormatDateTime();
   const errorRate =
-    latestMetric && latestMetric.calls > 0
-      ? `${Math.round((latestMetric.errors / latestMetric.calls) * 1000) / 10}%`
+    latestMetric?.error_rate != null
+      ? `${latestMetric.error_rate.toFixed(1)}%`
       : '—';
 
   return (
-    <div>
+    <div className="space-y-5">
       <OperationalSummary
         label={t('deployments.detail.operationalSummary', 'Deployment health summary')}
-        className="mt-5"
+        className=""
         items={[
           {
             label: t('deployments.detail.calls', 'Calls'),
@@ -130,17 +135,18 @@ function OverviewTab({
           {
             label: t('deployments.detail.errorRate', 'Error rate'),
             value: errorRate,
-            hint: t('deployments.detail.errorRateHint', 'Errors divided by calls in the latest metrics bucket.'),
+            hint: t('deployments.metrics.errorHelp'),
             tone: latestMetric && latestMetric.errors > 0 ? 'danger' : 'success',
           },
           {
             label: t('deployments.detail.p95Latency', 'P95 latency'),
-            value: latestMetric?.latency_p95 == null ? '—' : `${latestMetric.latency_p95.toFixed(0)} ms`,
-            hint: t('deployments.detail.p95Hint', '95th percentile latency in the latest metrics bucket.'),
+            value: latestMetric?.latency_p95 == null ? '—' : `${(latestMetric.latency_p95 / 1000).toFixed(3)} s`,
+            hint: t('deployments.metrics.latencyHelp'),
             tone: latestMetric?.latency_p95 == null ? 'neutral' : 'warning',
           },
           {
             label: t('deployments.detail.lastInvoked', 'Last invoked'),
+            compactValue: true,
             value: formatTime(dep.last_invoked_at),
             hint: t('deployments.detail.lastInvokedHint', 'Most recent request handled by this deployment.'),
           },
@@ -155,8 +161,8 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
   const { t } = useTranslation();
   const formatTime = useFormatDateTime();
   const copyable = (value: string, label: string) => (
-    <span className="flex min-w-0 items-start gap-2">
-      <span className="min-w-0 flex-1 break-all font-mono text-xs leading-7" translate="no">{value}</span>
+    <span className="inline-flex max-w-full min-w-0 items-start gap-1">
+      <span className="min-w-0 break-all font-mono text-[13px] leading-7" translate="no">{value}</span>
       <CopyButton className="shrink-0" value={value} label={t('deployments.detail.copyField', 'Copy {{field}}', { field: label })} />
     </span>
   );
@@ -180,8 +186,7 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
 
   return (
     <SectionBlock
-      variant="plain"
-      className="max-w-4xl"
+      variant="card"
       title={t('deployments.detail.basic', 'Basic information')}
       description={t('deployments.detail.basicDescription', 'Identity and workflow routing for this deployment.')}
       actions={canUpdate && !editing ? (
@@ -225,11 +230,11 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
         </div>
       ) : (
         <DetailSummary
-          className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-4 gap-x-8 gap-y-5 sm:p-5"
+          className="gap-x-8"
           items={[
             { label: t('deployments.detail.deploymentId', 'Deployment ID'), value: copyable(dep.id, t('deployments.detail.deploymentId', 'Deployment ID')) },
             { label: t('deployments.create.fields.slug', 'Slug'), value: copyable(dep.slug, t('deployments.create.fields.slug', 'Slug')) },
-            { label: t('deployments.create.fields.wfId', 'Workflow ID'), value: copyable(dep.wf_id, t('deployments.create.fields.wfId', 'Workflow ID')), wide: true },
+            { label: t('deployments.create.fields.wfId', 'Workflow ID'), value: copyable(dep.wf_id, t('deployments.create.fields.wfId', 'Workflow ID')) },
             { label: t('deployments.detail.createdAt', 'Created'), value: formatTime(dep.created_at) },
             { label: t('deployments.detail.updatedAt', 'Updated'), value: dep.updated_at ? formatTime(dep.updated_at) : '—' },
           ]}
@@ -336,8 +341,8 @@ function ConfigTab({ dep }: { dep: Deployment }) {
   };
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-xl border border-edge-subtle bg-surface-base">
-      <header className="flex items-start gap-3 px-5 py-5 sm:px-6">
+    <section className="min-w-0 overflow-hidden rounded-xl border border-edge-subtle bg-surface-raised">
+      <header className="flex items-start gap-3 border-b border-edge-subtle bg-surface-sunken/55 px-5 py-4 sm:px-6">
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
           <SlidersHorizontal className="size-4" aria-hidden="true" />
         </span>
@@ -387,11 +392,13 @@ function ConfigTab({ dep }: { dep: Deployment }) {
           <Switch id="dep-mount" aria-describedby="dep-mount-help" checked={mountEnabled} onCheckedChange={setMountEnabled} disabled={patchMutation.isPending} className="mt-0.5 shrink-0" />
         </div>
       </div>
-      <div className="border-t border-edge-subtle px-5 py-5 sm:px-6 space-y-2">
+      <div className="grid items-start gap-3 border-t border-edge-subtle px-5 py-5 sm:grid-cols-[minmax(0,1fr)_13rem] sm:gap-6 sm:px-6">
+        <div className="space-y-1.5">
         <Label htmlFor="dep-timeout">{t('deployments.settings.timeout', 'Call timeout (seconds)')}</Label>
-        <Input id="dep-timeout" type="number" min={1} max={3600} step={1} value={timeoutSeconds} aria-describedby="dep-timeout-help" disabled={patchMutation.isPending} onChange={event => setTimeoutSeconds(Number(event.target.value))} />
         <p id="dep-timeout-help" className="text-xs leading-5 text-muted-foreground">{t('deployments.settings.timeoutHelp', '1–3600 seconds; default 30. Expiry stops the call. Human approval waiting uses its own node timeout and does not count toward this limit. Changes apply to new calls without restarting the instance.')}</p>
         {!validTimeout && <p role="alert" className="text-xs text-destructive">{t('deployments.settings.timeoutInvalid', 'Enter a whole number from 1 to 3600.')}</p>}
+        </div>
+        <Input id="dep-timeout" type="number" min={1} max={3600} step={1} value={timeoutSeconds} aria-describedby="dep-timeout-help" disabled={patchMutation.isPending} onChange={event => setTimeoutSeconds(Number(event.target.value))} />
       </div>
       <details className="border-t border-edge-subtle px-5 py-4 sm:px-6">
         <summary className="cursor-pointer text-sm font-medium">{t('deployments.resources.title', 'Advanced · instance resources')}</summary>
@@ -513,23 +520,9 @@ function CodeExamplesTab({
     [dep, exampleInputs],
   );
   return (
-    <section className="border-y border-edge-subtle py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Code2 className="size-4 text-focus" aria-hidden="true" />
-            <h2 className="text-sm font-semibold">
-              {t('deployments.code.title', 'Call this deployment')}
-            </h2>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t(
-              'deployments.code.placeholderHint',
-              'Examples use environment-variable placeholders and never include your secret value.',
-            )}
-          </p>
-        </div>
-      </div>
+    <SectionBlock title={t('deployments.code.title', 'Call this deployment')}
+      icon={<Code2 className="size-4" aria-hidden="true" />}
+      description={t('deployments.code.placeholderHint', 'Examples use environment-variable placeholders and never include your secret value.')}>
       <p className="mt-3 text-xs text-muted-foreground">
         {t('deployments.code.asyncResultHint', 'HTTP 200 returns outputs. HTTP 202 returns an execution ID and status_url: query that URL with the same credentials. Waiting for approval is not a failure. Stop querying at succeeded, failed, timed_out or cancelled; do not submit the original request again.')}
       </p>
@@ -548,7 +541,7 @@ function CodeExamplesTab({
           </TabsContent>
         ))}
       </Tabs>
-    </section>
+    </SectionBlock>
   );
 }
 
@@ -557,20 +550,15 @@ function UsageEndpoint({ dep }: { dep: Deployment }) {
   const endpointPath = endpointFor(dep);
   const endpoint = resolveApiUrl(endpointPath);
   return (
-    <section className="border-b border-edge-subtle pb-5">
-      <h2 className="text-sm font-semibold">
-        {t('deployments.detail.endpoint', 'Endpoint')}
-      </h2>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {t('deployments.detail.endpointHelp', 'Use this address from your application or the examples below.')}
-      </p>
-      <div className="mt-3 flex min-w-0 items-center gap-2 rounded-md border border-edge-subtle bg-surface-sunken/35 px-3 py-2">
-        <code className="min-w-0 flex-1 select-text truncate font-mono text-xs" title={endpoint}>
+    <SectionBlock title={t('deployments.detail.endpoint', 'Endpoint')}
+      description={t('deployments.detail.endpointHelp', 'Use this address from your application or the examples below.')}>
+      <div className="flex min-w-0 items-center gap-2 rounded-md border border-edge-subtle bg-surface-sunken/35 px-3 py-2">
+        <code className="min-w-0 select-text truncate font-mono text-[13px]" title={endpoint}>
           {endpoint}
         </code>
         <CopyButton value={endpoint} label={t('deployments.actions.copyEndpoint', 'Copy endpoint')} />
       </div>
-    </section>
+    </SectionBlock>
   );
 }
 
@@ -685,7 +673,7 @@ function RunsTab({ depId, active }: { depId: string; active: boolean }) {
         role="region"
         tabIndex={0}
         aria-label={t('deployments.detail.runHistoryRegion', 'Deployment run history')}
-        className="app-scrollbar h-96 max-h-[48vh] min-h-64 overflow-auto overscroll-contain rounded-lg border border-edge-subtle bg-surface-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        className="app-scrollbar h-96 max-h-[48vh] min-h-64 overflow-auto overscroll-contain rounded-lg border border-edge-subtle bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         data-role="deployment-run-log-scroll-region"
       >
       {rows.length === 0 ? (
@@ -700,13 +688,13 @@ function RunsTab({ depId, active }: { depId: string; active: boolean }) {
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10 border-b bg-surface-sunken text-left text-xs font-medium text-muted-foreground shadow-[0_1px_0_var(--color-edge-subtle)]">
           <tr>
-            <th className="px-4 py-3 font-medium">{t('deployments.detail.requestId', 'Request id')}</th>
-            <th className="px-4 py-3 font-medium">{t('deployments.detail.source', 'Source')}</th>
-            <th className="px-4 py-3 font-medium">{t('tasks.col.status', 'Status')}</th>
-            <th className="px-4 py-3 font-medium">{t('tasks.col.submitted', 'Started')}</th>
-            <th className="px-4 py-3 font-medium">{t('deployments.detail.finished', 'Finished')}</th>
-            <th className="px-4 py-3 text-right font-medium">{t('deployments.detail.latency', 'Latency')}</th>
-            <th className="px-4 py-3 font-medium">{t('deployments.detail.errorCol', 'Error')}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t('deployments.detail.requestId', 'Request id')}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t('deployments.detail.source', 'Source')}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t('tasks.col.status', 'Status')}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t('tasks.col.submitted', 'Started')}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t('deployments.detail.finished', 'Finished')}</th>
+            <th scope="col" className="px-4 py-3 text-right font-medium">{t('deployments.detail.latency', 'Latency')}</th>
+            <th scope="col" className="px-4 py-3 font-medium">{t('deployments.detail.errorCol', 'Error')}</th>
           </tr>
         </thead>
         <tbody>
@@ -789,92 +777,29 @@ function RunsTab({ depId, active }: { depId: string; active: boolean }) {
   );
 }
 
-function MetricLineChart({
-  data,
-  metric,
-  label,
-  unit,
-  color,
-  dash,
-  formatTime,
-}: {
-  data: MetricsPoint[];
-  metric: 'calls' | 'errors' | 'latency_p95';
-  label: string;
-  unit: string;
-  color: string;
-  dash?: string;
-  formatTime: (value?: string | null) => string;
-}) {
-  const values = data.map((row) => metric === 'latency_p95' ? row.latency_p95 ?? 0 : row[metric]);
-  const max = Math.max(0, ...values);
-  const scaleMax = Math.max(1, max);
-  const displayValue = (value: number) => formatNumber(value, { maximumFractionDigits: 0 });
-  const points = values.map((value, index) => ({
-    value,
-    x: values.length <= 1 ? 0 : (index / (values.length - 1)) * 100,
-    y: 44 - (value / scaleMax) * 40,
-    ts: data[index]!.ts,
-  }));
-  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
-  return (
-    <figure className="min-w-0 border-t border-edge-subtle pt-3 first:border-t-0 first:pt-0 md:border-l md:border-t-0 md:pl-4 md:pt-0 md:first:border-l-0 md:first:pl-0">
-      <figcaption className="mb-2 flex items-baseline justify-between gap-3">
-        <span className="text-sm font-medium">{label}</span>
-        <span className="text-xs tabular-nums text-muted-foreground">{displayValue(max)} {unit}</span>
-      </figcaption>
-      <svg viewBox="0 0 100 48" className="h-28 w-full overflow-visible" role="img" aria-label={`${label}; maximum ${displayValue(max)} ${unit}`}>
-        <path d="M 0 4 H 100 M 0 24 H 100 M 0 44 H 100" fill="none" stroke="currentColor" strokeWidth="0.6" className="text-edge-subtle" vectorEffect="non-scaling-stroke" />
-        <path d={path} fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray={dash} className={color} vectorEffect="non-scaling-stroke" />
-        {points.map((point) => (
-          <circle
-            key={point.ts}
-            cx={point.x}
-            cy={point.y}
-            r="1.5"
-            tabIndex={0}
-            className={color}
-            fill="currentColor"
-            aria-label={`${formatTime(point.ts)}: ${displayValue(point.value)} ${unit}`}
-          >
-            <title>{formatTime(point.ts)}: {displayValue(point.value)} {unit}</title>
-          </circle>
-        ))}
-      </svg>
-    </figure>
-  );
-}
-
-function MonitoringTab({ query, onTest }: { query: UseQueryResult<MetricsResponse>; onTest?: () => void }) {
+function MonitoringTab({ query, onTest, range, onRangeChange }: { query: UseQueryResult<MetricsResponse>; onTest?: () => void; range: MetricsRange; onRangeChange: (value: MetricsRange) => void }) {
   const { t } = useTranslation();
   const formatTime = useFormatDateTime();
   const series = query.data?.series ?? [];
 
-  if (query.isLoading) return <div className="empty-state">{t('tasks.loading', 'Loading…')}</div>;
-  if (query.isError) {
-    return (
-      <ActionableError
-        title={t('deployments.detail.metricsError', 'Failed to load metrics.')}
-        description={t('deployments.detail.metricsErrorHint', 'Check the connection and reload the last 24 hours of metrics.')}
-        actionLabel={t('retry', 'Retry')}
-        onAction={() => void query.refetch()}
-        technicalDetails={query.error instanceof Error ? query.error.message : undefined}
-      />
-    );
-  }
-
   return (
     <div className="space-y-4">
-      <section className="border-y border-edge-subtle py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">{t('deployments.detail.metricsChart', 'Requests, errors, and latency')}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('deployments.detail.metricsWindow', 'Last 24 hours, hourly buckets')}
-            </p>
-          </div>
-        </div>
-        {series.length === 0 ? (
+      <SectionBlock title={t('deployments.detail.metricsChart', 'Requests, errors, and latency')}
+        description={t('deployments.metrics.minute')}
+        actions={<div className="flex items-center gap-2">
+          <Select value={range} onValueChange={value => onRangeChange(value as MetricsRange)}>
+            <SelectTrigger className="w-40" aria-label={t('logs.timeRange', 'Time range')}><SelectValue /></SelectTrigger>
+            <SelectContent>{(['6h', '24h', '7d', '30d'] as const).map(value => <SelectItem key={value} value={value}>
+              {value === '6h' ? t('deployments.metrics.last6h', 'Last 6 hours') : t(`logs.range.${value}`)}
+            </SelectItem>)}</SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" disabled={query.isFetching} onClick={() => void query.refetch()}>{t('refresh', 'Refresh')}</Button>
+        </div>}>
+        {query.data && <p className="mb-3 text-xs text-content-secondary">{formatTime(query.data.from)} — {formatTime(query.data.to)}</p>}
+        {query.isError ? <ActionableError title={t('deployments.detail.metricsError', 'Failed to load metrics.')}
+          actionLabel={t('retry', 'Retry')} onAction={() => void query.refetch()} />
+          : query.isLoading ? <p role="status" className="py-8 text-sm text-content-secondary">{t('tasks.loading', 'Loading…')}</p>
+          : series.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-title">{t('deployments.detail.noMetrics', 'No metrics in this window.')}</div>
             <div className="empty-state-copy">
@@ -886,33 +811,33 @@ function MonitoringTab({ query, onTest }: { query: UseQueryResult<MetricsRespons
             </Button>}
           </div>
         ) : (
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <MetricLineChart data={series} metric="calls" label={t('deployments.detail.requests', 'Requests')} unit={t('deployments.detail.callsUnit', 'calls')} color="text-state-info" formatTime={formatTime} />
-            <MetricLineChart data={series} metric="errors" label={t('deployments.detail.errors', 'Errors')} unit={t('deployments.detail.errorsUnit', 'errors')} color="text-state-danger" dash="4 2" formatTime={formatTime} />
-            <MetricLineChart data={series} metric="latency_p95" label={t('deployments.detail.p95Latency', 'P95 latency')} unit="ms" color="text-state-warning" dash="1.5 1.5" formatTime={formatTime} />
+          <div className="grid gap-4 xl:grid-cols-3">
+            <DeploymentMetricChart data={query.data!} metric="qps" label="QPS" unit={t('deployments.metrics.qpsUnit')} description={t('deployments.metrics.qpsHelp')} color="text-state-info" />
+            <DeploymentMetricChart data={query.data!} metric="error_rate" label={t('deployments.metrics.errorRate')} unit="%" description={t('deployments.metrics.errorHelp')} color="text-state-danger" />
+            <DeploymentMetricChart data={{ ...query.data!, series: series.map(row => ({ ...row, latency_p95: row.latency_p95 == null ? null : row.latency_p95 / 1000 })) }} metric="latency_p95" label={t('deployments.detail.p95Latency', 'P95 latency')} unit="s" description={t('deployments.metrics.latencyHelp')} color="text-state-warning" />
           </div>
         )}
-      </section>
+      </SectionBlock>
       {series.length > 0 && (
-        <SectionBlock variant="plain" collapsible defaultOpen={false} title={t("deployments.detail.metricValues", "Hourly metric values")} contentClassName="overflow-x-auto">
+        <SectionBlock variant="card" collapsible defaultOpen={false} title={t("deployments.metrics.values", "Metric values")} contentClassName="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b bg-surface-sunken text-left text-xs font-medium text-muted-foreground">
               <tr>
-                <th className="px-4 py-3 font-medium">{t('deployments.detail.bucket', 'Bucket')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('deployments.detail.calls', 'Calls')}</th>
-                <th className="px-4 py-3 text-right font-medium">{t('deployments.detail.errors', 'Errors')}</th>
-                <th className="px-4 py-3 text-right font-medium">P50</th>
-                <th className="px-4 py-3 text-right font-medium">P95</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t('deployments.detail.bucket', 'Bucket')}</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">QPS</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">{t('deployments.metrics.errorRate')} (%)</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">P50 (s)</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">P95 (s)</th>
               </tr>
             </thead>
             <tbody>
               {series.map((row) => (
                 <tr key={row.ts} className="border-b last:border-b-0">
                   <td className="px-4 py-3 font-mono text-xs">{formatTime(row.ts)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.calls}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-destructive">{row.errors}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.latency_p50 == null ? '-' : row.latency_p50.toFixed(1)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.latency_p95 == null ? '-' : row.latency_p95.toFixed(1)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{row.qps.toFixed(3)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-destructive">{row.error_rate == null ? '—' : row.error_rate.toFixed(1)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{row.latency_p50 == null ? '-' : (row.latency_p50 / 1000).toFixed(3)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{row.latency_p95 == null ? '-' : (row.latency_p95 / 1000).toFixed(3)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1028,8 +953,8 @@ function SecurityTab({ dep }: { dep: Deployment }) {
 
   return (
     <div className="space-y-4">
-      <section className="overflow-hidden rounded-xl border border-edge-subtle bg-surface-base">
-        <header className="flex items-center gap-3 px-5 py-5">
+      <section className="overflow-hidden rounded-xl border border-edge-subtle bg-surface-raised">
+        <header className="mb-4 flex items-center gap-3 border-b border-edge-subtle bg-surface-sunken/55 px-5 py-4">
           <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-state-success/10 text-state-success">
             <ShieldCheck className="size-4" aria-hidden="true" />
           </span>
@@ -1159,9 +1084,10 @@ export function DeploymentDetailPage() {
     },
     refetchOnWindowFocus: 'always',
   });
+  const [metricsRange, setMetricsRange] = useState<MetricsRange>('24h');
   const metricsQuery = useQuery({
-    queryKey: ['deployment-metrics', depId, 'last-24-hours'],
-    queryFn: () => getMetrics(depId!, { ...last24HoursRange(), bucket: 'hour' }),
+    queryKey: ['deployment-metrics', depId, metricsRange],
+    queryFn: () => getMetrics(depId!, { ...metricsTimeRange(metricsRange), bucket: 'minute' }),
     enabled: !!depId && tab === 'overview' && !!query.data?.access?.capabilities.includes('inspect_runs'),
     refetchOnWindowFocus: false,
     refetchInterval: tab === 'overview' ? 15_000 : false,
@@ -1218,6 +1144,7 @@ export function DeploymentDetailPage() {
 
   return (
     <EntityDetailShell
+      className="execution-resource-detail"
       resourceKind="deployment"
       backTo="/deployments"
       backLabel={t('deployments.detail.backToList', 'Back to deployments')}
@@ -1271,14 +1198,14 @@ export function DeploymentDetailPage() {
             {canUpdate ? <TabsTrigger value="terminal" className="shrink-0">{t('deployments.terminal.title')}</TabsTrigger> : null}
             <TabsTrigger value="settings" className="shrink-0">{t('deployments.detail.tabs.settings', 'Settings')}</TabsTrigger>
           </TabsList>
-          <TabsContent value="overview">
+          <TabsContent value="overview" className="space-y-5">
             <OverviewTab
               dep={dep}
               latestMetric={latestMetric}
             />
-            {canInspectRuns && <MonitoringTab query={metricsQuery} onTest={canExecute ? () => setTab('usage') : undefined} />}
+            {canInspectRuns && <MonitoringTab query={metricsQuery} range={metricsRange} onRangeChange={setMetricsRange} onTest={canExecute ? () => setTab('usage') : undefined} />}
           </TabsContent>
-          <TabsContent value="usage" className="space-y-8">
+          <TabsContent value="usage" className="space-y-5">
             <UsageEndpoint dep={dep} />
             <CodeExamplesTab dep={dep} exampleInputs={exampleInputs} />
             {canExecute ? (
@@ -1289,9 +1216,9 @@ export function DeploymentDetailPage() {
               />
             ) : null}
           </TabsContent>
-          <TabsContent value="activity" className="space-y-8">
+          <TabsContent value="activity" className="space-y-5">
             <ExecutionHistory key={depId} source="deployment" sourceId={depId} />
-            <SectionBlock variant="plain" collapsible defaultOpen={false}
+            <SectionBlock variant="card" collapsible defaultOpen={false}
               title={t('deployments.detail.requestRecords', 'Request records')}
               description={t('deployments.detail.requestRecordsHelp', 'Inspect request source, timing and transport errors. Workflow traces and approvals are listed above.')} >
               <RunsTab depId={depId} active={activeTab === 'activity'} />
@@ -1300,7 +1227,7 @@ export function DeploymentDetailPage() {
           <TabsContent value="terminal">
             {canUpdate && activeTab === 'terminal' ? <DeploymentTerminal dep={dep} /> : null}
           </TabsContent>
-          <TabsContent value="settings" className="space-y-5 pt-3">
+          <TabsContent value="settings" className="space-y-5">
             <BasicInfoSection dep={dep} canUpdate={canUpdate} />
             <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_19rem]">
               {canUpdate ? <ConfigTab dep={dep} /> : <ReadOnlyConfig dep={dep} />}

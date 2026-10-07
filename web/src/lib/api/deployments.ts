@@ -176,12 +176,14 @@ export interface TestInvokeResponse {
   exec_time_ms?: number;
 }
 
-export type MetricsBucket = 'hour' | 'day';
+export type MetricsBucket = 'minute' | 'hour' | 'day';
 
 export interface MetricsPoint {
   ts: string;
   calls: number;
   errors: number;
+  qps: number;
+  error_rate: number | null;
   latency_p50: number | null;
   latency_p95: number | null;
 }
@@ -356,7 +358,7 @@ export async function getMetrics(
   const qs = new URLSearchParams();
   qs.set('from', params.from);
   qs.set('to', params.to);
-  qs.set('bucket', params.bucket ?? 'hour');
+  qs.set('bucket', params.bucket ?? 'minute');
   const resp = await authedFetch(
     `/api/v1/deployments/${id}/metrics?${qs.toString()}`,
   );

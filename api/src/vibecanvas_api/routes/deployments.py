@@ -1239,7 +1239,7 @@ async def metrics(
     request: Request,
     from_: datetime = Query(alias="from"),
     to: datetime = Query(...),
-    bucket: str = Query(default="hour"),
+    bucket: str = Query(default="minute"),
     ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
@@ -1256,10 +1256,10 @@ async def metrics(
         deployment_id=dep_id,
         action=Action.INSPECT_RUNS,
     )
-    if bucket not in ("hour", "day"):
+    if bucket not in ("minute", "hour", "day"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="bucket must be 'hour' or 'day'",
+            detail="bucket must be 'minute', 'hour' or 'day'",
         )
 
     # First gate: ensure caller can see this deployment (RLS-bound repo

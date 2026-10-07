@@ -85,7 +85,7 @@ const testI18n = i18n.createInstance();
 void testI18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
-  resources: { en: { translation: {} } },
+  resources: { en: { translation: { 'logs.range.30d': 'Last 30 days' } } },
   interpolation: { escapeValue: false },
 });
 
@@ -419,15 +419,25 @@ describe('<DeploymentDetailPage>', () => {
     expect(patchDeployment).not.toHaveBeenCalled();
   });
 
+  it('queries the selected monitoring time range and aggregation', async () => {
+    const user = userEvent.setup(); renderAt(DEP_ID);
+    await screen.findByRole('heading', { name: 'Requests, errors, and latency' });
+    await user.click(screen.getByRole('combobox', { name: 'Time range' }));
+    await user.click(screen.getByRole('option', { name: 'Last 30 days' }));
+    await waitFor(() => expect(getMetrics).toHaveBeenLastCalledWith(DEP_ID, expect.objectContaining({ bucket: 'minute' })));
+    const params = vi.mocked(getMetrics).mock.calls.at(-1)![1];
+    expect(Date.parse(params.to) - Date.parse(params.from)).toBe(30 * 86400000);
+  });
+
   it('displays zero errors while keeping an all-zero chart finite', async () => {
     vi.mocked(getMetrics).mockResolvedValue({
-      series: [{ ts: '2026-05-24T10:00:00Z', calls: 0, errors: 0, latency_p50: 0, latency_p95: 0 }],
-      bucket: 'hour', from: '2026-05-23T00:00:00Z', to: '2026-05-24T00:00:00Z',
+      series: [{ ts: '2026-05-24T10:00:00Z', calls: 0, errors: 0, qps: 0, error_rate: 0, latency_p50: 0, latency_p95: 0 }],
+      bucket: 'hour', from: '2026-05-23T00:00:00Z', to: '2026-05-24T11:00:00Z',
     });
     renderAt(DEP_ID);
     await screen.findByRole('heading', { level: 1, name: 'API bot' });
-    const chart = await screen.findByRole('img', { name: 'Errors; maximum 0 errors' });
-    expect(chart.querySelector('circle')).toHaveAttribute('cy', '44');
+    const chart = await screen.findByRole('img', { name: 'deployments.metrics.errorRate; maximum 0 %' });
+    expect(chart.querySelector('circle')).toHaveAttribute('cy', '162');
     expect(chart.innerHTML).not.toMatch(/NaN|Infinity/);
   });
 

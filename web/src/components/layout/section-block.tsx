@@ -34,9 +34,9 @@ export function SectionBlock({
     <div className="flex min-w-0 flex-1 items-start gap-2.5">
       {icon ? <span className="mt-0.5 shrink-0 text-content-secondary">{icon}</span> : null}
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold text-content-primary">{title}</h2>
+        <h2 data-slot="section-title" className="text-sm font-semibold text-content-primary">{title}</h2>
         {description ? (
-          <p className="mt-0.5 text-xs leading-5 text-content-secondary">{description}</p>
+          <p data-slot="section-description" className="mt-0.5 text-xs leading-5 text-content-secondary">{description}</p>
         ) : null}
       </div>
     </div>
@@ -44,6 +44,7 @@ export function SectionBlock({
 
   return (
     <section
+      data-slot="detail-section"
       className={cn(
         'shrink-0',
         variant === 'card'
@@ -53,6 +54,7 @@ export function SectionBlock({
       )}
     >
       <div
+        data-slot="section-header"
         className={cn(
           'flex items-start gap-3',
           variant === 'card'

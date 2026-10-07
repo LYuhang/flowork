@@ -1,3 +1,4 @@
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -23,9 +24,9 @@ async function show(locale = 'en') {
     lng: locale, fallbackLng: 'en', keySeparator: false, resources: { en: { translation: en }, zh: { translation: zh } },
   });
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><I18nextProvider i18n={instance}><MemoryRouter>
+  render(<QueryClientProvider client={client}><I18nextProvider i18n={instance}><MemoryRouter><TooltipProvider>
     <ExecutionHistory source="task" sourceId="task-review" />
-  </MemoryRouter></I18nextProvider></QueryClientProvider>);
+  </TooltipProvider></MemoryRouter></I18nextProvider></QueryClientProvider>);
 }
 
 beforeEach(() => {

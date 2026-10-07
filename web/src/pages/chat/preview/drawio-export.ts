@@ -10,6 +10,7 @@ export function drawioEmbedUrl(): URL {
   url.search = new URLSearchParams({
     embed: '1',
     offline: '1',
+    pwa: '0',
     local: '1',
     analytics: '0',
     ui: 'min',

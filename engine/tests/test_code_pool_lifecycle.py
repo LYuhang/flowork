@@ -295,6 +295,26 @@ async def test_loop_codenode_reuses_pool(spy_pool, tmp_path):
 # 3. parallel concurrency (the key one)
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
+async def test_cold_parallel_runs_release_code_workers(spy_pool, tmp_path):
+    """No injected pool: branch-local creation must not escape run cleanup."""
+    before = {p.pid for p in _child_code_workers()}
+    try:
+        for index in range(3):
+            wf = Workflow(_parallel_sleep_wf(0.05), max_workers=4)
+            events = [event async for event in wf.astream(
+                {"x": "hi"}, run_context={"run_dir": str(tmp_path)},
+            )]
+            finished = next(event for event in events if event.get("status") == "finished")
+            assert not finished.get("error_dict"), finished
+            assert finished["final_outputs"]["__end__"] == {"a": "hi-A", "b": "hi-B"}
+            assert {p.pid for p in _child_code_workers()} <= before
+            assert len(spy_pool.instances) == index + 1
+    finally:
+        for pool in spy_pool.instances:
+            pool.close()
+
+
+@pytest.mark.asyncio
 async def test_parallel_branches_run_concurrently(tmp_path):
     import json
     import os

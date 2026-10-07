@@ -465,6 +465,14 @@ class Workflow:
         if run_context:
             extra.update(run_context)
 
+        # Branches shallow-copy extra. Establish one run-owned pool before
+        # they split, so every branch shares it and final cleanup can find it.
+        # Constructing the pool does not spawn workers; those remain lazy.
+        for node in self.id2node.values():
+            if node.node_type == "CodeNode":
+                node._get_run_pool(extra)
+                break
+
         # Publish this run's live ``extra`` to the caller's ``run_state``
         # holder so an out-of-band cancel watcher (in ``astream``) can reach the
         # lazily-created ``_code_pool`` and kill its workers the moment cancel

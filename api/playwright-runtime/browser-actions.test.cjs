@@ -150,5 +150,50 @@ test("no implicit tab lookup for listing or creation; new tab always supplies it
   };
   assert.deepEqual(await executeAction(owner, "tab-list", {}), { tabs: [{ tab_id: "t" }] });
   assert.deepEqual(await executeAction(owner, "tab-new", { opener_tab_id: "t", url: "about:blank" }), { tab_id: "new" });
-  assert.deepEqual(calls, [["t", "about:blank"]]);
+  assert.deepEqual(calls, [["t", "about:blank", 30]]);
+});
+
+test("observation timeouts apply to reads and post-action snapshots, including zero", async () => {
+  for (const seconds of [undefined, 0, 60]) {
+    const seen = [];
+    const state = { refs: new Map(), page: {
+      ariaSnapshot: async options => { seen.push(['snapshot', options.timeout]); return '- heading "Ready"'; },
+      goto: async (_url, options) => seen.push(['goto', options.timeout]),
+      url: () => 'https://example.com', title: async () => 'Ready', isClosed: () => false,
+    } };
+    const owner = { tab: async () => state };
+    for (const name of ['snapshot', 'find', 'goto']) {
+      seen.length = 0;
+      await executeAction(owner, name, { tab_id: 't', url: 'https://example.com', text: 'Ready', timeout: seconds });
+      const expected = (seconds ?? 30) * 1000;
+      assert.deepEqual(seen, name === 'goto' ? [['goto', expected], ['snapshot', expected]] : [['snapshot', expected]]);
+    }
+  }
+});
+
+test("post-action timeout reports the observation stage without repeating navigation", async () => {
+  let navigations = 0;
+  const state = { refs: new Map(), page: {
+    goto: async () => { navigations++; }, isClosed: () => false,
+    ariaSnapshot: async () => { throw Object.assign(new Error('Snapshot timed out after 60000ms'), {name: 'TimeoutError'}); },
+  } };
+  const result = await executeAction({ tab: async () => state }, 'goto', {tab_id:'t', url:'https://example.com', timeout:60});
+  assert.equal(navigations, 1);
+  assert.deepEqual(result.observation_error, {stage:'snapshot', code:'action_timeout', message:'Snapshot timed out after 60000ms'});
+  assert.match(result.warning, /do not repeat/);
+});
+
+test("target snapshots wait for attachment and use the remaining observation budget", async () => {
+  const calls = [];
+  const locator = {
+    waitFor: async options => { calls.push(['wait', options]); },
+    ariaSnapshot: async options => { calls.push(['snapshot', options.timeout]); return '- text: Ready'; },
+  };
+  const state = { refs: new Map(), page: { locator: () => locator, url: () => 'https://example.com', title: async () => 'Ready' } };
+  await snapshot(state, {locator:'#late', timeout:15});
+  assert.deepEqual(calls[0], ['wait', {state:'attached', timeout:15000}]);
+  assert.ok(calls[1][1] > 0 && calls[1][1] <= 15000);
+  locator.waitFor = async () => { throw Object.assign(new Error('Target did not appear'), {name:'TimeoutError'}); };
+  await assert.rejects(snapshot(state, {locator:'#late', timeout:1}), {name:'TimeoutError'});
+  assert.equal(calls.length, 2, 'No snapshot or retry after the target wait times out');
 });

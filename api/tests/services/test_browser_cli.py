@@ -182,3 +182,16 @@ def test_command_inventory_matches_node_dispatch_and_cli_help(capsys):
     reads = re.search(r"const READS = new Set\((\[[^;]+\])\);", runtime)
     assert reads is not None
     assert set(json.loads(reads.group(1))) == browser_cli.READ_COMMANDS
+
+
+@pytest.mark.parametrize("name", ["snapshot", "find", "screenshot", "tab-new", "mousemove", "dialog-dismiss"])
+@pytest.mark.parametrize("timeout", [0, 0.1, 60])
+def test_observation_commands_accept_explicit_timeout(name, timeout):
+    arguments = minimal(name)
+    assert browser_cli.validate("browser." + name, arguments)["timeout"] == 30
+    arguments["timeout"] = timeout
+    assert browser_cli.validate("browser." + name, arguments)["timeout"] == timeout
+    for invalid in [-1, float("inf"), float("nan")]:
+        arguments["timeout"] = invalid
+        with pytest.raises(ValueError):
+            browser_cli.validate("browser." + name, arguments)

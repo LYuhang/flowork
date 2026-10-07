@@ -56,8 +56,14 @@ function target(state, args) {
 
 async function snapshot(state, args = {}, isCurrent = () => true) {
   if (state.dialog) return { dialog: { type: state.dialog.type(), message: state.dialog.message() }, snapshot: null };
-  const root = target(state, args) || state.page;
-  const text = await root.ariaSnapshot({ mode: "ai", depth: args.depth, boxes: args.boxes, timeout: 5000 });
+  const locator = target(state, args);
+  const timeout = (args.timeout ?? 30) * 1000;
+  const started = Date.now();
+  // AI snapshots do not auto-wait for a missing target in Playwright.
+  if (locator) await locator.waitFor({ state: "attached", timeout });
+  const remaining = locator && timeout !== 0 ? Math.max(1, timeout - (Date.now() - started)) : timeout;
+  const root = locator || state.page;
+  const text = await root.ariaSnapshot({ mode: "ai", depth: args.depth, boxes: args.boxes, timeout: remaining });
   const prefix = crypto.randomBytes(5).toString("hex");
   const refs = new Map();
   const result = text.replace(/\[ref=((?:f\d+)?e\d+)\]/g, (_, ref) => {
@@ -109,7 +115,7 @@ async function evaluate(state, args) {
 
 async function executeAction(owner, name, args, isCurrent = () => true) {
   if (name === "tab-list") return { tabs: await owner.listTabs() };
-  if (name === "tab-new") return owner.newTab(args.opener_tab_id, args.url);
+  if (name === "tab-new") return owner.newTab(args.opener_tab_id, args.url, args.timeout ?? 30);
   const state = await owner.tab(args.tab_id);
   const page = state.page;
   const locator = target(state, args);
@@ -123,7 +129,7 @@ async function executeAction(owner, name, args, isCurrent = () => true) {
       return args.output_file ? { ...await writeArtifact(args.output_file, observation.snapshot ?? JSON.stringify(observation)), url: observation.url } : observation;
     }
     case "find": {
-      const observation = await snapshot(state);
+      const observation = await snapshot(state, args);
       if (observation.snapshot === null) return observation;
       let matcher;
       try { matcher = args.regex ? new RegExp(args.text) : null; }
@@ -143,7 +149,7 @@ async function executeAction(owner, name, args, isCurrent = () => true) {
       return { frames: [...ids].map(([frame, id]) => ({ frame_id: id, parent_id: ids.get(frame.parentFrame()) ?? null, name: frame.name(), url: frame.url() })) };
     }
     case "screenshot": {
-      const options = { type: "png", scale: args.hires ? "device" : "css", timeout: 30000 };
+      const options = { type: "png", scale: args.hires ? "device" : "css", ...timeout };
       const image = locator ? await locator.screenshot(options) : await page.screenshot({ ...options, fullPage: args.full_page });
       return writeArtifact(args.output_file || await defaultArtifact("png"), image);
     }
@@ -243,8 +249,10 @@ async function executeAction(owner, name, args, isCurrent = () => true) {
     default: throw new BrowserCommandError("unsupported_command", "The browser runtime does not recognize this command.");
   }
   if (TARGET_ACTIONS.has(name) && isCurrent() && !page.isClosed()) {
-    try { result.observation = await snapshot(state, {}, isCurrent); }
-    catch { result.warning = "The action succeeded, but the follow-up snapshot failed. Observe the page before taking the next action; do not repeat the completed action."; }
+    try { result.observation = await snapshot(state, { timeout: args.timeout }, isCurrent); }
+    catch (error) {
+      result.observation_error = { stage: "snapshot", code: error.name === "TimeoutError" ? "action_timeout" : (error.code || "observation_failed"), message: String(error.message || error) };
+      result.warning = "The action succeeded, but the follow-up snapshot failed. Observe the page before taking the next action; do not repeat the completed action."; }
   }
   return result;
 }

@@ -210,7 +210,7 @@ RUN pip install --no-cache-dir --no-deps --no-build-isolation . && \
 # caches and force those dependencies to download again.
 COPY --from=playwright-assets /opt/flowork-browser-runtime /opt/flowork-browser-runtime
 RUN ln -s /opt/flowork-browser-runtime/browser-runtime.cjs /usr/local/bin/flowork-browser-runtime && \
-    flowork-browser-runtime --version | grep -Fx "flowork-browser-runtime 0.4.0 (playwright-core ${PLAYWRIGHT_CORE_VERSION})"
+    flowork-browser-runtime --version | grep -Fx "flowork-browser-runtime 0.4.1 (playwright-core ${PLAYWRIGHT_CORE_VERSION})"
 
 # Reuse pinned official draw.io search modules directly; no Diagram MCP server.
 COPY --from=drawio-assets /opt/drawio-mcp /opt/drawio-mcp

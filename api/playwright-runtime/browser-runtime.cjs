@@ -115,13 +115,13 @@ class BrowserRuntime {
     return Promise.all([...this.states.values()].filter(state => !state.page.isClosed()).map(state => this.tabInfo(state)));
   }
 
-  async newTab(openerId, url) {
+  async newTab(openerId, url, timeout = 30) {
     const opener = await this.tab(openerId);
     // The extension enforces the authorized side-panel window at createTarget.
     const page = await opener.page.context().newPage();
     const state = await this.attach(page);
     try {
-      if (url !== "about:blank") await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      if (url !== "about:blank") await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeout * 1000 });
     } catch (error) {
       return { ...await this.tabInfo(state), warning: "The tab was created, but navigation failed. Inspect it before retrying.", navigation_error: safeText(error.message) };
     }
@@ -247,6 +247,7 @@ class BrowserRuntime {
           return { dialog: { type: value.type(), message: safeText(value.message()) }, hint: "Resolve the dialog with dialog-accept or dialog-dismiss." };
         })])
         : await action;
+      if (result?.observation_error) result.observation_error.message = safeText(result.observation_error.message);
       if (name !== "cookie-export") {
         for (const artifact of [result, result?.artifact]) {
           if (artifact && typeof artifact.file === "string" && Number.isInteger(artifact.bytes) && /^[a-f0-9]{64}$/.test(artifact.sha256))

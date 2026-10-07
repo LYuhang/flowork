@@ -1,6 +1,6 @@
 {
   "name": "flowork-browser-runtime",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Sandbox-owned Browser CLI worker for Flowork real browser sessions.",
   "license": "Apache-2.0",

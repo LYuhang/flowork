@@ -167,6 +167,8 @@ export interface ChatComposerProps {
   onSendStart?: () => void;
   /** Visual treatment for the main Chat page composer. */
   quietFrame?: boolean;
+  /** Single-line attachment chips for the small workflow conversation panel. */
+  compactAttachments?: boolean;
   framed?: boolean;
   /** Main Chat page places the agent model picker in the composer footer. */
   showModelSelector?: boolean;
@@ -194,6 +196,7 @@ export function ChatComposer({
   agentSurface = embedded ? 'browser' : 'chat',
   onSendStart,
   quietFrame = false,
+  compactAttachments = false,
   framed = false,
   showModelSelector = false,
   historyReady = true,
@@ -1190,11 +1193,12 @@ export function ChatComposer({
               className={cn(
                 'flex gap-2 overflow-x-auto px-2.5 pt-2.5',
                 quietFrame && 'px-0 pt-0',
+                compactAttachments && 'gap-1.5',
               )}
               data-role="agent-composer-attachments"
             >
               {(!draftPreparing ? pendingAttachments : []).map((attachment, index) => (
-                <ContextAttachmentCard key={contextAttachmentKey(attachment)} attachment={attachment} originChatId={chatId}
+                <ContextAttachmentCard key={contextAttachmentKey(attachment)} attachment={attachment} originChatId={chatId} compact={compactAttachments}
                   onRemove={() => {
                     if (!composerStateKey) return;
                     removeAttachmentAt(composerStateKey,index);
@@ -1204,12 +1208,12 @@ export function ChatComposer({
               {activeUploads.map((upload) => (
                 <span
                   key={upload.id}
-                  className="flex h-11 w-[164px] shrink-0 items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken/45 px-2.5 text-xs opacity-80"
+                  className={cn("flex w-[164px] shrink-0 items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken/45 px-2.5 text-xs opacity-80", compactAttachments ? "h-8" : "h-11")}
                   data-role="agent-composer-attachment-uploading"
                 >
                   <span className="text-base" aria-hidden="true">{attachmentEmoji(upload.type)}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{upload.name}</span>
+                  <span className={cn("min-w-0 flex-1", compactAttachments && "flex items-center gap-1")} >
+                    <span className="block truncate font-medium" title={upload.name}>{upload.name}</span>
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       {upload.status === 'uploading' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
                       <span title={upload.error}>{upload.status === 'failed' ? t('composer.uploadFailed', 'Upload failed')

@@ -295,7 +295,7 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
           }} />
         <div className="shrink-0 border-t">
           <ChatComposer key={visibleChatId} wfId={wfId} chatId={visibleChatId}
-            projectId={selected?.project_id} chatPersisted={persisted} quietFrame showModelSelector
+            projectId={selected?.project_id} chatPersisted={persisted} quietFrame compactAttachments showModelSelector
             historyReady={transcript.ready} disabledReason={disabledReason} prepareConversation={prepareConversation}
             onSendAccepted={() => remember(visibleChatId)} />
         </div>

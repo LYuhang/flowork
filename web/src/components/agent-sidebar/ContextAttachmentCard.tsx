@@ -1,3 +1,4 @@
+import { cn } from '@/lib/utils';
 import { attachmentSourceHref } from '@/lib/preview/attachment-source';
 import { useChatRenderIdentity } from './chat-render-context';
 import { useEffect, useState } from 'react';
@@ -15,8 +16,9 @@ import {
 
 /** One card for both a draft and the durable transcript. Large snapshots are
  * mounted only on demand, so history rendering never walks their DOM. */
-export function ContextAttachmentCard({ attachment, onRemove, originChatId }: {
+export function ContextAttachmentCard({ attachment, onRemove, originChatId, compact = false }: {
   attachment: ChatAttachment;
+  compact?: boolean;
   onRemove?: () => void;
   originChatId?: string | null;
 }) {
@@ -58,19 +60,19 @@ export function ContextAttachmentCard({ attachment, onRemove, originChatId }: {
   const Icon = attachment.type === 'quote' ? Quote : attachment.type === 'resource' ? Shapes : FileText;
   return (
     <>
-      <div className="preview-click-card relative flex w-60 max-w-full shrink-0 rounded-xl border border-edge-subtle bg-surface-sunken/60 text-xs"
+      <div className={cn("preview-click-card relative flex max-w-full shrink-0 border border-edge-subtle bg-surface-sunken/60 text-xs", compact ? "h-8 w-auto max-w-[200px] rounded-lg" : "w-60 rounded-xl")}
         data-role={onRemove ? 'agent-composer-attachment-chip' : 'context-attachment-card'} data-attachment-type={attachment.type}>
-        <button type="button" className="flex min-w-0 flex-1 items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        <button type="button" className={cn("flex min-w-0 flex-1 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus", compact ? "items-center gap-1.5 rounded-lg px-2 py-1" : "items-start gap-2.5 rounded-xl px-3 py-2.5")}
           onClick={() => setOpen(true)} aria-label={t('composer.context.view', {defaultValue:'View context: {{name}}', name:label})}>
-          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <Icon className={cn("shrink-0 text-muted-foreground", compact ? "h-3.5 w-3.5" : "mt-0.5 h-4 w-4")} aria-hidden="true" />
           <span className="min-w-0 flex-1">
             <span className="block truncate font-medium text-foreground" title={label}>{label}</span>
-            <span className="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">{preview.slice(0, 320)}</span>
-            {selector?.kind === 'text' && selector.unsaved && <span className="mt-1 block text-xs font-medium text-amber-700 dark:text-amber-400">{t('composer.context.unsavedText', 'Unsaved text snapshot')}</span>}
+            {!compact && <span className="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">{preview.slice(0, 320)}</span>}
+            {!compact && selector?.kind === 'text' && selector.unsaved && <span className="mt-1 block text-xs font-medium text-amber-700 dark:text-amber-400">{t('composer.context.unsavedText', 'Unsaved text snapshot')}</span>}
           </span>
         </button>
         {onRemove && <button type="button" onClick={onRemove}
-          className="my-1 mr-1 self-start rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus"
+          className={cn("mr-1 rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus", compact ? "self-center" : "my-1 self-start")}
           aria-label={t('composer.remove_attachment', 'Remove attachment')} data-action="agent-composer-attachment-remove">
           <X className="h-3 w-3" />
         </button>}

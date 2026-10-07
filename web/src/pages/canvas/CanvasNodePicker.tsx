@@ -35,7 +35,21 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
   const { viewportCenterFlowPos } = useCanvasViewport();
   const input = useRef<HTMLInputElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   if (readOnly && open) setOpen(false);
+  useEffect(() => {
+    if (!open) return;
+    // React Flow consumes pointer events while panning. Capture outside presses
+    // before they reach the canvas so the first click dismisses the picker.
+    const dismissOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (content.current?.contains(target) || button.current?.contains(target)) return;
+      setOpen(false);
+      setQuery('');
+    };
+    document.addEventListener('pointerdown', dismissOutside, true);
+    return () => document.removeEventListener('pointerdown', dismissOutside, true);
+  }, [open]);
   useEffect(() => {
     if (!pendingId || !nodes.some((node) => node.id === pendingId)) return;
     const frame = requestAnimationFrame(() => {
@@ -97,7 +111,7 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
           {chatControls}
           </div>
         </div>
-        <PopoverContent side={point ? 'right' : 'top'} align={point ? 'start' : 'center'} sideOffset={10} collisionPadding={12}
+        <PopoverContent ref={content} side={point ? 'right' : 'top'} align={point ? 'start' : 'center'} sideOffset={10} collisionPadding={12}
           className="w-[380px] max-w-[calc(100vw-24px)] overflow-hidden rounded-xl p-0 shadow-xl" aria-label={t('nodePicker.add', 'Add node')}
           onOpenAutoFocus={(event) => { event.preventDefault(); input.current?.focus(); }}
           onCloseAutoFocus={(event) => { event.preventDefault(); button.current?.focus(); }}>

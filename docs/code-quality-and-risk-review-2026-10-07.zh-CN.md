@@ -286,3 +286,4 @@ Usage 的 8 项真实 Python/Shell 样例验证已通过。新增 draw.io 静态
 - 首次大文件请求在 Nginx 返回 500：此前独立验收 Nginx 未单独指定临时目录，共用了 `/var/lib/nginx` 并将临时目录属主改为 `nobody`。已停止该测试实例，将五个临时目录属主恢复为线上 worker 的 `www-data`，复测上传成功。此问题来自测试环境隔离不完整，不能归因于上传限制逻辑；后续独立 Nginx 测试必须使用独立的 body/proxy/FastCGI/SCGI/uWSGI 临时目录。
 - 线上实际 Preview iframe 暴露独立测试未覆盖的问题：API 安全中间件追加 `X-Frame-Options: DENY`，使安装资源无法被同源嵌入。静态资源路由已显式返回 `SAMEORIGIN` 和 `frame-ancestors 'self'`；仅成功返回的安装资源放开同源嵌入，错误响应和其他 API 继续 DENY。
 - 加入生产安全中间件后的资源测试与安全头测试共 4 项通过，Ruff 通过。已同步该修正并启动 systemd 重启；浏览器完整导出复测待完成。
+- systemd 重启完成后，公网资源返回 SAMEORIGIN，实际独立 Preview 页面渲染成功。真实 Chromium 通过页面导出菜单下载 SVG（2500 字节）、PNG（3746 字节）、PDF（3415 字节）、JPG（3326 字节），文件签名与格式一致、下载无失败；预览和导出未观察到第三方请求，无未捕获 JavaScript 异常。安装资源仍尝试注册缺失的 service-worker.js 并产生控制台错误，不影响本轮渲染/导出，但需要后续明确关闭这一无用行为。

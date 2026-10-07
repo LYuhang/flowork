@@ -37,7 +37,7 @@ import i18n from '@/lib/i18n';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import type { ChatStreamEvent, StreamChunk, TodoItem } from '@/stores/chat-stream';
 import type { ToolInvocationEnvelope } from '@/components/agent-sidebar/types';
-import { fetchChatHistory, type ChatHistoryPage } from '@/lib/api/queries/chats';
+import { fetchTurnHandoffHistory, type ChatHistoryPage } from '@/lib/api/queries/chats';
 import { rememberActiveTurn, clearActiveTurn } from './active-turn';
 
 export interface RouteSignalContext {
@@ -52,6 +52,7 @@ export interface RouteSignalPresentation {
   loadDurableHistory?: (
     wfId: string,
     chatId: string,
+    turnId: string,
   ) => Promise<ChatHistoryPage>;
 }
 
@@ -70,7 +71,10 @@ function handoffToDurableHistory(
   presentation: RouteSignalPresentation,
 ): void {
   if (!turnId || !presentation.loadDurableHistory) return;
-  void presentation.loadDurableHistory(ctx.wfId, ctx.chatId).then((history) => {
+  void presentation.loadDurableHistory(ctx.wfId, ctx.chatId, turnId).then((history) => {
+    // A newer Turn may have begun while the old head request was in flight.
+    // Its late response must not overwrite that newer transcript's cache.
+    if (useChatStreamStore.getState().runtimes[ctx.chatId]?.turnId !== turnId) return;
     // Install the canonical transcript before releasing the live projection.
     // React therefore observes either (pre-Turn durable history + live Turn) or durable
     // head, never both complete copies and never an empty seam between them.
@@ -736,6 +740,9 @@ export function routeAgentSignal(
 ): void {
   routeAgentSignalWith(queryClient, event, payload, ctx, {
     ...defaultPresentation,
-    loadDurableHistory: fetchChatHistory,
+    loadDurableHistory: (wfId, chatId, turnId) => fetchTurnHandoffHistory(
+      wfId, chatId, turnId,
+      queryClient.getQueryData<ChatHistoryPage>(['chat-history', wfId, chatId, turnId]),
+    ),
   });
 }

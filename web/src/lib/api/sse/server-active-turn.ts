@@ -1,3 +1,4 @@
+import { hasCompletedChatTurn } from '@/stores/chat-stream';
 import { useAuthStore } from '@/stores/auth';
 import { getApiBase } from '@/lib/base-path';
 import type { components } from '@/lib/api/schema';
@@ -55,7 +56,10 @@ export async function readServerActiveTurns(wfId: string): Promise<ActiveTurn[] 
       return null;
     }
     if (!response.ok) return null;
-    const rows = await response.json() as ActiveRunResponse[];
+    const received = await response.json() as ActiveRunResponse[];
+    // Discovery can finish after this page already received a terminal SSE
+    // event. A completed Turn is immutable: do not recreate its active marker.
+    const rows = received.filter((row) => !hasCompletedChatTurn(row.chat_id, row.run_id));
     const local = readActiveTurns().filter((turn) => turn.wfId === wfId);
     const serverKeys = new Set(rows.map((row) => `${row.chat_id}:${row.run_id}`));
     for (const stale of local) {

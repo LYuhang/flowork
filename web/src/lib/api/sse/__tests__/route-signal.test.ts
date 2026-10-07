@@ -481,6 +481,24 @@ describe('routeAgentSignalWith', () => {
     });
   });
 
+  it('does not overwrite history from a newer turn with a delayed stopped-turn handoff', async () => {
+    const client = makeClient();
+    let resolve!: (page: { items: never[]; total: number; limit: number; offset: number }) => void;
+    const loadDurableHistory = () => new Promise<{ items: never[]; total: number; limit: number; offset: number }>((r) => { resolve = r; });
+    const store = useChatStreamStore.getState();
+    store.beginTurn(ctx.chatId, 'old-turn');
+    routeAgentSignalWith(client, 'error', { code: 'cancelled' }, ctx, { showNotice, loadDurableHistory });
+    store.beginTurn(ctx.chatId, 'new-turn');
+    store.appendChunk({ role: 'user', content: 'new request' }, ctx.chatId);
+    resolve({ items: [], total: 0, offset: 0, limit: 200 });
+    await Promise.resolve();
+    expect(client.setQueryData).not.toHaveBeenCalled();
+    expect(useChatStreamStore.getState().runtimes[ctx.chatId]).toMatchObject({
+      turnId: 'new-turn', state: 'streaming', projectionActive: true,
+    });
+    expect(useChatStreamStore.getState().runtimes[ctx.chatId].messages[0].content).toBe('new request');
+  });
+
   it('hands transcript ownership to durable head before clearing the live projection', async () => {
     const client = makeClient();
     const durableHistory = {

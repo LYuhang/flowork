@@ -8,7 +8,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useAuthStore } from '@/stores/auth';
 import { queryClient } from '@/app/query-client';
 import { fetchChatHistory } from '@/lib/api/queries/chats';
-import { useChatStreamStore } from '@/stores/chat-stream';
+import { hasCompletedChatTurn, useChatStreamStore } from '@/stores/chat-stream';
 import { getApiBase } from '@/lib/base-path';
 import { routeAgentSignal } from './route-signal';
 import {
@@ -75,7 +75,7 @@ export async function resumeActiveTurn(
   stream: typeof fetchEventSource = fetchEventSource,
 ): Promise<boolean> {
   const turn = at ?? readActiveTurn();
-  if (!turn) return false;
+  if (!turn || hasCompletedChatTurn(turn.chatId, turn.turnId)) return false;
 
   const resumeKey = `${turn.wfId}:${turn.chatId}:${turn.turnId}`;
   const existing = inFlightResumes.get(resumeKey);

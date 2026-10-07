@@ -8,6 +8,7 @@ import { queryClient } from '@/app/query-client';
 vi.mock('@/lib/api/queries/chats', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/api/queries/chats')>(),
   fetchChatHistory: vi.fn(async () => ({ items: [], total: 0, offset: 0, limit: 30 })),
+  fetchTurnHandoffHistory: vi.fn(async () => ({ items: [], total: 0, offset: 0, limit: 30 })),
 }));
 import {
   releaseTurnStream,
@@ -20,6 +21,25 @@ describe('resumeActiveTurn HITL projection', () => {
     localStorage.clear();
     useChatStreamStore.getState().reset();
     queryClient.clear();
+  });
+
+  it.each(['complete', 'cancelled'] as const)('does not resurrect a %s turn from delayed active discovery', async (state) => {
+    const chatId = `terminal_${state}`;
+    const turn = { wfId: 'scope_terminal', chatId, turnId: `turn_${state}`, status: 'running' as const };
+    const store = useChatStreamStore.getState();
+    store.beginTurn(chatId, turn.turnId);
+    store.appendChunk({ role: 'user', content: 'latest request' }, chatId);
+    store.setState(state, chatId);
+    store.finishProjection(chatId, turn.turnId);
+    const stream = vi.fn<typeof fetchEventSource>(async (_url, opts) => {
+      await opts.onopen?.(new Response('', { status: 200 }));
+      opts.onmessage?.({ id: '1', event: 'done', data: '{}' });
+    });
+    await resumeActiveTurn(turn, stream);
+    expect(stream).not.toHaveBeenCalled();
+    expect(useChatStreamStore.getState().runtimes[chatId]).toMatchObject({
+      turnId: turn.turnId, state, projectionActive: false,
+    });
   });
 
   it('waits for fixed history before exposing replayed messages', async () => {

@@ -958,3 +958,10 @@ export const useChatStreamStore = create<ChatStreamState>()(
       }),
   })),
 );
+
+/** A confirmed completion/cancellation cannot become active again from an older discovery response. */
+export function hasCompletedChatTurn(chatId: string, turnId: string): boolean {
+  const runtime = useChatStreamStore.getState().runtimes[chatId];
+  return runtime?.turnId === turnId
+    && (runtime.state === 'complete' || runtime.state === 'cancelled');
+}

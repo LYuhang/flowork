@@ -691,6 +691,32 @@ export async function fetchChatHistory(
   });
 }
 
+/** Replace a live Turn only after every durable row from that Turn is loaded.
+ * A default tail page alone can omit most of a long, already-visible response.
+ * Older loaded pages remain owned by useConversationHistory's history window.
+ */
+export async function fetchTurnHandoffHistory(
+  scopeId: string,
+  chatId: string,
+  turnId: string,
+  knownBoundary?: ChatHistoryPage,
+): Promise<ChatHistoryPage> {
+  const boundary = knownBoundary ?? await fetchChatHistoryPage(scopeId, chatId, {
+    beforeTurnId: turnId, limit: 1, tail: true,
+  });
+  const head = await fetchChatHistory(scopeId, chatId);
+  if (head.offset <= boundary.total) return head;
+  const items: ChatHistoryPage['items'] = [];
+  for (let offset = boundary.total; offset < head.offset;) {
+    const limit = Math.min(200, head.offset - offset);
+    const page = await fetchChatHistoryPage(scopeId, chatId, { offset, limit });
+    items.push(...page.items);
+    offset += limit;
+  }
+  return { ...head, items: [...items, ...head.items], offset: boundary.total,
+    limit: head.total - boundary.total };
+}
+
 export const useChatHistory = (
   scopeId: string | null,
   chatId: string | null,

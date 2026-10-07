@@ -313,7 +313,9 @@ describe('chat attachments', () => {
     act(() => { for (const callback of frames) callback(0); });
     expect(screen.getByRole('textbox', {name:'Search Skills'})).toHaveFocus();
     await userEvent.keyboard('{Escape}');
-    expect(input).toHaveValue('/skill');
+    // Choosing the first-level command inserts its canonical spelling.
+    // Cancelling the picker preserves that command for further editing.
+    expect(input).toHaveValue('/skill-use ');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

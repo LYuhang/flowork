@@ -241,6 +241,22 @@ async def test_extension_one_time_exchange_and_parent_logout_cascade(cookie_mode
         assert scoped.browser_id == "browser-1"
         assert await _browser_session_is_live(scoped) is True
 
+        # Opening another panel from the same parent login preserves the
+        # cookie and Session used by a live browser capability.
+        original_cookie = extension.cookies.get("__Host-vibecanvas-extension-session")
+        fresh_code = await primary.post(
+            "/api/v1/auth/extension/exchange-code", headers=_unsafe_headers(primary),
+        )
+        renewed = await extension.post(
+            "/api/v1/auth/extension/exchange",
+            headers={"Origin": EXTENSION_ORIGIN}, json={"code": fresh_code.json()["code"]},
+        )
+        assert renewed.status_code == 200, renewed.text
+        assert not renewed.headers.get_list("set-cookie")
+        assert extension.cookies.get("__Host-vibecanvas-extension-session") == original_cookie
+        assert (await extension.get("/api/v1/auth/me")).json()["session"]["session_id"] == scoped.session_id
+        assert await _browser_session_is_live(scoped) is True
+
         duplicate = await replay.post(
             "/api/v1/auth/extension/exchange",
             headers={"Origin": EXTENSION_ORIGIN},
@@ -256,3 +272,37 @@ async def test_extension_one_time_exchange_and_parent_logout_cascade(cookie_mode
         assert (await primary.get("/api/v1/auth/me")).status_code == 401
         assert (await extension.get("/api/v1/auth/me")).status_code == 401
         assert await _browser_session_is_live(scoped) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("same_user", [True, False])
+async def test_extension_exchange_does_not_reuse_another_parent_session(cookie_mode, same_user):
+    transport = ASGITransport(app=build_app())
+    async with (
+        AsyncClient(transport=transport, base_url=ORIGIN) as first,
+        AsyncClient(transport=transport, base_url=ORIGIN) as second,
+        AsyncClient(transport=transport, base_url=EXTENSION_ORIGIN) as extension,
+    ):
+        registered = await _register(first, "extension-original")
+        if same_user:
+            logged_in = await second.post(
+                "/api/v1/auth/login", headers={"Origin": ORIGIN},
+                json={"email": registered["user"]["email"], "password": "pw12345678"},
+            )
+            assert logged_in.status_code == 200
+        else:
+            await _register(second, "extension-other")
+
+        sessions = []
+        for parent in (first, second):
+            code = await parent.post("/api/v1/auth/extension/exchange-code", headers=_unsafe_headers(parent))
+            result = await extension.post(
+                "/api/v1/auth/extension/exchange", headers={"Origin": EXTENSION_ORIGIN},
+                json={"code": code.json()["code"]},
+            )
+            assert result.status_code == 200, result.text
+            assert result.headers.get_list("set-cookie")
+            me = (await extension.get("/api/v1/auth/me")).json()
+            assert me["user_id"] == (await parent.get("/api/v1/auth/me")).json()["user_id"]
+            sessions.append(me["session"]["session_id"])
+        assert sessions[0] != sessions[1]

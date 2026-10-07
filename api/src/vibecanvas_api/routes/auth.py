@@ -580,6 +580,27 @@ async def exchange_extension_session(
         if membership is None or membership.status != "active":
             raise HTTPException(403, "session organization membership is not active")
         expires_at = min(parent.expires_at, _now() + _SESSION_TTL)
+        credential = cookie_credential(request)
+        existing = (
+            await AuthRepo(session).resolve_session(hash_token(credential.raw_session))
+            if credential is not None and credential.audience == "extension"
+            else None
+        )
+        if (
+            existing is not None
+            and existing.audience == "extension"
+            and existing.parent_session_id == parent.session_id
+            and existing.user_id == parent.user_id
+            and existing.active_organization_id == parent.active_organization_id
+            and existing.authentication_strength == parent.authentication_strength
+            and existing.expires_at <= expires_at
+            and credential.raw_csrf
+            and hash_token(credential.raw_csrf) == existing.csrf_token_hash
+        ):
+            # All side panels in this browser share the partitioned cookie.
+            # Consuming a fresh code must not rotate an already valid session
+            # and disconnect another panel's in-flight browser commands.
+            return {"ok": True}
         derived = await AuthRepo(session).create_session(
             session_hash,
             parent.user_id,

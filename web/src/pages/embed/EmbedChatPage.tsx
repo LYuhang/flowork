@@ -411,6 +411,10 @@ export function EmbedChatPage() {
         }
         if (received.exchangeCode) {
           postToExtension({ type: 'AUTH_EXCHANGE_CONSUMED' });
+          // A fresh Extension Session can belong to the same account. Its
+          // browser capability still needs renewal: authScope deliberately
+          // preserves the selected Chat across same-account session changes.
+          setBoundWf(null);
         }
         if (owner !== authScope(auth)) {
           // The exchange changed identity. Request its fresh binding instead of

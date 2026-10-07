@@ -105,6 +105,18 @@ describe('embedded Chat identity boundary', () => {
     expect(mintBrowserToken).toHaveBeenCalledTimes(calls);
   });
 
+  it('renews browser capability after an exchange rotates the same-account session without losing Chat', async () => {
+    render(<MemoryRouter initialEntries={['/embed/chat?chat=selected-chat']}><EmbedChatPage /></MemoryRouter>);
+    await bind();
+    const shell = screen.getByTestId('shell');
+    const calls = vi.mocked(mintBrowserToken).mock.calls.length;
+    await shellMessage({ type: 'BINDING', browser_id: 'browser', exchangeCode: 'fresh-exchange' });
+    await waitFor(() => expect(mintBrowserToken).toHaveBeenCalledTimes(calls + 1));
+    expect(useAuthStore.getState().bootstrap).toHaveBeenCalledWith('fresh-exchange');
+    expect(screen.getByTestId('shell')).toBe(shell);
+    expect(shell).toHaveTextContent('scope-first:selected-chat');
+  });
+
   it('keeps the same mounted shell while the socket capability renews', async () => {
     render(<MemoryRouter><EmbedChatPage /></MemoryRouter>);
     await bind();

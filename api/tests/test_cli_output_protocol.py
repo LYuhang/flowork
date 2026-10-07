@@ -137,6 +137,20 @@ def test_real_local_worker_sync_execution_and_query(tmp_path, monkeypatch, capsy
     import vibecanvas_engine
     from vibecanvas_api.flowork_cli import local_command
     monkeypatch.setattr(local_command, 'RUN_ROOT', tmp_path / 'runs')
+    # Exercise the real child worker with a writable guest /work equivalent.
+    # This test runs on the host as an unprivileged user, outside its sandbox.
+    from vibecanvas_api.flowork_cli import local_process
+    original_popen = local_process.subprocess.Popen
+    bootstrap = (
+        "from functools import partial; import sys; "
+        "from vibecanvas_api.flowork_cli import local_command, local_process; "
+        f"local_command.execution_activity = partial(local_command.execution_activity, work_dir={str(tmp_path / 'work')!r}); "
+        "raise SystemExit(local_process.worker(int(sys.argv[1])))"
+    )
+    def spawn_worker(command, **kwargs):
+        assert command[1:3] == ['-m', local_process.__name__]
+        return original_popen([command[0], '-c', bootstrap, command[3]], **kwargs)
+    monkeypatch.setattr(local_process.subprocess, 'Popen', spawn_worker)
     graph_file = Path(vibecanvas_engine.__file__).resolve().parents[2] / 'tests' / 'example_workflow.json'
     prepared = {'workflow': json.loads(graph_file.read_text()), 'context': {},
                 'id': 'wf', 'version': 'v1.sv0', 'source': 'saved'}

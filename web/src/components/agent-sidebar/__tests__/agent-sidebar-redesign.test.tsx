@@ -188,7 +188,6 @@ describe('ChatMessageList', () => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     let height = 900;
     let rows = [{ id: 'recent', role: 'user', content: 'recent request' }];
-    let update: () => void;
     const load = vi.fn(async () => {
       height += load.mock.calls.length <= 2 ? 200 : 650;
       rows = [{ id: `older-${height}`, role: 'user', content: 'older request' }, ...rows];
@@ -201,7 +200,7 @@ describe('ChatMessageList', () => {
       scrollHeight: { configurable: true, get: () => height },
       clientHeight: { configurable: true, value: 600 },
     });
-    update = () => view.rerender(<ChatMessageList {...props} historyItems={rows} olderHistoryLoading={false} />);
+    const update = () => view.rerender(<ChatMessageList {...props} historyItems={rows} olderHistoryLoading={false} />);
     update();
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
     expect(height).toBe(1300);

@@ -83,7 +83,7 @@ def test_batch_help_describes_local_background_execution(capsys):
     help_text = " ".join(capsys.readouterr().out.split())
     assert "nohup" in help_text
     assert "status_path" in help_text and "exit_code" in help_text
-    assert "turn need not stay open" in help_text
+    assert "background execution across Agent turns" in help_text
     assert "check the original process/session handle" in help_text
     assert "do not automatically retry" in help_text
 

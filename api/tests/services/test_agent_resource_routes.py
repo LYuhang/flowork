@@ -397,10 +397,16 @@ async def test_task_submission_reports_committed_id_when_projection_is_unavailab
         response = await client.post("/api/v1/tasks/scheduled-runs", headers=headers,
             json={"name": "projection fixture", "workflow_id": workflow_id, "major": "v1",
                   "enabled": False, "schedule_type": "interval", "interval_seconds": 3600})
-    assert response.status_code in {200, 201, 202}, response.text
     result = response.json()
-    assert result["authorization_pending"] is True
-    task_id = result["task_id"] if kind == "batch" else result["task"]["id"]
+    if kind == "batch":
+        assert response.status_code == 503, response.text
+        assert result["detail"]["error"] == "authorization_unavailable"
+        assert result["detail"]["status"] == "failed"
+        task_id = result["detail"]["task_id"]
+    else:
+        assert response.status_code in {200, 201, 202}, response.text
+        assert result["authorization_pending"] is True
+        task_id = result["task"]["id"]
     async with session_scope(tenant_id=me["tenant_id"]) as session:
         task = await TasksRepo(session).get(uuid.UUID(task_id))
         assert task is not None

@@ -113,28 +113,17 @@ async def get_webhook_invocation_result(slug: str, invocation_id: uuid.UUID, req
 
 async def _read_body_with_hard_limit(request: Request, *, limit: int) -> bytes:
     """Read at most ``limit`` actual bytes, independent of client headers."""
-    stream = getattr(request, "stream", None)
-    if callable(stream):
-        chunks: list[bytes] = []
-        size = 0
-        async for chunk in stream():
-            size += len(chunk)
-            if size > limit:
-                raise HTTPException(
-                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail="payload too large (max 1MB)",
-                )
-            chunks.append(chunk)
-        return b"".join(chunks)
-    # Narrow compatibility seam for direct route unit tests. The post-read
-    # length check remains authoritative; a lying Content-Length cannot bypass it.
-    body = await request.body()
-    if len(body) > limit:
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="payload too large (max 1MB)",
-        )
-    return body
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"payload too large (max {limit} bytes)",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def _claim_webhook_receipt(
@@ -428,7 +417,7 @@ async def webhook(slug: str, request: Request):
         cl = None
     if cl is None or cl < 0 or cl > _WEBHOOK_MAX_BODY_BYTES:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             detail="payload too large (max 1MB)",
         )
 

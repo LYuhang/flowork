@@ -14,6 +14,7 @@ from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import ValidationError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -860,6 +861,12 @@ async def resolve_preview(
         auth=auth,
         session=session,
     )
+    # Starlette's shared AnyIO limiter bounds worker concurrency. Authorization
+    # and database access stay on the request loop; file I/O and parsing do not.
+    return await run_in_threadpool(_resolve_descriptor, resolved, auth)
+
+
+def _resolve_descriptor(resolved: _ResolvedFile, auth: AuthContext) -> PreviewDescriptorV1:
     size = int(resolved.row.size_bytes)
     prefix = _source_prefix(resolved, DETECTION_BYTES)
     detected, _content_type = _detect(
@@ -934,7 +941,7 @@ async def office_preview_rendition(
     size = int(resolved.row.size_bytes)
     if size > OFFICE_MANUAL_BYTES:
         raise HTTPException(status_code=413, detail="file_too_large")
-    data = _source_prefix(resolved, int(resolved.row.size_bytes))
+    data = await run_in_threadpool(_source_prefix, resolved, int(resolved.row.size_bytes))
     detected, _content_type = _detect(
         resolved.file_ref.path,
         resolved.row.content_type,
@@ -1006,7 +1013,7 @@ async def create_preview_resource_session(
     if is_html or is_markdown:
         size_bytes = int(resolved.row.size_bytes or 0)
         sample_size = min(size_bytes, 2 * 1024 * 1024)
-        source = _source_prefix(resolved, sample_size).decode(
+        source = (await run_in_threadpool(_source_prefix, resolved, sample_size)).decode(
             "utf-8", "replace"
         )
         if is_html:
@@ -1135,7 +1142,7 @@ async def write_preview_file(
         raise HTTPException(status_code=409, detail="preview_revision_conflict")
     if int(resolved.row.size_bytes) > EDITABLE_TEXT_BYTES:
         raise HTTPException(status_code=413, detail="preview_text_too_large")
-    original = _source_prefix(resolved, int(resolved.row.size_bytes))
+    original = await run_in_threadpool(_source_prefix, resolved, int(resolved.row.size_bytes))
     detected, _detected_content_type = _detect(
         body.file_ref.path,
         resolved.row.content_type,

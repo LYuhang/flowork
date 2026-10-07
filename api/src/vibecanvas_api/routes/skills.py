@@ -551,7 +551,10 @@ async def _read_custom_bundle(
     bundle: UploadFile,
 ) -> tuple[dict, list[tuple[str, str | None, bytes]]]:
     try:
-        data = await bundle.read()
+        limit = config.skills.max_bundle_bytes
+        data = await bundle.read(limit + 1)
+        if len(data) > limit:
+            raise HTTPException(status_code=413, detail=f"compressed Skill bundle exceeds {limit} bytes")
         await require_clean_upload(data)
         return unpack_skill_zip(data)
     except (ValueError, UnicodeError) as exc:

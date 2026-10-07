@@ -24,6 +24,8 @@ def rejection_response(status: int, detail=None, headers=None) -> JSONResponse:
         code = "rate_limit_exceeded"
     if status == 503 and detail in ("deployment_starting", "deployment_not_ready"):
         code = "deployment_not_ready"
+    if status == 503 and detail == "rate_limit_unavailable":
+        code = "rate_limit_unavailable"
     response_headers = dict(headers or {})
     if status in {429, 503}:
         response_headers.setdefault("Retry-After", "1")

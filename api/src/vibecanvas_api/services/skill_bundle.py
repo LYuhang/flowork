@@ -5,6 +5,7 @@ import io
 import posixpath
 import stat
 import zipfile
+import zlib
 
 from vibecanvas_api.config import config
 from vibecanvas_api.services.skill_loader import SkillParseError, parse_skill_md
@@ -66,20 +67,52 @@ def validate_skill_files(
 
 
 def unpack_skill_zip(data: bytes) -> tuple[dict, list[tuple[str, str | None, bytes]]]:
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile as exc:
-        raise SkillParseError("uploaded bundle is not a valid ZIP archive") from exc
+    limit = config.skills.max_bundle_bytes
+    if len(data) > limit:
+        raise SkillParseError(f"compressed Skill bundle exceeds {limit} bytes")
     files: list[tuple[str, str | None, bytes]] = []
-    with archive:
-        for info in archive.infolist():
-            if info.is_dir():
-                continue
-            mode = info.external_attr >> 16
-            if stat.S_ISLNK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode):
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+            if len(entries) > config.skills.max_files:
                 raise SkillParseError(
-                    f"Skill bundle contains an unsupported link/device: {info.filename}"
+                    f"Skill bundle has {len(entries)} entries; limit is {config.skills.max_files}"
                 )
-            path = _safe_path(info.filename)
-            files.append((path, None, archive.read(info)))
+            total = 0
+            seen = set()
+            selected = []
+            # Validate the entire directory before decompressing any entry.
+            for info in entries:
+                path = _safe_path(info.filename)
+                mode = info.external_attr >> 16
+                if stat.S_ISLNK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode):
+                    raise SkillParseError(
+                        f"Skill bundle contains an unsupported link/device: {info.filename}"
+                    )
+                if info.flag_bits & 1:
+                    raise SkillParseError("encrypted Skill bundles are not supported")
+                if info.is_dir():
+                    continue
+                if path in seen:
+                    raise SkillParseError(f"duplicate Skill bundle path: {path}")
+                seen.add(path)
+                if info.file_size > config.skills.max_file_bytes:
+                    raise SkillParseError(
+                        f"Skill file {path!r} exceeds {config.skills.max_file_bytes} bytes"
+                    )
+                total += info.file_size
+                if total > limit:
+                    raise SkillParseError(f"Skill bundle exceeds {limit} bytes")
+                selected.append((path, info))
+            total = 0
+            for path, info in selected:
+                allowed = min(config.skills.max_file_bytes, limit - total)
+                with archive.open(info) as source:
+                    content = source.read(allowed + 1)
+                if len(content) > allowed:
+                    raise SkillParseError(f"Skill bundle exceeds extraction limit at {path!r}")
+                total += len(content)
+                files.append((path, None, content))
+    except (zipfile.BadZipFile, NotImplementedError, RuntimeError, EOFError, zlib.error) as exc:
+        raise SkillParseError("uploaded bundle is not a valid supported ZIP archive") from exc
     return validate_skill_files(files)

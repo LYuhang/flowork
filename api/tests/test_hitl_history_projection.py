@@ -2,9 +2,9 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 import pytest
 
-from vibecanvas_api.routes.chats import (
-    _hitl_history_projection,
-    _merge_hitl_history_projections,
+from vibecanvas_api.services.chat_history_projection import (
+    hitl_history_projection,
+    merge_hitl_history_projections,
 )
 from vibecanvas_api.schemas.chat import HistoryMessage
 
@@ -13,11 +13,11 @@ from vibecanvas_api.schemas.chat import HistoryMessage
 def test_cli_approval_restores_without_native_mcp_tool_call(call_id):
     projection = HistoryMessage(id="hitl:cli:projection", role="tool", content="Waiting",
                                 tool_call_id=call_id, ts=123, artifact={"pending": True})
-    result = _merge_hitl_history_projections([], [(call_id, projection)])
+    result = merge_hitl_history_projections([], [(call_id, projection)])
     assert len(result) == 2
     assert result[0].tool_calls[0]["id"] == call_id
     assert result[1] is projection
-    assert _merge_hitl_history_projections(result, [(call_id, projection)]) == result
+    assert merge_hitl_history_projections(result, [(call_id, projection)]) == result
 
 
 def _rows(
@@ -71,7 +71,7 @@ def _rows(
 
 
 def test_hitl_history_projection_preserves_pending_card():
-    projected = _hitl_history_projection(
+    projected = hitl_history_projection(
         *_rows(status="pending", interacted=False, result={})
     )
 
@@ -90,15 +90,15 @@ def test_cli_history_restores_actual_command_and_arguments(method):
     hitl.ui_payload_json["projection_event"]["tool_call_id"] = "cli_123"
     hitl.runtime_correlation_json = {"source": "flowork_cli", "runtime_method": method}
     hitl.agent_payload_json = {"arguments": {"deployment_id": "target"}}
-    projected = _hitl_history_projection(artifact, hitl)
-    messages = _merge_hitl_history_projections([], [projected])
+    projected = hitl_history_projection(artifact, hitl)
+    messages = merge_hitl_history_projections([], [projected])
     assert messages[0].tool_calls[0] == {"id": "cli_123", "name": "flowork-cli " + method.replace(".", " "),
                                         "args": {"deployment_id": "target"}}
 
 
 def test_hitl_history_projection_freezes_resolved_result():
     result = {"decision": "approve", "remember": False}
-    projected = _hitl_history_projection(
+    projected = hitl_history_projection(
         *_rows(status="approved", interacted=True, result=result)
     )
 
@@ -116,7 +116,7 @@ def test_hitl_history_projection_freezes_resolved_result():
 
 
 def test_post_tool_continue_projection_does_not_become_tool_approval():
-    _, message = _hitl_history_projection(
+    _, message = hitl_history_projection(
         *_rows(
             status="pending",
             interacted=False,
@@ -135,7 +135,7 @@ def test_post_tool_continue_projection_does_not_become_tool_approval():
 
 
 def test_completed_tool_result_keeps_content_and_gains_frozen_card():
-    _, projection = _hitl_history_projection(
+    _, projection = hitl_history_projection(
         *_rows(status="approved", interacted=True, result={"decision": "approve"})
     )
     history = [
@@ -152,7 +152,7 @@ def test_completed_tool_result_keeps_content_and_gains_frozen_card():
         HistoryMessage(role="assistant", content="done"),
     ]
 
-    merged = _merge_hitl_history_projections(
+    merged = merge_hitl_history_projections(
         history,
         [("call_1", projection)],
     )
@@ -164,7 +164,7 @@ def test_completed_tool_result_keeps_content_and_gains_frozen_card():
 
 
 def test_pending_card_is_inserted_after_announcing_tool_call():
-    _, projection = _hitl_history_projection(
+    _, projection = hitl_history_projection(
         *_rows(status="pending", interacted=False, result={})
     )
     history = [
@@ -175,10 +175,41 @@ def test_pending_card_is_inserted_after_announcing_tool_call():
         ),
     ]
 
-    merged = _merge_hitl_history_projections(
+    merged = merge_hitl_history_projections(
         history,
         [("call_1", projection)],
     )
 
     assert [message.role for message in merged] == ["assistant", "tool"]
     assert merged[1].id == "hitl:hitl_1:projection"
+
+
+@pytest.mark.asyncio
+async def test_history_pagination_counts_durable_rows_not_projection_cards(monkeypatch):
+    from unittest.mock import AsyncMock
+    from starlette.requests import Request
+    from vibecanvas_api.routes import chats
+    from vibecanvas_api.schemas.pagination import PageRequest
+
+    monkeypatch.setattr(chats, '_authorize_chat', AsyncMock())
+    repo = SimpleNamespace(
+        get_authorized_inventory=AsyncMock(return_value={'scope_id': 'scope'}),
+        list_message_page=AsyncMock(return_value=([
+            {'message_id': 'hidden', 'content': {'visibility': 'hidden'}},
+            {'message_id': 'visible', 'role': 'assistant', 'content': {'text': 'Hello'}, 'ts': 12},
+        ], 32, 30)),
+    )
+    hitl = SimpleNamespace(list_artifact_refs_for_chat=AsyncMock(return_value=[(None, None)]))
+    projection = HistoryMessage(id='approval', role='tool', content='Waiting', ts=13,
+                                tool_call_id='cli_123')
+    monkeypatch.setattr(chats, 'hitl_history_projection', lambda *args: ('cli_123', projection))
+    result = await chats.get_chat_history(
+        scope_id='scope', chat_id='chat', request=Request({'type': 'http'}),
+        page=PageRequest(limit=30), chat_repo=repo, hitl_repo=hitl,
+        auth=SimpleNamespace(), debug=False, tail=True, before_turn_id=None, service=None,
+    )
+    assert result.total == 32
+    assert result.offset == 30
+    assert len(result.items) == 3
+    assert result.items[0].history_position == 31
+    assert result.items[-1].history_position is None

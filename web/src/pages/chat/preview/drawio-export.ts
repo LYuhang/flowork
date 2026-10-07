@@ -1,4 +1,4 @@
-const DEFAULT_DRAWIO_EMBED_URL = 'https://embed.diagrams.net/';
+import { getApiBase } from '@/lib/base-path';
 const DEFAULT_DRAWIO_EDITOR_URL = 'https://app.diagrams.net/';
 
 export type DrawioExportFormat = 'drawio' | 'svg' | 'png' | 'pdf' | 'jpg';
@@ -6,10 +6,12 @@ export type DrawioRenderedFormat = Exclude<DrawioExportFormat, 'drawio'>;
 type DrawioNativeRenderedFormat = Extract<DrawioRenderedFormat, 'svg' | 'png'>;
 
 export function drawioEmbedUrl(): URL {
-  const configured = import.meta.env.VITE_DRAWIO_EMBED_URL as string | undefined;
-  const url = new URL(configured?.trim() || DEFAULT_DRAWIO_EMBED_URL);
+  const url = new URL(`${getApiBase()}/api/v1/preview/drawio-assets/index.html`, window.location.origin);
   url.search = new URLSearchParams({
     embed: '1',
+    offline: '1',
+    local: '1',
+    analytics: '0',
     ui: 'min',
     spin: '1',
     proto: 'json',

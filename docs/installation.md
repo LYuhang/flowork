@@ -777,3 +777,18 @@ for login, sandbox startup, file preview and Workflow execution acceptance.
 The native installer and Node container build stages pin npm 11.19.0 and apply
 checksum-verified upstream fixes for its bundled `brace-expansion`, `undici`,
 `ip-address`, and `tar` packages. Application dependencies continue to use their committed lockfiles.
+
+
+### Local draw.io preview assets
+
+Preview and export use the Web renderer inside the pinned draw.io Desktop
+installation, served by the API from `/opt/drawio/resources/app.asar`. Native
+bootstrap and the API container already install this package. For a custom
+installation location, set `DRAWIO_ASAR_PATH` to its installation-owned ASAR
+file. Missing assets return `drawio_renderer_unavailable`; the browser does not
+fall back to a third-party renderer. Opening the external editor remains an
+explicit, separate user action.
+
+For event-driven Deployment result waiting behind transaction-mode PgBouncer,
+set `EXECUTION_NOTIFICATION_DATABASE_URL` to a direct or session-pooled URL for
+the same application database. PostgreSQL LISTEN requires session affinity.

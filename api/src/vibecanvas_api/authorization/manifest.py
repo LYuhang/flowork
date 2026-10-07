@@ -71,6 +71,7 @@ class McpToolPermission:
 
 _PUBLIC_ENDPOINTS = frozenset({
     "healthz",
+    "drawio_asset",  # Installation-owned renderer assets; no user files.
     "metrics_endpoint",
     "version",
     "public_config",

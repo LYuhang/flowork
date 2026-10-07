@@ -61,7 +61,7 @@ async def test_timeout_snapshot_and_unclaimed_fence(pg_engine, app_engine):
         assert history['workflow_version'] == f"v{spec['pinned_major']}.sv{spec['pinned_sub']}"
         await db.execute(text("UPDATE deployment_invocations SET submitted_at=now()-interval '2 seconds' WHERE id=:id"),{'id':invocation})
         await db.execute(text('UPDATE deployments SET timeout_seconds=120 WHERE id=:id'),{'id':dep['id']})
-    response=await observe_invocation(tenant_id=tenant,slug='test',invocation_id=str(invocation))
+    response=await asyncio.wait_for(observe_invocation(tenant_id=tenant,slug='test',invocation_id=str(invocation)), 5)
     assert response.status_code==504
     async with session_scope(tenant_id=tenant) as db:
         row=(await db.execute(text('SELECT status,timeout_seconds,runtime_claim FROM deployment_invocations WHERE id=:id'),{'id':invocation})).one()

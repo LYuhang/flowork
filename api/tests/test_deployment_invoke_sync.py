@@ -267,10 +267,10 @@ async def _seed_full_deployment(pg_engine, app_engine, *, enabled: bool = True):
                 "INSERT INTO deployments("
                 "id, tenant_id, user_id, owner_id, wf_id, name, slug, "
                 "trigger_type, version_pin, pinned_major, pinned_sub, "
-                "api_key_hash, enabled"
+                "api_key_hash, enabled, rate_limit_qps"
                 ") VALUES ("
                 ":id, :t, :u, :u, :w, 'Sync', :s, "
-                "'api', 'specific', 1, 0, :h, :en"
+                "'api', 'specific', 1, 0, :h, :en, 0"
                 ")"
             ),
             {
@@ -465,10 +465,10 @@ async def test_invoke_honors_pinned_version_not_head(
                 "INSERT INTO deployments("
                 "id, tenant_id, user_id, owner_id, wf_id, name, slug, "
                 "trigger_type, version_pin, pinned_major, pinned_sub, "
-                "api_key_hash, enabled"
+                "api_key_hash, enabled, rate_limit_qps"
                 ") VALUES ("
                 ":id, :t, :u, :u, :w, 'Pinned', :s, "
-                "'api', 'specific', 1, 0, :h, TRUE"
+                "'api', 'specific', 1, 0, :h, TRUE, 0"
                 ")"
             ),
             {"id": dep_id, "t": tenant_id, "u": user_id, "w": wf_id, "s": slug, "h": h},

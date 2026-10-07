@@ -25,7 +25,7 @@ can find the row.
 DBOS ``send_task`` is stubbed: T9 ships the worker; here we
 assert only the API-side row insert + task_id return. We call
 the route handler directly with a stub ``Request`` — the
-webhook reads ``.headers`` and ``.body()`` only, so a minimal
+webhook reads ``.headers`` and ``.stream()``, so a minimal
 stand-in suffices and we avoid wiring TestClient.
 """
 from __future__ import annotations
@@ -92,21 +92,16 @@ def _sign(secret: str, ts: str, body: bytes) -> str:
     ).hexdigest()
 
 
-class _StubRequest:
-    """Minimal ``starlette.Request`` stand-in.
+def _StubRequest(*, headers: dict, body: bytes):
+    """Use Starlette's real streaming contract for direct route tests."""
+    from starlette.requests import Request
 
-    The webhook handler only reads ``.headers`` and ``await
-    .body()`` — no need to wire ASGI scope. Headers is a plain
-    dict (handler uses ``.get(key, default)`` which works on
-    dicts and Starlette ``Headers`` alike).
-    """
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
 
-    def __init__(self, *, headers: dict, body: bytes):
-        self.headers = headers
-        self._body = body
-
-    async def body(self) -> bytes:
-        return self._body
+    return Request({"type": "http", "headers": [
+        (key.lower().encode(), value.encode()) for key, value in headers.items()
+    ]}, receive=receive)
 
 
 # --------------------------------------------------------------------- seed
@@ -172,6 +167,7 @@ async def _seed_webhook_dep(pg_engine, app_engine):
             pinned_sub=None,
             hmac_secret_ref=secret_ref,
             hmac_secret_version=1,
+            rate_limit_qps=0,  # Rate-limit enforcement has its own Redis tests.
         )
     from tests.test_deployment_invoke_sync import _activate_test_revision
     await _activate_test_revision(tenant_id, dep_id)

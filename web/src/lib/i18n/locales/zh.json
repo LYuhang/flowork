@@ -3999,4 +3999,5 @@
   "dateTime.placeholder": "YYYY-MM-DD HH:mm:ss",
   "tasks.notifications.emailPlaceholder": "user@example.com",
   "evaluation.downloadJsonl": "下载 JSONL ↓"
+,"deployments.code.asyncResultHint": "HTTP 200 直接返回 outputs；HTTP 202 返回执行 ID 和 status_url，请使用同一凭据查询该地址。等待审批不是失败。状态变为 succeeded、failed、timed_out 或 cancelled 后停止查询，不要重复提交原调用。"
 }

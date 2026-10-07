@@ -38,21 +38,27 @@ async def test_check_rate_limit_skips_if_qps_zero(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_check_rate_limit_skips_if_redis_down(monkeypatch):
+async def test_check_rate_limit_rejects_if_redis_down(monkeypatch):
     from vibecanvas_api.services import rate_limit
     monkeypatch.setattr(rate_limit, "_get_redis", lambda: None)
-    # Must not raise.
-    await rate_limit.check_rate_limit({"id": "x", "rate_limit_qps": 10})
+    with pytest.raises(HTTPException) as error:
+        await rate_limit.check_rate_limit({"id": "x", "rate_limit_qps": 10})
+    assert error.value.status_code == 503
+    assert error.value.detail == "rate_limit_unavailable"
+    assert error.value.headers == {"Retry-After": "1"}
 
 
 @pytest.mark.asyncio
-async def test_check_rate_limit_swallows_redis_error(monkeypatch):
+async def test_check_rate_limit_rejects_redis_error(monkeypatch):
     from vibecanvas_api.services import rate_limit
     fake = AsyncMock()
     fake.eval = AsyncMock(side_effect=ConnectionError("boom"))
     monkeypatch.setattr(rate_limit, "_get_redis", lambda: fake)
-    # Must not raise.
-    await rate_limit.check_rate_limit({"id": "x", "rate_limit_qps": 10})
+    with pytest.raises(HTTPException) as error:
+        await rate_limit.check_rate_limit({"id": "x", "rate_limit_qps": 10})
+    assert error.value.status_code == 503
+    assert error.value.detail == "rate_limit_unavailable"
+    assert error.value.headers == {"Retry-After": "1"}
 
 
 # ----- bump_redis_invoke_counter -----
@@ -172,3 +178,15 @@ def test_flush_task_registered():
 def test_reconciler_task_registered():
     from vibecanvas_api.background_workflows import SCHEDULE_WORKFLOWS
     assert "deployments.concurrency_reconciler" in SCHEDULE_WORKFLOWS
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_recovers_on_next_request(monkeypatch):
+    from vibecanvas_api.services import rate_limit
+    fake = AsyncMock()
+    fake.eval.side_effect = [ConnectionError('private endpoint'), 1]
+    monkeypatch.setattr(rate_limit, '_get_redis', lambda: fake)
+    with pytest.raises(HTTPException) as error:
+        await rate_limit.check_rate_limit({'id': 'x', 'rate_limit_qps': 2})
+    assert 'private' not in error.value.detail
+    await rate_limit.check_rate_limit({'id': 'x', 'rate_limit_qps': 2})

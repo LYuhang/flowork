@@ -69,9 +69,6 @@ import { useAuthStore } from '@/stores/auth';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { useUIStore } from '@/stores/ui';
 import {
-  CHAT_INITIAL_HISTORY_LIMIT,
-  fetchChatHistoryPage,
-  useChatHistory,
   useChatProjects,
   useCreateChatProject,
   useChatSessions,
@@ -105,26 +102,14 @@ import {
   readRecentChatLocation,
   writeRecentChatSelection,
 } from '@/lib/chat/state-key';
-import { mergeHistoryWindow, type ChatHistoryWindow } from './history-window';
+import { useConversationHistory } from '@/lib/chat/use-conversation-history';
 
 const ChatPreviewPane = lazy(() =>
   import('./ChatPreviewPane').then((module) => ({ default: module.ChatPreviewPane })),
 );
 
 const EMPTY_RAW_CHUNKS: RawChunk[] = [];
-const MAX_HISTORY_WINDOWS = 20;
 const MAX_STARTED_CHAT_IDS = 50;
-
-function retainHistoryWindow(
-  current: Record<string, ChatHistoryWindow>,
-  key: string,
-  value: ChatHistoryWindow,
-): Record<string, ChatHistoryWindow> {
-  const next = { ...current };
-  delete next[key];
-  next[key] = value;
-  return Object.fromEntries(Object.entries(next).slice(-MAX_HISTORY_WINDOWS));
-}
 
 function ChatPaneSeparator({ label }: { label: string }) {
   return (
@@ -307,7 +292,6 @@ export function ChatPage() {
   );
   const [startedChatIds, setStartedChatIds] = useState<Set<string>>(() => new Set());
   const [sandboxSelectionKey, setSandboxSelectionKey] = useState<string | null>(null);
-  const [historyWindows, setHistoryWindows] = useState<Record<string, ChatHistoryWindow>>({});
   const [chatIdCopied, setChatIdCopied] = useState(false);
   const [firstProjectName, setFirstProjectName] = useState('');
   const chatIdCopyResetTimer = useRef<number | null>(null);
@@ -545,21 +529,17 @@ export function ChatPage() {
   // after the recent transcript is visible so an occasional backend spike
   // cannot make six independent requests compete with the content the user is
   // actually waiting to read.
-  const activeProjectionTurnId = useChatStreamStore((state) => {
-    if (!activeChatId) return null;
-    const runtime = state.runtimes[activeChatId];
-    return runtime?.projectionActive ? runtime.turnId : null;
-  });
   const activeChatCanLoadHistory = Boolean(
     activeChatIsPersisted
     || (activeChatId && activeChatId === restoredChatId && !restoredChatLocation?.draft && !chatSessions.isError),
   );
-  const activeHistory = useChatHistory(
-    carrierScopeId || null,
-    activeChatCanLoadHistory ? activeChatId : null,
-    activeChatCanLoadHistory,
-    activeProjectionTurnId || null,
-  );
+  const {
+    query: activeHistory,
+    items: historyItems,
+    hasOlder: hasOlderHistory,
+    loadingOlder: olderHistoryLoading,
+    loadOlder: loadOlderHistory,
+  } = useConversationHistory(carrierScopeId || '', activeChatId, activeChatCanLoadHistory);
   const secondaryChatResourcesReady = Boolean(
     activeChatResourcesReady
     && (
@@ -765,75 +745,6 @@ export function ChatPage() {
 
   const workspaceScopeId = workspace.data?.workspace_scope_id ?? '';
   const mountScopeId = workspace.data?.mount_scope_id ?? '';
-  // Durable history owns completed turns while the live projection owns the
-  // active turn. Excluding that turn from the query prevents the same user/AI
-  // messages from being rendered once from each source.
-  // The visible transcript window belongs to the Chat, not to an individual
-  // Turn. Starting a Turn briefly uses an empty Turn id until the POST is
-  // accepted; keying this cache by that id would swap the already-rendered
-  // history for an empty window and make the conversation flash away.
-  const activeHistoryKey = carrierScopeId && activeChatId
-    ? `${carrierScopeId}:${activeChatId}`
-    : '';
-  // Derive the current tail directly from the query result so the pagination
-  // affordance is present in the same render as the first transcript page.
-  // Local state retains all displayed pages, including previous tails. This
-  // avoids a transient state where messages are visible but offset/hasOlder
-  // still belong to the previous render and the user must refresh the page.
-  const activeHistoryWindow = useMemo(() => {
-    if (!activeHistoryKey) return undefined;
-    const retained = historyWindows[activeHistoryKey];
-    return activeHistory.data
-      ? mergeHistoryWindow(retained, activeHistory.data)
-      : retained;
-  }, [activeHistory.data, activeHistoryKey, historyWindows]);
-  // Retain every displayed durable page before a new Turn changes the query
-  // key. Conditional render-time adjustment avoids an effect-driven commit.
-  const [historyCheckpoint, setHistoryCheckpoint] = useState<{
-    key: string; page: typeof activeHistory.data;
-  } | null>(null);
-  if (activeHistoryKey && activeHistory.data && (
-    historyCheckpoint?.key !== activeHistoryKey || historyCheckpoint.page !== activeHistory.data
-  )) {
-    setHistoryCheckpoint({ key: activeHistoryKey, page: activeHistory.data });
-    setHistoryWindows(current => retainHistoryWindow(
-      current,
-      activeHistoryKey,
-      mergeHistoryWindow(current[activeHistoryKey], activeHistory.data),
-    ));
-  }
-  const olderHistoryLoadingRef = useRef(false);
-  const [olderHistoryLoading, setOlderHistoryLoading] = useState(false);
-  const hasOlderHistory = !!activeHistoryWindow && activeHistoryWindow.offset > 0;
-  const loadOlderHistory = useCallback(async () => {
-    if (!carrierScopeId || !activeChatId || !activeHistoryKey || !activeHistoryWindow) return;
-    if (olderHistoryLoadingRef.current || activeHistoryWindow.offset <= 0) return;
-    olderHistoryLoadingRef.current = true;
-    setOlderHistoryLoading(true);
-    try {
-      // Keep older-history reads incremental. The message list may request
-      // multiple pages only while its viewport is still under-filled; once it
-      // becomes scrollable, further pages are fetched by an explicit upward
-      // scroll near the top.
-      const limit = Math.min(CHAT_INITIAL_HISTORY_LIMIT, activeHistoryWindow.offset);
-      const offset = Math.max(0, activeHistoryWindow.offset - limit);
-      const page = await fetchChatHistoryPage(
-        carrierScopeId,
-        activeChatId,
-        { limit, offset, beforeTurnId: activeProjectionTurnId },
-      );
-      setHistoryWindows((current) =>
-        retainHistoryWindow(
-          current,
-          activeHistoryKey,
-          mergeHistoryWindow(current[activeHistoryKey], page),
-        ),
-      );
-    } finally {
-      olderHistoryLoadingRef.current = false;
-      setOlderHistoryLoading(false);
-    }
-  }, [activeChatId, activeHistoryKey, activeHistoryWindow, activeProjectionTurnId, carrierScopeId]);
   const chatState = useChatState(
     carrierScopeId || null,
     secondaryChatResourcesReady ? activeChatId : null,
@@ -906,7 +817,7 @@ export function ChatPage() {
   // A default/unchanged title is not evidence of an empty transcript (for
   // example, a chat materialized by attachment upload before its first Turn).
   const showConversation = activeChatStartedThisView
-    || Boolean(activeHistoryWindow?.items.length)
+    || Boolean(historyItems?.length)
     || (activeChatIsPersisted && !activeChatLooksEmpty);
   const historyReady =
     (
@@ -953,7 +864,7 @@ export function ChatPage() {
       });
     }
     for (const item of previewItems) add(item);
-    for (const message of mergeChunks([...(activeHistoryWindow?.items ?? []), ...livePreviewChunks])) {
+    for (const message of mergeChunks([...(historyItems ?? []), ...livePreviewChunks])) {
       for (const call of message.tool_calls) {
         const workflowId = workflowIdFromToolCall(call);
         if (workflowId) {
@@ -967,7 +878,7 @@ export function ChatPage() {
       }
     }
     return [...byId.values()];
-  }, [activeChatId, selectedProjectId, activeChatIsPersisted, activeHistoryWindow?.items, backgroundViewAvailable, livePreviewChunks, previewItems, t]);
+  }, [activeChatId, selectedProjectId, activeChatIsPersisted, historyItems, backgroundViewAvailable, livePreviewChunks, previewItems, t]);
   const previewDiscoveryReady = !activeHistory.isLoading && !workspace.isLoading;
   useEffect(() => {
     if (!previewOpen || !previewDiscoveryReady) return;
@@ -1307,7 +1218,7 @@ export function ChatPage() {
                       title: t('chat.preview.workflowTitle', 'Workflow: {{id}}', { id: workflowId.slice(0, 8) }),
                       resource: { schemaVersion: 1, kind: 'workflow', workflowId },
                     })}
-                    historyItems={activeHistoryWindow?.items ?? (activeHistory.data?.items as RawChunk[] | undefined)}
+                    historyItems={historyItems ?? (activeHistory.data?.items as RawChunk[] | undefined)}
                     historyLoading={activeHistory.isLoading}
                     historyFetching={activeHistory.isFetching}
                     historyError={activeHistory.isError}

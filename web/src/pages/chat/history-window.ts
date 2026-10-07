@@ -1,7 +1,7 @@
 import type { RawChunk } from '@/components/agent-sidebar/types';
 import type { ChatHistoryPage } from '@/lib/api/queries/chats';
 
-export type ChatHistoryWindow = Omit<ChatHistoryPage, 'items'> & { items: RawChunk[] };
+export type ChatHistoryWindow = Omit<ChatHistoryPage, 'items'> & { items: RawChunk[]; positions?: number[]; ranges?: [number, number][] };
 
 function historyChunkKey(chunk: RawChunk): string {
   if (chunk.id) return `id:${chunk.id}`;
@@ -14,33 +14,54 @@ export function mergeHistoryWindow(
   previous: ChatHistoryWindow | undefined,
   page: ChatHistoryPage,
 ): ChatHistoryWindow {
-  const pageItems = page.items as RawChunk[];
-  // An empty pre-Turn checkpoint covers no history. Its zero offset must
-  // not hide pagination when the first completed Turn exceeds one page.
-  if (!previous || previous.total === 0) return { ...page, items: pageItems };
-
-  // A smaller offset is an older page and must be prepended. A same/newer
-  // offset is a refreshed tail and must be appended so its canonical rows win
-  // if a tool message changed from running to terminal between reads.
-  const candidates = page.offset < previous.offset
-    ? [...pageItems, ...previous.items]
-    : [...previous.items, ...pageItems];
-  const indexes = new Map<string, number>();
-  const items: RawChunk[] = [];
-  for (const item of candidates) {
-    const key = historyChunkKey(item);
-    const index = indexes.get(key);
-    if (index === undefined) {
-      indexes.set(key, items.length);
-      items.push(item);
-    } else {
-      items[index] = item;
+  // Keep absolute positions: retained pages can be disjoint after a long
+  // background Turn. A minimum offset cannot describe that coverage.
+  const rows = new Map<string, { item: RawChunk; position: number }>();
+  previous?.items.forEach((item, index) => {
+    rows.set(historyChunkKey(item), {
+      item, position: previous.positions?.[index] ?? previous.offset + index,
+    });
+  });
+  (page.items as RawChunk[]).forEach((item, index) => {
+    rows.set(historyChunkKey(item), { item, position: item.history_position ?? page.offset + index });
+  });
+  const ordered = [...rows.values()].sort((a, b) => {
+    // Projection cards do not consume durable positions. Their timestamp
+    // places them beside the interaction rather than at each fetched tail.
+    if (a.item.ts != null && b.item.ts != null && a.item.ts !== b.item.ts) {
+      return a.item.ts - b.item.ts;
     }
+    return a.position - b.position;
+  });
+  const positions = ordered.map(row => row.position);
+  const ranges: [number, number][] = [
+    ...(previous?.ranges ?? (previous && previous.total > 0
+      ? [[previous.offset, Math.min(previous.total, previous.offset + previous.limit)] as [number, number]] : [])),
+    [page.offset, Math.min(page.total, page.offset + page.limit)],
+  ];
+  ranges.sort((a, b) => a[0] - b[0]);
+  const coverage: [number, number][] = [];
+  for (const range of ranges) {
+    if (range[0] >= range[1]) continue;
+    const last = coverage.at(-1);
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+    else coverage.push([...range]);
+  }
+  const total = Math.max(previous?.total ?? 0, page.total);
+  // The pagination cursor walks backwards from the newest known boundary,
+  // stopping at the first gap even if the beginning is already cached.
+  let offset = total;
+  for (let i = coverage.length - 1; i >= 0; i -= 1) {
+    const [start, end] = coverage[i];
+    if (end >= offset) offset = Math.min(offset, start);
+    else break;
   }
   return {
-    items,
-    total: page.total,
-    limit: items.length,
-    offset: Math.min(previous.offset, page.offset),
+    items: ordered.map(row => row.item),
+    positions,
+    ranges: coverage,
+    total,
+    limit: ordered.length,
+    offset,
   };
 }

@@ -382,6 +382,8 @@ class MessagePostBody(BaseModel):
 
 
 class HistoryMessage(BaseModel):
+    # Absolute position in the durable row sequence; projections have no slot.
+    history_position: int | None = None
     id: str | None = None
     role: Literal["user", "assistant", "system", "tool"]
     content: str

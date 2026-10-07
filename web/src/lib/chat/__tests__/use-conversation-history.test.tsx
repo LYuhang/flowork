@@ -62,3 +62,18 @@ it('offers older history after the first long Turn and loads it to the beginning
  expect(result.current.hasOlder).toBe(false);
  expect(result.current.items?.map(m=>m.id)).toEqual(Array.from({length:61},(_,i)=>String(i+1)));
 });
+
+it('keeps a pagination entry for a gap after a long background response', async () => {
+ state.page = page(1,30,30);
+ const { result, rerender } = renderHook(() => useConversationHistory('scope','gap',true));
+ state.page = page(71,100,100); rerender();
+ expect(result.current.items).toHaveLength(60);
+ expect(result.current.hasOlder).toBe(true);
+ state.older = page(41,70,100);
+ await act(async () => { await result.current.loadOlder(); });
+ expect(result.current.hasOlder).toBe(true);
+ state.older = page(11,40,100);
+ await act(async () => { await result.current.loadOlder(); });
+ expect(result.current.hasOlder).toBe(false);
+ expect(result.current.items?.map(m=>m.id)).toEqual(Array.from({length:100},(_,i)=>String(i+1)));
+});

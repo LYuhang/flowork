@@ -1,3 +1,4 @@
+import { deploymentCodeExamples, endpointFor, type CodeLanguage } from './deployment-code-examples';
 import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
@@ -79,7 +80,6 @@ import { getStartNodeFields, type StartNodeField } from '@/lib/workflow/start-no
 import type { TFunction } from 'i18next';
 
 type TabKey = 'overview' | 'usage' | 'activity' | 'settings' | 'terminal';
-type CodeLanguage = 'curl' | 'python' | 'javascript';
 
 function deploymentDetailTab(value: string | null): TabKey {
   if (value === 'usage' || value === 'code' || value === 'test') return 'usage';
@@ -89,11 +89,6 @@ function deploymentDetailTab(value: string | null): TabKey {
   return 'overview';
 }
 
-function endpointFor(dep: Deployment): string {
-  return dep.trigger_type === 'webhook'
-    ? `/api/v1/deployments/${dep.slug}/webhook`
-    : `/api/v1/deployments/${dep.slug}/invoke`;
-}
 
 function last24HoursRange() {
   const to = new Date();
@@ -503,118 +498,6 @@ function workflowExampleInputs(fields: StartNodeField[]): Record<string, unknown
   return Object.fromEntries(fields.map((field) => [field.name, exampleValue(field)]));
 }
 
-function deploymentCodeExamples(
-  dep: Deployment,
-  exampleInputs: Record<string, unknown>,
-): Record<CodeLanguage, string> {
-  const endpointPath = endpointFor(dep);
-  if (!endpointPath) {
-    return { curl: '', python: '', javascript: '' };
-  }
-  const endpoint = resolveApiUrl(endpointPath);
-  const payload = JSON.stringify(exampleInputs);
-  if (dep.trigger_type === 'webhook') {
-    return {
-      curl: [
-        `payload='${payload}'`,
-        'timestamp="$(date +%s)"',
-        'signature="$(printf \'%s\' "${timestamp}.${payload}" | openssl dgst -sha256 -hmac "${FLOWORK_WEBHOOK_SECRET}" | awk \'{print $2}\')"',
-        '',
-        `curl --request POST '${endpoint}' \\`,
-        "  --header 'Content-Type: application/json' \\",
-        '  --header "X-Vibecanvas-Timestamp: ${timestamp}" \\',
-        '  --header "X-Vibecanvas-Signature: sha256=${signature}" \\',
-        '  --data "${payload}"',
-      ].join('\n'),
-      python: [
-        'import hashlib',
-        'import hmac',
-        'import json',
-        'import os',
-        'import time',
-        '',
-        'import requests',
-        '',
-        `url = ${JSON.stringify(endpoint)}`,
-        `payload = json.dumps(json.loads(${JSON.stringify(payload)}), separators=(",", ":"))`,
-        'timestamp = str(int(time.time()))',
-        'secret = os.environ["FLOWORK_WEBHOOK_SECRET"].encode()',
-        'signature = hmac.new(',
-        '    secret, f"{timestamp}.{payload}".encode(), hashlib.sha256',
-        ').hexdigest()',
-        'response = requests.post(',
-        '    url,',
-        '    data=payload,',
-        '    headers={',
-        '        "Content-Type": "application/json",',
-        '        "X-Vibecanvas-Timestamp": timestamp,',
-        '        "X-Vibecanvas-Signature": f"sha256={signature}",',
-        '    },',
-        '    timeout=60,',
-        ')',
-        'response.raise_for_status()',
-        'print(response.json())',
-      ].join('\n'),
-      javascript: [
-        "import { createHmac } from 'node:crypto';",
-        '',
-        `const url = ${JSON.stringify(endpoint)};`,
-        `const payload = JSON.stringify(${payload});`,
-        'const timestamp = Math.floor(Date.now() / 1000).toString();',
-        "const secret = process.env.FLOWORK_WEBHOOK_SECRET;",
-        "if (!secret) throw new Error('FLOWORK_WEBHOOK_SECRET is required');",
-        "const signature = createHmac('sha256', secret)",
-        "  .update(`${timestamp}.${payload}`)",
-        "  .digest('hex');",
-        'const response = await fetch(url, {',
-        "  method: 'POST',",
-        '  headers: {',
-        "    'Content-Type': 'application/json',",
-        "    'X-Vibecanvas-Timestamp': timestamp,",
-        "    'X-Vibecanvas-Signature': `sha256=${signature}` ,",
-        '  },',
-        '  body: payload,',
-        '});',
-        'if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);',
-        'console.log(await response.json());',
-      ].join('\n'),
-    };
-  }
-
-  return {
-    curl: [
-      `curl --request POST '${endpoint}' \\`,
-      "  --header 'Content-Type: application/json' \\",
-      '  --header "Authorization: Bearer ${FLOWORK_API_KEY}" \\',
-      `  --data '${payload}'`,
-    ].join('\n'),
-    python: [
-      'import os',
-      'import json',
-      'import requests',
-      '',
-      `response = requests.post(${JSON.stringify(endpoint)},`,
-      '    headers={"Authorization": f"Bearer {os.environ[\'FLOWORK_API_KEY\']}"},',
-      `    json=json.loads(${JSON.stringify(payload)}),`,
-      '    timeout=60,',
-      ')',
-      'response.raise_for_status()',
-      'print(response.json())',
-    ].join('\n'),
-    javascript: [
-      `const response = await fetch(${JSON.stringify(endpoint)}, {`,
-      "  method: 'POST',",
-      '  headers: {',
-      "    'Content-Type': 'application/json',",
-      "    Authorization: `Bearer ${process.env.FLOWORK_API_KEY}` ,",
-      '  },',
-      `  body: JSON.stringify(${payload}),`,
-      '});',
-      'if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);',
-      'console.log(await response.json());',
-    ].join('\n'),
-  };
-}
 
 function CodeExamplesTab({
   dep,
@@ -647,6 +530,9 @@ function CodeExamplesTab({
           </p>
         </div>
       </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {t('deployments.code.asyncResultHint', 'HTTP 200 returns outputs. HTTP 202 returns an execution ID and status_url: query that URL with the same credentials. Waiting for approval is not a failure. Stop querying at succeeded, failed, timed_out or cancelled; do not submit the original request again.')}
+      </p>
       <Tabs value={language} onValueChange={(value) => setLanguage(value as CodeLanguage)} className="mt-4">
         <TabsList aria-label={t('deployments.code.language', 'Code language')}>
           <TabsTrigger value="curl">cURL</TabsTrigger>

@@ -178,6 +178,7 @@ For API-triggered deployments, submit the StartNode input object directly to
 | Active execution budget expires during synchronous observation | 504 |
 | Invalid input | 422 |
 | QPS or invocation concurrency quota is exhausted | 429 with `Retry-After` |
+| Redis cannot enforce a configured QPS limit | 503 `rate_limit_unavailable`, with `Retry-After: 1`; no invocation is admitted |
 | Execution infrastructure is unavailable | 503 with `Retry-After` |
 | Internal dispatch fails | 500 |
 
@@ -570,3 +571,25 @@ non-overlapping node bounds, read-only Node/Run info inspectors, reload/direct
 entry followed by Back/Close, and approval-timeout trace messages with no active
 approval buttons. All passed without page errors; the stored snapshot remained
 unchanged. This is mobile-viewport coverage, not a physical Safari-device test.
+
+
+### Execution state notifications
+
+HTTP observers and sandbox execution drivers subscribe to PostgreSQL
+`flowork_execution_state` notifications.
+State-change triggers publish only execution IDs at transaction commit. The API
+shares one listener per active event loop and uses tenant-bound pooled sessions
+to read results on events; normal waiting does not poll execution tables. A
+separate deadline wakes synchronous calls for timeout handling. Reconnecting the
+listener prompts a state read to recover missed events.
+
+`EXECUTION_NOTIFICATION_DATABASE_URL` may point to the same application database
+through a direct or session-pooled connection when `DATABASE_URL` uses transaction
+pooling. It defaults to `DATABASE_URL`; PostgreSQL LISTEN must not pass through a
+transaction-mode PgBouncer pool. No additional service is required.
+
+The sandbox driver waits for runtime events or a committed approval/cancel/timeout
+command. Empty runtime heartbeat replies do not read or lock execution tables.
+Runtime transport waits remain bounded (25 seconds) to detect lost connections;
+this heartbeat does not decide execution status or trigger state polling. Only
+uncertain command delivery retries briefly while the transport is failing.

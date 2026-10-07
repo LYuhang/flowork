@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { PreviewDescriptorV1 } from '@/lib/preview/protocol';
 import { DrawioPreviewRenderer } from '../DrawioPreviewRenderer';
-import { exportDrawioXml, openDrawioEditor, renderDrawioXml } from '../drawio-export';
+import { drawioEmbedUrl, exportDrawioXml, openDrawioEditor, renderDrawioXml } from '../drawio-export';
 
 const XML = '<mxGraphModel><root><mxCell id="0"/></root></mxGraphModel>';
 
@@ -84,7 +84,7 @@ describe('DrawioPreviewRenderer', () => {
     expect(frame.style.left).toBe('-20000px');
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
     window.dispatchEvent(new MessageEvent('message', {
-      origin: 'https://embed.diagrams.net',
+      origin: drawioEmbedUrl().origin,
       source: frame.contentWindow,
       data: JSON.stringify({ event: 'init' }),
     }));
@@ -95,7 +95,7 @@ describe('DrawioPreviewRenderer', () => {
       xml: XML,
     }));
     window.dispatchEvent(new MessageEvent('message', {
-      origin: 'https://embed.diagrams.net',
+      origin: drawioEmbedUrl().origin,
       source: frame.contentWindow,
       data: JSON.stringify({
         event: 'export',
@@ -119,7 +119,7 @@ describe('DrawioPreviewRenderer', () => {
       const element = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]');
       expect(element).not.toBeNull();return element!;
     });
-    window.dispatchEvent(new MessageEvent('message', {origin:'https://embed.diagrams.net',source:frame.contentWindow,data:JSON.stringify({event:'export',data:'invalid'})}));
+    window.dispatchEvent(new MessageEvent('message', {origin:drawioEmbedUrl().origin,source:frame.contentWindow,data:JSON.stringify({event:'export',data:'invalid'})}));
     await waitFor(() => expect(document.querySelector('[data-preview-error="render_failed"]')).not.toBeNull());
     expect(document.querySelector('[data-preview-error="content_unavailable"]')).toBeNull();
     vi.mocked(fetch).mockResolvedValue(new Response(XML));
@@ -129,7 +129,7 @@ describe('DrawioPreviewRenderer', () => {
       const element = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]');
       expect(element).not.toBeNull(); expect(element).not.toBe(frame); return element!;
     });
-    window.dispatchEvent(new MessageEvent('message', {origin:'https://embed.diagrams.net',source:retryFrame.contentWindow,data:JSON.stringify({event:'export',data:'data:image/svg+xml;base64,PHN2Zy8+'})}));
+    window.dispatchEvent(new MessageEvent('message', {origin:drawioEmbedUrl().origin,source:retryFrame.contentWindow,data:JSON.stringify({event:'export',data:'data:image/svg+xml;base64,PHN2Zy8+'})}));
     expect(await screen.findByRole('img', {name:'example.drawio'})).toBeVisible();
   });
 
@@ -139,10 +139,11 @@ describe('DrawioPreviewRenderer', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     const exported = exportDrawioXml(XML, 'example.drawio', 'svg');
     const frame = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]');
-    expect(frame?.src).toMatch(/^https:\/\/embed\.diagrams\.net\/\?/);
+    expect(frame?.src).toBe(drawioEmbedUrl().toString());
+    expect(frame?.src).toContain("/api/v1/preview/drawio-assets/index.html");
     const postMessage = vi.spyOn(frame!.contentWindow!, 'postMessage');
     window.dispatchEvent(new MessageEvent('message', {
-      origin: 'https://embed.diagrams.net',
+      origin: drawioEmbedUrl().origin,
       source: frame!.contentWindow,
       data: JSON.stringify({ event: 'init' }),
     }));
@@ -153,7 +154,7 @@ describe('DrawioPreviewRenderer', () => {
     });
 
     window.dispatchEvent(new MessageEvent('message', {
-      origin: 'https://embed.diagrams.net',
+      origin: drawioEmbedUrl().origin,
       source: frame!.contentWindow,
       data: JSON.stringify({
         event: 'export',
@@ -171,7 +172,7 @@ describe('DrawioPreviewRenderer', () => {
     const frame = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]')!;
     const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
     window.dispatchEvent(new MessageEvent('message', {
-      origin: 'https://embed.diagrams.net',
+      origin: drawioEmbedUrl().origin,
       source: frame.contentWindow,
       data: JSON.stringify({ event: 'init' }),
     }));
@@ -180,7 +181,7 @@ describe('DrawioPreviewRenderer', () => {
       format: 'xmlpng',
     }));
     window.dispatchEvent(new MessageEvent('message', {
-      origin: 'https://embed.diagrams.net',
+      origin: drawioEmbedUrl().origin,
       source: frame.contentWindow,
       data: JSON.stringify({
         event: 'export',
@@ -209,12 +210,12 @@ describe('DrawioPreviewRenderer', () => {
     const exported = renderDrawioXml(XML, 'jpg');
     const frame = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]')!;
     window.dispatchEvent(new MessageEvent('message', {
-      origin: 'https://embed.diagrams.net',
+      origin: drawioEmbedUrl().origin,
       source: frame.contentWindow,
       data: JSON.stringify({ event: 'init' }),
     }));
     window.dispatchEvent(new MessageEvent('message', {
-      origin: 'https://embed.diagrams.net',
+      origin: drawioEmbedUrl().origin,
       source: frame.contentWindow,
       data: JSON.stringify({
         event: 'export',

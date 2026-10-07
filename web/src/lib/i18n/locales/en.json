@@ -3999,4 +3999,5 @@
   "dateTime.placeholder": "YYYY-MM-DD HH:mm:ss",
   "tasks.notifications.emailPlaceholder": "user@example.com",
   "evaluation.downloadJsonl": "Download JSONL ↓"
+,"deployments.code.asyncResultHint": "HTTP 200 returns outputs. HTTP 202 returns an execution ID and status_url: query that URL with the same credentials. Waiting for approval is not a failure. Stop querying at succeeded, failed, timed_out or cancelled; do not submit the original request again."
 }

@@ -1,9 +1,7 @@
-"""Spec §7 — Redis token bucket per-deployment QPS, per-tenant concurrency,
-and best-effort Redis invoke counter (§4.4).
+"""Redis fixed-window Deployment QPS enforcement and best-effort counters.
 
-Redis is best-effort by design — if unreachable, callers MUST NOT fail.
-The DB rows in deployments.invoke_count remain authoritative; rate limits
-are a defense in depth, not a hard correctness contract.
+Configured QPS requires Redis availability; unavailable enforcement returns 503.
+Usage counters remain best-effort and do not change invocation admission.
 """
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ _redis_init_failed: bool = False
 def _get_redis():
     """Lazy Redis client. Returns None if Redis is configured-but-down.
 
-    We don't raise — the call site treats None as "skip rate limiting".
+    Admission rejects unavailable enforcement; best-effort counters skip it.
     """
     global _redis_client, _redis_init_failed
     if _redis_client is not None:
@@ -42,9 +40,8 @@ def _get_redis():
         return None
 
 
-_TOKEN_BUCKET_LUA = """
+_FIXED_WINDOW_LUA = """
 local key = KEYS[1]
-local cap = tonumber(ARGV[1])
 local n = redis.call('INCR', key)
 if n == 1 then redis.call('EXPIRE', key, 1) end
 return n
@@ -52,22 +49,18 @@ return n
 
 
 async def check_rate_limit(deployment: dict) -> None:
-    """429 if the deployment's QPS exceeded.
-
-    Best-effort: if Redis is unreachable, allow the request through
-    (deployment.rate_limit_qps is a soft cap, not a security boundary).
-    """
+    """429 on QPS overflow; 503 when a configured limit cannot be enforced."""
     qps = deployment.get("rate_limit_qps")
     if qps is None or qps == 0:
         return
     r = _get_redis()
     if r is None:
-        return
+        raise HTTPException(503, detail="rate_limit_unavailable", headers={"Retry-After": "1"})
     key = f"rl:dep:{deployment['id']}"
     try:
-        count = await r.eval(_TOKEN_BUCKET_LUA, 1, key, qps)
-    except Exception:
-        return  # Redis down — skip the check
+        count = int(await r.eval(_FIXED_WINDOW_LUA, 1, key))
+    except Exception as exc:
+        raise HTTPException(503, detail="rate_limit_unavailable", headers={"Retry-After": "1"}) from exc
     if int(count) > qps:
         raise HTTPException(
             status_code=429,

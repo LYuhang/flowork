@@ -17741,6 +17741,46 @@
           }
         }
       }
+    },
+    "/api/v1/preview/drawio-assets/{asset}": {
+      "get": {
+        "tags": [
+          "preview"
+        ],
+        "summary": "Drawio Asset",
+        "operationId": "drawio_asset_api_v1_preview_drawio_assets__asset__get",
+        "parameters": [
+          {
+            "name": "asset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Asset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -21654,6 +21694,17 @@
       },
       "HistoryMessage": {
         "properties": {
+          "history_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History Position"
+          },
           "id": {
             "anyOf": [
               {

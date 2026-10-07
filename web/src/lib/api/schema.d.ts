@@ -5084,6 +5084,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/preview/drawio-assets/{asset}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Drawio Asset */
+        get: operations["drawio_asset_api_v1_preview_drawio_assets__asset__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6543,6 +6560,8 @@ export interface components {
         };
         /** HistoryMessage */
         HistoryMessage: {
+            /** History Position */
+            history_position?: number | null;
             /** Id */
             id?: string | null;
             /**
@@ -19459,6 +19478,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    drawio_asset_api_v1_preview_drawio_assets__asset__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -243,6 +243,9 @@ async def test_result_query_is_scoped_to_current_deployment_key(pg_engine, app_e
     (503, "sandbox_unavailable"), (503, "sandbox_deadline_exceeded"),
 ])
 async def test_pre_dispatch_failure_has_durable_safe_result(pg_engine, app_engine, monkeypatch, code, transport):
+    from unittest.mock import AsyncMock
+    # This test exercises dispatch failure, not Redis admission availability.
+    monkeypatch.setattr("vibecanvas_api.routes.deployment_invoke.check_rate_limit", AsyncMock())
     from tests.test_deployment_invoke_sync import _seed_full_deployment, _activate_test_revision
     from vibecanvas_api.routes import deployment_invoke
     from vibecanvas_api.storage import db as db_module
@@ -283,3 +286,27 @@ def test_approval_timeout_has_its_own_external_error_code():
     payload = json.loads(response.body)
     assert payload["status"] == "timed_out" and payload["error_code"] == "approval_timeout"
     assert "private details" not in response.body.decode()
+
+
+@pytest.mark.asyncio
+async def test_http_redis_outage_rejects_without_admitting_execution(pg_engine, app_engine, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+    from vibecanvas_api.app import build_app
+    from vibecanvas_api.services import rate_limit
+    from vibecanvas_api.storage import db as db_module
+    from tests.test_deployment_invoke_sync import _seed_full_deployment
+
+    monkeypatch.setattr(db_module, '_admin_engine', pg_engine)
+    tenant, slug, key, deployment = await _seed_full_deployment(pg_engine, app_engine)
+    async with session_scope(tenant_id=str(tenant)) as session:
+        await session.execute(text('UPDATE deployments SET rate_limit_qps=10 WHERE id=:id'), {'id': deployment})
+    monkeypatch.setattr(rate_limit, '_get_redis', lambda: None)
+    async with AsyncClient(transport=ASGITransport(app=build_app()), base_url='http://testserver') as client:
+        response = await client.post(f'/api/v1/deployments/{slug}/invoke',
+                                     headers={'Authorization': f'Bearer {key}'}, json={'x': 1})
+    assert response.status_code == 503, response.text
+    assert response.headers['Retry-After'] == '1'
+    assert response.json()['detail'] == 'rate_limit_unavailable'
+    async with session_scope(tenant_id=str(tenant)) as session:
+        count = await session.scalar(text('SELECT count(*) FROM deployment_invocations WHERE deployment_id=:id'), {'id': deployment})
+        assert count == 0

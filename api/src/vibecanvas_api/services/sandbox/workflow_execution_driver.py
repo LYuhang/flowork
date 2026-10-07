@@ -20,6 +20,8 @@ from vibecanvas_api.storage.db import short_session_scope
 from vibecanvas_api.storage.workflow_history_repo import TERMINAL_STATUSES, WorkflowHistoryRepo
 
 from .workflow_rpc import WorkflowRpcError
+from .workflow_event_wait import wait_for_execution_event
+from ..execution_notifications import execution_changes
 
 logger = structlog.get_logger(__name__)
 TRANSPORT_ERRORS = (OSError, TimeoutError, asyncio.IncompleteReadError)
@@ -112,7 +114,9 @@ class WorkflowExecutionDriver:
         try:
             async with asyncio.timeout(timeout_seconds) as budget:
                 self._timeout = budget
-                return await self._run(inputs=inputs, context=context)
+                async with execution_changes(self.execution_id) as changed:
+                    changed.set()  # Reconcile commands committed before subscribing.
+                    return await self._run(inputs=inputs, context=context, changed=changed)
         except TimeoutError:
             if self._timeout is not None and self._timeout.expired():
                 return await self._lost(error_code="execution_timeout")
@@ -122,7 +126,7 @@ class WorkflowExecutionDriver:
             await self._lost()
             raise
 
-    async def _run(self, *, inputs: dict, context: dict) -> dict:
+    async def _run(self, *, inputs: dict, context: dict, changed: asyncio.Event) -> dict:
         generation = self.slot.client.generation
         async with self._session() as session:
             await WorkflowHistoryRepo(session).bind_runtime(
@@ -159,13 +163,13 @@ class WorkflowExecutionDriver:
             if not self.slot.alive:
                 return await self._lost()
             try:
-                state = await self.slot.client.call(
-                    "events",
-                    invocation_id=self.execution_id,
-                    after=after,
-                    wait_seconds=0.25,
-                    limit=100,
-                    timeout=3,
+                if command_disconnected_since is not None:
+                    # Retry uncertain delivery only while the control transport
+                    # is failing; normal idle executions perform no DB polling.
+                    await asyncio.sleep(0.25)
+                    changed.set()
+                frames, reconcile = await wait_for_execution_event(
+                    self.slot.client, self.execution_id, after, changed,
                 )
                 disconnected_since = None
             except TRANSPORT_ERRORS:
@@ -179,7 +183,8 @@ class WorkflowExecutionDriver:
                     return await self._lost()
                 raise
 
-            frames = state["events"]
+            if not frames and not reconcile:
+                continue  # Transport heartbeat: no state change to persist/read.
             if any(frame["type"] in {"result", "approval_requested"} for frame in frames):
                 # Reviewers need prior node artifacts while the workflow waits,
                 # before either the approval or final result becomes visible.

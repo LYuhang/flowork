@@ -14,6 +14,7 @@ from collections import Counter
 from dataclasses import dataclass
 import json
 import re
+import time
 from typing import AsyncIterator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import uuid
@@ -1285,6 +1286,7 @@ async def _authorize_and_resolve_workflow_target(
 
 
 async def _proxy_runtime_model_request(request: Request, path: str):
+    request_started = time.monotonic()
     token = _extract_capability(request)
     chat_capability = verify_runtime_model_capability(
         token,
@@ -1327,6 +1329,12 @@ async def _proxy_runtime_model_request(request: Request, path: str):
         provider=capability.provider,
         allowed_model=capability.model,
     )
+    timing_context = {
+        "request_id": uuid.uuid4().hex,
+        "execution_id": chat_capability.turn_id if chat_capability is not None else workflow_capability.execution_id,
+        "scope_type": "chat" if chat_capability is not None else "workflow",
+        "preflight_ms": round((time.monotonic() - request_started) * 1000, 3),
+    }
     namespace_rewrite = (
         _flatten_namespace_tools(body)
         if path.strip("/").endswith("responses")
@@ -1439,15 +1447,23 @@ async def _proxy_runtime_model_request(request: Request, path: str):
             # Response rewriting operates on the provider bytes, so request an
             # identity representation rather than forwarding Codex compression.
             headers["Accept-Encoding"] = "identity"
-        return await client.send(
-            client.build_request(
-                "POST",
-                target_url,
-                headers=headers,
-                content=request_body,
-            ),
-            stream=True,
-        )
+        sent_at = time.monotonic()
+        response = None
+        try:
+            response = await client.send(
+                client.build_request("POST", target_url, headers=headers, content=request_body),
+                stream=True,
+            )
+            return response
+        finally:
+            # Log timings even if the execution is cancelled before headers.
+            # Never include request bodies, headers, tokens or exception text.
+            logger.info(
+                "runtime_model_upstream_headers_timing", **timing_context,
+                upstream_headers_ms=round((time.monotonic() - sent_at) * 1000, 3),
+                response_received=response is not None,
+                upstream_status=response.status_code if response is not None else None,
+            )
 
     try:
         for _attempt in range(12):
@@ -1670,11 +1686,14 @@ async def _proxy_runtime_model_request(request: Request, path: str):
 
     async def stream_body() -> AsyncIterator[bytes]:
         observer = _SseShapeObserver()
+        body_started = time.monotonic()
+        body_completed = False
         try:
             if not namespace_compatibility or namespace_rewrite is None:
                 async for chunk in upstream.aiter_raw():
                     observer.feed(chunk)
                     yield chunk
+                body_completed = True
                 return
             buffer = bytearray()
             async for chunk in upstream.aiter_raw():
@@ -1699,9 +1718,14 @@ async def _proxy_runtime_model_request(request: Request, path: str):
                     bytes(buffer),
                     flat_to_namespaced=namespace_rewrite.flat_to_namespaced,
                 )
+            body_completed = True
         finally:
             logger.info(
                 "runtime_model_upstream_stream_shape",
+                **timing_context,
+                body_completed=body_completed,
+                response_body_ms=round((time.monotonic() - body_started) * 1000, 3),
+                total_ms=round((time.monotonic() - request_started) * 1000, 3),
                 provider=target.provider,
                 model=target.model,
                 destination=urlsplit(target.base_url).hostname,

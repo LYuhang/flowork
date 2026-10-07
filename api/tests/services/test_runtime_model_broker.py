@@ -886,6 +886,11 @@ async def test_chat_runtime_broker_injects_provider_key_only_on_host(
 ):
     from vibecanvas_api.config import config
     from vibecanvas_api.routes import chats as chats_route
+    from vibecanvas_api.routes import runtime_model_broker as broker
+    from unittest.mock import Mock
+
+    log = Mock()
+    monkeypatch.setattr(broker, "logger", log)
 
     upstream_request: dict[str, object] = {}
 
@@ -994,6 +999,19 @@ async def test_chat_runtime_broker_injects_provider_key_only_on_host(
         assert upstream_headers["authorization"] == "Bearer provider-secret-on-host"
         assert "cookie" not in upstream_headers
         assert capability not in repr(upstream_request)
+        timings = {call.args[0]: call.kwargs for call in log.info.call_args_list}
+        headers_timing = timings["runtime_model_upstream_headers_timing"]
+        body_timing = timings["runtime_model_upstream_stream_shape"]
+        assert headers_timing["response_received"] is True
+        assert headers_timing["upstream_status"] == 200
+        assert headers_timing["upstream_headers_ms"] >= 0
+        assert headers_timing["preflight_ms"] >= 0
+        assert body_timing["body_completed"] is True
+        assert body_timing["total_ms"] >= body_timing["response_body_ms"] >= 0
+        assert body_timing["request_id"] == headers_timing["request_id"]
+        assert body_timing["execution_id"]
+        assert "provider-secret-on-host" not in repr(timings)
+        assert capability not in repr(timings)
     finally:
         upstream.close()
         await upstream.wait_closed()

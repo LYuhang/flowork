@@ -285,7 +285,8 @@ async def handle_mcp_gateway_request(
                 raise PermissionError("Browser control is inactive for this Turn")
             result_payload = await authorize_browser_cli(
                 operation=str(gateway_request.tool_name or ""),
-                arguments=gateway_request.arguments,
+                arguments=gateway_request.arguments.get("arguments"),
+                expected_fence=gateway_request.arguments.get("expected_fence"),
                 token=_platform_capability_token(request, "browser"),
                 endpoint=_playwright_cdp_url(),
             )

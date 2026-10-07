@@ -1,3 +1,4 @@
+import { addContextToChat } from '@/lib/api/context-draft';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +8,8 @@ import { useUIStore } from '@/stores/ui';
 import { mintBrowserToken } from '@/lib/api/browser';
 import { reconcileChatWithServer } from '@/lib/api/sse/chat-reconcile';
 import { cancelActiveTurn } from '@/lib/api/cancel-turn';
+
+vi.mock('@/lib/api/context-draft', () => ({ addContextToChat: vi.fn().mockResolvedValue({}) }));
 
 const browserHistory = vi.hoisted(() => ({ empty: false }));
 
@@ -26,9 +29,9 @@ vi.mock('@/lib/api/queries/chats', () => ({
     chat_id: `chat-${useAuthStore.getState().user?.user_id}`,
   }] }, isFetched: true }),
 }));
-vi.mock('@/pages/embed/EmbedShell', () => ({ EmbedShell: ({ wfId }: { wfId: string }) => {
+vi.mock('@/pages/embed/EmbedShell', () => ({ EmbedShell: ({ wfId, browserControlChatId }: { wfId: string; browserControlChatId?: string }) => {
   const chat = useUIStore((s) => s.activeChatIds.browser);
-  return <div data-testid="shell">{wfId}:{chat}</div>;
+  return <div data-testid="shell" data-controlled={String(browserControlChatId)}>{wfId}:{chat}</div>;
 } }));
 
 function identity(userId: string, tenantId = 'tenant') {
@@ -173,5 +176,37 @@ describe('embedded Chat identity boundary', () => {
       parentGetter.mockRestore();
       host.remove();
     }
+  });
+});
+
+
+describe('browser connection projections', () => {
+  it('does not overwrite a live debugger release with a delayed binding snapshot', async () => {
+    render(<MemoryRouter><EmbedChatPage /></MemoryRouter>);
+    await bind();
+    let finish!: () => void;
+    act(() => useAuthStore.setState({ bootstrap: vi.fn(() => new Promise<void>((resolve) => { finish = resolve; })) }));
+    await shellMessage({ type: 'BINDING', browser_id: 'browser', exchangeCode: 'refresh',
+      browser_control_chat_id: 'chat-first', browser_control_available_here: true });
+    await shellMessage({ type: 'BROWSER_SESSION_CHANGED', status: 'released', browser_control_chat_id: '' });
+    await act(async () => { finish(); });
+    expect(screen.getByTestId('shell')).toHaveAttribute('data-controlled', '');
+  });
+});
+
+
+describe('page quote destination', () => {
+  it('adds a quote only to the selected conversation under the current account', async () => {
+    render(<MemoryRouter initialEntries={['/embed/chat?chat=quote-chat']}><EmbedChatPage /></MemoryRouter>);
+    await bind();
+    const attachment = { schema_version: 1, id: 'quote-1', type: 'quote', label: 'Page',
+      source: { kind: 'web', url: 'https://example.com/' }, snapshot: { text: 'selected words' },
+      selector: { kind: 'web_selection', tab_id: 'tab_target1', window_id: 'win_1', css_selector: '#text' } };
+    const message = { type: 'PAGE_QUOTE', account: JSON.stringify(['tenant', 'first', 'extension']), chatId: 'quote-chat', attachment };
+    await shellMessage({ ...message, chatId: 'other-chat' });
+    await shellMessage({ ...message, account: 'other-account' });
+    expect(addContextToChat).not.toHaveBeenCalled();
+    await shellMessage(message);
+    expect(addContextToChat).toHaveBeenCalledWith('quote-chat', [attachment], 'quote-1');
   });
 });

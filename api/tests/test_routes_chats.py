@@ -1555,3 +1555,31 @@ async def test_background_results_are_claimed_as_one_hidden_turn_with_visible_no
     assert replay.status_code == 200, replay.text
     assert replay.headers["x-turn-id"] == control_runs[0].run_id
     assert len(dispatched_turns) == 2
+
+
+@pytest.mark.asyncio
+async def test_browser_lease_conflict_then_handoff_after_release(client, app_engine):
+    from vibecanvas_api.browser.session_control import (
+        BrowserSessionControlError, reserve_sidepanel_browser_session,
+        release_chat_browser_session,
+    )
+    tok = await _register(client)
+    headers = _hdr(tok)
+    me = (await client.get('/api/v1/auth/me', headers=headers)).json()
+    boot = await client.get('/api/v1/chats/bootstrap?surface=browser', headers=headers)
+    scope_id = boot.json()['carrier_scope_id']
+    for chat_id in ('browser-owner', 'browser-contender'):
+        await _seed_encrypted_chat(me, scope_id=scope_id, chat_id=chat_id,
+                                   name=chat_id, surface='browser')
+    identity = dict(tenant_id=me['tenant_id'], user_id=me['user_id'])
+    owner = await reserve_sidepanel_browser_session(**identity, chat_id='browser-owner')
+    with pytest.raises(BrowserSessionControlError) as error:
+        await reserve_sidepanel_browser_session(**identity, chat_id='browser-contender')
+    assert error.value.code == 'browser_busy'
+    # Finishing an ordinary contender chat cannot release the actual owner.
+    assert not await release_chat_browser_session(**identity, chat_id='browser-contender')
+    assert await reserve_sidepanel_browser_session(**identity, chat_id='browser-owner') == owner
+    assert await release_chat_browser_session(**identity, chat_id='browser-owner')
+    contender = await reserve_sidepanel_browser_session(**identity, chat_id='browser-contender')
+    assert contender.chat_id == 'browser-contender'
+    assert contender.browser_session_id != owner.browser_session_id

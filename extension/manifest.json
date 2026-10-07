@@ -34,7 +34,7 @@
       "world": "ISOLATED"
     }
   ],
-  "permissions": ["offscreen", "sidePanel", "storage", "debugger", "tabs", "scripting", "downloads", "webRequest", "clipboardWrite"],
+  "permissions": ["contextMenus", "offscreen", "sidePanel", "storage", "debugger", "tabs", "scripting", "downloads", "webRequest", "clipboardWrite"],
   "host_permissions": ["http://*/*", "https://*/*", "file:///*"],
   "externally_connectable": {
     "matches": []

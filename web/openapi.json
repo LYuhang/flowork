@@ -24985,9 +24985,13 @@
                 "$ref": "#/components/schemas/TextSelection"
               },
               {
+                "$ref": "#/components/schemas/WebSelection"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Selector"
           }
         },
         "additionalProperties": false,
@@ -28132,6 +28136,90 @@
           "url"
         ],
         "title": "WebResource"
+      },
+      "WebSelection": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "web_selection",
+            "title": "Kind"
+          },
+          "tab_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "pattern": "^tab_[A-Za-z0-9_-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tab Id"
+          },
+          "window_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^win_[0-9]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Id"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Title",
+            "default": ""
+          },
+          "frame_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frame Url"
+          },
+          "css_selector": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Css Selector"
+          },
+          "prefix": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Prefix",
+            "default": ""
+          },
+          "suffix": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Suffix",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "WebSelection",
+        "description": "Browser-captured location hints; never authorization or executable code."
       },
       "WorkflowChatBinding": {
         "properties": {

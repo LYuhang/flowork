@@ -372,7 +372,8 @@ async function mount(): Promise<void> {
     iframe.addEventListener("load", () => {
       // HTTP error documents also fire load. Only the app's trusted ready
       // handshake can dismiss the overlay; otherwise retain the retry timer.
-      postToIframe({ type: "BINDING", ...currentBinding });
+      void sendToSw<Binding>({ type: "REQUEST_BINDING", panelContextId, windowId: currentWindowId })
+        .then(fresh => { if (fresh) postToIframe({ type: "BINDING", ...fresh }); });
     });
     iframe.addEventListener("error", () => showShellState("unavailable"));
     beginIframeLoad(b);
@@ -400,6 +401,8 @@ window.addEventListener("message", (ev: MessageEvent) => {
     theme?: string;
     chat_id?: string;
     turn_id?: string;
+    chatId?: string;
+    account?: string;
   } | null;
   if (!m?.type) return;
 
@@ -430,6 +433,8 @@ window.addEventListener("message", (ev: MessageEvent) => {
       chat_id: m.chat_id,
       turn_id: m.turn_id,
     });
+  } else if (m.type === "PAGE_QUOTE_CONTEXT") {
+    void sendToSw({ type: "PAGE_QUOTE_CONTEXT", windowId: currentWindowId, chatId: m.chatId, account: m.account });
   } else if (m.type === "AUTH_EXCHANGE_CONSUMED") {
     // Retain the single-use code until the iframe confirms that its
     // partitioned HttpOnly Session exists. This closes the iframe-load race.
@@ -484,6 +489,7 @@ chrome.runtime.onMessage.addListener((msg: unknown) => {
   }
   if (m?.type === "COOKIE_CONSENT_CHANGED") void refreshCookieConsents();
   if (m?.type === "DOWNLOAD_CONFIRM_CHANGED" || m?.type === "BROWSER_SESSION_CHANGED") void refreshLocalDownload();
+  if (m?.type === "PAGE_QUOTE" && (m as Record<string, unknown>).windowId === currentWindowId) postToIframe(m);
   if (m?.type === "BROWSER_STOP_REQUESTED") postToIframe(m);
   return false;
 });

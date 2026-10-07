@@ -7783,7 +7783,8 @@ export interface components {
             /** Source */
             source: components["schemas"]["MessageSource"] | components["schemas"]["FileResource"] | components["schemas"]["ArtifactResource"] | components["schemas"]["JobResource"] | components["schemas"]["WebResource"];
             snapshot: components["schemas"]["QuoteSnapshot"];
-            selector?: components["schemas"]["TextSelection"] | null;
+            /** Selector */
+            selector?: components["schemas"]["TextSelection"] | components["schemas"]["WebSelection"] | null;
         };
         /** QuoteSnapshot */
         QuoteSnapshot: {
@@ -8941,6 +8942,40 @@ export interface components {
             kind: "web";
             /** Url */
             url: string;
+        };
+        /**
+         * WebSelection
+         * @description Browser-captured location hints; never authorization or executable code.
+         */
+        WebSelection: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "web_selection";
+            /** Tab Id */
+            tab_id?: string | null;
+            /** Window Id */
+            window_id?: string | null;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /** Frame Url */
+            frame_url?: string | null;
+            /** Css Selector */
+            css_selector?: string | null;
+            /**
+             * Prefix
+             * @default
+             */
+            prefix: string;
+            /**
+             * Suffix
+             * @default
+             */
+            suffix: string;
         };
         /**
          * WorkflowChatBinding

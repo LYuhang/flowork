@@ -53,7 +53,7 @@ async def reserve_sidepanel_browser_session(
             code,
             (
                 "Another Chat already controls this browser. Continue in that Chat, "
-                "or ask the user to cancel its browser control before sending from this Chat. "
+                "or ask the user to release its browser control before this Chat uses browser tools. "
                 "Creating a new Chat does not transfer browser permission. "
                 "No browser command was executed; do not retry automatically."
                 if code == "browser_busy" else
@@ -142,11 +142,25 @@ async def release_sidepanel_browser_session(lease: BrowserSessionLease) -> bool:
     return bool(result.get("ok"))
 
 
+async def release_chat_browser_session(*, tenant_id: str, user_id: str, chat_id: str) -> bool:
+    """Release a lazily acquired lease after the Chat's exclusive turn exits."""
+    async with session_scope(tenant_id=tenant_id, user_id=user_id) as session:
+        binding = await ChatRepo(session, user_id).get_browser_binding(chat_id)
+    if not binding or not binding.get("browser_session_id"):
+        return False
+    return await release_sidepanel_browser_session(BrowserSessionLease(
+        tenant_id=tenant_id, user_id=user_id, chat_id=chat_id,
+        browser_session_id=str(binding["browser_session_id"]),
+        session_generation=int(binding["browser_session_generation"]),
+    ))
+
+
 __all__ = [
     "BrowserSessionControlError",
     "BrowserSessionLease",
     "confirm_sidepanel_browser_session",
     "release_unconfirmed_browser_session",
     "release_sidepanel_browser_session",
+    "release_chat_browser_session",
     "reserve_sidepanel_browser_session",
 ]

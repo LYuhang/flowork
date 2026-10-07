@@ -90,9 +90,6 @@ export interface AgentChatSidebarProps {
 export function AgentChatSidebar({
   embedded = false,
   defaultMode,
-  browserControlChatId,
-  browserControlAvailableHere = false,
-  browserTransportConnected,
   chatSurface = embedded ? 'browser' : 'chat',
   showEmbeddedSettingsButton = true,
   onOpenEmbeddedSettings,
@@ -156,31 +153,6 @@ export function AgentChatSidebar({
   const selectedSession = activeChatId
     ? sessionItems.find((s) => s.chat_id === activeChatId)
     : undefined;
-  const activeBrowserLease =
-    selectedSession?.browser_control_status &&
-    selectedSession.browser_control_status !== 'inactive';
-  // The host reserves a lease before the Agent's first Browser CLI call.
-  // Until that call initializes CDP, the extension has no window ownership
-  // projection. A reservation without a projection is not a foreign window.
-  // After reauthentication the shell may also have no projection for a lost
-  // lease. Let the server expire/re-reserve it on the next explicit message;
-  // do not permanently label a disconnected browser as a foreign window.
-  // Known ownership (including an explicit different window) still wins.
-  const awaitingBrowserOwnership =
-    (selectedSession?.browser_control_status === 'attaching' ||
-      (selectedSession?.browser_control_status === 'lost' && browserControlAvailableHere)) &&
-    !browserControlChatId;
-  const browserLeaseMismatch =
-    chatSurface === 'browser' &&
-    !!activeBrowserLease &&
-    !awaitingBrowserOwnership &&
-    (browserControlChatId !== selectedSession?.chat_id || !browserControlAvailableHere);
-  const browserDisabledReason = browserLeaseMismatch
-    ? t(
-        'embed.browser.chat_bound_elsewhere',
-        'This chat is currently controlling a browser in another window. Cancel control there, then continue here.',
-      )
-    : null;
   const openFilePreview = useCallback((path: string) => {
     const fileRef = fileRefFromAgentPath(path, { projectId: workspace.data?.project_id });
     if (!fileRef) return;
@@ -326,9 +298,6 @@ export function AgentChatSidebar({
     if (!activeChatId) {
       throw new Error('Continue is unavailable because no active conversation exists');
     }
-    if (browserDisabledReason) {
-      throw new Error(browserDisabledReason);
-    }
     const mode = !control && defaultMode === 'browser' ? 'browser' : undefined;
     await new Promise<void>((resolve, reject) => {
       let accepted = false;
@@ -352,8 +321,7 @@ export function AgentChatSidebar({
   const composerDisabledReason =
     activeRunDiscoveryStatus === 'error'
         ? t('composer.active_run_discovery_failed', 'Could not check active agent state. Refresh or retry in a moment.')
-        : browserDisabledReason ?? (embedded && browserTransportConnected !== undefined && browserTransportConnected !== true
-          ? t('embed.browser.reconnecting', 'Connecting to the browser service. Your draft is preserved; sending will resume when connected.') : null);
+        : null;
 
   // Embedded: never collapse to a launcher — the side panel IS the chat.
   if (!embedded && collapsed) {
@@ -413,17 +381,13 @@ export function AgentChatSidebar({
           <MessageSquare className="h-4 w-4 text-muted-foreground" />
           <StatusDot
             className="absolute -right-0.5 -top-0.5"
-            status={running ? 'running' : browserTransportConnected === true ? 'success' : browserTransportConnected === false ? 'warning' : 'neutral'}
+            status={running ? 'running' : 'neutral'}
             pulse={running}
           />
         </div>
         <div className="min-w-0">
           <div className="truncate text-[13px] font-semibold leading-4">{t('embed.browser.title', 'Browser assistant')}</div>
-          <div className="mt-1 truncate text-xs leading-4 text-muted-foreground" role="status">{browserTransportConnected === true
-            ? t('embed.browser.connected', 'Connected · ready for a task')
-            : browserTransportConnected === false ? t('embed.browser.connection_lost', 'Connection lost · reconnecting')
-            : browserTransportConnected === null ? t('embed.binding', 'Connecting to the browser…')
-            : t('embed.browser.subtitle', 'Works with this page')}</div>
+
         </div>
       </div>
     ) : (

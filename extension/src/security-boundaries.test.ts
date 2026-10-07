@@ -50,7 +50,7 @@ describe("MV3 extension security boundaries", () => {
 
   it("retains required automation APIs without accepting plaintext remote peers", () => {
     expect(new Set(manifest.permissions)).toEqual(
-      new Set(["offscreen", "sidePanel", "storage", "debugger", "tabs", "scripting", "downloads", "webRequest", "clipboardWrite"]),
+      new Set(["contextMenus", "offscreen", "sidePanel", "storage", "debugger", "tabs", "scripting", "downloads", "webRequest", "clipboardWrite"]),
     );
     expect(manifest.host_permissions).toEqual(["http://*/*", "https://*/*", "file:///*"]);
     expect(manifest.permissions).not.toContain("webRequestBlocking");

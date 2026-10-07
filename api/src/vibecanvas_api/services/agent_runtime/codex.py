@@ -1968,8 +1968,9 @@ async def run_codex_turn(
                 print("[flowork-cli] workflow projection failed; version change remains committed")
             return transport_result
 
-        async def authorize_browser_cli(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
-            return await request_mcp_gateway("browser_authorize", SimpleNamespace(name="browser"), operation, arguments)
+        async def authorize_browser_cli(operation: str, arguments: dict[str, Any], *, expected_fence=None) -> dict[str, Any]:
+            return await request_mcp_gateway("browser_authorize", SimpleNamespace(name="browser"), operation,
+                                             {"arguments": arguments, "expected_fence": expected_fence})
 
         async def commit_browser_cli(operation: str, arguments: dict[str, Any], artifacts: list) -> dict[str, Any]:
             return await request_mcp_gateway("browser_commit", SimpleNamespace(name="browser"), operation,

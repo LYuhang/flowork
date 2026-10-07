@@ -86,6 +86,20 @@ describe('ChatComposer Stop', () => {
     useChatAgentSettingsStore.setState({ entries: {} });
   });
 
+  it('renders a restored goal above and outside the embedded composer frame', async () => {
+    server.use(http.get('*/api/v1/chat-scopes/wf_x/chats/sidebar-goal/state', () => HttpResponse.json({
+      goal: { objective: 'Verify browser workflow', status: 'paused', timeUsedSeconds: 90, tokensUsed: 100, updatedAt: 1000 },
+    })));
+    const { container } = renderComposer('sidebar-goal', false, undefined, true);
+    await waitFor(() => expect(container.querySelector('[data-role="goal-status"]')).toBeInTheDocument());
+    const status = container.querySelector('[data-role="goal-status"]')!;
+    const frame = container.querySelector('[data-role="chat-composer-frame"]')!;
+    expect(frame).toBeInTheDocument();
+    expect(frame.contains(status)).toBe(false);
+    expect(status.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(status).toHaveTextContent('0:01:30');
+  });
+
   it('preserves a contextual draft and local files when canvas preparation fails', async () => {
     const prepare = vi.fn(async () => { throw new Error('Workflow version conflict'); });
     const send = vi.fn();

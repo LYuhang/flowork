@@ -12,7 +12,7 @@ def repo(monkeypatch):
 
     @asynccontextmanager
     async def scope(**kwargs):
-        assert kwargs == {"tenant_id": "tenant"}
+        assert kwargs in ({"tenant_id": "tenant"}, {"tenant_id": "tenant", "user_id": "user"})
         yield object()
 
     monkeypatch.setattr(control, "session_scope", scope)
@@ -72,3 +72,18 @@ async def test_finished_old_turn_cannot_release_a_replacement_generation(repo):
     lease = control.BrowserSessionLease("tenant", "user", "old-chat", "old-session", 7)
     assert not await control.release_sidepanel_browser_session(lease)
     assert repo.release_browser_session.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_without_browser_tools_has_no_lease_to_release(repo):
+    repo.get_browser_binding.return_value = {"status": "inactive", "browser_session_id": None}
+    assert not await control.release_chat_browser_session(tenant_id="tenant", user_id="user", chat_id="new-chat")
+    repo.release_browser_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_cleanup_releases_only_its_own_lazy_lease(repo):
+    repo.get_browser_binding.return_value = {"status": "attached", "browser_session_id": "own", "browser_session_generation": 4}
+    repo.release_browser_session.return_value = {"ok": True}
+    assert await control.release_chat_browser_session(tenant_id="tenant", user_id="user", chat_id="new-chat")
+    repo.release_browser_session.assert_awaited_once_with("new-chat", browser_session_id="own", browser_session_generation=4, reason="browser_turn_finished")

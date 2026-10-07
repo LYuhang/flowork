@@ -1203,8 +1203,8 @@ describe('AgentChatSidebar redesign', () => {
     ['lost', 'different-chat', true, true],
     ['lost', 'browser-reserved', false, true],
     ['inactive', '', false, false],
-  ])('distinguishes a reserved lease from known foreign ownership (%s, %s, %s)',
-    (status, owner, available, mismatch) => {
+  ])('does not gate ordinary chat on browser ownership (%s, %s, %s)',
+    (status, owner, available) => {
       useUIStore.setState({ activeChatIds: { chat: null, browser: 'browser-reserved' } });
       sessionsMock.mockReturnValue({
         data: { items: [{ chat_id: 'browser-reserved', browser_control_status: status }] },
@@ -1214,7 +1214,7 @@ describe('AgentChatSidebar redesign', () => {
         browserControlChatId={owner as string} browserControlAvailableHere={available as boolean} />,
       { wrapper: SidebarWrapper });
       const warning = screen.queryAllByText(/This chat is currently controlling a browser in another window/);
-      expect(warning.length > 0).toBe(mismatch);
+      expect(warning).toHaveLength(0);
     });
 
   it('keeps durable history mounted when a follow-up Turn starts', () => {

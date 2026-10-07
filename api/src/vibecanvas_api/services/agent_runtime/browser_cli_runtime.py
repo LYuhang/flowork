@@ -147,7 +147,7 @@ class BrowserCliRuntime:
                             # Live permission/lease changes stop even a long JS
                             # script, including one continuously printing progress.
                             # This is renewal, not a business timeout.
-                            renewed = await self.authorize(operation, arguments)
+                            renewed = await self.authorize(operation, arguments, expected_fence=self._fence)
                             if renewed.get("error") or renewed.get("fence") != self._fence:
                                 raise PermissionError("Browser permission or lease changed during execution")
                             await self._renew_transfers()

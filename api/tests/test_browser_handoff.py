@@ -6,7 +6,7 @@
   - SIDE PANEL (surface="sidepanel"): activates browser mode + injects the
     browser tools, then runs a NORMAL agent turn (NO `MODE_CONTROL` handoff).
 Pressing Send in the browser-only side panel explicitly authorizes its current
-page for that Browser Turn. The API reserves a generation-fenced browser lease
+page for that Browser Turn. The first browser tool reserves a generation-fenced browser lease
 after the Run is durable; the authenticated Playwright CDP handshake confirms
 the lease only after the extension initializes. A normal (non-browser) message
 is unaffected.
@@ -157,3 +157,31 @@ async def test_normal_message_unaffected_runs_agent_turn(client, pg_engine):
     assert names[0] == "started", names
     assert names[-1] in {"done", "error"}, names
     assert "MODE_CONTROL" not in names, names
+
+
+@pytest.mark.usefixtures("fake_codex_cli")
+@pytest.mark.asyncio
+async def test_sidepanel_conversation_does_not_reserve_busy_browser(client, pg_engine, monkeypatch):
+    from unittest.mock import AsyncMock
+    from vibecanvas_api.browser import session_control
+    from vibecanvas_api.services.agent_runtime.orchestrator import AgentRuntimeOrchestrator
+
+    reserve = AsyncMock(side_effect=session_control.BrowserSessionControlError("browser_busy", "occupied"))
+    monkeypatch.setattr(session_control, "reserve_sidepanel_browser_session", reserve)
+    turns = []
+
+    async def conversation(self, **kwargs):
+        turns.append(kwargs)
+        yield ("CHAT_UPDATE", {"role": "assistant", "content": "Hello without browser tools"})
+
+    monkeypatch.setattr(AgentRuntimeOrchestrator, "stream_turn", conversation)
+    tok = await _register(client)
+    wf_id = await _make_wf(client, tok)
+    async with client.stream("POST", f"/api/v1/chat-scopes/{wf_id}/chats/plain-sidepanel/messages",
+        json={"role": "user", "content": "Hello", "mode": "browser", "surface": "sidepanel", "agent_surface": "browser"},
+        headers=_hdr(tok)) as resp:
+        assert resp.status_code == 200, await resp.aread()
+        events = await _parse_sse_stream(resp.aiter_bytes())
+    assert turns, events
+    assert not [event for event in events if event[0] == "error"], events
+    reserve.assert_not_awaited()

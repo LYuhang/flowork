@@ -86,6 +86,31 @@ class TextSelection(ContextModel):
         return self
 
 
+class WebSelection(ContextModel):
+    """Browser-captured location hints; never authorization or executable code."""
+    kind: Literal['web_selection']
+    tab_id: str | None = Field(default=None, pattern=r'^tab_[A-Za-z0-9_-]+$', max_length=256)
+    window_id: str | None = Field(default=None, pattern=r'^win_[0-9]+$', max_length=64)
+    title: str = Field(default='', max_length=512)
+    frame_url: str | None = Field(default=None, max_length=4096)
+    css_selector: str | None = Field(default=None, max_length=2048)
+    prefix: str = Field(default='', max_length=512)
+    suffix: str = Field(default='', max_length=512)
+
+    @model_validator(mode='after')
+    def check_browser_target(self):
+        if (self.tab_id is None) != (self.window_id is None):
+            raise ValueError('browser reference requires both tab_id and window_id')
+        return self
+
+    @field_validator('frame_url')
+    @classmethod
+    def validate_frame_url(cls, value: str | None) -> str | None:
+        if value is not None:
+            return WebResource(kind='web', url=value).url
+        return None
+
+
 class PageSelection(ContextModel):
     kind: Literal['pages']
     pages: list[Annotated[int, Field(ge=1)]] = Field(min_length=1, max_length=100)
@@ -171,7 +196,13 @@ class QuoteContextAttachment(AttachmentBase):
     type: Literal['quote']
     source: QuoteSource
     snapshot: QuoteSnapshot
-    selector: TextSelection | None = None
+    selector: TextSelection | WebSelection | None = None
+
+    @model_validator(mode='after')
+    def check_web_selection(self):
+        if isinstance(self.selector, WebSelection) and self.source.kind != 'web':
+            raise ValueError('web selection requires a web source')
+        return self
 
 
 class ResourceContextAttachment(AttachmentBase):

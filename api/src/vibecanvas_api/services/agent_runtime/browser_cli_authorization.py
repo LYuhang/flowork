@@ -3,15 +3,15 @@
 import re
 
 from vibecanvas_api.browser.registry import registry
+from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.config import config
 from vibecanvas_api.flowork_cli.browser_cli import validate
 from vibecanvas_api.services.agent_resources.capability import verify_agent_capability
 from vibecanvas_api.services.agent_resources.context import resolve_context
-from vibecanvas_api.storage.chat_repo import ChatRepo
-from vibecanvas_api.storage.db import session_scope
 
 
-async def authorize_browser_cli(*, operation, arguments, token, endpoint):
+async def authorize_browser_cli(*, operation, arguments, token, endpoint, expected_fence=None):
     validate(operation, arguments)
     capability = verify_agent_capability(token, secret=config.signing_secret, server="browser")
     if capability is None:
@@ -23,16 +23,33 @@ async def authorize_browser_cli(*, operation, arguments, token, endpoint):
     if transport is None:
         return {"error": "browser_disconnected", "message": "The authorized browser extension is not connected.",
                 "hint": "Open the Flowork side panel in the intended browser and reconnect. No other browser was selected."}
-    async with session_scope(tenant_id=capability.organization_id, user_id=capability.user_id) as session:
-        binding = await ChatRepo(session, capability.user_id).get_browser_binding(capability.chat_id)
-    if (not binding or binding.get("status") not in {"attaching", "attached"}
-            or not binding.get("browser_session_id") or int(binding.get("browser_session_generation") or 0) <= 0):
-        return {"error": "browser_lease_missing", "message": "This Chat does not have a live browser-control lease.",
-                "hint": "Send the browser task from the extension side panel; do not guess another tab or browser."}
+    if expected_fence is not None:
+        # A running command's periodic authorization must never reacquire
+        # control after the user detached debugger or another generation won.
+        async with session_scope(tenant_id=capability.organization_id, user_id=capability.user_id) as session:
+            binding = await ChatRepo(session, capability.user_id).get_browser_binding(capability.chat_id)
+        current = [transport, binding.get("browser_session_id"), binding.get("browser_session_generation")] if binding else None
+        if current != expected_fence or not binding or binding.get("status") not in {"attaching", "attached"}:
+            return {"error": "browser_control_released", "message": "Browser control was released or replaced. The running browser command was stopped."}
+        return {"endpoint": endpoint, "bearer": token, "fence": current}
+    # Browser ownership is acquired only when an actual browser command runs.
+    # Ordinary conversation must not reserve the browser or fail on another Chat's lease.
+    from vibecanvas_api.browser.session_control import (
+        BrowserSessionControlError, reserve_sidepanel_browser_session,
+    )
+    try:
+        lease = await reserve_sidepanel_browser_session(
+            tenant_id=capability.organization_id, user_id=capability.user_id,
+            chat_id=capability.chat_id,
+        )
+    except BrowserSessionControlError as exc:
+        return {"error": exc.code, "message": str(exc),
+                "hint": ("Continue without browser control, or wait for the user to release the other Chat's control before trying again. Do not take over another session."
+                         if exc.code == "browser_busy" else "Check the extension connection and the reported error before retrying the browser command.")}
     # This material travels only on the private Runtime bus. Never put it in
     # shell stdout, tool arguments, product events or durable Agent messages.
     return {"endpoint": endpoint, "bearer": token,
-            "fence": [transport, str(binding["browser_session_id"]), int(binding["browser_session_generation"])]}
+            "fence": [transport, lease.browser_session_id, lease.session_generation]}
 
 
 async def commit_browser_artifacts(*, operation, arguments, artifacts, token):

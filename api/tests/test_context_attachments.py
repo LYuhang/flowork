@@ -232,3 +232,26 @@ async def test_changed_file_is_rejected_but_saved_quote_retains_its_snapshot():
     quote_item = adapter.validate_python({**quote(),'source':resource})
     output = await host.resolve([quote_item])
     assert output[0]['snapshot']['text'] == quote()['snapshot']['text']
+
+
+def test_web_quote_preserves_page_location_and_selected_text():
+    item = {**quote(), 'source': {'kind': 'web', 'url': 'https://example.com/report'},
+            'selector': {'kind': 'web_selection', 'title': 'Report',
+                         'tab_id': 'tab_target1', 'window_id': 'win_7',
+                         'frame_url': 'https://example.com/report/frame',
+                         'css_selector': '#summary p', 'prefix': 'Before', 'suffix': 'After'}}
+    parsed = adapter.validate_python(item)
+    assert parsed.selector.kind == 'web_selection'
+    assert parsed.selector.title == 'Report'
+    from vibecanvas_api.services.agent_runtime.context_attachments import context_text
+    runtime = context_text(parsed.model_dump(mode='json'))
+    assert 'tab_target1' in runtime and 'win_7' in runtime and '#summary p' in runtime
+    assert parsed.snapshot.text == item['snapshot']['text']
+
+
+def test_web_quote_rejects_non_web_source_and_credentialed_frame():
+    with pytest.raises(ValueError):
+        adapter.validate_python({**quote(), 'selector': {'kind': 'web_selection'}})
+    with pytest.raises(ValueError):
+        adapter.validate_python({**quote(), 'source': {'kind': 'web', 'url': 'https://example.com'},
+                                'selector': {'kind': 'web_selection', 'frame_url': 'https://user:secret@example.com'}})

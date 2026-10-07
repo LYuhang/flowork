@@ -31,7 +31,10 @@
  * Authentication is cookie-based. The shell may relay a single-use exchange
  * code through BINDING; the iframe redeems it for a partitioned HttpOnly cookie.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { addContextToChat } from '@/lib/api/context-draft';
+import type { ChatAttachment } from '@/components/agent-sidebar/chat-attachments';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, LoaderCircle, RotateCw } from 'lucide-react';
 import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -133,6 +136,7 @@ export function EmbedChatPage() {
   const chatFromUrl = hintsAllowed ? params.get('chat') ?? undefined : undefined;
   const [chat, setChat] = useState<string | undefined>(chatFromUrl);
 
+  const controlRevision = useRef(0);
   const [browserControlChatId, setBrowserControlChatId] = useState('');
   const [browserControlAvailableHere, setBrowserControlAvailableHere] = useState(false);
   const [browserId, setBrowserId] = useState('');
@@ -176,6 +180,26 @@ export function EmbedChatPage() {
     if (!trustedExtensionOrigin || window.parent === window) return;
     window.parent.postMessage(message, trustedExtensionOrigin);
   }, [trustedExtensionOrigin]);
+
+  useEffect(() => {
+    postToExtension({ type: 'PAGE_QUOTE_CONTEXT', chatId: extensionAuthenticated ? selectedBrowserChatId : null, account: identity });
+    return () => postToExtension({ type: 'PAGE_QUOTE_CONTEXT', chatId: null, account: null });
+  }, [postToExtension, extensionAuthenticated, selectedBrowserChatId, identity]);
+
+  useEffect(() => {
+    const receive = (event: MessageEvent) => {
+      if (!trustedExtensionOrigin || event.origin !== trustedExtensionOrigin || event.source !== window.parent || event.data?.type !== 'PAGE_QUOTE') return;
+      if (event.data.error) { toast.error(String(event.data.error)); return; }
+      if (!extensionAuthenticated || !selectedBrowserChatId || event.data.account !== identity || event.data.chatId !== selectedBrowserChatId) return;
+      const attachment = event.data.attachment as ChatAttachment | undefined;
+      if (!attachment || !('schema_version' in attachment) || attachment.type !== 'quote') return;
+      void addContextToChat(selectedBrowserChatId, [attachment], attachment.id)
+        .then(() => toast.success(t('composer.context.added', 'Added to the conversation draft')))
+        .catch(() => toast.error(t('composer.context.addFailed', 'Could not add this reference. Its source may be unavailable; retry without losing your selection.')));
+    };
+    window.addEventListener('message', receive);
+    return () => window.removeEventListener('message', receive);
+  }, [trustedExtensionOrigin, extensionAuthenticated, selectedBrowserChatId, identity, t]);
 
   useEffect(() => {
     postToExtension({ type: 'EMBED_READY' });
@@ -339,6 +363,7 @@ export function EmbedChatPage() {
         e.data !== null &&
         (e.data as { type?: unknown }).type === 'BROWSER_SESSION_CHANGED'
       ) {
+        controlRevision.current += 1;
         const controlChatId =
           typeof (e.data as { browser_control_chat_id?: unknown }).browser_control_chat_id === 'string'
             ? (e.data as { browser_control_chat_id: string }).browser_control_chat_id
@@ -369,6 +394,7 @@ export function EmbedChatPage() {
       }
       if (!isBindingMessage(e.data)) return;
       const received = e.data;
+      const revision = ++controlRevision.current;
       void (async () => {
         const owner = authScope(useAuthStore.getState());
         if (received.exchangeCode) {
@@ -401,10 +427,10 @@ export function EmbedChatPage() {
           seedAgentSettings(received.agentSettings);
         }
         if (received.chat_id) setChat((prev) => prev ?? received.chat_id);
-        setBrowserControlChatId(received.browser_control_chat_id || '');
-        setBrowserControlAvailableHere(
-          received.browser_control_available_here === true,
-        );
+        if (revision === controlRevision.current) {
+          setBrowserControlChatId(received.browser_control_chat_id || '');
+          setBrowserControlAvailableHere(received.browser_control_available_here === true);
+        }
         setBindingFailed(false);
         setBinding(false);
       })();

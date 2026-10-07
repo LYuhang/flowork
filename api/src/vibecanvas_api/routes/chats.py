@@ -3470,21 +3470,6 @@ async def post_message(
     )
 
     async def producer(stop_ev: asyncio.Event):
-        browser_lease = None
-        if bootstrap_sidepanel_browser:
-            # Sending from the side panel is the explicit user action that
-            # authorizes the visible page for this Chat. Reserve the durable
-            # lease before Browser CLI connects; the CDP endpoint
-            # confirms it only after the extension initializes successfully.
-            from ..browser.session_control import (
-                reserve_sidepanel_browser_session,
-            )
-
-            browser_lease = await reserve_sidepanel_browser_session(
-                tenant_id=auth.tenant_id,
-                user_id=auth.user_id,
-                chat_id=chat_id,
-            )
         try:
             orchestrator = AgentRuntimeOrchestrator()
             async for product_event in orchestrator.stream_turn(
@@ -3495,15 +3480,14 @@ async def post_message(
             ):
                 yield product_event
         finally:
-            if browser_lease is not None:
-                from ..browser.session_control import (
-                    release_sidepanel_browser_session,
-                )
+            if bootstrap_sidepanel_browser:
+                from ..browser.session_control import release_chat_browser_session
 
-                # Browser work is scoped to this Agent turn. Keep the durable
-                # fence until runtime cleanup is complete, then free it for the
-                # next explicit side-panel send (including a different Chat).
-                await release_sidepanel_browser_session(browser_lease)
+                # A tool may have acquired a lease lazily. Runtime cleanup has
+                # finished before releasing its fenced ownership here.
+                await release_chat_browser_session(
+                    tenant_id=auth.tenant_id, user_id=auth.user_id, chat_id=chat_id,
+                )
 
     # Authorization may have changed while model/MCP/runtime inputs were being
     # assembled. Recheck at the durable Agent Run mutation boundary so revoke

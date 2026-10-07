@@ -1,3 +1,4 @@
+import { registerPageQuotes } from './page-quotes';
 /**
  * MV3 background service worker.
  *
@@ -844,17 +845,18 @@ chrome.runtime.onMessage.addListener(
             sendResponse(fail("Playwright initialization is missing its browser-session fence"));
             return;
           }
-          const windowId = Number(activePanelWindowId);
-          if (!Number.isInteger(windowId) || windowId < 0) {
-            sendResponse(fail("The side-panel browser window is unavailable"));
-            return;
-          }
-
           const previous = currentBrowserSession;
           const sameSession =
             previous?.sessionId === incomingSessionId &&
             Number(previous?.sessionGeneration || 0) === incomingGeneration &&
             previous?.channel === channel;
+          // Reconnecting an existing session must not follow focus into another window.
+          const windowId = Number(sameSession ? previous.browserWindowId : activePanelWindowId);
+          if (!Number.isInteger(windowId) || windowId < 0) {
+            sendResponse(fail("The side-panel browser window is unavailable"));
+            return;
+          }
+
           const rememberedTabs = sameSession
             ? await rememberedControlledTabIds()
             : [];
@@ -904,7 +906,7 @@ chrome.runtime.onMessage.addListener(
             transport,
             chatId: chatIdFromChannel(channel),
             browserWindowId: String(windowId),
-            panelContextId: activePanelContextId,
+            panelContextId: sameSession ? previous.panelContextId : activePanelContextId,
             sessionGeneration: incomingGeneration,
           });
 
@@ -931,9 +933,10 @@ chrome.runtime.onMessage.addListener(
             console.error,
             handlePlaywrightDebuggerDetach,
             (tabIds, reason, tabId) => {
+              if (!playwrightCdpBridge || sessionReleaseInProgress) return;
               void persistPlaywrightControlledTabs(tabIds);
-              if (reason === "attached") {
-                void setIsland(true, "ready");
+              if (reason === "attached" || reason === "detached") {
+                void setIsland(tabIds.length > 0, "ready");
               } else if (reason === "tab_removed" && tabIds.length === 0) {
                 void releaseControlledBrowserSession("last_tab_closed", { tabId });
               }
@@ -1188,3 +1191,5 @@ chrome.runtime.onMessage.addListener(
     return false;
   },
 );
+
+registerPageQuotes();

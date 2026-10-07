@@ -263,3 +263,11 @@ Usage 的 8 项真实 Python/Shell 样例验证已通过。新增 draw.io 静态
 ### 首次真实服务部署
 
 2026-10-07 已将 `d30bccc` 的代码及前端生产构建同步到 `/opt/flowork`，通过既有 native 启停脚本重启服务。启动预检成功，数据库升级至 166，五个执行通知触发器均存在；公网 `/healthz` 和 `/api/v1/preview/drawio-assets/index.html` 返回 200。此次只代表部署与基础健康检查通过，用户页面及真实调用验收仍待完成。部署前仅为本次变更准备了源文件回退包及上一版 Web 构建，不包含用户数据。
+
+### 真实部署启动方式复核与同步调用验收
+
+- 首次直接调用 native 启停脚本绕过了 systemd 的 cgroup 委派包装，健康检查正常但沙盒部署无法启动。已改用 `systemctl restart flowork.service`；现有安装脚本的委派配置正确，本次问题来自验收操作方式，不应以基础健康检查代替沙盒执行验收。
+- 新建的专用 QA Workflow 最初缺少输入 `reference` 和输出 `description`，已按节点定义修正，通过真实 `/check` 后提交为 `v1.sv2`，部署状态达到 `ready`。
+- 使用独立的无登录 Cookie 客户端、部署 API Key 调用公网 invoke，得到 HTTP 200、`status=succeeded`、`outputs={"answer":42}`，请求耗时约 635 毫秒。此证据覆盖真实同步执行链路，不代表审批、超时和其余页面场景已经通过。
+- 审批测试版本切换遇到滚动更新容量不足，改为停止本轮专用 QA 部署并等待 `stopped` 后再启用，以释放旧实例资源；其他业务部署不因此停止。
+- 审批版本 `v1.sv3` 启动后，公网调用约 431 毫秒返回 HTTP 202、`waiting_approval`、`async_reason=human_approval` 和结果查询地址。使用指定审批账号提交通过得到 202，独立 API Key 客户端随后查到 `succeeded` 与完整输出 `{"approved":true}`。脚本首次误用审批字段 `approval_id` 得到 404，按实际详情契约改用 `id` 后通过；该错误属于验收脚本，不是业务接口故障。

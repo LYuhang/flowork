@@ -1,4 +1,5 @@
 import { registerPageQuotes, quotedTabsForChat, clearQuotedTabs } from './page-quotes';
+import { registerChatOrigins, chatOrigin, clearChatOrigins } from './chat-origins';
 /**
  * MV3 background service worker.
  *
@@ -558,6 +559,7 @@ chrome.runtime.onMessageExternal.addListener(
     void (async () => {
       if (m.type === "AUTH_CLEAR") {
         await clearQuotedTabs();
+        await clearChatOrigins();
         await chrome.storage.local.remove([
           "embedExchangeCode",
           "embedAgentSettings",
@@ -851,8 +853,10 @@ chrome.runtime.onMessage.addListener(
             previous?.sessionId === incomingSessionId &&
             Number(previous?.sessionGeneration || 0) === incomingGeneration &&
             previous?.channel === channel;
-          // Reconnecting an existing session must not follow focus into another window.
-          const windowId = Number(sameSession ? previous.browserWindowId : activePanelWindowId);
+          // Neither first connection nor reconnect may follow focus into a
+          // different panel while the Agent is preparing its browser command.
+          const origin = sameSession ? null : await chatOrigin(chatIdFromChannel(channel));
+          const windowId = Number(sameSession ? previous.browserWindowId : origin?.windowId);
           if (!Number.isInteger(windowId) || windowId < 0) {
             sendResponse(fail("The side-panel browser window is unavailable"));
             return;
@@ -910,7 +914,7 @@ chrome.runtime.onMessage.addListener(
             transport,
             chatId: chatIdFromChannel(channel),
             browserWindowId: String(windowId),
-            panelContextId: sameSession ? previous.panelContextId : activePanelContextId,
+            panelContextId: sameSession ? previous.panelContextId : origin?.panelContextId,
             sessionGeneration: incomingGeneration,
           });
 
@@ -1198,3 +1202,4 @@ chrome.runtime.onMessage.addListener(
 );
 
 registerPageQuotes();
+registerChatOrigins();

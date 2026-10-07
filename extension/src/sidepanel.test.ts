@@ -22,6 +22,23 @@ afterEach(() => {
 });
 
 describe('side-panel app readiness', () => {
+  it('records the shell window rather than accepting a window supplied by the iframe', async () => {
+    await import('./sidepanel');
+    await vi.advanceTimersByTimeAsync(1);
+    const frame = document.getElementById('embed') as HTMLIFrameElement;
+    const send = (origin: string) => window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow, origin,
+      data: { type: 'BROWSER_TURN_ORIGIN', chatId: 'chat', windowId: 999, panelContextId: 'spoofed' },
+    }));
+    vi.mocked(chrome.runtime.sendMessage).mockClear();
+    send('https://untrusted.example');
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    send('http://localhost:9001');
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'BROWSER_TURN_ORIGIN', chatId: 'chat', windowId: 1,
+    }), expect.any(Function));
+    expect(vi.mocked(chrome.runtime.sendMessage).mock.calls[0][0]).not.toMatchObject({ panelContextId: 'spoofed' });
+  });
   it('returns the live quote destination only to its own window and trusted app frame', async () => {
     chrome.runtime.id = 'extension';
     await import('./sidepanel');

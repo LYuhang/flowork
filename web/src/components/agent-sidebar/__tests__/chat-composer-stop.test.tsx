@@ -100,6 +100,24 @@ describe('ChatComposer Stop', () => {
     expect(status).toHaveTextContent('0:01:30');
   });
 
+  it('records the browser Chat origin before submitting an embedded turn', async () => {
+    const host = document.createElement('iframe'); document.body.append(host);
+    const parent = vi.spyOn(window, 'parent', 'get').mockReturnValue(host.contentWindow!);
+    const post = vi.spyOn(host.contentWindow!, 'postMessage').mockImplementation(() => {});
+    const sent = vi.fn();
+    server.use(http.post('*/api/v1/chat-scopes/wf_x/chats/origin-chat/messages', () => {
+      expect(post).toHaveBeenCalledWith({ type: 'BROWSER_TURN_ORIGIN', chatId: 'origin-chat' }, expect.stringMatching(/^chrome-extension:\/\//));
+      sent();
+      return new HttpResponse(null, { status: 503 });
+    }));
+    const view = renderComposer('origin-chat', false, undefined, true);
+    try {
+      await userEvent.type(screen.getByRole('textbox'), 'Read the current page');
+      await userEvent.click(screen.getByRole('button', { name: /send|发送/i }));
+      await waitFor(() => expect(sent).toHaveBeenCalledOnce());
+    } finally { view.unmount(); post.mockRestore(); parent.mockRestore(); host.remove(); }
+  });
+
   it('preserves a contextual draft and local files when canvas preparation fails', async () => {
     const prepare = vi.fn(async () => { throw new Error('Workflow version conflict'); });
     const send = vi.fn();

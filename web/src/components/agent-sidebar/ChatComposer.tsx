@@ -1,4 +1,5 @@
 import { GoalStatus } from './GoalStatus';
+import { extensionOrigin } from '@/lib/extension';
 import { useChatState } from '@/lib/api/queries/chats';
 import { SkillUsePicker } from './SkillUsePicker';
 import type { SkillUseSelection } from '@/lib/api/sse/agent-stream';
@@ -683,6 +684,10 @@ export function ChatComposer({
     skillUse?: SkillUseSelection,
   ) => {
     if (!chatId) return false;
+    const origin = embedded && agentSurface === 'browser' ? extensionOrigin() : null;
+    if (origin && window.parent !== window) {
+      window.parent.postMessage({ type: 'BROWSER_TURN_ORIGIN', chatId }, origin);
+    }
     return runAgentTurn({
       wfId,
       chatId,

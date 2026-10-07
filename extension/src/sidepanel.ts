@@ -437,6 +437,8 @@ window.addEventListener("message", (ev: MessageEvent) => {
     });
   } else if (m.type === "PAGE_QUOTE_CONTEXT") {
     quoteContext = m.chatId && m.account ? { chatId: m.chatId, account: m.account } : null;
+  } else if (m.type === 'BROWSER_TURN_ORIGIN' && typeof m.chatId === 'string') {
+    void sendToSw({ type: 'BROWSER_TURN_ORIGIN', chatId: m.chatId, windowId: currentWindowId, panelContextId });
   } else if (m.type === "AUTH_EXCHANGE_CONSUMED") {
     // Retain the single-use code until the iframe confirms that its
     // partitioned HttpOnly Session exists. This closes the iframe-load race.

@@ -30,7 +30,8 @@ async def test_waiters_share_one_listener_and_cleanup_after_last(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_observer_does_not_query_again_without_event(monkeypatch):
+@pytest.mark.parametrize('concurrency', [1, 8])
+async def test_observer_does_not_query_again_without_event(monkeypatch, concurrency):
     from vibecanvas_api.services import deployment_observer as observer
     from types import SimpleNamespace
     changed = asyncio.Event()
@@ -46,18 +47,19 @@ async def test_observer_does_not_query_again_without_event(monkeypatch):
     monkeypatch.setattr(notifications, 'execution_changes', changes)
     monkeypatch.setattr(observer, 'session_scope', session_scope)
     monkeypatch.setattr(observer, 'WorkflowHistoryRepo', lambda _: history)
-    task = asyncio.create_task(observer.observe_invocation(tenant_id='t', slug='s',
-        invocation_id='00000000-0000-0000-0000-000000000001'))
+    tasks = [asyncio.create_task(observer.observe_invocation(tenant_id='t', slug='s',
+        invocation_id=f'00000000-0000-0000-0000-{index + 1:012d}')) for index in range(concurrency)]
     try:
         await asyncio.sleep(1.1)
-        assert history.get.await_count == 1
+        assert history.get.await_count == concurrency
         changed.set()
         await asyncio.sleep(0.01)
-        assert history.get.await_count == 2
+        assert history.get.await_count == 2 * concurrency
     finally:
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        for task in tasks:
+            task.cancel()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        assert all(isinstance(result, asyncio.CancelledError) for result in results)
 
 
 @pytest.mark.asyncio

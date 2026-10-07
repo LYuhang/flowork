@@ -30,7 +30,7 @@ _PYTHON_SYNC = _ROOT / "scripts/sync_python_env.sh"
 
 def _deployment_image_references() -> set[str]:
     references: set[str] = set()
-    for relative_path in ("api/Dockerfile", "engine/Dockerfile", "web/Dockerfile", "postgres/Dockerfile", "postgres/openfga.Dockerfile", "docker/clamav.Dockerfile"):
+    for relative_path in ("api/Dockerfile", "engine/Dockerfile", "web/Dockerfile", "postgres/Dockerfile", "postgres/openfga.Dockerfile", "docker/clamav.Dockerfile", "docker/valkey.Dockerfile"):
         text = (_ROOT / relative_path).read_text(encoding="utf-8")
         references.update(
             re.findall(r"^FROM\s+(\S+@sha256:[0-9a-f]{64})", text, re.MULTILINE)
@@ -65,7 +65,7 @@ def test_actual_application_images_are_built_and_scanned() -> None:
     assert "flowork-sandboxd:security-scan -m pip --version" in scanner
     assert "build_image web web/Dockerfile ." in scanner
     assert "build_image engine engine/Dockerfile ." in scanner
-    for image in ("api", "sandboxd", "web", "engine", "postgres", "openfga-postgres"):
+    for image in ("api", "sandboxd", "web", "engine", "postgres", "openfga-postgres", "valkey"):
         assert f"'{image}|flowork-{image}:security-scan'" in scanner
 
 
@@ -263,7 +263,8 @@ def test_release_compose_uses_a_separate_verified_sandbox_builder_image() -> Non
         "api",
         "background_worker",
     }
-    assert set(services) == api_consumers | {"web", "sandboxd", "postgres", "openfga_postgres", "openfga_erasure_bootstrap"}
+    assert set(services) == api_consumers | {"web", "sandboxd", "postgres", "openfga_postgres", "openfga_erasure_bootstrap", "redis"}
+    assert services["redis"]["image"].startswith("${VIBECANVAS_VALKEY_IMAGE:?")
     assert services["postgres"]["image"].startswith("${VIBECANVAS_POSTGRES_IMAGE:?")
     assert services["postgres"]["pull_policy"] == "always"
     assert services["openfga_postgres"]["image"].startswith("${VIBECANVAS_OPENFGA_POSTGRES_IMAGE:?")
@@ -350,6 +351,7 @@ def test_release_attestation_gate_binds_digest_repo_workflow_and_source(
 
 
 @pytest.mark.parametrize("variable,label,message", [
+    ("VIBECANVAS_VALKEY_IMAGE", "valkey", "Valkey"),
     ("VIBECANVAS_POSTGRES_IMAGE", "postgres", "Postgres"),
     ("VIBECANVAS_OPENFGA_POSTGRES_IMAGE", "openfga-postgres", "OpenFGA Postgres"),
 ])
@@ -364,7 +366,7 @@ def test_production_gate_requires_its_reviewed_postgres_images(
            "RELEASE_REPOSITORY": "Example/flowork", "RELEASE_SHA": "b" * 40,
            "RELEASE_REF": "refs/tags/v1.2.3", "PRODUCTION_EVIDENCE_MANIFEST": "unused"}
     for name, image_label in (("API", "api"), ("SANDBOX", "sandboxd"), ("WEB", "web"),
-                              ("POSTGRES", "postgres"), ("OPENFGA_POSTGRES", "openfga-postgres")):
+                              ("POSTGRES", "postgres"), ("OPENFGA_POSTGRES", "openfga-postgres"), ("VALKEY", "valkey")):
         env[f"VIBECANVAS_{name}_IMAGE"] = f"ghcr.io/example/flowork-{image_label}@sha256:{'a' * 64}"
     if missing:
         env.pop(variable)

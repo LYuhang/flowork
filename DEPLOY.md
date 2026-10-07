@@ -218,8 +218,8 @@ The deployment host needs:
 - access to the reviewed evidence manifest and production environment file.
 
 The GitHub CLI must be able to verify attestations for the release repository.
-The Docker daemon must be able to pull all five deployment images (API,
-sandbox service, Web, application PostgreSQL, and OpenFGA PostgreSQL) by digest.
+The Docker daemon must be able to pull all six deployment images (API,
+sandbox service, Web, application PostgreSQL, OpenFGA PostgreSQL, and Valkey) by digest.
 
 ### Environment file
 
@@ -260,6 +260,7 @@ export VIBECANVAS_SANDBOX_IMAGE='ghcr.io/owner/repository-sandboxd@sha256:...'
 export VIBECANVAS_WEB_IMAGE='ghcr.io/owner/repository-web@sha256:...'
 export VIBECANVAS_POSTGRES_IMAGE='ghcr.io/owner/repository-postgres@sha256:...'
 export VIBECANVAS_OPENFGA_POSTGRES_IMAGE='ghcr.io/owner/repository-openfga-postgres@sha256:...'
+export VIBECANVAS_VALKEY_IMAGE='ghcr.io/owner/repository-valkey@sha256:...'
 export RELEASE_REPOSITORY='owner/repository'
 export RELEASE_SHA='0123456789abcdef0123456789abcdef01234567'
 export RELEASE_REF='refs/tags/v1.0.0'

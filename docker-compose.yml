@@ -42,7 +42,10 @@ services:
   # coordination service. Durable background delivery is owned by DBOS/Postgres.
   # Keep the service name `redis` so existing REDIS_URL values remain stable.
   redis:
-    image: valkey/valkey:9.1.2-alpine3.24@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
+    build:
+      context: .
+      dockerfile: docker/valkey.Dockerfile
+    image: flowork-valkey:local
     ports:
       - "${VIBECANVAS_INTERNAL_BIND_ADDRESS:-127.0.0.1}:${VIBECANVAS_REDIS_PORT:-6379}:6379"
     volumes:

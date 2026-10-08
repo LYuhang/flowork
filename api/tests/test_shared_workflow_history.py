@@ -10,7 +10,7 @@ from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.workflow_history_repo import WorkflowHistoryRepo
 from vibecanvas_api.storage.workflow_repo import WorkflowRepo
 from tests.storage.test_workflow_history import owner
-from tests.test_workflow_authorization_integration import _browser_sessions
+from tests.test_workflow_authorization_integration import _browser_sessions  # noqa: F401 - autouse fixture
 
 
 @pytest.mark.asyncio
@@ -37,6 +37,9 @@ async def test_shared_workflow_history_filters_initiator_and_rejects_known_ids(p
             statuses=None, mine=False, before_time=None, before_id=None, limit=50,
             auth=auth, session=session, service=object())
         assert len(result['items']) == 1
+        assert set(result['items'][0]) == {
+            'id', 'created_at', 'status', 'input_index', 'pending_approvals',
+        }
         repo = WorkflowHistoryRepo(session)
         own = await routes._authorize_detail(request, auth, object(), repo, recipient_run)
         assert str(own['id']) == recipient_run
@@ -59,7 +62,7 @@ async def test_recipient_reads_own_cross_organization_history_through_http(pg_en
     from httpx import AsyncClient, ASGITransport
     from vibecanvas_api.app import build_app
     from vibecanvas_api.config import config
-    from tests.test_workflow_authorization_integration import _browser_sessions, _register, _headers, _RelationshipStore
+    from tests.test_workflow_authorization_integration import _register, _headers, _RelationshipStore
     monkeypatch.setattr(config, 'resource_sharing_enabled', True)
     app = build_app()
     app.state.openfga_client = _RelationshipStore()

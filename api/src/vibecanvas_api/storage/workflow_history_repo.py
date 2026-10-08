@@ -515,7 +515,8 @@ class WorkflowHistoryRepo:
             (
                 await self.session.execute(
                     text(
-                        "SELECT r.* FROM workflow_execution_runs r WHERE "
+                        "SELECT r.id,r.created_at,r.status,r.input_index "
+                        "FROM workflow_execution_runs r WHERE "
                         + " AND ".join(clauses)
                         + " ORDER BY r.created_at DESC,r.id DESC LIMIT :limit"
                     ),

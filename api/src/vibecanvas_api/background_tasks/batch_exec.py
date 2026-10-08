@@ -27,7 +27,7 @@ from vibecanvas_api.services.llm_credentials_inject import (
 from vibecanvas_api.services.sandbox.coordinator import (
     dispose_sandbox_rpc_client,
 )
-from vibecanvas_api.storage.db import dispose_engine
+from vibecanvas_api.storage.db import dispose_engine, session_scope
 from vibecanvas_api.services.task_worker import (
     WorkerOwnershipLost, assert_worker_owner, claim_worker, current_claim, watch_worker,
 )
@@ -81,6 +81,15 @@ def _update(task_id: uuid.UUID, **fields: object) -> None:
         await repo.update_status(task_id, **fields)
 
     run_in_short_session(_runner)
+
+
+async def _record_progress(task_id: uuid.UUID, tenant_id: uuid.UUID, payload: dict) -> None:
+    """Publish progress only after its task state commits in the same transaction."""
+    async with session_scope(tenant_id=str(tenant_id)) as session:
+        await assert_worker_owner(session)
+        repo = TasksRepo(session)
+        await repo.update_status(task_id, progress=payload["progress"]["percent"])
+        await repo.insert_event(task_id, "progress", payload, tenant_id)
 
 
 def _task_snapshot(task_id: uuid.UUID) -> dict:
@@ -221,7 +230,7 @@ def _batch_exec_owned(
         # the moment cancellation was requested.
         if p.status == "cancelled":
             return
-        await asyncio.to_thread(_emit, t_uuid, tn_uuid, "progress", {
+        await _record_progress(t_uuid, tn_uuid, {
             "schema_version": 1,
             "level": "info",
             "category": "batch",
@@ -254,7 +263,6 @@ def _batch_exec_owned(
                 else None
             ),
         })
-        await asyncio.to_thread(_update, t_uuid, progress=p.done / max(p.total, 1))
 
     try:
         lease = _task_execution_lease(t_uuid, workflow_id=workflow_id)

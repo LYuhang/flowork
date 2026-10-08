@@ -399,3 +399,41 @@ async def test_batch_exec_eager_end_to_end(app_engine, monkeypatch):
     assert ev_types[0] == "state"
     assert ev_types.count("progress") == 2
     assert ev_types[-1] == "terminal"
+
+
+async def test_progress_and_event_commit_together(app_engine, monkeypatch):
+    from unittest.mock import AsyncMock
+    from vibecanvas_api.background_tasks.batch_exec import _record_progress
+
+    tenant, user, task_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    async with app_engine.begin() as c:
+        await c.execute(text("INSERT INTO tenants(tenant_id, name) VALUES (:t, 'progress')"), {"t": tenant})
+        await c.execute(text("INSERT INTO users(user_id, tenant_id, email) VALUES (:u, :t, :email)"),
+                        {"u": user, "t": tenant, "email": f"{user}@example.test"})
+    async with session_scope(tenant_id=str(tenant)) as s:
+        await TasksRepo(s).create(task_id=task_id, tenant_id=tenant, user_id=user,
+                                 workflow_id=None, task_type="batch_exec", payload={})
+    payload = {"progress": {"percent": 0.5, "done": 1, "total": 2}}
+    with monkeypatch.context() as patch:
+        patch.setattr(TasksRepo, "insert_event", AsyncMock(side_effect=RuntimeError("event write failed")))
+        with pytest.raises(RuntimeError, match="event write failed"):
+            await _record_progress(task_id, tenant, payload)
+    async with session_scope(tenant_id=str(tenant)) as s:
+        assert float((await TasksRepo(s).get(task_id)).progress or 0) == 0
+        assert (await s.execute(text("SELECT count(*) FROM task_events WHERE task_id=:id"), {"id": task_id})).scalar_one() == 0
+
+    await _record_progress(task_id, tenant, payload)
+    async with session_scope(tenant_id=str(tenant)) as s:
+        assert float((await TasksRepo(s).get(task_id)).progress) == 0.5
+        assert (await s.execute(text("SELECT count(*) FROM task_events WHERE task_id=:id"), {"id": task_id})).scalar_one() == 1
+
+    from vibecanvas_api.services.task_worker import WorkerClaim, WorkerOwnershipLost, current_claim
+    token = current_claim.set(WorkerClaim("batch", task_id, uuid.uuid4()))
+    try:
+        with pytest.raises(WorkerOwnershipLost):
+            await _record_progress(task_id, tenant, {"progress": {"percent": 1}})
+    finally:
+        current_claim.reset(token)
+    async with session_scope(tenant_id=str(tenant)) as s:
+        assert float((await TasksRepo(s).get(task_id)).progress) == 0.5
+        assert (await s.execute(text("SELECT count(*) FROM task_events WHERE task_id=:id"), {"id": task_id})).scalar_one() == 1

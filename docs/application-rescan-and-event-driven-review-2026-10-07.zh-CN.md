@@ -1727,3 +1727,9 @@ f46e1df最初本地构建没有传VITE_WEB_BASE，默认localhost导致输入框
 最终真实页面显示Finished with errors、Rows total=4、Rows ok=3、Rows failed=1；GET Task为finished_with_errors、progress=1。18条持久事件中的进度单调经过0、0.25、0.5、0.75、1，CSV恰有4条，与终态计数和审批分支一致。输出列映射从Task持久payload复核为各自的__end__字段（提交是multipart，请求postDataJSON为空，未把它当作映射证据）。最终截图已人工查看。
 
 证据 `/tmp/review-batch-progress-live/` 中verification.json、task-api.json、events-api.json、task-ui-decisions.jsonl、terminal-overview.png及下载CSV。所有本次浏览器测试进程已退出。本次补齐新版批量进度正常/人工等待/服务商失败混合实机链路；不能声称四条模型调用全部成功，也不替代O1/O2超时取消、O5真实UI身份变化、浏览器断网恢复等剩余验收。完整目标尚未完成，尚未合并main或推送。
+
+### B1/B4 浏览器离线注入方法核验（2026-10-08，尚不构成控制传输断网通过）
+
+Terra侧边栏对话 `f6851f95-5a23-49e6-9d13-3464479b0ed7`，先完成16次订单详情、分页、跨标签复核操作，结果5750/CHECK-1正确。随后通过CDP仅对该测试浏览器的offscreen页面设置Network.emulateNetworkConditions offline=true，保持30秒，再恢复在线并明确发起第二轮任务；第二轮16次操作、8150/CHECK-2正确，两轮数据库状态均completed、error_code为空。测试浏览器及临时服务器已关闭。
+
+关键限制：offscreen内fetch确实失败，捕获Network.loadingFailed/net::ERR_INTERNET_DISCONNECTED；但未捕获Network.webSocketClosed或Network.webSocketFrameError。不能据此证明既有浏览器控制WebSocket实际断开，更不能据第二轮成功把真实断网恢复标为通过。本次验证识别了故障注入的覆盖缺口；后续应使用仅作用于测试浏览器的网络代理切断/恢复真实连接，避免操作共享网关或影响其他用户。证据 `/tmp/browser-transport-offline.json`、`/tmp/browser-transport-offline-terminal.json`、对应日志及两轮截图/文本。没有业务重试、自动重放或线上代码改动。

@@ -1733,3 +1733,11 @@ f46e1df最初本地构建没有传VITE_WEB_BASE，默认localhost导致输入框
 Terra侧边栏对话 `f6851f95-5a23-49e6-9d13-3464479b0ed7`，先完成16次订单详情、分页、跨标签复核操作，结果5750/CHECK-1正确。随后通过CDP仅对该测试浏览器的offscreen页面设置Network.emulateNetworkConditions offline=true，保持30秒，再恢复在线并明确发起第二轮任务；第二轮16次操作、8150/CHECK-2正确，两轮数据库状态均completed、error_code为空。测试浏览器及临时服务器已关闭。
 
 关键限制：offscreen内fetch确实失败，捕获Network.loadingFailed/net::ERR_INTERNET_DISCONNECTED；但未捕获Network.webSocketClosed或Network.webSocketFrameError。不能据此证明既有浏览器控制WebSocket实际断开，更不能据第二轮成功把真实断网恢复标为通过。本次验证识别了故障注入的覆盖缺口；后续应使用仅作用于测试浏览器的网络代理切断/恢复真实连接，避免操作共享网关或影响其他用户。证据 `/tmp/browser-transport-offline.json`、`/tmp/browser-transport-offline-terminal.json`、对应日志及两轮截图/文本。没有业务重试、自动重放或线上代码改动。
+
+### B1/B4 真实代理断线及原对话恢复通过（2026-10-08）
+
+为验收浏览器单独配置本地CONNECT代理，应用流量经代理接入线上服务；其他浏览器和共享网关未停止。Terra对话 `bed99526-e3a5-42b9-9c27-ade28fd08570` 首轮完成16次操作、5750/CHECK-1后，19:12:43.114 UTC销毁该浏览器6条TCP隧道（其中2条flowork.top），并拒绝新连接30秒。网关19:12:43.130记录关闭；离线期间代理实际拒绝了应用重连，证明不是仅设置浏览器离线标志。
+
+19:13:13.117恢复代理，19:13:13.229建立新应用隧道，19:13:14.215网关接受新browser/ws连接（恢复后约1.1秒）。未刷新、关闭或重建侧边栏对话，明确发送第二轮任务，Terra继续检查原订单标签页和新建复核标签页，16次操作、8150/CHECK-2均正确。两条数据库执行completed、无error_code，测试进程退出0，浏览器、代理及临时网页服务均关闭。没有自动重新提交业务任务，断网安排在两轮之间，不声称本项覆盖进行中的写操作。
+
+证据 `/tmp/browser-proxy-recovery.json`（隧道切断、离线拒绝、恢复时间和逐条页面操作）、`/tmp/browser-proxy-recovery-gateway.json`、`/tmp/browser-proxy-recovery-terminal.json`、对应日志及两轮截图/文本。结合此前运行中网关中断返回明确错误且不重放的验收，补齐实际传输断开后同对话恢复这一项。系统休眠、无TCP关闭信号的网络黑洞、自然service worker回收及其余索引项仍不能据此一并标为完成。

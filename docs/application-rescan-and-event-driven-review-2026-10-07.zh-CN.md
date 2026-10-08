@@ -1136,7 +1136,8 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | B6 | 待保活收益评估 | 不提前删掉保活机制 |
 | O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；待 Workflow、Task、Deployment 超时及取消验收 |
 | O3 | 定时任务数据库访问已异步化并部署，局部回归通过 | `b2050a8`；性能测量和其余同步热点仍待核对 |
-| O4、O5 | 待测量和逐项优化 | 分别记录历史请求量、授权请求量，不凭定时器数量判断收益 |
+| O4 | 已配套发布并完成窗口刷新与线上任务/部署页面验收 | 1/10/50页刷新1/1/2请求；真实接口537/115条，页面50条刷新与滚动保持通过；详见末尾证据 |
+| O5 | 待授权请求量测量和逐项优化 | 不凭定时器数量判断收益，保留权限撤销校验 |
 | O7 | 已部署稳定节点/边引用；32项测试、类型检查及本地 Chromium 画布交互通过 | 待部署页面验收及渲染耗时对比 |
 | O6、O8 | 待策略确认或随相关修改收敛 | 不默认清理历史，不为拆分模块新增抽象层 |
 
@@ -1570,3 +1571,16 @@ B3实机通过：使用两个独立Chrome进程及持久配置目录、同一tes
 证据 `/tmp/qa-history-browser.json`、`/tmp/qa-history-browser.png`、脚本 `/tmp/qa-history-browser.cjs`。开发模式未完成记录单独保留 `/tmp/qa-history-browser-dev-incomplete.json`。此为真实浏览器组件验收，数据通过HTTP拦截提供，不声称线上1250条真实执行全链路测试。浏览器、Vite和临时静态服务均已关闭，临时HTML/TSX/config已移出仓库。
 
 最终相关17项回归、完整tsc、主应用生产构建与部署路径审计通过。日志 `/tmp/history-window-final-tests.log`、`/tmp/history-window-typecheck.log`、`/tmp/history-window-app-build.log`。API/前端仍待配套发布（新前端批量limit依赖新API上限），上线后需核对真实任务/部署历史页面；O4尚未标记部署完成。
+
+
+### O4 配套发布与真实页面验收完成（2026-10-08）
+
+已同步摘要SQL、limit上限和前端窗口刷新代码至 `/opt/flowork`，重启API后发布配套前端资源（资源先发布、index最后原子替换，保留旧hash资源）。API PID 4028134→4054647，优雅退出，无强制终止；独立浏览器网关未重启，保留原完整运行环境及POSIX/cgroup配置。发布证据 `/tmp/history-window-publication.json`。
+
+使用test账号的真实浏览器登录态访问 `https://flowork.top`，不拦截/模拟接口、不创建新执行：
+
+- Task `87efe690-a5bc-4a78-bb7b-093e21e8ceb6`，limit1000返回537条真实摘要；在详情页进入执行日志，加载25+25条后刷新，观察limit1000的200响应，50行保留，滚动容器保持且scrollTop为300。
+- Deployment `c7bada98-a9f3-46a5-993f-57e70f2b744c`，limit1000返回115条真实摘要；Activity页面相同操作通过，50行保留，scrollTop为300。
+- 两个接口的摘要字段严格为id/created_at/status/input_index/pending_approvals。没有重跑Task/Deployment业务。
+
+证据 `/tmp/history-window-live.json`、`/tmp/history-window-live-task.png`、`/tmp/history-window-live-deployment.png`；脚本退出0，浏览器已关闭。结合此前真实PostgreSQL权限/分页测试、17项前端回归与生产构建Chromium的50页、故障/权限/新增记录验收，O4当前实现已完成本项配套发布及验收。仍完整保留O5、B6及索引内其它待验收项；整份审查未完成，工作分支未合并main或推送。

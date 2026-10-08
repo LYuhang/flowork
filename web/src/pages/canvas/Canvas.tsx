@@ -57,7 +57,7 @@ import { useUIStore } from '@/stores/ui';
 import { useRegisterViewportCenter } from '@/pages/canvas/CanvasViewportContext';
 import { Button } from '@/components/ui/button';
 import { CanvasReadingView } from './CanvasReadingView';
-import { layoutOverlappingNodes } from './auto-layout';
+import { reconcileCanvasNodes, reconcileCanvasEdges } from './reconcile-graph';
 
 /**
  * Pure drop handler for the template palette drag-and-drop. Extracted from
@@ -144,27 +144,10 @@ export function Canvas({ readOnly = false, viewKey }: CanvasProps = {}) {
   // draft refreshes so the inspector keeps its selection while the user
   // edits, and a node being dragged isn't visually snapped back.
   useEffect(() => {
-    setNodes((prev) => {
-      const prevById = new Map(prev.map((n) => [n.id, n]));
-      const refreshed = initialNodes.map((n) => {
-        const existing = prevById.get(n.id);
-        if (!existing) return n;
-        return { ...n, measured: existing.measured, selected: existing.selected, dragging: existing.dragging };
-      });
-      // Agent insertions may provide coordinates inside an existing card.
-      // Repair the clean snapshot's presentation only: no dirty draft, extra
-      // commit, viewport reset, or overwrite of a user's in-progress edit.
-      return useWorkflowEditStore.getState().isDirty()
-        ? refreshed : layoutOverlappingNodes(refreshed, initialEdges);
-    });
-    setEdges((prev) => {
-      const prevById = new Map(prev.map((e) => [e.id, e]));
-      return initialEdges.map((e) => {
-        const existing = prevById.get(e.id);
-        if (!existing) return e;
-        return { ...e, selected: existing.selected };
-      });
-    });
+    setNodes((prev) => reconcileCanvasNodes(
+      prev, initialNodes, initialEdges, !useWorkflowEditStore.getState().isDirty(),
+    ));
+    setEdges((prev) => reconcileCanvasEdges(prev, initialEdges));
   }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   // Forward xyflow node changes to the local controlled state, then lift

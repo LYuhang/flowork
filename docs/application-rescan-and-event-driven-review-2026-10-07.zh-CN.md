@@ -2033,3 +2033,11 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 两轮分别t_15ff159731774e3386a379a29acef47f、t_e6b21d966e0d4d09ae50255a8c47d95b，数据库completed/error为空；同页连续30秒保持发送状态，截图复核一致。证据/tmp/b6-browser-suspend-verified.cjs/.json/.log、-1/-2.txt/png、-terminal.json。退出0，进程已恢复后正常关闭，代理与测试网页已关闭。此为真实进程暂停模拟，不是笔记本合盖/操作系统电源休眠；后者仍需对应设备手工验收，不混作已覆盖。
 
 合并前重新执行全项目Ruff、全分支git diff --check均通过；此前各项回归与实机证据见索引。O6继续保留用户历史，不引入未获确定规则的自动删除；当前工作分支已推送，实验文档/skill与node_modules保持未跟踪，不包含在交付提交中。
+
+### B6 无侧边栏释放回执实测与合并状态（2026-10-08）
+
+真实Terra对话23c67788-fd7d-4131-bfca-6f06acd41537通过browser CLI读取测试页面标记，原页面持续30秒保持完成状态。关闭侧边栏及本次浏览器的受控测试页，触发真实tab移除事件；插件先保存序号13的pending终态，收到WebSocket序号13的browser_session_event_ack，随后删除同序号pending记录。未打开侧边栏，故这次清理不依赖iframe的HTTP回执。脚本退出0，证据/tmp/browser-terminal-ack-close.cjs、.json、.log、.png、-transcript.txt。
+
+保留前两次未完成故障注入的证据：/tmp/browser-terminal-ack-live.*及/tmp/browser-terminal-ack-attached.*。两次Agent均完成观察，但测试通过chrome.debugger.detach触发断开时返回“Debugger is not attached”，没有进入回执验收，不能记为通过或据此认定产品连接缺陷。最终采用关闭受控测试页触发释放，没有伪造确认消息或修改生产状态。
+
+运行代码已快进合并并推送main，提交cb2ae1966af7f933d5d454f2fbe8981083a95771；本地与线上运行文件及配置逐项比较一致。该提交Web和插件CI通过，Python/API检查截至23:13 UTC仍在运行。镜像安全检查失败，当前GitHub日志接口403、尚未获得具体错误日志，不能将全套CI标记通过。真实系统电源休眠仍需对应设备验收；O6没有确定自动删除期限，继续保留历史。

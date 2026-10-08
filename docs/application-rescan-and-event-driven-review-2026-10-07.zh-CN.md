@@ -1320,3 +1320,10 @@ O1/O2 的数字来自小型隔离脚本，不是线上内存或吞吐基准。O3
 - 参考 [Socket.IO Redis adapter](https://socket.io/docs/v4/redis-adapter/) 的本地连接加跨服务器转发方式，不迁移现有 WebSocket 协议。[Redis Pub/Sub](https://redis.io/docs/latest/develop/pubsub/) 是至多一次交付：断线消息不能补发。应返回明确的断线/结果不确定错误，不自动重放浏览器操作，也不声称 Pub/Sub 发布成功等同浏览器执行成功。
 - 路由仅在受信任控制平面使用；保留 Session、账号、组织、Chat 及 generation 鉴权。旧连接退出不得删除新归属；进程退出后归属需过期；重新连接可更新归属，当前失败命令仍按失败返回。
 - 验收需强制将插件与 CDP 分配到两个独立 API 进程，另一个实例执行鉴权，并覆盖归属迁移、Redis/实例断开、用户释放、跨账号拒绝和无操作重放。当前仅完成设计和调用点盘点，尚未实现，不标 B5 完成。
+
+2026-10-08，B5 共享连接归属基础：
+
+- 新增浏览器专用 ConnectionDirectory，Redis 仅保存实例 ID、连接 ID、transport、Session 与 CDP channel；WebSocket 对象不进入 Redis。每次注册生成新 connection_id；续期与删除使用原记录原子比较，旧连接不能修改替代连接。
+- 插件 Session 查找保留 tenant/user/session 隔离及“多匹配不猜测”的规则。CDP channel 与插件路由分别登记；实例停止续期后记录自动过期。Redis 多键操作按 tenant/user 归于同一 hash slot，未假定任意键可执行跨槽脚本。
+- 4 项测试使用隔离真实 redis-server，包含独立 Python 子进程读取归属、替代连接保护、账号与 Session 隔离、浏览器歧义、Chat channel 隔离及无正常清理的 TTL 过期；全部通过，Ruff 通过。
+- 当前只是经测试的共享目录，还未接入线上路由和消息转发，不能据此解除单 worker 临时约束或宣称集群已可用。跨实例命令/回执、监听生命周期、故障返回及实际多实例验收继续进行。

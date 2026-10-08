@@ -131,9 +131,9 @@ export function AgentChatSidebar({
       ? (s.runtimes[activeChatId]?.state ?? (s.chatId === activeChatId ? s.state : 'idle')) === 'streaming'
       : false,
   );
-  // Embedded header shows the workflow name as a deep link. The query is
-  // `enabled: !!wfId`, so a null id (main-app pre-open) is a cheap no-op.
-  const wfQuery = useWorkflow(lastWfId ?? '');
+  // Only the workflow embed header needs a workflow title. Browser scopes
+  // identify conversations, not workflows, and must not query that endpoint.
+  const wfQuery = useWorkflow(embedded && chatSurface !== 'browser' ? (lastWfId ?? '') : '');
   const wfName = wfQuery.data?.meta?.workflow_name;
   const sessions = useChatSessions(lastWfId, chatSurface);
   const sessionItems = useMemo(

@@ -1132,6 +1132,29 @@ describe('AgentChatSidebar redesign', () => {
     useChatStreamStore.getState().reset();
   });
 
+  it('does not fetch a Workflow for browser scopes but loads the workflow embed title', async () => {
+    const requests: string[] = [];
+    server.use(http.get('*/api/v1/workflows/:id', ({ params }) => {
+      requests.push(String(params.id));
+      return HttpResponse.json({ meta: { workflow_name: 'Embedded workflow title' } });
+    }));
+    useUIStore.setState({ lastActiveWorkflowId: '__browser_test' });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+    );
+    const view = render(<AgentChatSidebar embedded chatSurface="browser" />, { wrapper });
+    await waitFor(() => expect(createChatMock).toHaveBeenCalledTimes(1));
+    expect(client.getQueryCache().find({ queryKey: ['workflow', '__browser_test'] })).toBeUndefined();
+    expect(requests).toEqual([]);
+    act(() => useUIStore.setState({ lastActiveWorkflowId: 'real-workflow' }));
+    view.rerender(<AgentChatSidebar embedded chatSurface="chat" />);
+    expect(await screen.findByText('Embedded workflow title')).toBeInTheDocument();
+    expect(requests).toEqual(['real-workflow']);
+    view.unmount();
+    client.clear();
+  });
+
   it('header has New Chat + History + Close', () => {
     render(<AgentChatSidebar />, { wrapper: SidebarWrapper });
     expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument();

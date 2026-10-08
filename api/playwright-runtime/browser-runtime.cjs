@@ -255,6 +255,7 @@ class BrowserRuntime {
         }
       }
       return { status: "succeeded", ...(args.tab_id ? { tab_id: args.tab_id } : {}), result,
+        _connection_lost: !this.browser?.isConnected(),
         _artifacts: [...this.commandArtifacts.values()],
         message: "Browser command completed." };
     } catch (error) {
@@ -276,6 +277,7 @@ class BrowserRuntime {
       const interrupted = !(error instanceof BrowserCommandError) && /closed|disconnect|connection|crash/i.test(String(error.message));
       const unknown = interrupted && dispatched && !READS.has(name);
       return { status: unknown ? "unknown" : "failed", error: unknown ? "result_unknown" : error.code || (error.name === "TimeoutError" ? "action_timeout" : "browser_command_failed"),
+        _connection_lost: !this.browser?.isConnected(),
         message: safeText(error.message),
         ...(error.details ? { details: error.details } : {}),
         _artifacts: [...this.commandArtifacts.values()],

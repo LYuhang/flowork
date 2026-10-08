@@ -5,6 +5,25 @@ const assert = require("node:assert/strict");
 const { BrowserRuntime } = require("./browser-runtime.cjs");
 const { BrowserCommandError } = require("./browser-files.cjs");
 
+test("CDP loss is reported separately from an action timeout", async () => {
+  const runtime = new BrowserRuntime();
+  let connected = true;
+  runtime.browser = { isConnected: () => connected };
+  const state = { page: { isClosed: () => false, locator: () => ({ click: async () => {
+    const error = new Error("Timeout 1000ms exceeded");
+    error.name = "TimeoutError";
+    throw error;
+  } }) }, dialogWaiters: new Set() };
+  runtime.states.set("test", state);
+  const timedOut = await runtime.execute("browser.click", { tab_id: "test", locator: "button" });
+  assert.equal(timedOut.error, "action_timeout");
+  assert.equal(timedOut._connection_lost, false);
+  connected = false;
+  const disconnected = await runtime.execute("browser.snapshot", { tab_id: "test" });
+  assert.equal(disconnected.error, "browser_disconnected");
+  assert.equal(disconnected._connection_lost, true);
+});
+
 test("an action resumed after dialog acceptance cannot invalidate the returned fresh refs", async () => {
   const runtime = new BrowserRuntime();
   let resumeClick;

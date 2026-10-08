@@ -7,9 +7,10 @@ reuse one pool.
 import os
 import textwrap
 import time
+import pytest
 from concurrent.futures import ThreadPoolExecutor
 
-from vibecanvas_engine.subprocess_pool import BoundedSubprocessPool
+from vibecanvas_engine.subprocess_pool import BoundedSubprocessPool, _Worker
 
 # A trivial echo worker (stdlib-only): read one framed job dict, reply
 # {"status": "success", "output": {"echo": <job>}}.
@@ -37,6 +38,32 @@ _ECHO = textwrap.dedent('''
 
 def _env():
     return {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+
+
+def test_spawn_failure_releases_all_pipe_descriptors(tmp_path):
+    before = len(os.listdir("/proc/self/fd"))
+    for _ in range(10):
+        with pytest.raises(FileNotFoundError):
+            _Worker("unused.py", str(tmp_path / "missing"), _env())
+    assert len(os.listdir("/proc/self/fd")) == before
+
+
+def test_second_pipe_failure_releases_first_pipe(monkeypatch, tmp_path):
+    pipe = os.pipe
+    calls = 0
+
+    def fail_second():
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("file descriptor limit")
+        return pipe()
+
+    before = len(os.listdir("/proc/self/fd"))
+    monkeypatch.setattr(os, "pipe", fail_second)
+    with pytest.raises(OSError, match="file descriptor limit"):
+        _Worker("unused.py", str(tmp_path), _env())
+    assert len(os.listdir("/proc/self/fd")) == before
 
 
 def test_pool_runs_and_returns_in_order(tmp_path):

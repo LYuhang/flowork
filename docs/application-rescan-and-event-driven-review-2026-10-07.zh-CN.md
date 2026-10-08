@@ -2,6 +2,8 @@
 
 记录日期：2026-10-07。代码基线：`main@ccf4e98`。
 
+2026-10-08 补充复查基线：`main@dc60797`。新增的浏览器连接恢复、资源释放与效率优化项见[本轮补充清单](#2026年10月8日全仓复查与行业方案对照)。这些新增项的修复和验收状态见末尾实施记录，不属于下文旧轮次的已完成验收。
+
 范围包括主应用、API、Workflow 引擎、侧边栏插件和部署脚本。本轮新增发现为两项已局部复现的缺陷、三项性能风险，以及仍依赖轮询的主要链路。优先修复中文文件下载与并发引用，再推进 Agent 和 Task 的事件流及取消通知。
 
 本清单保留扫描时的问题描述；实施与验收状态以下表及末尾进度记录为准。扫描、局部复现和静态检查通过不代表修复完成。上一轮已完成事项保留在[代码质量与风险优化清单](code-quality-and-risk-review-2026-10-07.zh-CN.md)，不重复计为本轮未完成问题。
@@ -1114,3 +1116,132 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 - Terra最终查询原批次completed、1/1成功、results_complete=true，并保存单条/批量验收文件。运行完成后确认active-runs为空，释放本轮Project沙盒；返回closed，文件卷已卸载、执行进程停止，历史与持久文件保留。
 - 样例最终仅调整中英文末尾说明：由Agent判断是否重试，不增加平台隐式重投。EmptyChatExamples现有4项测试通过（7.54秒），Vite正式构建与deployment-path guard通过。前端资源及说明已发布；本次无需后端重启。
 - 当前简单样例的功能路径验收已覆盖；不宣称70次全部成功、不宣称免费模型具备生产SLA、不宣称上游异常具体根因已定位。旧订单实验不再是用户当前验收范围。
+
+## 2026年10月8日全仓复查与行业方案对照
+
+基线：`main@dc60797`。范围包括主应用、侧边栏插件、API、Workflow 引擎、存储与授权、任务和部署链路。依据为全仓结构扫描、主要调用链阅读、官方方案对照，以及下述隔离复现；不等同于逐行安全审计或线上容量测试。
+
+当前优先处理浏览器恢复和资源释放缺陷，再优化重复查询、连接开销和渲染。首次扫描时所有新增项均为待修复、待验证或待评估；后续代码与验证进度见末尾实施记录。只有标明实机通过和部署版本的项目才算交付完成。
+
+### 实施约束
+
+- 保持方案简单，优先局部修正，不为事件化新增通用消息平台、复杂调度协议或自动重投机制。
+- 浏览器传输重连与业务重试分开：允许恢复连接；已发送的点击、导航、提交等操作不得自动重放。结果不确定时返回明确诊断，由用户或 Agent 检查后决定下一步。
+- 权限校验、账号及空间隔离、用户主动释放控制的边界必须保留，不能用恢复机制绕过。
+- 性能优化需记录前后请求数、耗时、内存或渲染数据；没有实测收益的改造不以“业界先进”为理由推进。
+- 浏览器本地对话缓存继续延期。POSIX 存储、Code/Bash 子进程执行方式和现有 Agent 框架不因本次审查而迁移。
+
+### 浏览器连接修复和优化
+
+链路为侧边栏 iframe → 插件 offscreen WebSocket → API 浏览器连接注册表；沙盒内 Playwright 经 CDP relay 使用该连接，由扩展 service worker 调用 Chrome debugger。消息传输在线、控制权有效、debugger 已附加、Playwright 可用是不同条件，不能由一个“已连接”状态替代。
+
+| 编号 | 优先级 | 项目 | 证据及当前状态 |
+| --- | --- | --- | --- |
+| B1 | 高 | 旧连接发送失败误删新连接 | 调用实际注册表的隔离脚本已复现；待修复 |
+| B2 | 高 | Playwright 断开后复用存活但失效的 Runtime | 模拟断开返回的受控测试已复现；待修复及真实断网验证 |
+| B3 | 高 | 同账号另一浏览器断线可能误标记当前控制状态 | 静态调用链风险；待双浏览器实测 |
+| B4 | 中 | 关闭侧边栏、休眠及令牌过期后的恢复 | 存在 iframe 续期依赖；待生命周期验收 |
+| B5 | 扩容前必须处理 | 多 API worker 的浏览器连接归属 | 进程内注册表的明确部署限制；待部署约束及路由验证 |
+| B6 | 低 | 冗余保活和旧生命周期假设 | 与最低 Chrome 版本不完全匹配；待收益评估 |
+
+#### B1 旧连接清理误删新连接
+
+[TransportRegistry.send_to](../api/src/vibecanvas_api/browser/registry.py) 在发送失败时调用 `unregister(transport_id)`，未传入原 sender。若旧发送尚未结束，新连接先注册到相同 ID，旧发送随后失败会删除新记录。
+
+复现顺序：暂停旧 sender → 注册新 sender → 令旧 sender 抛出异常 → 检查 `is_connected`。实际结果为 `False`，新连接被移除。
+
+修复方向：复用现有 sender 身份核对能力，只移除失败的那个连接，不增加业务重试。
+
+验收：旧发送失败和旧连接退出均不删除替代连接；新命令经新连接正常返回；只有旧连接时仍能正确清理。补真实断网重连验证，不以隔离脚本代替实机证据。
+
+#### B2 失效 Runtime 未被回收
+
+[BrowserCliRuntime.execute](../api/src/vibecanvas_api/services/agent_runtime/browser_cli_runtime.py) 根据进程退出状态和控制身份变化决定重启。[BrowserRuntime.tab](../api/playwright-runtime/browser-runtime.cjs) 能检测 CDP 断开并返回 `browser_disconnected`，但普通错误结果返回路径未据此清理 Runtime。
+
+受控测试保持进程存活、控制身份不变，模拟 Node 连续返回 `browser_disconnected`。两次调用均失败，`_start` 和 `_stop` 调用次数都为 0，旧进程仍被保留。这证明该返回路径缺少恢复衔接，不代表所有真实断线都会保持相同控制身份。
+
+修复方向：区分动作超时、目标标签页失效和连接失效；仅明确连接失效时清理 Runtime，下一条明确调用重新鉴权并初始化。不能因普通 `action_timeout` 重启连接或重复导航。
+
+验收：进程活着但 CDP 已断、进程已退出、控制身份变化分别处理正确；下一条观察命令可恢复；用户主动停止后不得后台重新接管；写操作结果不确定时保留 `result_unknown`，无自动重放。
+
+#### B3 浏览器断线影响范围过宽
+
+[ws_hub 断开处理](../api/src/vibecanvas_api/routes/browser.py) 通过 [get_active_browser_binding_for_user](../api/src/vibecanvas_api/storage/chat_repo.py) 获取用户的活动控制记录后标记 `lost`，未先证明该记录属于断开的具体浏览器连接。同账号多个浏览器在线时，存在误伤其他控制记录的路径。
+
+修复方向：断开处理绑定到具体 transport、认证 Session 及控制身份；不得仅按用户查找后修改另一浏览器的租约。
+
+验收：浏览器 A 控制中，浏览器 B 断开，不影响 A；A 自身断开状态正确变化；账号切换、过期连接、迟到断线通知均不能修改新控制身份。使用两个独立浏览器上下文，不能只用同一浏览器的两个标签页代替。
+
+#### B4 认证续期与休眠恢复
+
+[插件令牌](../api/src/vibecanvas_api/browser/scoped_token.py) 最长有效期为 900 秒；[WsClient](../extension/src/shared/ws-client.ts) 提前请求续期，经 [sidepanel](../extension/src/sidepanel.ts) 转给 [EmbedChatPage](../web/src/pages/embed/EmbedChatPage.tsx) 获取新令牌。关闭侧边栏或系统休眠时，此链路可能暂停。拒绝过期凭据是正确行为，不能以延长或绕过认证代替恢复。
+
+验收：侧边栏关闭超过 15 分钟后重开、电脑休眠恢复、弱网下续期请求失败、账号切换、服务重启。分别核对新令牌、控制身份、CLI 错误及恢复后的观察结果；避免过期令牌无限重连或显示已恢复却仍不可执行。现有 15 秒心跳、45 秒无响应判定及最长 30 秒退避也需与恢复耗时一起记录。
+
+#### B5 多 worker 路由约束
+
+[PlaywrightControllerRegistry](../api/src/vibecanvas_api/browser/playwright_registry.py) 和浏览器传输注册表均为进程内对象，扩展连接与沙盒 CDP 连接必须进入同一控制 worker。普通客户端 IP 粘性路由不能保证这一点，因为两条连接来自不同客户端。
+
+近期方案：明确并验证浏览器控制相关入口固定到一个 worker，覆盖依赖注册表的授权调用。真正扩容时再评估按浏览器身份路由或独立 relay，不能把数据库权限支持多 worker 等同于浏览器数据通道已经支持多 worker。
+
+验收：在多 API worker 环境有意将请求分配到不同进程，确认部署约束可避免注册表不可见；控制 worker 重启后返回清晰错误，新调用可重新建立连接，不重放旧动作。
+
+#### B6 保活机制精简
+
+[manifest](../extension/manifest.json) 最低 Chrome 版本为 125；[offscreen](../extension/src/offscreen.ts) 仍有每 20 秒保活、每 240 秒重建端口的逻辑。Chrome 118 起活动 debugger 会话能维持 service worker 生命周期，官方也建议避免不必要的永久保活。[Chrome 生命周期文档](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)
+
+评估方向：保留必要传输心跳和持久化恢复，减少无控制任务时的唤醒；先验证 Chrome 自然休眠后恢复，再决定是否删除端口轮换，不能直接撤掉 offscreen。
+
+验收：有 debugger 控制、仅普通对话、所有面板关闭、扩展 worker 被回收四种状态；比较后台唤醒次数及连接恢复可靠性。真实 Agent 验证使用 Terra。
+
+### 其他资源和效率优化
+
+| 编号 | 优先级 | 项目 | 证据及状态 | 方向和验收要求 |
+| --- | --- | --- | --- | --- |
+| O1 | 高 | 子进程创建失败泄漏管道 | [subprocess_pool.py](../engine/src/vibecanvas_engine/subprocess_pool.py) 创建四个管道端后，Popen 失败路径只关闭其中两个；隔离进程连续失败 5 次，文件描述符增加 10 个；待修复 | 完整释放创建失败时的管道；循环注入失败后 FD 数稳定，正常执行及取消仍通过 |
+| O2 | 高 | 节点超时未覆盖调用全过程 | 同一文件中先获取 worker、启动并发送，再开始 read_result 超时；受控测试配置 0.05 秒，因等待单 worker 总耗时约 0.542 秒仍成功；待明确语义及修复 | 若保持节点“单次执行 wall-clock”契约，传递统一截止时间到排队、启动、发送和读取；测满池、堵塞发送、慢启动，外层 Workflow 超时与节点超时分别验证，不自动重跑 |
+| O3 | 中 | 同步数据库桥接反复建连接 | [sync_session.py](../api/src/vibecanvas_api/storage/sync_session.py) 使用每次新建 NullPool engine；在运行中的事件循环调用时创建线程池并同步等待 result；静态确认，热点成本待测 | 热点优先原生 async、复用同事件循环连接池；保留租户上下文及事务隔离；测连接数、事件循环延迟和请求耗时，不能直接跨事件循环共享连接池 |
+| O4 | 中 | 无限历史查询周期性刷新成本随页数增长 | [workflow-history.ts](../web/src/lib/api/queries/workflow-history.ts) 的 useInfiniteQuery 每 3 秒刷新；成本待实测 | 保留已加载历史，更新最新页和活动记录，结合可见性及操作后刷新；测 1/10/50 页的请求数和滚动位置，无历史消失、缺口或重复 |
+| O5 | 中 | 多窗口重复授权复核 | [state_notifications.py](../api/src/vibecanvas_api/services/state_notifications.py) 默认每 5 秒授权复核，[preview_workspace_events.py](../api/src/vibecanvas_api/services/preview_workspace_events.py) 每 2 秒检查；成本待测 | 先测数据库及 OpenFGA 请求量，再评估同身份、资源、权限检查的并发合并；不得取消撤权检查或引入长期允许缓存，验收登出、空间切换和撤权传播 |
+| O6 | 中 | 执行事件与 Trace 保留策略不统一 | 已找到账号删除及知识库清理，本轮扫描未找到统一执行历史保留配置；待进一步盘点和产品规则确认 | 分清结果、Trace、事件日志、附件的保留和归档；仅处理符合策略的终态数据，保护运行中及审批中执行；验证导出、查询和断线恢复，不自动删除用户历史 |
+| O7 | 中 | 大画布全图对象重建 | [Canvas.tsx](../web/src/pages/canvas/Canvas.tsx) 随 draft 变化转换整张图并创建节点及边对象；静态确认，渲染影响待测 | 保留未变化对象，缩小订阅范围；测大图中编辑单节点、拖动、撤销及 Agent 更新的渲染次数，保持只读、选择和布局行为 |
+| O8 | 低 | 大模块职责混合 | 基线 sandbox/manager.py 约 4600 行、routes/chats.py 约 4200 行；属于维护性观察，不是性能结论 | 按存储挂载、生命周期、历史读取、运行控制拆分，删除已证实无调用的旧逻辑；避免机械拆文件或新增通用框架，现有公开契约和回归保持一致 |
+
+O1/O2 的数字来自小型隔离脚本，不是线上内存或吞吐基准。O3 至 O7 不承诺未经测量的性能收益。
+
+### 行业对照与保留方案
+
+以下是结合当前实现的选择，不代表同类产品对 Flowork 的性能背书。
+
+| 组件 | 对照来源 | 当前选择 |
+| --- | --- | --- |
+| API、worker、沙盒 | [n8n Queue mode](https://docs.n8n.io/hosting/scaling/queue-mode/)、[Dify Compose](https://github.com/langgenius/dify/blob/main/docker/docker-compose.yaml) | 保留职责分离；不为减少组件数合并执行隔离边界，也不照搬更重的部署拓扑 |
+| 持久任务调度 | [DBOS 队列与并发](https://docs.dbos.dev/python/tutorials/queue-tutorial) | 复用现有队列；业务失败返回错误，区分基础设施恢复与业务重新执行，不新增隐式重投 |
+| 状态通知 | [PostgreSQL NOTIFY](https://www.postgresql.org/docs/current/sql-notify.html) | 数据库保存状态，通知只负责唤醒；保留按进程、事件循环及 channel 共享监听和重连补读 |
+| 文本事件 | [本地合并实现](../api/src/vibecanvas_api/streaming/text_event_batches.py) | 已有 40 毫秒、8 KiB 合并目标及有界队列，合并后先落库再发布；不把现状误报成每个 token 单独落库，不丢弃终态或工具边界 |
+| 权限查询 | [OpenFGA 查询能力](https://openfga.dev/docs/interacting/relationship-queries)、[现有批量授权](../api/src/vibecanvas_api/authorization/service.py) | 列表已有 batch check，保留；优化重点是重复的长连接授权复核，而非重复建设批量能力 |
+| 历史分页 | [TanStack Infinite Queries](https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries) | 重取会顺序处理已加载页，针对 O4 缩小刷新范围；不为降低请求数删掉用户已读历史 |
+| 文件预览 | [POSIX 预览实现](../api/src/vibecanvas_api/services/preview_workspace_events.py) | 保留文件元数据定期扫描和打开时刷新，不新增数据库文件变更记录 |
+| 执行数据保留 | [n8n Execution data](https://docs.n8n.io/hosting/scaling/execution-data/) | 借鉴显式保存和清理策略，由自身保留规则决定，不照搬其他产品的默认删除期限 |
+| 画布 | [React Flow Performance](https://reactflow.dev/learn/advanced-use/performance) | 借鉴稳定引用和细粒度订阅，先测量 O7，保留现有画布框架 |
+| 数据库 async 边界 | [SQLAlchemy asyncio](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html) | 优化 O3 的循环和连接生命周期，避免跨任务共享 AsyncSession 或跨事件循环误用连接池 |
+
+### 实施顺序与完成条件
+
+1. 先修 B1、B2，复现并收窄 B3，修 O1；这些直接影响浏览器可用性和资源释放。
+2. 明确 O2 超时口径并修正；串行验证 B4 的长时运行、关闭面板和休眠恢复。B5 在增加 API worker 前完成约束或路由方案。
+3. 测量 O3、O4、O5 的热点开销后逐项优化；O6 先明确保留规则，O7 用大图测量。O8 随相关模块修改进行，B6 只有在恢复验证通过后再精简。
+4. 每项记录代码提交、回归结果、实机结果、是否部署及剩余限制。测试串行进行以控制内存；浏览器实测使用 Terra，包含观察与有副作用操作的区别。
+
+浏览器共同验收矩阵：正常调用、慢页面、动作超时但连接仍有效、WebSocket 断网、CDP 单独断开、Node 退出、用户取消 debugger、关闭或移动标签页、多窗口及多浏览器、令牌续期失败、休眠恢复、账号切换、API 重启与多 worker 路由。操作计数用于确认没有隐式重放；仅健康检查、单元测试通过或“插件已连接”都不代表浏览器命令链路验收完成。
+
+
+### 新增清单实施记录
+
+2026-10-08，分支 `fix/review-browser-resource-efficiency`，第一批局部修复：
+
+- B1：发送异常只注销原 sender，保留期间注册的新连接。回归同时确认旧动作不重放、后续观察经新连接返回。
+- B2：Node 在命令回执中提供私有连接失效标记；宿主机先保存原动作结果及附件回执，再回收失效 Runtime。下一条明确调用才重新鉴权和初始化。普通动作超时不重启；未知写入结果仍保持 unknown；自动观察失败不推翻已成功动作。安装版本同步为 Browser Runtime 0.4.2，防止版本检查跳过更新。
+- O1：Popen 失败释放全部管道；第二次 pipe 创建失败亦释放第一对管道。真实系统调用失败的循环测试确认文件描述符不增长。
+- 验证：注册表 5 项、Runtime 生命周期 24 项、Node Runtime 14 项、子进程池 9 项通过。API 测试首次因 root 无法启动 PostgreSQL 测试进程出现 5 项 setup error；改用已有隔离测试数据库重跑注册表全部通过，没有修改生产数据库。
+- 以上为局部自动化验证，尚未部署或完成真实浏览器断网验收；B3–B6、O2–O8 仍按原清单推进。不能将该批结果作为整个目标完成的证明。

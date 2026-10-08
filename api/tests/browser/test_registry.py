@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from vibecanvas_api.browser.registry import TransportRegistry, TransportSendFailed
 
@@ -62,3 +64,36 @@ def test_multiple_browsers_resolve_by_derived_extension_session():
         == "tenant:user:browser-b"
     )
     assert reg.find_for_session("tenant", "user", "unknown") is None
+
+
+@pytest.mark.asyncio
+async def test_failed_old_send_preserves_reconnected_transport():
+    reg = TransportRegistry()
+    sending = asyncio.Event()
+    fail = asyncio.Event()
+    received = []
+
+    async def old_send(raw):
+        sending.set()
+        await fail.wait()
+        raise OSError("old socket disconnected")
+
+    async def new_send(raw):
+        received.append(raw)
+
+    transport = "tenant:user:browser"
+    reg.register(transport, old_send, session_id="old-session")
+    pending = asyncio.create_task(reg.send_to(transport, "old-action"))
+    try:
+        await asyncio.wait_for(sending.wait(), 1)
+        reg.register(transport, new_send, session_id="new-session")
+        fail.set()
+        with pytest.raises(TransportSendFailed):
+            await asyncio.wait_for(pending, 1)
+        assert reg.find_for_session("tenant", "user", "new-session") == transport
+        assert not reg.unregister(transport, old_send)
+        assert await reg.send_to(transport, "next-observation")
+        assert received == ["next-observation"]  # No replay of old-action.
+    finally:
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)

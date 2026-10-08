@@ -58,6 +58,45 @@ async def test_reuses_worker_but_authorizes_every_command(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", [
+    {"status": "failed", "error": "browser_disconnected"},
+    {"status": "unknown", "error": "result_unknown"},
+    {"status": "succeeded", "result": {"observation_error": {"code": "browser_disconnected"}}},
+])
+async def test_cdp_loss_retires_runtime_without_replaying_action(monkeypatch, outcome):
+    count = 0
+
+    def respond(reader, frame):
+        nonlocal count
+        count += 1
+        reply(reader, frame, {**outcome, "_connection_lost": True} if count == 1
+              else {"status": "succeeded", "_connection_lost": False})
+
+    runtime, _, frames, _ = worker(monkeypatch, on_write=respond)
+    assert await runtime.execute(*MUTATION, AsyncMock()) == outcome
+    assert len(frames) == 1
+    assert runtime._process is None
+    runtime._stop.assert_awaited_once()
+    observed = await runtime.execute("browser.snapshot", {"tab_id": "tab_test"}, AsyncMock())
+    assert observed == {"status": "succeeded"}
+    assert runtime._start.await_count == 2
+    assert [frame["operation"] for frame in frames] == ["browser.click", "browser.snapshot"]
+
+
+@pytest.mark.asyncio
+async def test_action_timeout_on_live_connection_does_not_restart_runtime(monkeypatch):
+    def respond(reader, frame):
+        reply(reader, frame, {"status": "failed", "error": "action_timeout", "_connection_lost": False})
+
+    runtime, _, frames, _ = worker(monkeypatch, on_write=respond)
+    for _ in range(2):
+        assert (await runtime.execute(*MUTATION, AsyncMock()))["error"] == "action_timeout"
+    runtime._start.assert_awaited_once()
+    runtime._stop.assert_not_awaited()
+    assert len(frames) == 2
+
+
+@pytest.mark.asyncio
 async def test_denial_closes_existing_connection_without_dispatch(monkeypatch):
     runtime, _, frames, process = worker(monkeypatch, authorize=AsyncMock(return_value={"error": "permission_denied"}))
     runtime._process = process

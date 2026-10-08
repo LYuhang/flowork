@@ -59,7 +59,12 @@ class _Worker:
         # job pipe: parent writes job_w, child reads job_r
         job_r, job_w = os.pipe()
         # result pipe: child writes result_w, parent reads result_r
-        result_r, result_w = os.pipe()
+        try:
+            result_r, result_w = os.pipe()
+        except BaseException:
+            os.close(job_r)
+            os.close(job_w)
+            raise
         self._job_w = job_w
         self._result_r = result_r
         argv = [sys.executable]
@@ -76,6 +81,10 @@ class _Worker:
                 # Leave stdout/stderr to inherit (control is on the dedicated
                 # pipes); close_fds defaults True so no OTHER parent fds leak.
             )
+        except BaseException:
+            os.close(job_w)
+            os.close(result_r)
+            raise
         finally:
             # The child holds its ends now; the parent must close them so EOF
             # propagates correctly when either side dies.

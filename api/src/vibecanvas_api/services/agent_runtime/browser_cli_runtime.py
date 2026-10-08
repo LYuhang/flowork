@@ -177,7 +177,13 @@ class BrowserCliRuntime:
                         result = response.get("result")
                         if not isinstance(result, dict):
                             raise ValueError("Invalid browser runtime response")
-                        return await self._commit_artifacts(operation, arguments, result, emit)
+                        connection_lost = result.pop("_connection_lost", False)
+                        result = await self._commit_artifacts(operation, arguments, result, emit)
+                        if connection_lost:
+                            # Keep this command's outcome. Only a subsequent
+                            # explicit call may create a fresh CDP connection.
+                            await self._stop()
+                        return result
                 finally:
                     if not pending.done():
                         pending.cancel()

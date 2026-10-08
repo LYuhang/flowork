@@ -91,8 +91,9 @@ class TransportRegistry:
             await send(raw)
             return True
         except Exception as exc:
-            # Dead/closing socket lingered in the registry — drop it.
-            self.unregister(transport_id)
+            # A replacement may have registered while this send was pending.
+            # Remove only the failed sender, never its replacement.
+            self.unregister(transport_id, send)
             raise TransportSendFailed(f"transport write failed for {transport_id}") from exc
 
 registry = TransportRegistry()

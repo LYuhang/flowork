@@ -1132,7 +1132,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | B1、B2 | 修复已部署，组件回归通过；Terra 两轮多步骤浏览器任务通过 | `4d23504` 等；真实代理断线恢复已通过，替代连接及进程释放仍按场景核对 |
 | B3 | 断线处理范围已收窄并部署；真实双Chrome隔离通过 | 同账号两个独立浏览器，B退出不改变A连接，A等待45秒后继续观察成功 |
 | B4 | 新版插件关闭16分钟后跨标签两轮通过，旧连接关闭后新连接成功 | 另有15/60秒三轮及5分钟两轮；真实代理断线30秒及双向停传90秒后恢复通过；真实系统休眠仍待补 |
-| B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker网关认证/清理及独立Compose全栈启动、注册、登录、POSIX共享目录已验；跨网关实际控制仍待补 |
+| B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker网关认证/清理及独立Compose全栈启动、注册、登录、POSIX共享目录已验；跨网关Terra 17次实际操作及单次表单提交通过；另有一次线程存储EPERM尚未定位 |
 | B6 | 修复四分钟主动断开端口，128项测试通过，新版16分钟恢复实测后已发布 | 20秒消息保留；受控Service Worker停止/启动后原Terra对话继续操作通过；无控制唤醒开销及自然回收仍待评估 |
 | O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；Workflow/Task/Deployment超时及取消实机通过；单worker并发取消隔离、显式恢复跳过成功样本与资源释放均已补验 |
 | O3 | 定时任务异步化已部署并补测真实计划读取；批量进度事务已发布 | 定时计划20次读取连接20→1；批量进度12项测试及发布后四条样本、人工通过/驳回、错误保留与CSV一致验收通过 |
@@ -1945,3 +1945,21 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 新建QA Project prj_40c41723ac5451ad9d3aee792686ef4f，runtime volume 8e0b2203b51dc669ff7b4d9f38d2f5637f38be773a0ed6ecb83238a50a22eef5。宿主机目录及SQLite文件均归flowork，.codex为0700；版本仍0.157.1，二进制修改时间未变化。该证据排除不了运行环境内锁或文件操作限制，不能仅凭目录属性判断根因。日志显示启动成功后在thread初始化失败，尚未执行browser CLI，因此不把它归为网关路由失败。
 
 第二网关已停止并删除，临时密钥清理，测试Chromium/观察器进程已终止；正式入口及插件保持原样。证据/tmp/browser-cross-gateway.json、-terminal.json、.log、/tmp/cross-gateway-container.log，失败原文保存在AgentRun及sandboxd.log。下一步需先定位此线程存储错误，再明确发起新验收；跨网关项不标记通过。本轮没有产品代码变更、没有合并main或推送。
+
+
+### B5 线程初始化环境对照（2026-10-08，根因未确认）
+
+未重放失败业务任务，使用相同 Codex 二进制，仅 initialize 和 thread/start、不调用模型，分别验证普通磁盘/宿主进程、普通磁盘/Bubblewrap、gocryptfs/宿主进程及 gocryptfs/Bubblewrap；四种环境均成功创建空白线程。诊断状态放在独立临时目录，没有修改真实对话数据或沙盒权限。
+
+加密目录/Bubblewrap 首次诊断在 strace 打开跟踪输出文件时遭遇 EPERM，尚未启动 Codex；改将跟踪文件输出到普通磁盘后成功。该现象与产品 thread-store 错误不在同一步，不能据此宣布复现或修复产品故障。仍需比较真实 runtime 挂载、线程配置及持久状态。证据 /tmp/thread-store-diagnostic/ 中 probe.py、sandbox-fuse.py、host/result.json、sandbox/result.json、fuse-traces/，以及加密挂载下 .review-thread-store 与 .review-thread-store-sandbox 的 result.json。未更改产品代码、未发布、未合并。
+
+补充：原失败状态的数据库/模型缓存副本（不复制凭据）在独立沙盒中成功；进入仍存活的原沙盒命名空间，空白状态以及原 .codex 状态分别 thread/start 成功，全程未发送 turn/start、未调用模型或执行原业务任务。原状态诊断创建了一个空白原生线程，不等于平台 AgentRun 恢复成功。捕获一次 shell_snapshots 临时文件 open 返回 EPERM，但该次 thread/start 仍成功，不能混同原 thread-store 致命错误。随后同环境 20 次串行及 40 次四线程创建/删除测试文件均通过；短时跟踪 gocryptfs 后已 detach，没有更改权限或存储配置。证据 /tmp/thread-store-diagnostic/live-clean-result.json、live-existing-result.json、thread-existing-state-trace.*、gocryptfs-trace.*。根因继续保留未确认。
+
+
+### B5 独立新对话跨网关真实控制通过（2026-10-08）
+
+在保留上一条失败记录的前提下，明确新建独立验收对话 6bdaf815-3e39-4044-9d76-a2d63ea791d5，使用 GPT-5.6-Terra 操作专用测试网页。不是恢复或自动重放失败 AgentRun，正式插件和生产入口未修改。插件接入临时 Docker 网关 18001，沙盒仍接原生网关 8001。观察器按当前 chat ID 过滤，确认同一 transport 的空 channel 与 chat:6bdaf815-3e39-4044-9d76-a2d63ea791d5 归属两个不同 instance ID；同时有真实页面交互成功，非仅注册表或健康检查通过。
+
+完成三页六条订单详情核对、返回列表、新建复核标签、查询口令、填写表单及回执确认，共17次页面操作。金额5750与CHECK-1正确，提交恰好一次；结束观察10秒后发送可见、停止不可见，截图复核一致。AgentRun t_b5ef2f2b40ed49f2b1be124219b31c29 数据库状态completed，error_code与error_message为空，测试脚本退出0。
+
+证据 /tmp/browser-cross-gateway-independent.json、-routing.json、-terminal.json、-1.txt/png、.log，及对应 .cjs 与观察器 /tmp/observe-cross-gateway-independent.py。跨网关实际控制这一子项通过；原线程存储EPERM未重现，不据此认定已修复。其余B6开销、系统休眠及O8边界审查等仍见索引；整个目标未完成，未合并main或推送。

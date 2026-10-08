@@ -23,6 +23,9 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
   const eventsQuery = useExecutionEvents(executionId);
   const [selected, setSelected] = useState<string | null>(null);
   const detail = detailQuery.data;
+  const errors = detail?.result?.error_dict;
+  const errorEntries = errors && typeof errors === 'object' && !Array.isArray(errors)
+    ? Object.entries(errors).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0) : [];
   const projection = useMemo(() => {
     const graph = workflowDictToNodesEdges(detail?.workflow ?? null);
     return { ...graph, nodes: autoLayout(graph.nodes, graph.edges) };
@@ -58,6 +61,13 @@ function ExecutionDetail({ executionId }: { executionId: string }) {
           <ExecutionGraph initialNodes={projection.nodes} edges={projection.edges} onSelect={setSelected} />
         </main>
         <aside data-role="execution-inspector" className="max-h-72 overflow-auto border-t border-edge-structural p-4 lg:max-h-none lg:w-[420px] lg:max-w-[45%] lg:shrink-0 lg:border-l lg:border-t-0">
+          {errorEntries.length > 0 && <section aria-label={t('execution.errors')} className="mb-4">
+            <h2 className="mb-3 text-sm font-medium">{t('execution.errors')}</h2>
+            {errorEntries.map(([node, message]) => <div key={node} className="mb-2 rounded border border-state-danger/30 p-3 text-sm">
+              <p className="mb-1 font-mono text-xs text-content-secondary">{node}</p>
+              <p className="whitespace-pre-wrap break-words text-state-danger">{message}</p>
+            </div>)}
+          </section>}
           <h2 className="mb-3 text-sm font-medium">{t('execution.inputs')}</h2>
           <div className="mb-4"><NodeJsonPreview value={detail.inputs} /></div>
           <h2 className="mb-3 text-sm font-medium">{t('preview.workflow.nodeDetails')}{selected ? ` · ${selected}` : ''}</h2>

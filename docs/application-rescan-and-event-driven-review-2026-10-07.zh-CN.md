@@ -1774,3 +1774,11 @@ Terra侧边栏对话 `f6851f95-5a23-49e6-9d13-3464479b0ed7`，先完成16次订�
 新增专用WorkflowValidationError标识工作流/单节点校验失败，RPC返回invalid_workflow和现有校验诊断。宿主机WorkflowRpcError只接受该错误码对应的message，SessionExecutions在启动失败落库时保留该detail；既有execution_dispatch_failed状态码不变，诊断进入result.error_dict.__engine__。任意TypeError/ValueError或运行异常不因此开放消息透传。Deployment既有failure_detail记录会使用异常字符串，不新增重试或派发流程。
 
 引擎28项回归通过，包括真实Unix Socket传递缺失description的节点诊断，以及任意TypeError消息不透传；宿主机7项回归通过，新增集成测试贯穿RuntimeServer→WorkflowRpcClient→SessionExecutions→真实独立Postgres，确认failed及具体node_2/description诊断持久化。Ruff与diff检查通过。证据 `/tmp/workflow-validation-engine-tests.log`、`/tmp/workflow-validation-history-tests.log`。当前仅工作分支代码，尚未更新sandboxd/引擎运行包或实机复验，不把先前线上通用错误问题标为已上线解决。
+
+### 校验诊断修复上线及页面展示补齐（2026-10-08）
+
+发布前读取test租户：无运行中Agent或Task；258条queued历史均属于10月5日已failed的Task 20ebe335-f8b6-4ff2-a49f-649914ecf50b，dispatch_claim/generation均空，本次未删除或改动这些旧记录，不将其视为活跃执行。同步5个引擎/宿主机文件，sandboxd优雅重启4023347→4109033，保留原始环境、POSIX和cgroup配置，未停止API/worker/网关。证据 `/tmp/validation-fix-publication.json`；API健康及sandboxd socket正常。
+
+使用专用Workflow e341f209b384发布缺失description的v1.sv3并明确执行：70907e07-9d87-4969-919f-4ad8bc8c1109为failed，持久result.error_dict.__engine__现在包含node_1、description及output_fields->delay路径。随后修正为有效v1.sv4，新执行19fe78b0-c9d2-4ea9-92ef-90b996037800成功，执行耗时0.071秒，最终输出finished；沙盒释放200。证据 `/tmp/validation-fix-live.json`。没有自动重试或回改原失败结果。
+
+实机同时发现详情页只显示概括错误，而启动校验失败没有节点事件可供展开。因此ExecutionDetailPage侧栏新增“执行错误/Execution errors”，直接显示授权执行结果中的error_dict文本；React按文本渲染，不解释HTML。完整TypeScript检查、生产构建及diff检查通过。新静态文件发布后在真实Chromium打开上述失败详情，无需选择节点即可读到完整校验原因，截图已检查，换行和布局正常。发布保留现有插件下载包。证据 `/tmp/validation-ui-typecheck.log`、`/tmp/validation-ui-build.log`、`/tmp/validation-ui-publication.json`、`/tmp/validation-diagnostic-ui.txt`与`.png`。本项校验诊断从运行进程到数据库、API及页面的修复验收完成，其余清单继续保留。

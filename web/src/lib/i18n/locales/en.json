@@ -3772,6 +3772,7 @@
   "chat.examples.reports.weekly.title": "Write a weekly update",
   "chat.examples.reports.weekly.description": "Turn work notes into progress, blockers, and next steps.",
   "chat.examples.reports.weekly.prompt": "/document Turn the work notes I provide into an editable Word weekly report covering progress, completed work, risks and blockers, and next steps. Preserve key facts and sources. Do not invent progress or numbers; mark missing information clearly. If I have not provided notes, ask me to paste them or upload a file.",
+  "execution.errors": "Execution errors",
   "execution.failure.generic": "Execution failed. See the recorded node results for details.",
   "execution.failure.execution_lost": "Execution interrupted: the sandbox or execution process stopped.",
   "execution.failure.execution_resume_failed": "Execution stopped because its original permissions could not be revalidated.",

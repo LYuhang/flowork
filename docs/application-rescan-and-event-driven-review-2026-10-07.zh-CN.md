@@ -1134,7 +1134,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | B4 | 新版插件关闭16分钟后跨标签两轮通过，旧连接关闭后新连接成功 | 另有15/60秒三轮及5分钟两轮；真实代理断线30秒后恢复通过，系统休眠/无关闭信号的网络黑洞待补 |
 | B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker 尚仅配置检查 |
 | B6 | 修复四分钟主动断开端口，128项测试通过，新版16分钟恢复实测后已发布 | 20秒消息保留；无控制场景的唤醒开销及自然worker回收仍待评估 |
-| O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；Workflow超时/取消、Task取消及Deployment超时/取消实机通过；Task超时及共享worker并行隔离待补 |
+| O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；Workflow/Task/Deployment超时及取消实机通过；单worker并发取消隔离、显式恢复跳过成功样本与资源释放均已补验 |
 | O3 | 定时任务异步化已部署并补测真实计划读取；批量进度事务已发布 | 定时计划20次读取连接20→1；批量进度12项测试及发布后四条样本、人工通过/驳回、错误保留与CSV一致验收通过 |
 | O4 | 已配套发布并完成窗口刷新与线上任务/部署页面验收 | 1/10/50页刷新1/1/2请求；真实接口537/115条，页面50条刷新与滚动保持通过；详见末尾证据 |
 | O5 | 在途合并已发布，真实DB/OpenFGA测量与14项测试通过 | 同进程同身份/资源的重叠检查由N次降为1次；真实三个窗口登出清理通过，空间切换及撤权UI传播待补 |
@@ -1823,3 +1823,14 @@ BatchRuntime生成概要时，rows_failed不再包含cancelled/not_started；保
 进程核查：长Code执行中cgroup包含额外Python子进程；取消及后续调用完成后只剩常驻sandbox_entry、runtime.rpc及其bwrap父进程，没有Code子进程。最终在Deployment设置页面关闭Accept requests、确认保存，观察enabled=false/rollout stopped/instances=[]；该实例cgroup已删除，记录的7个进程PID均不存在，测试浏览器退出。任务/部署资源记录保留，停止运行以释放开发资源。
 
 证据目录 /tmp/deployment-deadline-review/，包括timeout.json及三次UI截图、cancel.json（无效CSRF夹具）、cancel-valid.json与截图、cgroup-observed.json/cgroup-after.json、retire.json、released-processes.json。该项不覆盖Task超时、多并发共享worker取消隔离或全量FD长期增长；这些仍按清单继续。此轮没有修改产品代码，尚未合并main或推送。
+
+
+### O1/O2 Task节点超时与显式恢复、共享worker取消隔离（2026-10-08）
+
+专用工作流e341f209b384发布v1.sv6，将Code节点超时设2秒。通过Task页面创建批次c138431e-b2c4-4be8-a41b-eee14b54b6d1，输入delay10/0、并发1、导出result列。首轮finished_with_errors，rows_ok=1/rows_failed=1、progress=1；8条持久事件进度0→0.5→1，无倒退。真实页面下载CSV，第一条error/workflow_error，完整保留node_2/code node timed out after 2s，执行2.0397秒；第二条success/result finished，0.2706秒。此处是节点超时导致Workflow失败，不能把batch概要timeout=0误读为未触发节点超时；独立整条执行超时才使用timeout分类。
+
+首次执行历史只有失败12a97dc3-892f-4809-8e1c-f73e8c247d3d和成功9b26d2f9-8568-47dd-a60f-80b76a654789。人工在真实页面点击Resume后接口202，resume_count=1/reused_success_rows=1/rerun_rows=1；仅新增失败57d7a9e3-e846-4848-810f-ac94083fbd66，成功样本没有再次执行。原超时配置未修改，所以重跑失败样本仍超时是预期结果，不是恢复操作失效。没有自动重试。终态事件sandbox_status=released，页面概要、按钮及CSV已核对。证据 /tmp/task-deadline-review/batch.json、first.csv、first.png、second.png。
+
+再通过Deployment设置页面启用af3ed823-94fe-4e91-a8c2-92092cd03796，保留固定v1.sv5（Code timeout60）并设1 worker×2并发。实例ready后通过带正常会话与CSRF信息的test-invoke API并发发起delay30/8；分别读取执行详情和持久node_2 running事件，确认两条确实重叠运行。取消长调用df27eca7-ec22-4e88-bb9e-aeea82318c70返回202，原响应cancelled/execution_cancelled；另一条61376446-9ec3-4eaa-bfd6-6f26edc1c005正常succeeded，执行8.0878秒。实例前后同为4c31bd2e-4919-40b0-bd69-0ae7b9eab0c4，pending_requests=0。说明取消没有误杀同worker的另一条执行，不冒称两条调用是通过两个UI测试按钮发起。
+
+最后通过设置页面停用部署，确认enabled=false/rollout stopped/instances=[]；宿主机instances cgroup下无残留实例目录，测试浏览器均退出。证据 /tmp/deployment-deadline-review/isolation.json、isolation-retire.json。结合先前真实系统调用失败FD测试、慢启动/排队/发送的截止时间回归及Workflow/Deployment实机结果，补齐O1/O2所列主要运行链路验收。不是线上长周期负载或无限场景可靠性的承诺。此轮未修改产品代码；其它清单项和最终合并推送仍未完成。

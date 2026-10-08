@@ -54,6 +54,8 @@ SUPERVISOR="$REPO_ROOT/scripts/supervise_process.py"
 PGBIN="${PGBIN:-$(pg_config --bindir 2>/dev/null || true)}"
 PGPORT="${PGPORT:-5433}"
 export API_PORT="${API_PORT:-8000}"
+export BROWSER_GATEWAY_PORT="${BROWSER_GATEWAY_PORT:-8001}"
+export API_WORKERS="${API_WORKERS:-1}"
 # Debian/Ubuntu packages may start the system Redis on 6379. Like PostgreSQL
 # on 5433, keep the launcher-owned instance separate from that system service.
 REDISPORT="${REDISPORT:-6380}"
@@ -325,6 +327,9 @@ export PATH="${VIBECANVAS_PY_PREFIX}/bin:\$PATH"
 export PYTHONPATH="${API_DIR}/src:${ENGINE_DIR}/src:${REPO_ROOT}:\${PYTHONPATH:-}"
 export PYTHONNOUSERSITE=1
 export API_PORT="${API_PORT}"
+export API_WORKERS="${API_WORKERS}"
+export BROWSER_GATEWAY_PORT="${BROWSER_GATEWAY_PORT}"
+export BROWSER_GATEWAY_INTERNAL_BASE_URL="${BROWSER_GATEWAY_INTERNAL_BASE_URL:-http://127.0.0.1:$BROWSER_GATEWAY_PORT}"
 export PLATFORM_MCP_INTERNAL_BASE_URL="${PLATFORM_MCP_INTERNAL_BASE_URL:-http://127.0.0.1:$API_PORT}"
 export DATABASE_URL="postgresql+asyncpg://vibecanvas_app:vibecanvas_app@localhost:${PGPORT}/vibecanvas"
 export DBOS_SYSTEM_DATABASE_URL="postgresql+psycopg://vibecanvas_app:vibecanvas_app@localhost:${PGPORT}/vibecanvas"
@@ -565,12 +570,22 @@ exec "\$@"
 EOF
   chmod +x "$RUNDIR/run.sh"
 
-  # Browser WebSocket/CDP registries share this process. Do not inherit
-  # WEB_CONCURRENCY from a host configured for unrelated ASGI applications.
+  # Browser connections have an independent process lifecycle.
+  "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
+    --pid-file "$RUNDIR/browser-gateway.pid" --log-file "$RUNDIR/browser-gateway.log" -- \
+    "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m uvicorn vibecanvas_api.browser.gateway:build_app \
+    --factory --host 127.0.0.1 --port "$BROWSER_GATEWAY_PORT" --workers 1
+  for _ in $(seq 1 30); do
+    curl --noproxy '*' -fsS "http://127.0.0.1:$BROWSER_GATEWAY_PORT/healthz" >/dev/null 2>&1 && break; sleep 1
+  done
+  if ! curl --noproxy '*' -fsS "http://127.0.0.1:$BROWSER_GATEWAY_PORT/healthz" >/dev/null 2>&1; then
+    echo "ERROR: Browser gateway did not become healthy; see $RUNDIR/browser-gateway.log"
+    return 1
+  fi
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/api.pid" --log-file "$RUNDIR/api.log" -- \
     "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m uvicorn vibecanvas_api.app:build_app \
-    --factory --host 127.0.0.1 --port "$API_PORT" --workers 1
+    --factory --host 127.0.0.1 --port "$API_PORT" --workers "$API_WORKERS"
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/worker.pid" --log-file "$RUNDIR/worker.log" -- \
     "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m vibecanvas_api.background_worker
@@ -748,7 +763,7 @@ cmd_up() {
 cmd_down() {
   # Stop request producers first, then let sandboxd drain/terminate its owned
   # sessions. This preserves the process ownership boundary during shutdown.
-  for s in api worker web; do
+  for s in api worker web browser-gateway; do
     stop_pidfile "$s"
   done
   stop_pidfile sandboxd
@@ -773,6 +788,7 @@ cmd_status() {
   "$PGBIN/pg_isready" -h localhost -p "$PGPORT" || unhealthy=1
   redis-cli -p "$REDISPORT" ping || unhealthy=1
   curl --noproxy '*' -fsS "http://127.0.0.1:$API_PORT/healthz" && echo " <- api" || { echo "api down"; unhealthy=1; }
+  curl --noproxy '*' -fsS "http://127.0.0.1:$BROWSER_GATEWAY_PORT/healthz" && echo " <- browser gateway" || { echo "browser gateway down"; unhealthy=1; }
   if [[ -x "$RUNDIR/run.sh" ]]; then
     "$RUNDIR/run.sh" "${VIBECANVAS_PYTHON:-$REPO_ROOT/.venv/bin/python}" \
       -m vibecanvas_api.services.sandbox.service \
@@ -793,7 +809,7 @@ cmd_status() {
   if [[ "$WEB" == "1" ]]; then
     curl --noproxy '*' -fsS "$web_url" >/dev/null 2>&1 && echo "web alive $web_url" || { echo "web down"; unhealthy=1; }
   fi
-  for s in sandboxd api worker web openfga; do
+  for s in sandboxd api worker web browser-gateway openfga; do
     [[ "$s" == web && "$WEB" != "1" ]] && continue
     [[ -f "$RUNDIR/$s.pid" ]] && kill -0 "$(cat "$RUNDIR/$s.pid")" 2>/dev/null \
       && echo "$s alive (pid $(cat "$RUNDIR/$s.pid"))" || { echo "$s down"; unhealthy=1; }

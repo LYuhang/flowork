@@ -1,6 +1,6 @@
 import pytest
 from starlette.testclient import TestClient
-from vibecanvas_api.app import build_app
+from vibecanvas_api.browser.gateway import build_app
 
 
 async def _register(client) -> str:
@@ -96,7 +96,7 @@ def test_ws_echo_with_valid_scoped_token(monkeypatch, directory):
             await close_connections()
 
     app = FastAPI(lifespan=lifespan)
-    app.include_router(browser_routes.router)
+    app.include_router(browser_routes.transport_router)
     with TestClient(app) as client, client.websocket_connect(
         "/api/v1/browser/ws",
         subprotocols=build_browser_ws_protocols(tok, "b1"),

@@ -61,6 +61,7 @@ from vibecanvas_api.services.agent_resources.capability import (
 )
 
 router = APIRouter(prefix="/api/v1/browser", tags=["browser"])
+transport_router = APIRouter(prefix="/api/v1/browser", tags=["browser-transport"])
 log = logging.getLogger(__name__)
 PLAYWRIGHT_INITIALIZATION_TIMEOUT_SECONDS = 10.0
 PLAYWRIGHT_AUTHORIZATION_INTERVAL_SECONDS = 5.0
@@ -233,7 +234,7 @@ def _bearer_token(ws: WebSocket) -> str:
     return token.strip()
 
 
-@router.websocket("/ws")
+@transport_router.websocket("/ws")
 async def ws_hub(
     ws: WebSocket,
 ):
@@ -354,7 +355,7 @@ async def ws_hub(
             await registry.unregister(transport_id, _send)
 
 
-@router.websocket("/playwright/cdp")
+@transport_router.websocket("/playwright/cdp")
 async def playwright_cdp(ws: WebSocket):
     """Authenticated standard-CDP endpoint used by official Playwright.
 

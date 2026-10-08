@@ -607,17 +607,29 @@ for connection lifetime, cancellation and permission-revocation behavior.
 
 ### Browser runtime installation and diagnostics
 
-The supported browser-control deployment uses **one API process and one API
-replica**. Both repository launchers explicitly pass `--workers 1`, overriding
-an inherited `WEB_CONCURRENCY`. Do not override this command with a multi-worker
-Gunicorn/Uvicorn setup or scale the API service to multiple replicas: extension
-WebSockets, sandbox CDP connections and browser authorization currently share
-process-local registries. Client-IP sticky sessions do not join connections
-originating from the user's browser and the sandbox. API scaling requires a
-separate browser-routing design and acceptance tests first.
+Browser connections run in a separate `browser_gateway` service, using the same
+application image. The business API only mints browser capabilities. The gateway
+owns extension WebSockets and the authenticated sandbox CDP endpoint; it does not
+start execution workers, run migrations, or mount user workspaces.
 
-This restriction does not set the worker count or execution concurrency inside
-a Workflow Deployment; those remain independently configurable.
+The native launcher starts the gateway on `BROWSER_GATEWAY_PORT` (default 8001)
+and records `browser-gateway.pid` / `browser-gateway.log`. Vite and the Docker
+Nginx configuration forward `/api/v1/browser/ws` to this service. External reverse
+proxies must do the same; keep the existing WebSocket Upgrade headers. Ordinary
+`/api/` requests still go to the business API.
+
+`BROWSER_GATEWAY_INTERNAL_BASE_URL` is the address reachable from the private
+runtime control plane. The launchers default it to `http://127.0.0.1:8001`
+(native) or `http://browser_gateway:8001` (Compose). Use a shared stable browser
+signing secret, Redis directory and authorization/database configuration across
+API and gateway replicas. Gateways must use the restricted runtime DB role.
+Redis relays commands to their connection owner without replaying failed actions.
+
+`API_WORKERS` defaults to 1 and controls business API processes independently of
+browser connections. Start with one gateway; additional gateway instances reuse
+the shared ownership/routing protocol. API restart does not itself disconnect
+WebSockets owned by the gateway. Gateway restart requires transport reconnection;
+in-flight browser actions can fail and are never automatically repeated.
 
 The native bootstrap installs `flowork-browser-runtime` 0.4.0 and its pinned
 `playwright-core` 1.63.0-alpha-2026-08-05 dependency as a self-contained global

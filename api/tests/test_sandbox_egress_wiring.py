@@ -231,7 +231,9 @@ def test_proxy_mode_sets_network_env_bind(tmp_path, monkeypatch):
     assert b.allow_hosts == {"llm.test"}
     assert b.allow_public is False
     platform_origin = gvisor_mod.urlsplit(config.mcp.platform_internal_base_url)
+    browser_origin = gvisor_mod.urlsplit(config.browser_gateway_internal_base_url)
     assert b.allow_private_targets == {
+        (browser_origin.hostname.lower(), browser_origin.port or (443 if browser_origin.scheme == "https" else 80)),
         (
             platform_origin.hostname.lower(),
             platform_origin.port

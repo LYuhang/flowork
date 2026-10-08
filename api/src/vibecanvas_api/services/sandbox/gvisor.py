@@ -1162,12 +1162,12 @@ class RootlessGvisorProvider:
         return loop_thread, egress_socket, proxy_env
 
     @staticmethod
-    def _platform_private_target() -> tuple[str, int]:
-        """Return the one internal Platform origin trusted by sandbox brokers."""
-        origin = urlsplit(config.mcp.platform_internal_base_url)
+    def _private_service_target(base_url: str) -> tuple[str, int]:
+        """Resolve an explicitly configured control-plane service origin."""
+        origin = urlsplit(base_url)
         host = origin.hostname
-        if not host:
-            raise ValueError("Platform MCP internal origin is missing its host")
+        if not host or origin.scheme not in {"http", "https"}:
+            raise ValueError("Private service origin must be an absolute HTTP(S) URL")
         return host.lower(), origin.port or (443 if origin.scheme == "https" else 80)
 
     def _sandbox_egress_setup(
@@ -1190,7 +1190,8 @@ class RootlessGvisorProvider:
             hosts,
             allow_public=config.sandbox_egress_policy == "public",
             allow_private_targets={
-                self._platform_private_target(),
+                self._private_service_target(config.mcp.platform_internal_base_url),
+                self._private_service_target(config.browser_gateway_internal_base_url),
                 *config.sandbox_egress_private_targets,
             },
             trusted_proxy_cidrs=set(config.sandbox_egress_trusted_proxy_cidrs),

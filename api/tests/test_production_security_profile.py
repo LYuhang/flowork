@@ -254,3 +254,24 @@ def test_production_profile_rejects_unknown_kms_and_static_aws_keys(
     }
     assert "kms.managed_provider_required" in codes
     assert "kms.static_aws_credentials_forbidden" in codes
+
+
+def test_browser_gateway_requires_identity_services_without_file_or_maintenance_access(tmp_path, monkeypatch):
+    import pytest
+    from vibecanvas_api.security_profile import validate_browser_gateway_security
+
+    cfg = _config(
+        tmp_path, monkeypatch, VIBECANVAS_ENV="production",
+        DATABASE_URL="postgresql+asyncpg://vc_app:correct-horse-battery-staple@db.example.com/vc?sslmode=verify-full",
+        REDIS_URL="rediss://:a-long-production-redis-secret@redis.example.com/0",
+        VIBECANVAS_SIGNING_SECRET="s" * 48, BROWSER_TOKEN_SECRET="b" * 48,
+        OPENFGA_API_URL="https://openfga.example.com", OPENFGA_STORE_ID="store-1",
+        OPENFGA_AUTHORIZATION_MODEL_ID="model-1", OPENFGA_API_TOKEN="opaque-token",
+        EXTENSION_SCOPED_TOKEN_ENABLED="1", RUN_DATABASE_MIGRATIONS="0",
+    )
+    # No maintenance credential, object store, KMS or scanner is configured.
+    validate_browser_gateway_security(cfg)
+    cfg.browser_token_secret = "dev-insecure-browser-secret-change-me"
+    with pytest.raises(ProductionSecurityError) as error:
+        validate_browser_gateway_security(cfg)
+    assert {issue.code for issue in error.value.issues} == {"browser.stable_token_secret_required"}

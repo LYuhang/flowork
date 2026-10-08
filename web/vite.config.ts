@@ -17,6 +17,7 @@ import { pdfjsAssetsPlugin } from './scripts/pdfjs-assets';
 // who hits `/stats.html`. Gate on `ANALYZE=1` so `pnpm build:analyze`
 // opts in explicitly while regular `pnpm build` keeps it out.
 const enableVisualizer = process.env.ANALYZE === '1';
+const browserGatewayTarget = `http://127.0.0.1:${process.env.BROWSER_GATEWAY_PORT || '8001'}`;
 const nativeApiTarget = `http://127.0.0.1:${process.env.API_PORT || '8000'}`;
 
 // Extra dev/preview hosts are deployment-owned. Values are comma-separated
@@ -206,6 +207,7 @@ export default defineConfig({
       // Keep the local proxy on the same IPv4 interface as native_dev_up.sh.
       // Node 24 may resolve `localhost` to ::1 first while uvicorn listens on
       // 127.0.0.1, which otherwise turns every browser API request into 502.
+      '/api/v1/browser/ws': { target: browserGatewayTarget, changeOrigin: true, ws: true },
       '/api': { target: nativeApiTarget, changeOrigin: true, ws: true },
       '/healthz': { target: nativeApiTarget, changeOrigin: true },
     },
@@ -217,6 +219,7 @@ export default defineConfig({
     headers: { 'Content-Security-Policy': EMBED_FRAME_ANCESTORS_CSP },
     allowedHosts,
     proxy: {
+      '/api/v1/browser/ws': { target: browserGatewayTarget, changeOrigin: true, ws: true },
       '/api': { target: nativeApiTarget, changeOrigin: true, ws: true },
       '/healthz': { target: nativeApiTarget, changeOrigin: true },
     },

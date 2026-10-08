@@ -272,17 +272,19 @@ messages, and reports tab lifecycle events. It has no Flowork-specific DOM
 query/action protocol and never evaluates Agent scripts in the extension worker.
 Page scripts run in authorized webpages; Playwright scripts run in the sandbox.
 
-The browser transport and Playwright controller registries are process-local.
-The supported application topology currently has one API process and one API
-replica; the native launcher and API image explicitly set `--workers 1`.
-This is independent of Deployment inference worker counts and background-task
-concurrency. Increasing those does not distribute the browser registries.
+Browser WebSockets and sandbox CDP connections are owned by the independent
+`vibecanvas_api.browser.gateway` process. The business API retains token issuance
+and command authorization. Each gateway keeps its actual sockets locally;
+Redis stores expiring ownership and routes messages to the connection owner.
+This lets business API instances restart independently and lets gateway replicas
+find each other without requiring browser/sandbox client-IP affinity. Transport
+failures return explicit errors; commands are not automatically replayed.
 
-Before scaling the API, browser WebSockets, sandbox CDP connections and the
-authorization calls that inspect those registries must reach the same controller
-process. Client-IP affinity is insufficient: the extension and sandbox are
-different clients. A future dedicated relay or browser-identity routing scheme
-must cover the complete path before multiple API replicas are supported.
+The gateway shares the restricted runtime DB role and pinned authorization
+client. It starts no Workflow worker, scheduler, sandbox manager or migrations,
+and needs no user-file mounts. Its lifecycle closes connections before shared
+clients. Gateway replicas must use the same secrets, database and Redis directory.
+This separation concerns browser transport, not Deployment inference concurrency.
 
 The relay allow-list and dispatch live in
 [`relay-executor.ts`](../extension/src/playwright/relay-executor.ts), the

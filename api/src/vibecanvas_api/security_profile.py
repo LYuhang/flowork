@@ -436,3 +436,19 @@ def validate_production_security(
     issues = production_security_issues(config, cors_origins=cors_origins)
     if issues:
         raise ProductionSecurityError(issues)
+
+
+def validate_browser_gateway_security(config: AppConfig) -> None:
+    """Apply shared transport/identity rules to the connection-only process.
+
+    It has no file ingress, storage, maintenance pool or HTTP cookie surface;
+    requiring those API capabilities would grant the gateway unnecessary access.
+    Keep the underlying checks identical to the application's production rules.
+    """
+    issues = tuple(
+        issue for issue in production_security_issues(config, cors_origins=[])
+        if issue.code.startswith(("database.", "redis.", "signing.", "browser.", "openfga."))
+        and not issue.code.startswith("database.maintenance_")
+    )
+    if issues:
+        raise ProductionSecurityError(issues)

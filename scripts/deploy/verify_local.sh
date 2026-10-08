@@ -34,6 +34,11 @@ api_health="http://$internal_bind_address:$api_port/healthz"
 curl --noproxy '*' --fail --silent --show-error --max-time 10 "$web_health" >/dev/null
 curl --noproxy '*' --fail --silent --show-error --max-time 10 "$api_health" >/dev/null
 
+VIBECANVAS_ENV_FILE="$ENV_FILE" \
+  docker compose --env-file "$ENV_FILE" exec -T browser_gateway \
+  python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz', timeout=5)" \
+  || { echo "ERROR: browser gateway is unhealthy." >&2; exit 1; }
+
 if ! VIBECANVAS_ENV_FILE="$ENV_FILE" \
   docker compose --env-file "$ENV_FILE" exec -T sandboxd \
   sh -eu -c 'case "${SANDBOX_RUNTIME:-bubblewrap}" in

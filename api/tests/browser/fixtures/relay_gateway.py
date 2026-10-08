@@ -1,4 +1,4 @@
-"""Loopback-only API fixture: real routes/Redis, fixed test identity and lease."""
+"""Loopback-only gateway fixture: real routes/Redis, fixed test identity and lease."""
 import asyncio
 from contextlib import asynccontextmanager
 import json
@@ -45,7 +45,7 @@ async def main():
             print(json.dumps({"closed": True}), flush=True)
 
     app = FastAPI(lifespan=lifespan)
-    app.include_router(browser.router)
+    app.include_router(browser.transport_router)
 
     class Server(uvicorn.Server):
         async def startup(self, sockets=None):

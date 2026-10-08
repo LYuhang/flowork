@@ -246,6 +246,7 @@ services:
       # In host-network mode Agent Runtimes share sandboxd's network namespace;
       # in proxy mode sandboxd's per-Runtime broker makes this same private hop.
       # Compose service discovery is therefore authoritative in both profiles.
+      BROWSER_GATEWAY_INTERNAL_BASE_URL: ${BROWSER_GATEWAY_INTERNAL_BASE_URL:-http://browser_gateway:8001}
       PLATFORM_MCP_INTERNAL_BASE_URL: ${PLATFORM_MCP_INTERNAL_BASE_URL:-http://api:8000}
       OBJECT_STORE_PROVIDER: ${OBJECT_STORE_PROVIDER:-filesystem}
       OBJECT_STORE_FS_ROOT: ${OBJECT_STORE_FS_ROOT:-/var/lib/vibecanvas/objectstore}
@@ -352,6 +353,39 @@ services:
     restart: "no"
     network_mode: none
 
+  browser_gateway:
+    <<: *api-image
+    user: "10001:10001"
+    command: ["uvicorn", "vibecanvas_api.browser.gateway:build_app", "--factory", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
+    env_file:
+      - ${VIBECANVAS_ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
+      REDIS_URL: redis://redis:6379/0
+      OPENFGA_API_URL: http://openfga:8080
+      OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-vibecanvas-openfga-development-only-key}
+      OPENFGA_BOOTSTRAP_CONFIG_FILE: /run/vibecanvas-openfga/config.json
+    volumes:
+      - openfga_bootstrap_data:/run/vibecanvas-openfga:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      openfga_bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+    networks:
+      - edge
+      - control
+      - data
+      - authorization
+
   # ─────── application ───────
   api:
     <<: *api-image
@@ -362,6 +396,7 @@ services:
       - ${VIBECANVAS_ENV_FILE:-.env}
     # NOTE: compose merges env_file + environment; environment wins on conflict.
     environment:
+      WEB_CONCURRENCY: ${API_WORKERS:-1}
       WORKSPACE_STORAGE_BACKEND: ${WORKSPACE_STORAGE_BACKEND:-object_store}
       WORKSPACE_STORAGE_ROOT: /var/lib/vibecanvas/workspaces
       DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
@@ -372,6 +407,7 @@ services:
       OPENFGA_API_URL: http://openfga:8080
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-vibecanvas-openfga-development-only-key}
       OPENFGA_BOOTSTRAP_CONFIG_FILE: /run/vibecanvas-openfga/config.json
+      BROWSER_GATEWAY_INTERNAL_BASE_URL: ${BROWSER_GATEWAY_INTERNAL_BASE_URL:-http://browser_gateway:8001}
       PLATFORM_MCP_INTERNAL_BASE_URL: ${PLATFORM_MCP_INTERNAL_BASE_URL:-http://api:8000}
       VIBECANVAS_API_CORS_ORIGINS: ${VIBECANVAS_API_CORS_ORIGINS:-http://localhost,http://localhost:5173}
       FLOWORK_CONTROL_PLANE_HTTP_PROXY: ${FLOWORK_CONTROL_PLANE_HTTP_PROXY:-}
@@ -472,6 +508,7 @@ services:
       OPENFGA_API_TOKEN: ${OPENFGA_API_TOKEN:-vibecanvas-openfga-development-only-key}
       OPENFGA_BOOTSTRAP_CONFIG_FILE: /run/vibecanvas-openfga/config.json
       OPENFGA_ERASURE_DATABASE_URL: postgresql://flowork_openfga_erasure:${OPENFGA_ERASURE_PASSWORD:-openfga-erasure-development-only}@openfga_postgres:5432/openfga?sslmode=disable
+      BROWSER_GATEWAY_INTERNAL_BASE_URL: ${BROWSER_GATEWAY_INTERNAL_BASE_URL:-http://browser_gateway:8001}
       PLATFORM_MCP_INTERNAL_BASE_URL: ${PLATFORM_MCP_INTERNAL_BASE_URL:-http://api:8000}
       PURGE_WORKER_ENABLED: ${PURGE_WORKER_ENABLED:-true}
       OBJECT_STORE_PROVIDER: ${OBJECT_STORE_PROVIDER:-filesystem}
@@ -537,6 +574,8 @@ services:
     ports:
       - "${VIBECANVAS_BIND_ADDRESS:-127.0.0.1}:${VIBECANVAS_HTTP_PORT:-9001}:8080"
     depends_on:
+      browser_gateway:
+        condition: service_healthy
       api:
         condition: service_healthy
     restart: unless-stopped

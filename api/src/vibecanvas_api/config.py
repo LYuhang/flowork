@@ -1242,6 +1242,12 @@ class AppConfig:
             or raw.get("browser_token_secret")
             or "dev-insecure-browser-secret-change-me"
         )
+        # Browser WebSockets live in the independent connection gateway.
+        self.browser_gateway_internal_base_url: str = str(
+            os.environ.get("BROWSER_GATEWAY_INTERNAL_BASE_URL")
+            or raw.get("browser_gateway_internal_base_url")
+            or "http://127.0.0.1:8001"
+        ).rstrip("/")
         # Published MV3 identity. It binds WebSocket capabilities and their
         # Origin checks to this extension, and must match the manifest's fixed
         # public key-derived id plus the Web `/embed` frame-ancestor policy.

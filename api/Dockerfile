@@ -254,6 +254,7 @@ ENV VIBECANVAS_API_CORS_ORIGINS=http://localhost:3000 \
 USER 10001:10001
 
 # Configure database, public URL and authentication settings at runtime.
-# Browser WebSocket/CDP registries are process-local; do not inherit WEB_CONCURRENCY.
+# Browser connections are hosted by the independent gateway.
+# Compose sets WEB_CONCURRENCY from API_WORKERS for business API replicas.
 CMD ["uvicorn", "vibecanvas_api.app:build_app", "--factory", \
-     "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+     "--host", "0.0.0.0", "--port", "8000"]

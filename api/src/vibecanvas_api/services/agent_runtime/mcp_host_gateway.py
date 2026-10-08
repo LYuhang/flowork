@@ -100,9 +100,9 @@ def _platform_capability_token(request: RuntimeTurnRequest, server: str) -> str:
 
 
 def _playwright_cdp_url() -> str:
-    parts = urlsplit(config.mcp.platform_internal_base_url)
+    parts = urlsplit(config.browser_gateway_internal_base_url)
     if parts.scheme not in {"http", "https"} or not parts.netloc:
-        raise ValueError("Platform MCP internal base URL must be absolute")
+        raise ValueError("Browser gateway internal base URL must be absolute")
     return urlunsplit((
         "wss" if parts.scheme == "https" else "ws",
         parts.netloc,

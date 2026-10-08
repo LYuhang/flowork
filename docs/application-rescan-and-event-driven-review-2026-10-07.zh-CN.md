@@ -1131,7 +1131,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | --- | --- | --- |
 | B1、B2 | 修复已部署，组件回归通过；Terra 两轮多步骤浏览器任务通过 | `4d23504` 等；仍需真实断网、替代连接及进程释放验收 |
 | B3 | 断线处理范围已收窄并部署；真实双Chrome隔离通过 | 同账号两个独立浏览器，B退出不改变A连接，A等待45秒后继续观察成功 |
-| B4 | 已有16分钟关闭重入基线、62秒重入、同对话五轮（含预期故障）证据 | 更长空闲、多轮、网络变化及网关切换后的生命周期待补 |
+| B4 | 已有16分钟旧基线、15/60秒三轮及5分钟跨标签两轮实测 | 当前网关版本超过令牌有效期的关闭重入、网络变化及系统休眠仍待补 |
 | B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker 尚仅配置检查 |
 | B6 | 已核对Chrome生命周期并纠正旧注释；收益仍待评估 | 保留现有保活行为，不把活动debugger已保活等同于所有场景可删除ping |
 | O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；待 Workflow、Task、Deployment 超时及取消验收 |
@@ -1625,3 +1625,30 @@ B3实机通过：使用两个独立Chrome进程及持久配置目录、同一tes
 局限：模拟业务页不涉及真实业务写入；仅覆盖15/60秒关闭重入，并非操作系统休眠、物理断网或长期空闲。更长间隔及多标签连续任务仍保留待验收。
 
 B6同步核对[Chrome官方生命周期说明](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)：Chrome118起活动debugger会话可延长service worker生命周期；单纯打开runtime port不构成持续保活。现有WebSocket位于offscreen文档，不能直接套用service worker内WebSocket的生命周期结论。已纠正offscreen/service-worker中的旧注释，未改变20秒消息及240秒端口轮换行为；是否精简仍需比较无debugger、关闭侧边栏及worker回收后的恢复效果，不提前宣称资源收益。
+
+
+### O5 实际OpenFGA网络补测（2026-10-08，仍未部署）
+
+对生产test账号的有效Session和已存在的Chat做只读测量，使用工作分支stream_guard、真实Postgres和实际OpenFGA HTTP请求，不再使用关系测试替身。独立测量进程内，1/3/5个同时检查：原读取逻辑分别执行12/36/60条SQL及1/3/5次OpenFGA HTTP请求；在途合并逻辑均为12条SQL及1次HTTP请求，所有判定均为允许，结束后在途字典均为空。未修改生产Session、成员、分享关系或内容。
+
+证据 `/tmp/stream-guard-real-openfga.json`，脚本 `/tmp/measure-live-stream-guard.py`。第一次脚本漏传ResourceRef.organization_id，尚未进入检查就失败；修正测量脚本后得到上述完整结果。测量覆盖实际网络读链路，但不是多个真实UI窗口，也不证明生产定时器恰好重叠；部署后的登出、组织切换、撤权传播验收仍保留。
+
+
+### B6 四分钟端口自断开修正（2026-10-08，未部署）
+
+进一步检查发现原240秒轮换并不按预期重连：offscreen主动调用port.disconnect，却仅在自身onDisconnect处理器中清理ping并重连。[Chrome Port契约](https://developer.chrome.com/docs/extensions/reference/api/runtime#type-Port)规定主动断开时该事件只发送到另一端，因此本端旧interval会继续尝试向已断开的port发送消息，原重连入口不会因该动作被调用。此处不把所有历史浏览器掉线归因于这一问题。
+
+删除240秒主动断开的定时器，保留20秒端口消息及对端断开后的清理/重连；不新增业务重试，不移除offscreen WebSocket，不改变认证续期。回归先在旧代码上失败（300秒内出现一次主动disconnect），修改后确认300秒内15次ping、一个port、无主动disconnect；对端断开后旧ping停止且新port恢复消息。
+
+插件完整128项测试、TypeScript检查和生产构建通过，日志 `/tmp/extension-keepalive-tests.log`、`/tmp/extension-keepalive-build.log`。运行中的长空闲测试仍使用部署目录旧版本，不能当作这项新改动的部署验收。B6无控制状态的唤醒开销及自然worker回收恢复仍需补测，本项尚未发布。
+
+
+### B4 多标签连续任务及关闭五分钟后恢复（2026-10-08）
+
+首次多标签用例预先打开财务标签，但未将该标签授权给当前Chat。Agent正确完成订单核对后指出tab-list仅能看到授权订单页，没有读取其它标签。数据库终态completed代表该轮对话结束，不代表测试目标全部完成；该用例记录为不完整，而非连接故障或多标签通过。证据 `/tmp/browser-multitab-long-idle.json`、`/tmp/multitab-history-api.json`。
+
+修正用例为让Terra自己通过browser CLI新建财务标签，再跨授权标签核对。第一次启动修正脚本时临时网页端口尚在释放，EADDRINUSE发生在创建对话之前；确认端口已释放后重新启动本地测试服务，没有重发Agent业务操作。
+
+实际对话 `88a39653-8c11-4a9f-9750-289021118624` 使用线上原版本插件及服务：首轮完成16次页面交互（三页六条订单详情、筛选/返回/翻页及财务查询），金额5750、口令CHECK-1正确。关闭侧边栏300秒后重开同一对话，变更订单数据；第二轮又完成16次交互，金额8150、口令CHECK-2正确，最终切回订单标签。合计32次页面交互，两个数据库执行均completed、error_code为空；没有用停止按钮消失代替终态检查。
+
+证据 `/tmp/browser-multitab-owned-idle.json`、`/tmp/browser-multitab-owned-idle-terminal.json` 及同名前缀两轮txt/png。脚本退出0，测试浏览器和临时网页服务关闭。本轮基于未发布B6端口改动的原插件，不能证明该改动已实机验收；同时不等同于15分钟令牌过期、系统休眠或物理断网验收。

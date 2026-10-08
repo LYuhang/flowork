@@ -47,7 +47,7 @@ let clientEndpoint = "";
 // Keep the service worker active while the offscreen document exists, including
 // periods without an attached debugger. Chrome 118+ already keeps active
 // chrome.debugger sessions alive; an open runtime port alone does not do so.
-// Retain the existing ping/port rotation until idle recovery is measured.
+// Port traffic itself extends the idle deadline; no periodic port rotation is needed.
 function keepSwAlive(): void {
   const port = chrome.runtime.connect({ name: "keepalive" });
   // Port message traffic resets the service worker idle timer. This socket is
@@ -63,13 +63,6 @@ function keepSwAlive(): void {
     clearInterval(ping);
     setTimeout(keepSwAlive, 1000);
   });
-  setTimeout(() => {
-    try {
-      port.disconnect();
-    } catch {
-      /* already gone */
-    }
-  }, 240_000);
 }
 keepSwAlive();
 

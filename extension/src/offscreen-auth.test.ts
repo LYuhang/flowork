@@ -86,3 +86,29 @@ describe('offscreen authentication lifecycle', () => {
     expect(await open('new.token')).toEqual({ ok: true, reused: true, connected: true });
   });
 });
+
+
+describe('offscreen service worker keepalive', () => {
+  it('keeps sending port messages beyond four minutes without self-disconnecting', async () => {
+    await import('./offscreen');
+    const port = vi.mocked(chrome.runtime.connect).mock.results[0].value;
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(port.disconnect).not.toHaveBeenCalled();
+    expect(port.postMessage).toHaveBeenCalledTimes(15);
+    expect(chrome.runtime.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops the old ping and reconnects after the receiving end disconnects', async () => {
+    await import('./offscreen');
+    const port = vi.mocked(chrome.runtime.connect).mock.results[0].value;
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(port.postMessage).toHaveBeenCalledTimes(1);
+    port.onDisconnect.addListener.mock.calls[0][0]();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(chrome.runtime.connect).toHaveBeenCalledTimes(2);
+    const replacement = vi.mocked(chrome.runtime.connect).mock.results[1].value;
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(port.postMessage).toHaveBeenCalledTimes(1);
+    expect(replacement.postMessage).toHaveBeenCalledTimes(1);
+  });
+});

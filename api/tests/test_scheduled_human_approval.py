@@ -112,11 +112,11 @@ async def test_scheduled_review_allows_overlap_and_persists_isolated_result(pg_e
     monkeypatch.setattr(
         worker,
         "_scheduled_execution_lease",
-        lambda **_: SimpleNamespace(
+        AsyncMock(return_value=SimpleNamespace(
             created_by=actor,
             service_account_id=uuid4(),
             generation=1,
-        ),
+        )),
     )
     monkeypatch.setattr(worker, "prepare_code_pythonpath", AsyncMock(return_value=None))
     monkeypatch.setattr(service_account_resources, "refresh_scheduled_resources", AsyncMock())

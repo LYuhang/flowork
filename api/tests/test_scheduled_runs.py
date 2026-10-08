@@ -29,20 +29,20 @@ async def test_worker_uses_frozen_mount_and_private_scope_and_always_finalizes(
     monkeypatch.setattr(worker, "watch_worker", AsyncMock())
     monkeypatch.setattr(worker, "_execution_cancelled", AsyncMock(return_value=False))
     monkeypatch.setattr(worker, "_watch_cancellation", AsyncMock())
-    monkeypatch.setattr(worker, "_scheduled_execution_lease", lambda **kw: SimpleNamespace(
-        created_by=user, service_account_id=uuid.uuid4(), generation=1))
+    monkeypatch.setattr(worker, "_scheduled_execution_lease", AsyncMock(return_value=SimpleNamespace(
+        created_by=user, service_account_id=uuid.uuid4(), generation=1)))
     graph = {"__meta__": {"workflow_id": "wf-original"}}
-    monkeypatch.setattr(worker, "run_in_short_session", lambda fn: ({"value": 0}, graph, "v1.sv0", mount_enabled))
+    monkeypatch.setattr(worker, "_execution_inputs", AsyncMock(return_value=({"value": 0}, graph, "v1.sv0", mount_enabled)))
     monkeypatch.setattr(worker, "inject_into_run_context_async", AsyncMock(return_value={}))
     monkeypatch.setattr(service_account_resources, "refresh_scheduled_resources", AsyncMock())
     monkeypatch.setattr(workflow_resources, "prepare_execution_resources", AsyncMock(return_value=None))
     monkeypatch.setattr(worker, "prepare_code_pythonpath", AsyncMock(return_value=None))
     monkeypatch.setattr(worker, "create_execution", AsyncMock(return_value=str(execution_id)))
-    monkeypatch.setattr(worker, "_snapshot_schedule", lambda _: {"enabled": False})
+    monkeypatch.setattr(worker, "_snapshot_schedule", AsyncMock(return_value={"enabled": False}))
     updates = []
-    monkeypatch.setattr(worker, "_update_execution", lambda eid, **kw: updates.append(kw))
+    monkeypatch.setattr(worker, "_update_execution", AsyncMock(side_effect=lambda eid, **kw: updates.append(kw)))
     for name in ("_refresh_task", "_emit"):
-        monkeypatch.setattr(worker, name, lambda *a, **kw: None)
+        monkeypatch.setattr(worker, name, AsyncMock())
 
     async def execute(**kw):
         assert kw["workflow"] is graph

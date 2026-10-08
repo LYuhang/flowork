@@ -36,11 +36,10 @@ from vibecanvas_api.storage.repo_service_accounts import (
     ServiceAccountLease,
     ServiceAccountsRepo,
 )
-from vibecanvas_api.storage.sync_repo import SyncWorkflowRepo
-from vibecanvas_api.storage.db import dispose_engine
+from vibecanvas_api.storage.workflow_repo import WorkflowRepo
+from vibecanvas_api.storage.db import dispose_engine, session_scope
 from vibecanvas_api.storage.sync_session import (
     current_sync_tenant_id,
-    run_in_short_session,
     short_admin_session,
 )
 
@@ -48,42 +47,33 @@ logger = structlog.get_logger(__name__)
 SCHEDULED_RUN_DISPATCH_INTERVAL_SEC = 60.0
 
 
-
-
-
-def _emit(task_id: uuid.UUID, tenant_id: uuid.UUID, event_type: str, payload: dict) -> None:
-    async def _runner(session) -> int:
+async def _emit(task_id: uuid.UUID, tenant_id: uuid.UUID, event_type: str, payload: dict) -> None:
+    async with session_scope(tenant_id=current_sync_tenant_id.get()) as session:
         await assert_worker_owner(session)
         repo = TasksRepo(session)
         task = await repo.get(task_id)
         if task is not None:
             payload["task_status"] = task.status
-        return await repo.insert_event(task_id, event_type, payload, tenant_id)
-
-    run_in_short_session(_runner)
+        await repo.insert_event(task_id, event_type, payload, tenant_id)
 
 
-def _refresh_task(task_id: uuid.UUID) -> None:
-    async def _runner(session) -> None:
+async def _refresh_task(task_id: uuid.UUID) -> None:
+    async with session_scope(tenant_id=current_sync_tenant_id.get()) as session:
         repo = TasksRepo(session)
         # Control routes lock schedule before execution; workers use the same order.
         await repo.get_schedule_by_task(task_id, for_update=True)
         await assert_worker_owner(session)
         await repo.refresh_scheduled_task(task_id)
 
-    run_in_short_session(_runner)
 
-
-def _update_execution(execution_id: uuid.UUID, **fields: object) -> None:
-    async def _runner(session) -> None:
+async def _update_execution(execution_id: uuid.UUID, **fields: object) -> None:
+    async with session_scope(tenant_id=current_sync_tenant_id.get()) as session:
         await assert_worker_owner(session)
         await TasksRepo(session).update_scheduled_execution(execution_id, **fields)
 
-    run_in_short_session(_runner)
 
-
-def _snapshot_schedule(schedule_id: uuid.UUID) -> dict:
-    async def _runner(session) -> dict:
+async def _snapshot_schedule(schedule_id: uuid.UUID) -> dict:
+    async with session_scope(tenant_id=current_sync_tenant_id.get()) as session:
         repo = TasksRepo(session)
         schedule = await repo.get_schedule(schedule_id)
         if schedule is None:
@@ -106,16 +96,14 @@ def _snapshot_schedule(schedule_id: uuid.UUID) -> dict:
             ),
         }
 
-    return run_in_short_session(_runner)
 
-
-def _scheduled_execution_lease(
+async def _scheduled_execution_lease(
     *,
     task_id: uuid.UUID,
     schedule_id: uuid.UUID,
     workflow_id: str,
 ) -> ServiceAccountLease:
-    async def _runner(session) -> ServiceAccountLease:
+    async with session_scope(tenant_id=current_sync_tenant_id.get()) as session:
         repo = TasksRepo(session)
         task = await repo.get(task_id)
         schedule = await repo.get_schedule(schedule_id)
@@ -134,8 +122,6 @@ def _scheduled_execution_lease(
             owner_resource_type="task",
             owner_resource_id=str(task_id),
         )
-
-    return run_in_short_session(_runner)
 
 
 def dispatch_due_scheduled_runs() -> None:
@@ -260,21 +246,21 @@ async def _execute_owned_scheduled_run(
 ) -> None:
     tenant_uuid = uuid.UUID(tenant_id)
     try:
-        lease = _scheduled_execution_lease(
+        lease = await _scheduled_execution_lease(
             task_id=task_id,
             schedule_id=schedule_id,
             workflow_id=workflow_id,
         )
     except LookupError:
         finished = datetime.now(timezone.utc)
-        _update_execution(
+        await _update_execution(
             execution_id,
             status="failed",
             finished_at=finished,
             error="service_account_unavailable",
         )
-        _refresh_task(task_id)
-        _emit(task_id, tenant_uuid, "terminal", {
+        await _refresh_task(task_id)
+        await _emit(task_id, tenant_uuid, "terminal", {
             "schema_version": 1,
             "level": "error",
             "category": "scheduled_run",
@@ -294,8 +280,8 @@ async def _execute_owned_scheduled_run(
         })
         return
     user_id = str(lease.created_by)
-    _refresh_task(task_id)
-    _emit(task_id, tenant_uuid, "state", {
+    await _refresh_task(task_id)
+    await _emit(task_id, tenant_uuid, "state", {
         "schema_version": 1,
         "level": "info",
         "category": "scheduled_run",
@@ -321,19 +307,8 @@ async def _execute_owned_scheduled_run(
     manager = get_sandbox_manager()
     session = None
     try:
-        async def _input_snapshot(session) -> tuple:
-            await assert_worker_owner(session)
-            ex = await TasksRepo(session).get_scheduled_execution(execution_id)
-            frozen = getattr(ex, "workflow_snapshot", None) or {}
-            schedule = await TasksRepo(session).get_schedule(schedule_id)
-            return ((ex.input_snapshot if ex is not None else {}) or {},
-                    frozen.get("workflow"),
-                    frozen.get("version"),
-                    frozen.get("mount_enabled", bool(schedule and schedule.mount_enabled)))
-
-        input_snapshot, workflow, workflow_version, mount_enabled = run_in_short_session(_input_snapshot)
-        if workflow is None:  # Legacy execution queued before snapshot support.
-            workflow = SyncWorkflowRepo(username=user_id).get_current_workflow(workflow_id)
+        input_snapshot, workflow, workflow_version, mount_enabled = await _execution_inputs(
+            execution_id, schedule_id, workflow_id, user_id)
         from vibecanvas_api.services.service_account_resources import refresh_scheduled_resources
         await refresh_scheduled_resources(tenant_id=tenant_id, user_id=user_id,
             workflow_id=workflow_id, execution_id=str(execution_id),
@@ -463,8 +438,8 @@ async def _execute_owned_scheduled_run(
         error_message = "Execution cancelled."
 
     finished = datetime.now(timezone.utc)
-    schedule_snapshot = _snapshot_schedule(schedule_id)
-    _update_execution(
+    schedule_snapshot = await _snapshot_schedule(schedule_id)
+    await _update_execution(
         execution_id,
         status=final_status,
         finished_at=finished,
@@ -475,8 +450,8 @@ async def _execute_owned_scheduled_run(
             final_status,
         ),
     )
-    _refresh_task(task_id)
-    _emit(task_id, tenant_uuid, "terminal", {
+    await _refresh_task(task_id)
+    await _emit(task_id, tenant_uuid, "terminal", {
         "schema_version": 1,
         "level": "info" if final_status == "succeeded" else "error",
         "category": "scheduled_run",
@@ -509,8 +484,8 @@ async def _execute_owned_scheduled_run(
 
 async def _claim_execution(execution_id: uuid.UUID):
     """Serialize worker startup against cancellation and duplicate delivery."""
-    return await asyncio.to_thread(run_in_short_session,
-        lambda session: claim_worker(session, "schedule", execution_id))
+    async with session_scope(tenant_id=current_sync_tenant_id.get()) as session:
+        return await claim_worker(session, "schedule", execution_id)
 
 
 async def _watch_cancellation(execution_id: uuid.UUID, stop: asyncio.Event) -> None:
@@ -525,13 +500,26 @@ async def _watch_cancellation(execution_id: uuid.UUID, stop: asyncio.Event) -> N
 
 
 async def _execution_cancelled(execution_id: uuid.UUID) -> bool:
-    async def _runner(session) -> bool:
+    async with session_scope(tenant_id=current_sync_tenant_id.get()) as session:
         ex = await TasksRepo(session).get_scheduled_execution(execution_id)
         return ex is not None and ex.status in {"cancelled", "cancelling"}
-
-    return await asyncio.to_thread(run_in_short_session, _runner)
 
 
 def _notification_state(policy: dict, status: str) -> dict:
     from vibecanvas_api.services.task_notifications import notification_state
     return notification_state(policy, status)
+
+
+async def _execution_inputs(execution_id, schedule_id, workflow_id, user_id) -> tuple:
+    async with session_scope(tenant_id=current_sync_tenant_id.get()) as session:
+        await assert_worker_owner(session)
+        repo = TasksRepo(session)
+        ex = await repo.get_scheduled_execution(execution_id)
+        frozen = getattr(ex, "workflow_snapshot", None) or {}
+        schedule = await repo.get_schedule(schedule_id)
+        workflow = frozen.get("workflow")
+        if workflow is None:  # Legacy execution queued before snapshot support.
+            workflow = await WorkflowRepo(session, user_id).get_current_workflow(workflow_id)
+        return ((ex.input_snapshot if ex is not None else {}) or {}, workflow,
+                frozen.get("version"),
+                frozen.get("mount_enabled", bool(schedule and schedule.mount_enabled)))

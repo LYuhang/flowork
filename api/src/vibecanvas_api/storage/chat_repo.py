@@ -1098,20 +1098,6 @@ class ChatRepo:
         binding = (await self._s.execute(statement)).mappings().one_or_none()
         return dict(binding) if binding is not None else None
 
-    @staticmethod
-    def checkpointer_thread_id(
-        username: str, scope_id: str, chat_id: str, major_version: int = 0,
-    ) -> str:
-        """Namespaced Runtime thread identifier.
-
-        Kept as the legacy ``@staticmethod`` (context.py + routes call it
-        without an instance). The thread-id <-> Postgres-checkpointer
-        binding is owned by T11; T7 must not change this shape.
-        """
-        if major_version:
-            return f"{username}__{scope_id}__v{major_version}__{chat_id}"
-        return f"{username}__{scope_id}__{chat_id}"
-
     async def drop_session(self, chat_id: str) -> None:
         # Soft-delete the chat row (spec-intended — DO NOT hard-delete).
         # Because the chat is only soft-deleted, the ``chat_messages`` ON
@@ -1144,25 +1130,6 @@ class ChatRepo:
                 delete(ChatMessage).where(ChatMessage.chat_id == chat_id)
             )
         await self._s.flush()
-
-    async def prune_empty(self, scope_id: str, checkpointer,
-                          keep_chat_id: str = "") -> list[str]:
-        """Soft-delete sessions with no checkpoint state. Best-effort.
-
-        Mirrors the legacy return shape (list of pruned chat_ids). No
-        production caller (grep-verified); retained for surface parity.
-        """
-        sessions = await self.list_sessions(scope_id)
-        pruned: list[str] = []
-        for s in sessions:
-            cid = s["chat_id"]
-            if cid == keep_chat_id:
-                continue
-            tid = self.checkpointer_thread_id(self._user_id, scope_id, cid)
-            if checkpointer.get({"configurable": {"thread_id": tid}}) is None:
-                await self.drop_session(cid)
-                pruned.append(cid)
-        return pruned
 
     # ===================================================================
     # Message API: one row per completed message.
@@ -1396,29 +1363,3 @@ class ChatRepo:
             "runtime_type": chat.project.runtime_type,
             "runtime_session_id": chat.project.runtime_session_id,
         }
-
-    # Legacy aliases — old ChatStore-style names. Kept so any caller that
-    # still uses the disk-era names binds to the Postgres backend.
-    async def append_message(self, wf_id: str, chat_id: str,
-                             message: dict) -> None:
-        await self.persist_message(chat_id, message)
-
-    async def load_session(self, wf_id: str, chat_id: str) -> list[dict]:
-        return await self.list_messages(chat_id)
-
-    # ===================================================================
-    # Attachment API — storage moves to RefRepo (T8); shims for surface
-    # ===================================================================
-
-    def save_attachment(self, wf_id: str, src_path, original_name: str = ""):
-        raise NotImplementedError(
-            "attachment storage moved to RefRepo")
-
-    def add_attachment(self, wf_id: str, chat_id: str, src_path: str,
-                        original_name: str = ""):
-        raise NotImplementedError(
-            "attachment storage moved to RefRepo")
-
-    def resolve_attachment(self, wf_id: str, sha256: str):
-        raise NotImplementedError(
-            "attachment storage moved to RefRepo")

@@ -347,6 +347,8 @@ export const useAuthStore = create<AuthState>()(
           privilegedAccess: null,
           organizationSwitching: false,
         }));
+        // Other tabs share the rotated cookie but not this Zustand store.
+        localStorage.setItem(SESSION_CONTEXT_CHANGED, crypto.randomUUID());
       } catch (error) {
         // A rejected switch leaves the original server Session authoritative;
         // its still-mounted cache was never cleared and can safely reappear.
@@ -402,8 +404,10 @@ export const useAuthStore = create<AuthState>()(
     },
 
     handle401: () => {
-      set({ token: null, authenticated: false, user: null, sessionAudience: null, privilegedAccess: null, organizationSwitching: false });
-      resetAuthScopedClientState();
+      // A request sent before a cookie rotation can finish with 401 after the
+      // browser already has a valid new Session. Reconcile identity only;
+      // never replay the rejected business request.
+      void reconcileBrowserSession();
     },
 
     bootstrap: async (extensionExchangeCode) => {
@@ -458,6 +462,41 @@ export const useAuthStore = create<AuthState>()(
     },
   })),
 );
+
+const SESSION_CONTEXT_CHANGED = 'flowork.session-context-changed';
+let sessionReconciliation: Promise<void> | null = null;
+
+function reconcileBrowserSession(): Promise<void> {
+  if (sessionReconciliation) return sessionReconciliation;
+  const current = useAuthStore.getState();
+  if (!current.authenticated || current.organizationSwitching) return Promise.resolve();
+  const previousUser = current.user;
+  useAuthStore.setState({ organizationSwitching: true });
+  resetAuthScopedClientState();
+  sessionReconciliation = (async () => {
+    try {
+      const projection = projectionFromMe(await fetchMe());
+      // Explicit logout/login may have superseded this read while it was in flight.
+      if (useAuthStore.getState().user !== previousUser) return;
+      useAuthStore.setState({ authenticated: true, ...projection, organizationSwitching: false });
+    } catch {
+      if (useAuthStore.getState().user !== previousUser) return;
+      useAuthStore.setState({ token: null, authenticated: false, user: null,
+        sessionAudience: null, privilegedAccess: null, organizationSwitching: false });
+    } finally {
+      sessionReconciliation = null;
+    }
+  })();
+  return sessionReconciliation;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea === localStorage && event.key === SESSION_CONTEXT_CHANGED && event.newValue) {
+      void reconcileBrowserSession();
+    }
+  });
+}
 
 async function fetchMe(): Promise<MeResponse> {
   const res = await sessionFetch(`${API_BASE}/api/v1/auth/me`, {

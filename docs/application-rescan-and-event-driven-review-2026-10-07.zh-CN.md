@@ -1790,3 +1790,14 @@ Terra侧边栏对话 `f6851f95-5a23-49e6-9d13-3464479b0ed7`，先完成16次订�
 随后在真实Task页面创建两条输入30/0秒、并发1的批次60e579a2-258d-48ee-a620-038bf8038936，确认首条Code running后点击Cancel。接口200；持久事件19:43:31.616取消请求→19:43:33.045 task.cancelled，约1.43秒。Task状态interrupted（产品展示Cancelled、可Resume），已创建的首条执行cancelled，第二条未派发，没有残留queued/running执行。真实页面下载CSV，两条均cancelled，error.code=cancelled/message=cancelled by user，无自动后续执行。证据 `/tmp/batch-code-cancel-ui.json`、`.txt`、`.png`及`/tmp/batch-code-cancel-export/`。脚本最初把Task终态错误断言为cancelled，轮询44秒后报错；以实际Task的interrupted协议及事件时间核对，不能把44秒声称取消耗时或把脚本退出1误报为产品取消失败。
 
 发现并待修复的显示问题：取消后的Task概要为Rows total=2、Rows ok=0、Rows failed=2；底层_summary把所有非success都计入rows_failed，虽已另存cancelled=2，前端未展示该计数。需要把取消/未开始与实际执行错误区分，保留原有can_resume及skip_success语义，并补新旧结果展示的一致性验证。当前仅确认取消行为和CSV正确，统计展示尚未完成修复；Task/Deployment超时及Deployment运行中取消仍按原范围继续。
+
+
+### B4 Terra连续多步业务任务复验（2026-10-08）
+
+按用户要求，用同一侧边栏对话 b81b6aef-b26d-42db-be6c-b7f9a1109111 执行连续多步需求，而非仅打开网页或读取一次快照。任务为筛选华东订单、逐条进入详情核对发票及物流、返回列表并遍历3页6条订单、汇总合格订单及排除原因，再新建标签查询复核口令。测试网页记录实际操作，禁止读取内部数据代替页面交互；每轮修改数据，验证Agent没有复用旧答案。模型GPT-5.6-Terra。
+
+三轮分别记录16次操作，共48次；金额5750→8150→11750、口令CHECK-1/2/3、6条订单详情覆盖全部正确。前两轮间空闲15秒；第二轮后空闲60秒并关闭重开侧边栏。第一版脚本只等编辑框出现，立即读取历史而失败，第三轮尚未发送，不能据此判断产品恢复失败。后续重新启动测试浏览器、重新打开测试网页，等待原对话历史出现（编辑框之后1669ms），确认data-chat-id仍为上述ID，再明确发送第三轮，不重发前两轮。三条AgentRun数据库状态均completed、error_code为空。该第三轮证明原对话在浏览器重启后继续操作新打开的页面，不冒称原tab ID在浏览器退出后保持不变。
+
+发现并保留的限制：Agent报告不能通过CLI激活标签，最终复核页仍为活动页，没有满足“切回订单标签页”的最后一步；内容读取及操作链路成功不能替代此项界面体验。第三轮最终截图仍见处理中编辑框，虽然采样脚本已判断结束且数据库随后确认completed，不能用本次证据声称前端终态显示完全正确，需要另行稳态检查。没有出现已报告的控制断联；不据三轮验收排除长时休眠、网络黑洞和自然Service Worker回收风险。
+
+证据：/tmp/browser-multistep-reentry.json、/tmp/browser-multistep-reentry-third.json、对应逐轮截图/文本、/tmp/browser-multistep-reentry-terminal.json。测试浏览器、代理与临时网页服务均已关闭。当前记录本项结果，未因本次测试变更线上代码或合并main；批量取消计数修复等原有未提交改动继续保留。

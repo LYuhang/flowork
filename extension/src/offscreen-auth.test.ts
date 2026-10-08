@@ -88,27 +88,47 @@ describe('offscreen authentication lifecycle', () => {
 });
 
 
-describe('offscreen service worker keepalive', () => {
-  it('keeps sending port messages beyond four minutes without self-disconnecting', async () => {
-    await import('./offscreen');
-    const port = vi.mocked(chrome.runtime.connect).mock.results[0].value;
-    await vi.advanceTimersByTimeAsync(300_000);
-    expect(port.disconnect).not.toHaveBeenCalled();
-    expect(port.postMessage).toHaveBeenCalledTimes(15);
-    expect(chrome.runtime.connect).toHaveBeenCalledTimes(1);
+describe('offscreen worker wakeups', () => {
+  it('keeps socket heartbeats local without a worker keepalive port', async () => {
+    const open = await setup();
+    await open('token');
+    const socket = Socket.instances[0]; socket.open();
+    vi.mocked(chrome.runtime.sendMessage).mockClear();
+    for (let i = 0; i < 20; i++) {
+      await vi.advanceTimersByTimeAsync(15_000);
+      const ping = JSON.parse(socket.sent.at(-1)!);
+      expect(ping.kind).toBe('ping');
+      expect(ping.data).toEqual({ type: 'keepalive' });
+      socket.echo(ping.data, ping.id);
+    }
+    expect(socket.sent).toHaveLength(20);
+    expect(socket.readyState).toBe(Socket.OPEN);
+    expect(chrome.runtime.connect).not.toHaveBeenCalled();
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('stops the old ping and reconnects after the receiving end disconnects', async () => {
-    await import('./offscreen');
-    const port = vi.mocked(chrome.runtime.connect).mock.results[0].value;
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(port.postMessage).toHaveBeenCalledTimes(1);
-    port.onDisconnect.addListener.mock.calls[0][0]();
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(chrome.runtime.connect).toHaveBeenCalledTimes(2);
-    const replacement = vi.mocked(chrome.runtime.connect).mock.results[1].value;
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(port.postMessage).toHaveBeenCalledTimes(1);
-    expect(replacement.postMessage).toHaveBeenCalledTimes(1);
+  it('delivers lifecycle acknowledgement data to the worker for pending-event cleanup', async () => {
+    const open = await setup();
+    await open('token');
+    const socket = Socket.instances[0]; socket.open();
+    vi.mocked(chrome.runtime.sendMessage).mockClear();
+    const ack = { type: 'browser_session_event_ack', browser_session_id: 'session',
+      session_generation: 2, event_seq: 3 };
+    socket.echo(ack, 'terminal-event');
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'WS_ECHO', echo: ack });
+  });
+
+  it('still wakes the worker for a new browser relay frame', async () => {
+    const open = await setup();
+    await open('token');
+    const socket = Socket.instances[0]; socket.open();
+    vi.mocked(chrome.runtime.sendMessage).mockClear();
+    const env = { v: 1, kind: 'playwright_relay', id: 'command',
+      channel: 'chat:one', transport: 'browser', data: { method: 'Target.getTargets' } };
+    socket.onmessage?.({ data: JSON.stringify(env) } as MessageEvent);
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      type: 'PLAYWRIGHT_RELAY_FRAME', env,
+    }, expect.any(Function));
   });
 });

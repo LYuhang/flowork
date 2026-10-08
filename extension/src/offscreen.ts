@@ -44,28 +44,6 @@ let client: WsClient | null = null;
 let clientKey = "";
 let clientEndpoint = "";
 
-// Keep the service worker active while the offscreen document exists, including
-// periods without an attached debugger. Chrome 118+ already keeps active
-// chrome.debugger sessions alive; an open runtime port alone does not do so.
-// Port traffic itself extends the idle deadline; no periodic port rotation is needed.
-function keepSwAlive(): void {
-  const port = chrome.runtime.connect({ name: "keepalive" });
-  // Port message traffic resets the service worker idle timer. This socket is
-  // held in an offscreen document, not in the service worker itself.
-  const ping = setInterval(() => {
-    try {
-      port.postMessage("ping");
-    } catch {
-      /* port dead — onDisconnect will reconnect */
-    }
-  }, 20_000);
-  port.onDisconnect.addListener(() => {
-    clearInterval(ping);
-    setTimeout(keepSwAlive, 1000);
-  });
-}
-keepSwAlive();
-
 chrome.runtime.onMessage.addListener(
   (msg: unknown, _sender, sendResponse: (r: unknown) => void) => {
     const m = msg as OffscreenMsg | null;
@@ -110,7 +88,15 @@ chrome.runtime.onMessage.addListener(
       connected.onOpen(() => { if (client === connected) void chrome.runtime.sendMessage({ type: "WS_OPEN" }); });
       connected.onClose(() => { if (client === connected) void chrome.runtime.sendMessage({ type: "WS_CLOSED" }); });
       connected.onAuthRequired(() => { if (client === connected) void chrome.runtime.sendMessage({ type: "WS_AUTH_REQUIRED" }); });
-      connected.onEcho((echo) => { if (client === connected) void chrome.runtime.sendMessage({ type: "WS_ECHO", echo }); });
+      connected.onEcho((echo) => {
+        // Transport heartbeats belong to this document. Real relay, lifecycle
+        // and authentication events wake the worker through runtime messaging;
+        // an idle socket must not keep it alive with periodic echo traffic.
+        const data = echo.data as { type?: string } | null;
+        if (client === connected && data?.type !== "keepalive") {
+          void chrome.runtime.sendMessage({ type: "WS_ECHO", echo: echo.data });
+        }
+      });
       connected.onPlaywrightRelay((env) => {
         if (client !== connected) return;
         chrome.runtime.sendMessage(

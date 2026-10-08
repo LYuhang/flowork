@@ -28,6 +28,14 @@ Browser Chat is implemented by several cooperating components:
 6. Command results return through the WebSocket as structured observations and
    become part of the Browser Chat turn.
 
+The offscreen document keeps the transport heartbeat local. It does not send
+periodic messages merely to keep the service worker running. Incoming commands,
+connection changes and authentication renewal wake the worker through runtime
+messages; active debugger sessions keep it alive while controlling a page.
+Session ownership remains in `chrome.storage.session` so normal idle shutdown
+does not discard the binding. This follows Chrome's
+[service-worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle).
+
 The main Web application and Browser surface keep separate Chat histories. A
 browser-control session is bound to one Browser Chat and one side-panel window;
 another window cannot silently take ownership of that active session.

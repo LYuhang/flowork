@@ -1133,7 +1133,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | B3 | 断线处理范围已收窄并部署；真实双Chrome隔离通过 | 同账号两个独立浏览器，B退出不改变A连接，A等待45秒后继续观察成功 |
 | B4 | 新版插件关闭16分钟后跨标签两轮通过，旧连接关闭后新连接成功 | 另有15/60秒三轮及5分钟两轮；真实代理断线30秒及双向停传90秒后恢复通过；真实系统休眠仍待补 |
 | B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker网关认证/清理及独立Compose全栈启动、注册、登录、POSIX共享目录已验；跨网关Terra 17次实际操作及单次表单提交通过；另有一次线程存储EPERM尚未定位 |
-| B6 | 修复四分钟主动断开端口，128项测试通过，新版16分钟恢复实测后已发布 | 20秒消息保留；受控Service Worker停止/启动后原Terra对话继续操作通过；无控制唤醒开销及自然回收仍待评估 |
+| B6 | 修复四分钟主动断开端口，128项测试通过，新版16分钟恢复实测后已发布 | 候选新版去除20秒端口保活及普通心跳回执转发；65秒窗口唤醒对照、自然停止/重开、Terra两轮34次操作通过；新版16分钟续期待验后发布 |
 | O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；Workflow/Task/Deployment超时及取消实机通过；单worker并发取消隔离、显式恢复跳过成功样本与资源释放均已补验 |
 | O3 | 定时任务异步化已部署并补测真实计划读取；批量进度事务已发布 | 定时计划20次读取连接20→1；批量进度12项测试及发布后四条样本、人工通过/驳回、错误保留与CSV一致验收通过 |
 | O4 | 已配套发布并完成窗口刷新与线上任务/部署页面验收 | 1/10/50页刷新1/1/2请求；真实接口537/115条，页面50条刷新与滚动保持通过；详见末尾证据 |
@@ -1963,3 +1963,16 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 完成三页六条订单详情核对、返回列表、新建复核标签、查询口令、填写表单及回执确认，共17次页面操作。金额5750与CHECK-1正确，提交恰好一次；结束观察10秒后发送可见、停止不可见，截图复核一致。AgentRun t_b5ef2f2b40ed49f2b1be124219b31c29 数据库状态completed，error_code与error_message为空，测试脚本退出0。
 
 证据 /tmp/browser-cross-gateway-independent.json、-routing.json、-terminal.json、-1.txt/png、.log，及对应 .cjs 与观察器 /tmp/observe-cross-gateway-independent.py。跨网关实际控制这一子项通过；原线程存储EPERM未重现，不据此认定已修复。其余B6开销、系统休眠及O8边界审查等仍见索引；整个目标未完成，未合并main或推送。
+
+
+### B6 后台空闲唤醒精简及确认消息修复（2026-10-08，候选新版未发布）
+
+按 [Chrome 官方生命周期说明](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)，活动debugger会话可维持worker，普通入站事件可唤醒已停止worker。删除offscreen每20秒端口保活及service-worker对应空监听；15秒WebSocket心跳和45秒无响应检测保留在offscreen中，普通keepalive回执不再发送给worker。保留relay、连接变化、认证续期和生命周期确认的事件通知，没有新增业务重试或改变账号、窗口授权范围。
+
+一并修复WS_ECHO协议错层：WsClient传递完整Envelope，而service-worker读取的是确认data中的type/session/generation/event_seq；此前原样转发Envelope导致browser_session_event_ack无法匹配清理分支。现在offscreen明确转发echo.data，回归验证真实Envelope输入转换为接收端所需字段；不以该单测替代完整断线终态确认实测。
+
+串行真实Chrome对照：普通对话面板打开65秒，旧版3次端口消息+4次心跳回执转发，新版两者均0；关闭全部面板65秒，旧版4+5，新版两者均0。每个计数是该窗口内增量，网络心跳仍每15秒运行；未宣称CPU/内存降低比例。通过仅观察页面/浏览器协议、未附加worker调试器的原生Chrome夹具，候选版明确发生自然stopping→stopped，重新打开后starting→running，GET_BINDING读取成功；这不是调用stopWorker模拟的自然回收。证据/tmp/b6-idle-measure.cjs、b6-baseline.json/.log、b6-candidate.json/.log，临时副本review-probe.js仅计数消息类型与定时器，不记录凭据、不进入正式包。
+
+候选新版真实Terra对话5345dda6-a0fe-4b91-a553-2bab995579b9，两轮各17次页面操作，共34次：三页六条详情、跨标签核对、填写金额及口令、单次提交和回执。金额5750/CHECK-1、8150/CHECK-2正确，按新数据识别开票变化；第一轮后等待60秒、重开同一对话再执行第二轮，两轮结束发送按钮恢复，数据库两个AgentRun均completed/error为空。等待前后Chrome debugger attached目标计数均7；此计数不等同7个业务标签页，且不单凭计数证明每个目标的连续控制。证据/tmp/b6-terra-reentry.cjs、.json、.log、-1/-2.txt/png、-terminal.json。测试脚本退出0，临时测试浏览器与页面服务已关闭。
+
+插件129项测试通过，TypeScript检查、生产构建、git diff --check通过；证据/tmp/b6-extension-tests.log、b6-extension-typecheck.log、b6-extension-build.log。真实系统休眠未覆盖；新版关闭超过令牌15分钟有效期后恢复仍待补，正式下载包尚未发布。这次另尝试释放此前线程诊断QA Project的sandbox，接口返回404，并未释放；没有重试或删除持久文件，记录/tmp/thread-store-diagnostic/release-failed-project.json。线程存储EPERM仍是独立未定位问题。

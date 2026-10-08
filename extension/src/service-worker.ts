@@ -396,17 +396,6 @@ async function releaseControlledBrowserSession(
   }
 }
 
-// Offscreen port messages extend service worker lifetime even without debugger
-// activity. Merely opening this port does not reset the idle timer; an active
-// chrome.debugger session separately keeps the worker alive on Chrome 118+.
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name === "keepalive") {
-    // Each inbound ping resets the SW idle timer (the actual keep-alive).
-    port.onMessage.addListener(() => void 0);
-    port.onDisconnect.addListener(() => void 0);
-  }
-});
-
 // Clicking the toolbar icon opens the side panel DIRECTLY (no popup / no extra
 // "open side panel" click). Requires an `action` in the manifest. Idempotent —
 // safe to call on every SW spawn; wrapped so an old Chrome without the API can't

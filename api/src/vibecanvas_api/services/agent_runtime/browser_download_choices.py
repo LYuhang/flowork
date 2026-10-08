@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
-from vibecanvas_api.browser.registry import registry
+from vibecanvas_api.browser.cluster_registry import registry
 from vibecanvas_api.security.content_encryption import content_encryption_service
 from vibecanvas_api.services.agent_resources.capability import AgentCapability
 from vibecanvas_api.services.platform_mcp.interactive_tools.render_choices import ChoicesInput
@@ -48,7 +48,7 @@ class SelectionRequired(PermissionError):
 
 async def current_scope(session, cap: AgentCapability) -> DownloadScope:
     await resolve_context(cap)
-    transport = registry.find_for_session(cap.organization_id, cap.user_id, cap.session_id)
+    transport = await registry.find_for_session(cap.organization_id, cap.user_id, cap.session_id)
     binding = await ChatRepo(session, cap.user_id).get_browser_binding(cap.chat_id)
     if (not binding or binding.get("status") not in {"attaching", "attached", "lost"}
             or not binding.get("browser_session_id") or int(binding.get("browser_session_generation") or 0) <= 0):

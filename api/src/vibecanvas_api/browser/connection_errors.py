@@ -4,6 +4,9 @@ Only fixed messages cross this boundary. Raw extension/protocol exceptions may
 contain page data, URLs or credentials. Close-frame reasons must fit 123 bytes.
 """
 
+RELAY_UNAVAILABLE = "Browser routing unavailable. The frame was not dispatched. Check service availability."
+RELAY_DELIVERY_UNKNOWN = "Browser delivery is uncertain. Inspect the page before taking another action; do not repeat the action."
+
 INITIALIZATION_FAILED = "Browser initialization failed. Reopen the side panel and check browser-control permission."
 INITIALIZATION_TIMEOUT = "Browser extension did not initialize in time. Check its connection and reopen the side panel."
 SESSION_CHANGED = "Browser control changed during initialization. Reopen the side panel in the intended Chat."
@@ -18,7 +21,7 @@ INITIALIZATION_REASONS = {
 }
 SAFE_REASONS = frozenset({
     *INITIALIZATION_REASONS.values(), INITIALIZATION_FAILED, INITIALIZATION_TIMEOUT,
-    SESSION_CHANGED, EXTENSION_DISCONNECTED,
+    SESSION_CHANGED, EXTENSION_DISCONNECTED, RELAY_UNAVAILABLE, RELAY_DELIVERY_UNKNOWN,
 })
 
 

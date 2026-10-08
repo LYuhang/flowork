@@ -15,7 +15,7 @@ def authority(monkeypatch):
     monkeypatch.setattr(auth, 'verify_agent_capability', lambda *args, **kwargs: capability)
     resolve = AsyncMock()
     monkeypatch.setattr(auth, 'resolve_context', resolve)
-    monkeypatch.setattr(auth.registry, 'find_for_session', lambda *args: 'transport')
+    monkeypatch.setattr(auth.registry, 'find_for_session', AsyncMock(return_value='transport'))
     reserve = AsyncMock(return_value=session_control.BrowserSessionLease(
         'tenant', 'user', 'new-chat', 'lease', 3))
     monkeypatch.setattr(session_control, 'reserve_sidepanel_browser_session', reserve)
@@ -59,7 +59,7 @@ async def test_revoked_identity_cannot_reserve_browser(authority):
 @pytest.mark.asyncio
 async def test_disconnected_extension_does_not_reserve_browser(authority, monkeypatch):
     reserve, _ = authority
-    monkeypatch.setattr(auth.registry, 'find_for_session', lambda *args: None)
+    monkeypatch.setattr(auth.registry, 'find_for_session', AsyncMock(return_value=None))
     result = await auth.authorize_browser_cli(operation='browser.tab-list', arguments={},
                                              token='private', endpoint='private-endpoint')
     assert result['error'] == 'browser_disconnected'
@@ -79,4 +79,17 @@ async def test_renewal_after_detach_does_not_reacquire_control(authority, monkey
     result = await auth.authorize_browser_cli(operation='browser.tab-list', arguments={},
         token='private', endpoint='private-endpoint', expected_fence=['transport', 'lease', 3])
     assert result['error'] == 'browser_control_released'
+    reserve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_directory_outage_does_not_acquire_browser_or_dispatch(authority, monkeypatch):
+    from redis.exceptions import ConnectionError
+
+    reserve, _ = authority
+    monkeypatch.setattr(auth.registry, 'find_for_session', AsyncMock(side_effect=ConnectionError('private address')))
+    result = await auth.authorize_browser_cli(operation='browser.snapshot', arguments={}, token='token', endpoint='endpoint')
+    assert result['error'] == 'browser_routing_unavailable'
+    assert 'not dispatched' in result['message']
+    assert 'private address' not in str(result)
     reserve.assert_not_awaited()

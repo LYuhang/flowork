@@ -7,7 +7,7 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from vibecanvas_api.browser.envelope import decode, encode
-from vibecanvas_api.browser.registry import TransportRegistry
+from vibecanvas_api.browser.cluster_registry import TransportRegistry
 from vibecanvas_api.browser.scoped_token import mint_scoped_token
 from vibecanvas_api.browser.ws_auth import build_browser_ws_protocols
 from vibecanvas_api.routes import browser as routes
@@ -16,7 +16,7 @@ from vibecanvas_api.routes import browser as routes
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", [None, "user_id", "tenant_id", "wf_id", "browser_id", "extension_id",
                                    "session_id", "session_generation", "session_audience", "signature", "revoked"])
-async def test_refresh_keeps_transport_only_for_verified_same_live_identity(monkeypatch, change):
+async def test_refresh_keeps_transport_only_for_verified_same_live_identity(monkeypatch, change, browser_connections):
     values = dict(user_id="user", tenant_id="tenant", wf_id="workflow", browser_id="browser",
                   extension_id="extension", session_id="session", session_generation=1,
                   session_audience="extension", now=1000)
@@ -36,9 +36,9 @@ async def test_refresh_keeps_transport_only_for_verified_same_live_identity(monk
     async def receive():
         nonlocal sender
         if sender is None:
-            sender = registry._senders["tenant:user:browser"]
+            sender = browser_connections.bindings[("tenant:user:browser", "")].send
             return encode("auth_refresh", id="refresh", channel="system", transport="pending", data={"token": fresh})
-        assert registry._senders["tenant:user:browser"] is sender
+        assert browser_connections.bindings[("tenant:user:browser", "")].send is sender
         raise WebSocketDisconnect()
 
     @asynccontextmanager
@@ -62,6 +62,6 @@ async def test_refresh_keeps_transport_only_for_verified_same_live_identity(monk
     assert result["data"] == {"type": "auth_refresh", "ok": change is None,
                               "expires_at": 1901 if change is None else 1900}
     assert token not in ws.send_text.call_args.args[0] and fresh not in ws.send_text.call_args.args[0]
-    assert not registry.is_connected("tenant:user:browser")
+    assert not await registry.is_connected("tenant:user:browser")
     repo.get_active_browser_binding_for_user.assert_not_awaited()
     repo.mark_browser_lost.assert_not_awaited()

@@ -123,7 +123,7 @@ async def test_registration_encrypts_metadata_and_invalidates_older_snapshot(mon
 ])
 async def test_reconnect_is_not_permission_to_read_or_permanent_choice_expiry(monkeypatch, status, transport, error):
     monkeypatch.setattr(choices, "resolve_context", AsyncMock())
-    monkeypatch.setattr(choices.registry, "find_for_session", lambda *args: transport)
+    monkeypatch.setattr(choices.registry, "find_for_session", AsyncMock(return_value=transport))
     monkeypatch.setattr(choices, "ChatRepo", lambda *args: SimpleNamespace(get_browser_binding=AsyncMock(return_value={
         "status": status, "browser_session_id": "browser", "browser_session_generation": 1})))
     with pytest.raises(error):

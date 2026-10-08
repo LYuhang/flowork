@@ -2,7 +2,9 @@
 
 import re
 
-from vibecanvas_api.browser.registry import registry
+from vibecanvas_api.browser.cluster_registry import registry
+from vibecanvas_api.browser.instance_relay import RelayUnavailable
+from redis.exceptions import RedisError
 from vibecanvas_api.storage.chat_repo import ChatRepo
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.config import config
@@ -19,7 +21,12 @@ async def authorize_browser_cli(*, operation, arguments, token, endpoint, expect
     # Revalidates membership, Chat execute permission, originating active run,
     # session generation and runtime/workspace identity on every command/renewal.
     await resolve_context(capability)
-    transport = registry.find_for_session(capability.organization_id, capability.user_id, capability.session_id)
+    try:
+        transport = await registry.find_for_session(capability.organization_id, capability.user_id, capability.session_id)
+    except (RelayUnavailable, RedisError, OSError, TimeoutError):
+        return {"error": "browser_routing_unavailable",
+                "message": "Browser routing could not be verified. This command was not dispatched.",
+                "hint": "Check service availability before issuing another command."}
     if transport is None:
         return {"error": "browser_disconnected", "message": "The authorized browser extension is not connected.",
                 "hint": "Open the Flowork side panel in the intended browser and reconnect. No other browser was selected."}

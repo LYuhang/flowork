@@ -12,6 +12,8 @@ accepted here.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
+from redis.exceptions import RedisError
 from datetime import datetime, timezone
 import logging
 import time
@@ -34,10 +36,14 @@ from vibecanvas_api.browser.ws_auth import (
     parse_browser_ws_protocols,
 )
 from vibecanvas_api.browser.envelope import encode, decode
-from vibecanvas_api.browser.registry import registry
-from vibecanvas_api.browser.playwright_registry import playwright_controllers
+from vibecanvas_api.browser.instance_relay import RelayUnavailable
+from vibecanvas_api.browser.registry import TransportSendFailed
+from vibecanvas_api.browser.cluster_registry import registry
+from vibecanvas_api.browser.cluster_registry import playwright_controllers
 from vibecanvas_api.browser.connection_errors import (
     BrowserInitializationError,
+    RELAY_UNAVAILABLE,
+    RELAY_DELIVERY_UNKNOWN,
     EXTENSION_DISCONNECTED,
     INITIALIZATION_TIMEOUT,
     SESSION_CHANGED,
@@ -259,11 +265,16 @@ async def ws_hub(
     async def _send(raw: str) -> None:
         await ws.send_text(raw)
 
-    registry.register(
-        transport_id,
-        _send,
-        session_id=scoped.session_id,
-    )
+    try:
+        transport_owner = await registry.register(
+            transport_id,
+            _send,
+            session_id=scoped.session_id,
+            close=lambda: ws.close(code=1011, reason="Browser transport replaced or unavailable"),
+        )
+    except (RelayUnavailable, RedisError, OSError, TimeoutError):
+        await ws.close(code=1013, reason=RELAY_UNAVAILABLE)
+        return
     try:
         await ws.send_text(encode("echo", id="browser_auth", channel="system", transport=transport_id,
                                   data={"type": "auth_status", "expires_at": scoped.exp}))
@@ -274,6 +285,9 @@ async def ws_hub(
                 return
             try:
                 raw = await asyncio.wait_for(ws.receive_text(), timeout=remaining)
+                if not await registry.is_current(transport_owner):
+                    await ws.close(code=4409, reason="Browser transport replaced")
+                    return
             except asyncio.TimeoutError:
                 await ws.close(code=4401)
                 return
@@ -327,12 +341,17 @@ async def ws_hub(
                         channel=str(msg.get("channel") or ""),
                         message=message,
                     )
+    except (RelayUnavailable, RedisError, OSError, TimeoutError):
+        await ws.close(code=1013, reason=RELAY_UNAVAILABLE)
+    except TransportSendFailed:
+        await ws.close(code=1011, reason=RELAY_DELIVERY_UNKNOWN)
     except WebSocketDisconnect:
         pass
     finally:
         # Transport teardown has no authority over another browser's lease.
         # The CDP controller owns the exact Chat and generation to reconcile.
-        registry.unregister(transport_id, _send)
+        with suppress(RedisError, OSError, TimeoutError):
+            await registry.unregister(transport_id, _send)
 
 
 @router.websocket("/playwright/cdp")
@@ -369,11 +388,15 @@ async def playwright_cdp(ws: WebSocket):
         return
 
     channel = f"chat:{capability.chat_id}"
-    transport_id = registry.find_for_session(
-        capability.organization_id,
-        capability.user_id,
-        capability.session_id,
-    )
+    try:
+        transport_id = await registry.find_for_session(
+            capability.organization_id,
+            capability.user_id,
+            capability.session_id,
+        )
+    except (RelayUnavailable, RedisError, OSError, TimeoutError):
+        await ws.close(code=1013, reason=RELAY_UNAVAILABLE)
+        return
     if transport_id is None:
         log.warning(
             "browser_playwright_cdp_rejected "
@@ -451,11 +474,16 @@ async def playwright_cdp(ws: WebSocket):
                     "code": -32603, "message": "Download registration failed or the browser session changed. No file was transferred. Do not trigger the download again."}}
         await ws.send_json(message)
 
-    playwright_controllers.register(
-        transport_id=transport_id,
-        channel=channel,
-        send=_send_to_playwright,
-    )
+    try:
+        controller_owner = await playwright_controllers.register(
+            transport_id=transport_id,
+            channel=channel,
+            send=_send_to_playwright,
+            close=lambda: ws.close(code=1011, reason="Browser controller replaced or unavailable"),
+        )
+    except (RelayUnavailable, RedisError, OSError, TimeoutError):
+        await ws.close(code=1013, reason=RELAY_UNAVAILABLE)
+        return
 
     async def _send_extension(action: str, **data) -> None:
         raw = encode(
@@ -498,7 +526,7 @@ async def playwright_cdp(ws: WebSocket):
                 if not await _platform_session_is_live(capability):
                     await ws.close(code=4401)
                     return
-                current_transport = registry.find_for_session(
+                current_transport = await registry.find_for_session(
                     capability.organization_id, capability.user_id, capability.session_id,
                 )
                 async with session_scope(tenant_id=capability.organization_id) as session:
@@ -521,6 +549,9 @@ async def playwright_cdp(ws: WebSocket):
                 continue
             message = pending_receive.result()
             pending_receive = None
+            if not await playwright_controllers.is_current(controller_owner):
+                await ws.close(code=4409, reason=SESSION_CHANGED)
+                return
             if not isinstance(message, dict):
                 await ws.close(code=4400)
                 return
@@ -546,10 +577,16 @@ async def playwright_cdp(ws: WebSocket):
                     return
                 download_requests[request_id] = message["method"]
             await _send_extension("request", request=message)
+    except RelayUnavailable:
+        await ws.close(code=1013, reason=RELAY_UNAVAILABLE)
+    except TransportSendFailed:
+        await ws.close(code=1011, reason=RELAY_DELIVERY_UNKNOWN)
     except BrowserInitializationError as error:
         await ws.close(code=1011, reason=str(error))
     except asyncio.TimeoutError:
         await ws.close(code=1011, reason=INITIALIZATION_TIMEOUT)
+    except (RedisError, OSError):
+        await ws.close(code=1013, reason=RELAY_UNAVAILABLE)
     except BrowserSessionControlError:
         await ws.close(code=4409, reason=SESSION_CHANGED)
     except WebSocketDisconnect:
@@ -575,15 +612,20 @@ async def playwright_cdp(ws: WebSocket):
             # A transport failure may race the acknowledgement/refusal before
             # the initialization await begins. Retrieve any stored exception.
             initialized.exception()
-        owns_controller = playwright_controllers.unregister(
-            transport_id=transport_id,
-            channel=channel,
-            sender=_send_to_playwright,
-        )
+        owns_controller = False
+        with suppress(RedisError, OSError, TimeoutError):
+            owns_controller = await playwright_controllers.unregister(
+                transport_id=transport_id,
+                channel=channel,
+                sender=_send_to_playwright,
+            )
         # A replacement controller can connect before this one's finally runs.
         # Its session fence may be unchanged during recovery; do not close it.
         if owns_controller:
-            if not registry.is_connected(transport_id):
+            transport_connected = None
+            with suppress(RelayUnavailable, RedisError, OSError, TimeoutError):
+                transport_connected = await registry.is_connected(transport_id)
+            if transport_connected is False:
                 try:
                     async with session_scope(tenant_id=capability.organization_id) as session:
                         await ChatRepo(session, capability.user_id).mark_browser_lost(

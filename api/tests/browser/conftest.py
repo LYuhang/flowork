@@ -40,3 +40,19 @@ async def directory(tmp_path):
         if process.poll() is None:
             process.kill()
             process.wait()
+
+
+@pytest.fixture
+async def browser_connections(directory, monkeypatch):
+    from vibecanvas_api.browser import cluster_registry
+
+    _, socket = directory
+    runtime = cluster_registry.BrowserConnections(Redis(
+        unix_socket_path=socket, decode_responses=True, retry=Retry(NoBackoff(), 0)))
+    task = asyncio.create_task(runtime.start())
+    await task
+    monkeypatch.setitem(cluster_registry._runtimes, asyncio.get_running_loop(), task)
+    try:
+        yield runtime
+    finally:
+        await runtime.close()

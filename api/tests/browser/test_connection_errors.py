@@ -10,7 +10,7 @@ from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from vibecanvas_api.browser import connection_errors as errors
 from vibecanvas_api.browser.envelope import decode
-from vibecanvas_api.browser.playwright_registry import PlaywrightControllerRegistry
+from vibecanvas_api.browser.cluster_registry import ControllerRegistry
 from vibecanvas_api.routes import browser as routes
 
 
@@ -28,12 +28,12 @@ def test_public_reasons_are_fixed_short_ascii_and_do_not_echo_unknown_input():
 
 
 @pytest.fixture
-def endpoint(monkeypatch):
+def endpoint(monkeypatch, browser_connections):
     capability = SimpleNamespace(organization_id="tenant", user_id="user",
                                  session_id="auth-session", chat_id="chat", expires_at=10**12)
     monkeypatch.setattr(routes, "verify_agent_capability", lambda *a, **kw: capability)
     monkeypatch.setattr(routes, "_platform_session_is_live", AsyncMock(return_value=True))
-    monkeypatch.setattr(routes.registry, "find_for_session", lambda *a: "transport")
+    monkeypatch.setattr(routes.registry, "find_for_session", AsyncMock(return_value="tenant:user:browser"))
     repo = AsyncMock()
     repo.get_browser_binding.return_value = {
         "status": "attaching", "browser_session_id": "brs_test", "browser_session_generation": 8,
@@ -45,7 +45,7 @@ def endpoint(monkeypatch):
         yield object()
 
     monkeypatch.setattr(routes, "session_scope", scope)
-    controllers = PlaywrightControllerRegistry()
+    controllers = ControllerRegistry()
     monkeypatch.setattr(routes, "playwright_controllers", controllers)
     confirm = AsyncMock()
     monkeypatch.setattr(routes, "confirm_sidepanel_browser_session", confirm)
@@ -55,7 +55,7 @@ def endpoint(monkeypatch):
                          receive_json=AsyncMock(side_effect=WebSocketDisconnect()))
     actions = []
     outcome = {"message": {"result": {"initialized": True}}, "available": True}
-    monkeypatch.setattr(routes.registry, "is_connected", lambda transport: outcome["available"])
+    monkeypatch.setattr(routes.registry, "is_connected", AsyncMock(side_effect=lambda transport: outcome["available"]))
 
     async def send(transport, raw):
         frame = decode(raw)
@@ -87,7 +87,7 @@ async def test_extension_refusal_is_reported_without_accepting_any_cdp_request(e
     confirm.assert_not_awaited()
     ws.receive_json.assert_not_awaited()
     assert actions == ["initialize", "close"]
-    assert not await controllers.forward_extension_message(transport_id="transport", channel="chat:chat", message={"id": 1})
+    assert not await controllers.forward_extension_message(transport_id="tenant:user:browser", channel="chat:chat", message={"id": 1})
 
 
 @pytest.mark.asyncio
@@ -167,7 +167,7 @@ async def test_replaced_controller_cannot_mark_lease_lost(endpoint):
     ws, controllers, _, actions, outcome = endpoint
 
     async def disconnect():
-        controllers.register(transport_id="transport", channel="chat:chat", send=AsyncMock())
+        await controllers.register(transport_id="tenant:user:browser", channel="chat:chat", send=AsyncMock(), close=AsyncMock())
         outcome["available"] = False
         raise WebSocketDisconnect()
 
@@ -211,13 +211,13 @@ async def test_idle_socket_revalidates_turn_and_cancels_pending_receive(endpoint
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["transport", "generation", "session", "inactive"])
+@pytest.mark.parametrize("change", ["tenant:user:browser", "generation", "session", "inactive"])
 async def test_browser_fence_change_during_handshake_is_rejected(endpoint, monkeypatch, change):
     ws, _, confirm, actions, _ = endpoint
 
     async def changed(_lease):
-        if change == "transport":
-            monkeypatch.setattr(routes.registry, "find_for_session", lambda *a: "new-transport")
+        if change == "tenant:user:browser":
+            monkeypatch.setattr(routes.registry, "find_for_session", AsyncMock(return_value="tenant:user:new-browser"))
         else:
             binding = routes.ChatRepo().get_browser_binding.return_value
             binding[{"generation": "browser_session_generation", "session": "browser_session_id", "inactive": "status"}[change]] = {
@@ -257,3 +257,35 @@ async def test_capability_expiring_as_receive_completes_does_not_forward(endpoin
     ws.close.assert_awaited_once_with(code=4401)
     assert actions == ["initialize", "close"]
     ws.send_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("uncertain", [False, True])
+async def test_relay_failure_reports_delivery_boundary_without_replaying(endpoint, monkeypatch, uncertain):
+    from vibecanvas_api.browser.instance_relay import RelayUnavailable
+    from vibecanvas_api.browser.registry import TransportSendFailed
+
+    ws, _, confirm, _, _ = endpoint
+    failure = TransportSendFailed("private failure") if uncertain else RelayUnavailable("private failure")
+    send = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(routes.registry, "send_to", send)
+    await routes.playwright_cdp(ws)
+    ws.close.assert_awaited_once_with(
+        code=1011 if uncertain else 1013,
+        reason=errors.RELAY_DELIVERY_UNKNOWN if uncertain else errors.RELAY_UNAVAILABLE)
+    confirm.assert_not_awaited()
+    actions = [decode(call.args[1])["data"]["action"] for call in send.await_args_list]
+    assert actions == ["initialize", "close"]  # cleanup, never a second initialize
+
+
+@pytest.mark.asyncio
+async def test_directory_failure_before_handshake_is_reported(endpoint, monkeypatch):
+    from redis.exceptions import ConnectionError
+
+    ws, _, confirm, actions, _ = endpoint
+    monkeypatch.setattr(routes.registry, "find_for_session", AsyncMock(side_effect=ConnectionError("private address")))
+    await routes.playwright_cdp(ws)
+    ws.close.assert_awaited_once_with(code=1013, reason=errors.RELAY_UNAVAILABLE)
+    ws.accept.assert_not_awaited()
+    confirm.assert_not_awaited()
+    assert actions == []

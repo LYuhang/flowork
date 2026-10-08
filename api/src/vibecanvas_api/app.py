@@ -194,6 +194,8 @@ async def lifespan(app: FastAPI):
         #    dispose FIRST so any later failure still tears it down.
         runtime_engine = init_engine()
         stack.push_async_callback(dispose_engine)
+        from .browser.cluster_registry import close_connections
+        stack.push_async_callback(close_connections)
         if app_config.environment == "production":
             from sqlalchemy import NullPool
             from sqlalchemy.ext.asyncio import create_async_engine

@@ -77,9 +77,12 @@ class ConnectionDirectory:
     async def register(self, *, instance_id: str, transport_id: str,
                        session_id: str, channel: str = "") -> ConnectionOwner:
         owner = ConnectionOwner(instance_id, uuid.uuid4().hex, transport_id, session_id, channel)
+        await self.put(owner)
+        return owner
+
+    async def put(self, owner: ConnectionOwner) -> None:
         keys = self._keys(owner)
         await self.redis.eval(_REGISTER, len(keys), *keys, owner.encode(), self.ttl)
-        return owner
 
     async def renew(self, owner: ConnectionOwner) -> bool:
         keys = self._keys(owner)

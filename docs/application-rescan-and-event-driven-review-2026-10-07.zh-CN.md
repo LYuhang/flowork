@@ -1693,3 +1693,12 @@ f46e1df最初本地构建没有传VITE_WEB_BASE，默认localhost导致输入框
 当前workflow_run_events在新画布执行初始化时清理对应执行视图，不等同于永久执行Trace。Chat显式删除会软删Chat并删消息，AgentRun/事件保留需单独核对产品规则；不能假设软删触发数据库CASCADE。账号删除保留配置、沙盒快照TTL及/run文件生命周期也不是执行历史TTL。
 
 已向用户提出“默认永久保留，管理员日后显式配置自动清理”的选项，尚无回复；本次保持现状，不新增自动删除计划或隐式期限。未来任何清理须保护运行中/等待人工的执行，明确结果、Trace、回放、附件各自规则，并验证分页、导出和断线恢复。尚未将O6标为已实现自动保留策略。
+
+
+### O5 并发观察者的持久身份失效补验（2026-10-08）
+
+扩充原Chat私有权限集成测试，每次使用同一AuthContext同时发起三个授权租约读取。真实独立Postgres、OpenFGA关系测试替身下，验证初始允许、持久Session切换空间后全部拒绝、恢复空间后重新允许、移除creator关系后全部拒绝、Session代次改变后全部拒绝；再恢复隔离测试Session代次，先证实重新允许，最后删除Session模拟登出，全部拒绝，避免仅依赖前一次拒绝而产生假阳性。
+
+初次夹具仅改active_organization_id，触发数据库ck_sessions_active_organization_matches_tenant约束；修正为同时更新tenant_id后，新增场景及在途合并回归共14项通过（两个依赖弃用警告）。Ruff和diff检查通过。证据 `/tmp/stream-lease-lifecycle-tests.log`。这是持久状态变化和并发读取的集成验证，不替代线上多个窗口点击登出/空间切换后的UI验收，也未改变生产用户Session。
+
+待发布文件摘要已核对并保存在 `/tmp/review-next-publication-manifest.json`：stream_guard.py、batch_exec.py、chat_repo.py及插件保活代码。当前长闲置测试进行中，尚未发布或重启服务。

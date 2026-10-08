@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from httpx import ASGITransport, AsyncClient
@@ -466,12 +467,29 @@ async def test_chat_and_children_are_creator_private(
             chat_id,
             owner["tenant_id"],
         )
-        assert await authorization_lease_is_valid(
-            auth=auth,
-            openfga_client=store,
-            resource=chat_resource,
-            action=Action.VIEW,
-        )
+        async def assert_leases(expected: bool):
+            decisions = await asyncio.gather(*(authorization_lease_is_valid(
+                auth=auth, openfga_client=store, resource=chat_resource,
+                action=Action.VIEW,
+            ) for _ in range(3)))
+            assert decisions == [expected] * 3
+
+        await assert_leases(True)
+        # A persisted workspace switch invalidates all observers' old identity.
+        async with app_engine.begin() as connection:
+            await connection.execute(text(
+                "UPDATE sessions SET active_organization_id=CAST(:organization AS uuid), "
+                "tenant_id=CAST(:organization AS uuid) "
+                "WHERE session_id=CAST(:session AS uuid)"
+            ), {"organization": outsider["tenant_id"], "session": session_row.session_id})
+        await assert_leases(False)
+        async with app_engine.begin() as connection:
+            await connection.execute(text(
+                "UPDATE sessions SET active_organization_id=CAST(:organization AS uuid), "
+                "tenant_id=CAST(:organization AS uuid) "
+                "WHERE session_id=CAST(:session AS uuid)"
+            ), {"organization": owner["tenant_id"], "session": session_row.session_id})
+        await assert_leases(True)
 
         creator_edge = OpenFgaTuple(
             f"user:{owner['user_id']}",
@@ -479,12 +497,7 @@ async def test_chat_and_children_are_creator_private(
             f"chat:{chat_id}",
         )
         store.tuples.remove(creator_edge)
-        assert not await authorization_lease_is_valid(
-            auth=auth,
-            openfga_client=store,
-            resource=chat_resource,
-            action=Action.VIEW,
-        )
+        await assert_leases(False)
 
         store.tuples.add(creator_edge)
 
@@ -496,12 +509,20 @@ async def test_chat_and_children_are_creator_private(
                 ),
                 {"session_id": session_row.session_id},
             )
-        assert not await authorization_lease_is_valid(
-            auth=auth,
-            openfga_client=store,
-            resource=chat_resource,
-            action=Action.VIEW,
-        )
+        await assert_leases(False)
+
+        # Reset only the isolated fixture's generation, then revoke the Session
+        # independently to verify logout rather than relying on the prior denial.
+        async with app_engine.begin() as connection:
+            await connection.execute(text(
+                "UPDATE sessions SET generation=:generation WHERE session_id=CAST(:session AS uuid)"
+            ), {"generation": session_row.generation, "session": session_row.session_id})
+        await assert_leases(True)
+        async with app_engine.begin() as connection:
+            await connection.execute(text(
+                "DELETE FROM sessions WHERE session_id=CAST(:session AS uuid)"
+            ), {"session": session_row.session_id})
+        await assert_leases(False)
 
         admin_delete = await client.delete(
             f"/api/v1/chat-scopes/{scope_id}/chats/{chat_id}",

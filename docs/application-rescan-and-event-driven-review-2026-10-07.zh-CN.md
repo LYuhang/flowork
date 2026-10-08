@@ -1132,7 +1132,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | B1、B2 | 修复已部署，组件回归通过；Terra 两轮多步骤浏览器任务通过 | `4d23504` 等；真实代理断线恢复已通过，替代连接及进程释放仍按场景核对 |
 | B3 | 断线处理范围已收窄并部署；真实双Chrome隔离通过 | 同账号两个独立浏览器，B退出不改变A连接，A等待45秒后继续观察成功 |
 | B4 | 新版插件关闭16分钟后跨标签两轮通过，旧连接关闭后新连接成功 | 另有15/60秒三轮及5分钟两轮；真实代理断线30秒及双向停传90秒后恢复通过；真实系统休眠仍待补 |
-| B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker 尚仅配置检查 |
+| B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker独立网关启动/认证/连接清理已验；完整Compose栈仍待补 |
 | B6 | 修复四分钟主动断开端口，128项测试通过，新版16分钟恢复实测后已发布 | 20秒消息保留；受控Service Worker停止/启动后原Terra对话继续操作通过；无控制唤醒开销及自然回收仍待评估 |
 | O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；Workflow/Task/Deployment超时及取消实机通过；单worker并发取消隔离、显式恢复跳过成功样本与资源释放均已补验 |
 | O3 | 定时任务异步化已部署并补测真实计划读取；批量进度事务已发布 | 定时计划20次读取连接20→1；批量进度12项测试及发布后四条样本、人工通过/驳回、错误保留与CSV一致验收通过 |
@@ -1906,3 +1906,16 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 46项聊天路由/存储回归通过后，读取无RLS的tenants表并逐租户设置上下文，覆盖7个租户，未发现running/waiting_approval/cancel_requested的Agent或Workflow执行。首次只读检查误用tenants.id列而失败，修正为tenant_id后完成检查，没有写数据库。随后仅更新routes/chats.py并平滑重启API，保留原完整环境、POSIX、cgroup及网关配置；API4119559→4162167，无强杀，healthz200，gateway进程未变化。证据/tmp/chat-cleanup-publish-preflight.json、/tmp/chat-cleanup-runtime-publication.json及.log。
 
 发布后用真实插件重新打开原对话：chat ID正确，稳定10秒后发送可见、停止不可见；首屏包含第2/3轮，模拟向上滚动一次后读到第1轮，三轮口令和历史均可读。证据/tmp/chat-cleanup-postpublish.cjs、.json、.png、.log，最终脚本退出0。辅助脚本先错误要求首屏包含所有历史，随后点击顶部按钮又与自动加载竞争，均属于验收脚本问题；最终按正常滚动行为验证，不修改产品分页机制。测试浏览器已退出，线上routes/chats.py与提交源码SHA256一致（d3d4c677631b5f3623894cd45caaaed12658e3413336563ba70dee98ad382318）。
+
+
+### B5 Docker独立网关真实启动与连接边界（2026-10-08）
+
+在本机Docker中启动独立测试网关，用户10001、内存限额256MiB、CPU0.5、仅监听127.0.0.1:18001；现有flowork-api:resident镜像搭配当前API/engine源码只读测试副本，数据库/Redis/OpenFGA使用现有服务，未切换线上Nginx或网关。这个验证不等同全新镜像构建或完整Compose安装。
+
+启动完成，OpenFGA健康及模型读取成功，healthz200；/docs、/api/v1/auth/me、/api/v1/tasks均404，网关没有暴露业务API。WebSocket缺少凭据、无效凭据、真实凭据但错误Origin均403。用真实插件从平台获取的短期凭据连接测试容器，收到auth_status，只协商公开协议vibecanvas.browser.v1；Redis连接目录登记存在，ping/echo一致，主动关闭后目录清理通过。测试只握手及心跳，没有通过容器执行真实浏览器动作，不把原生网关的Terra验收算到Docker上。
+
+单次空闲观测83.54MiB、0.15%CPU，不能据此承诺负载内存/QPS。正常停止容器退出0、OOMKilled=false，日志确认应用关闭完成；容器删除，临时凭据、密钥副本和环境文件清理，浏览器退出。
+
+夹具首次挂载root私有源码导致普通用户无法导入，改为独立可读副本；随后将原生目录改为容器工作目录、必要密钥改为受限只读挂载，未调整仓库或线上文件权限。首次凭据捕获假设Playwright可读POST正文而失败，改从平台返回的短期令牌读取browser标识，验证仍由网关执行，不自行伪造授权。
+
+证据/tmp/review-docker-gateway.json、-check.json、/tmp/review-docker-auth-check.json、/tmp/review-docker-gateway-stopped.json及.log；脚本/tmp/review-docker-gateway.py、/tmp/review-docker-gateway-check.py、/tmp/review-docker-auth-check.py。后续仍需完整Compose依赖/网络验收与跨网关实际控制操作。工作分支继续，未合并main或推送GitHub。

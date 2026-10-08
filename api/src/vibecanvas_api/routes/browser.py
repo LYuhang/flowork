@@ -37,7 +37,7 @@ from vibecanvas_api.browser.ws_auth import (
 )
 from vibecanvas_api.browser.envelope import encode, decode
 from vibecanvas_api.browser.instance_relay import RelayUnavailable
-from vibecanvas_api.browser.registry import TransportSendFailed
+from vibecanvas_api.browser.connection_errors import TransportSendFailed
 from vibecanvas_api.browser.cluster_registry import registry
 from vibecanvas_api.browser.cluster_registry import playwright_controllers
 from vibecanvas_api.browser.connection_errors import (

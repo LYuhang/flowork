@@ -484,7 +484,10 @@ The sandbox starts a worker on demand for the active Turn and connects it to a l
 For each active Turn, the Host Gateway supplies a short-lived upstream binding
 that passes through the authenticated [browser relay route](../api/src/vibecanvas_api/routes/browser.py)
 and reaches the selected extension through the
-[transport registry](../api/src/vibecanvas_api/browser/registry.py). Explicit
+[connection registry](../api/src/vibecanvas_api/browser/cluster_registry.py).
+Socket objects stay in their API process; a Redis directory records their owner,
+and an instance relay forwards frames across processes without replaying failed
+browser actions. Shared routing does not replace Chat/session authorization. Explicit
 `--tab-id` targets replace a mutable current-tab binding. Command schemas live in
 [`browser_cli.py`](../api/src/vibecanvas_api/flowork_cli/browser_cli.py), and
 [`browser_cli_runtime.py`](../api/src/vibecanvas_api/services/agent_runtime/browser_cli_runtime.py)

@@ -15,7 +15,7 @@ from redis.retry import Retry
 from vibecanvas_api.config import config
 from .connection_directory import ConnectionDirectory, ConnectionOwner
 from .instance_relay import InstanceRelay, RelayUnavailable
-from .registry import TransportSendFailed
+from .connection_errors import TransportSendFailed
 
 
 @dataclass

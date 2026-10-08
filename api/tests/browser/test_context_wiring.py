@@ -1,4 +1,6 @@
-from vibecanvas_api.browser.registry import TransportRegistry
+from unittest.mock import AsyncMock
+
+from vibecanvas_api.browser.cluster_registry import TransportRegistry
 from vibecanvas_api.schemas.chat import MessagePostBody
 from vibecanvas_api.agents.tool_runtime import AgentContext
 
@@ -18,14 +20,14 @@ def test_browser_topology_is_not_part_of_model_context() -> None:
     assert forbidden.isdisjoint(AgentContext.model_fields)
 
 
-def test_transport_registry_replacement_is_connection_fenced() -> None:
+async def test_transport_registry_replacement_is_connection_fenced(browser_connections) -> None:
     local = TransportRegistry()
 
     async def old_sender(_raw): ...
     async def new_sender(_raw): ...
 
-    local.register("tenant:user:browser", old_sender)
-    local.register("tenant:user:browser", new_sender)
-    assert local.unregister("tenant:user:browser", old_sender) is False
-    assert local.is_connected("tenant:user:browser") is True
-    assert local.unregister("tenant:user:browser", new_sender) is True
+    await local.register("tenant:user:browser", old_sender, session_id="session", close=AsyncMock())
+    await local.register("tenant:user:browser", new_sender, session_id="session", close=AsyncMock())
+    assert await local.unregister("tenant:user:browser", old_sender) is False
+    assert await local.is_connected("tenant:user:browser") is True
+    assert await local.unregister("tenant:user:browser", new_sender) is True

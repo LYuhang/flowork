@@ -48,3 +48,7 @@ def upstream_close(code: int | None, reason: str | None) -> tuple[int, str]:
         4403: "The originating Agent turn is no longer active.",
         4409: "Browser control is unavailable for this Chat. Check the extension connection and control ownership.",
     }.get(code, EXTENSION_DISCONNECTED)
+
+
+class TransportSendFailed(Exception):
+    """A socket write may have reached the browser; never replay its action."""

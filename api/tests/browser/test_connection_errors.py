@@ -263,7 +263,7 @@ async def test_capability_expiring_as_receive_completes_does_not_forward(endpoin
 @pytest.mark.parametrize("uncertain", [False, True])
 async def test_relay_failure_reports_delivery_boundary_without_replaying(endpoint, monkeypatch, uncertain):
     from vibecanvas_api.browser.instance_relay import RelayUnavailable
-    from vibecanvas_api.browser.registry import TransportSendFailed
+    from vibecanvas_api.browser.connection_errors import TransportSendFailed
 
     ws, _, confirm, _, _ = endpoint
     failure = TransportSendFailed("private failure") if uncertain else RelayUnavailable("private failure")

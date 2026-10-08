@@ -1,73 +1,71 @@
 import asyncio
 
+from unittest.mock import AsyncMock
+
 import pytest
-from vibecanvas_api.browser.registry import TransportRegistry, TransportSendFailed
+from vibecanvas_api.browser.cluster_registry import TransportRegistry
+from vibecanvas_api.browser.connection_errors import TransportSendFailed
 
 @pytest.mark.asyncio
-async def test_register_send_unregister():
+async def test_register_send_unregister(browser_connections):
     reg = TransportRegistry()
     sent = []
     async def fake_send(raw: str): sent.append(raw)
-    reg.register("t:b1", fake_send)
-    assert reg.is_connected("t:b1")
-    ok = await reg.send_to("t:b1", "hello")
+    await reg.register("tenant:user:b1", fake_send, close=AsyncMock(), session_id="session")
+    assert await reg.is_connected("tenant:user:b1")
+    ok = await reg.send_to("tenant:user:b1", "hello")
     assert ok and sent == ["hello"]
-    reg.unregister("t:b1")
-    assert not reg.is_connected("t:b1")
-    assert await reg.send_to("t:b1", "x") is False
+    await reg.unregister("tenant:user:b1")
+    assert not await reg.is_connected("tenant:user:b1")
+    assert await reg.send_to("tenant:user:b1", "x") is False
 
 @pytest.mark.asyncio
-async def test_register_replaces_existing():
-    # DEVIATION: the plan's Step-5 used a placeholder lambda (`lambda raw: a.append(raw)
-    # or _noop()`) that referenced an undefined `_noop` and wasn't a coroutine. Replaced
-    # with two real coroutines; the intent is preserved verbatim — a second register for
-    # the same transport id REPLACES the first (one live connection per transport, §4.3).
+async def test_register_replaces_existing(browser_connections):
     reg = TransportRegistry()
     a, b = [], []
     async def send_a(raw: str): a.append(raw)
     async def send_b(raw: str): b.append(raw)
-    reg.register("t", send_a)
-    reg.register("t", send_b)  # replaces send_a
-    await reg.send_to("t", "msg")
+    await reg.register("tenant:user:browser", send_a, close=AsyncMock(), session_id="session")
+    await reg.register("tenant:user:browser", send_b, close=AsyncMock(), session_id="session")  # replaces send_a
+    await reg.send_to("tenant:user:browser", "msg")
     assert a == [] and b == ["msg"]
 
 
 @pytest.mark.asyncio
-async def test_sender_failure_is_uncertain_delivery_and_unregisters():
+async def test_sender_failure_is_uncertain_delivery_and_unregisters(browser_connections):
     reg = TransportRegistry()
 
     async def broken_send(_raw: str):
         raise RuntimeError("socket closed during write")
 
-    reg.register("t:b1", broken_send)
+    await reg.register("tenant:user:b1", broken_send, close=AsyncMock(), session_id="session")
     with pytest.raises(TransportSendFailed):
-        await reg.send_to("t:b1", "command")
-    assert not reg.is_connected("t:b1")
+        await reg.send_to("tenant:user:b1", "command")
+    assert not await reg.is_connected("tenant:user:b1")
 
 
-def test_multiple_browsers_resolve_by_derived_extension_session():
+async def test_multiple_browsers_resolve_by_derived_extension_session(browser_connections):
     reg = TransportRegistry()
 
     async def send_a(_raw: str): ...
     async def send_b(_raw: str): ...
 
-    reg.register("tenant:user:browser-a", send_a, session_id="session-a")
-    reg.register("tenant:user:browser-b", send_b, session_id="session-b")
+    await reg.register("tenant:user:browser-a", send_a, session_id="session-a", close=AsyncMock())
+    await reg.register("tenant:user:browser-b", send_b, session_id="session-b", close=AsyncMock())
 
-    assert reg.find_for_user("tenant", "user") is None
     assert (
-        reg.find_for_session("tenant", "user", "session-a")
+        await reg.find_for_session("tenant", "user", "session-a")
         == "tenant:user:browser-a"
     )
     assert (
-        reg.find_for_session("tenant", "user", "session-b")
+        await reg.find_for_session("tenant", "user", "session-b")
         == "tenant:user:browser-b"
     )
-    assert reg.find_for_session("tenant", "user", "unknown") is None
+    assert await reg.find_for_session("tenant", "user", "unknown") is None
 
 
 @pytest.mark.asyncio
-async def test_failed_old_send_preserves_reconnected_transport():
+async def test_failed_old_send_preserves_reconnected_transport(browser_connections):
     reg = TransportRegistry()
     sending = asyncio.Event()
     fail = asyncio.Event()
@@ -82,16 +80,16 @@ async def test_failed_old_send_preserves_reconnected_transport():
         received.append(raw)
 
     transport = "tenant:user:browser"
-    reg.register(transport, old_send, session_id="old-session")
+    await reg.register(transport, old_send, session_id="old-session", close=AsyncMock())
     pending = asyncio.create_task(reg.send_to(transport, "old-action"))
     try:
         await asyncio.wait_for(sending.wait(), 1)
-        reg.register(transport, new_send, session_id="new-session")
+        await reg.register(transport, new_send, session_id="new-session", close=AsyncMock())
         fail.set()
         with pytest.raises(TransportSendFailed):
             await asyncio.wait_for(pending, 1)
-        assert reg.find_for_session("tenant", "user", "new-session") == transport
-        assert not reg.unregister(transport, old_send)
+        assert await reg.find_for_session("tenant", "user", "new-session") == transport
+        assert not await reg.unregister(transport, old_send)
         assert await reg.send_to(transport, "next-observation")
         assert received == ["next-observation"]  # No replay of old-action.
     finally:

@@ -55,12 +55,11 @@ async def test_production_mint_requires_derived_extension_session(client, monkey
     assert response.json()["detail"] == "extension_session_required"
 
 
-def test_ws_echo_with_valid_scoped_token(monkeypatch):
-    # Sync Starlette TestClient (httpx ASGITransport can't do WS).
-    # Mint a token directly to avoid async/sync mixing.
-    # NOTE (deviation from plan): the plan imported `load_config` from config, but
-    # the real config module exposes a module-level `config` singleton (no
-    # `load_config` function) — adjusted to use it, as the plan's own note allows.
+def test_ws_echo_with_valid_scoped_token(monkeypatch, directory):
+    from contextlib import asynccontextmanager
+    from fastapi import FastAPI
+    from vibecanvas_api.browser.cluster_registry import close_connections
+
     from vibecanvas_api.browser.scoped_token import mint_scoped_token
     from vibecanvas_api.browser.ws_auth import (
         BROWSER_WS_PROTOCOL,
@@ -86,8 +85,19 @@ def test_ws_echo_with_valid_scoped_token(monkeypatch):
         return True
 
     monkeypatch.setattr(browser_routes, "_browser_session_is_live", session_is_live)
-    app = build_app()
-    with TestClient(app).websocket_connect(
+    _, socket = directory
+    monkeypatch.setattr(config.redis, "url", f"unix://{socket}")
+
+    @asynccontextmanager
+    async def lifespan(app):
+        try:
+            yield
+        finally:
+            await close_connections()
+
+    app = FastAPI(lifespan=lifespan)
+    app.include_router(browser_routes.router)
+    with TestClient(app) as client, client.websocket_connect(
         "/api/v1/browser/ws",
         subprotocols=build_browser_ws_protocols(tok, "b1"),
         headers={"origin": f"chrome-extension://{config.browser_extension_id}"},

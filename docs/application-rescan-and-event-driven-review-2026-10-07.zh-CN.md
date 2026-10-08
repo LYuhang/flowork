@@ -1530,3 +1530,10 @@ B3实机通过：使用两个独立Chrome进程及持久配置目录、同一tes
 只读抽取线上已有25条执行作为数据库结果体积对照：完整行JSON表示295425字节，摘要3523字节。不是实际Postgres协议字节或延迟，也不是端到端性能提升比例。证据 `/tmp/history-projection-measurement.json`。
 
 验证：Ruff与diff检查通过。共享历史权限、仓库存储/审批回归合计10项通过、2项失败；失败均发生于测试bubblewrap启动，报 Python 所在 `/home/flowork/.local/share/uv/python/…` 不可访问。该路径父目录属于flowork且权限0700，测试以root启动，需在匹配服务身份的环境另行验证；未放宽宿主目录权限，未把失败记为通过。此改动已在工作分支提交，尚未同步/重启API，完整O4刷新次数优化及实机列表验收仍待完成。
+
+
+### 验证缺口补齐（2026-10-08）
+
+- 将提交63d7ac6的已跟踪文件导出到独立测试目录 `/tmp/flowork-review-tests-xskelkl_`，以线上同样的flowork用户运行共享历史权限及仓库/审批测试，使用专用测试数据库 `flowork_review_identity_20261008`。12项全部通过，包含先前启动失败的两项真实bubblewrap RPC/审批恢复测试；未修改生产数据库或宿主目录权限。原两项失败属于root测试身份无法访问flowork私有Python路径的环境差异，不能将其归因于摘要SQL。
+- 前端完整 `tsc -b` 已串行补跑通过，使用 `NODE_OPTIONS=--max-old-space-size=1024`，退出0。补齐此前退出137的检查缺口；日志 `/tmp/review-typecheck-20261008.log` 为空（成功无输出）。
+- 摘要查询的API代码仍未部署；本记录只更新验证结果，不将整体O4、其余实机验收或main合并标为完成。

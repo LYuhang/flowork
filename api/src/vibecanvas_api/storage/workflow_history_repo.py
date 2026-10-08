@@ -494,7 +494,7 @@ class WorkflowHistoryRepo:
         limit: int = 50,
     ) -> dict:
         clauses = ["r.source_type=:source_type", "r.source_id=:source_id"]
-        params: dict = {"source_type": source_type, "source_id": source_id, "limit": max(1, min(limit, 100)) + 1}
+        params: dict = {"source_type": source_type, "source_id": source_id, "limit": max(1, min(limit, 1000)) + 1}
         if initiator_user_id is not None:
             clauses.append("r.initiator_user_id=:initiator")
             params["initiator"] = uuid.UUID(initiator_user_id)

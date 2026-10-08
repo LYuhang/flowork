@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { refreshResourceQuery, watchResourceActivity } from '@/lib/api/sse/resource-activity';
 import { resolveApiUrl } from '@/lib/base-path';
@@ -16,6 +16,7 @@ export interface ExecutionSummary {
 }
 interface ExecutionHistoryPage { items: ExecutionSummary[]; has_more: boolean; server_time?: string; received_at?: number }
 interface HistoryCursor { before_time: string; before_id: string }
+interface HistoryWindow { pages: ExecutionHistoryPage[]; boundary: HistoryCursor | null }
 export interface ExecutionApproval {
   id: string;
   node_id: string;
@@ -84,28 +85,77 @@ export function useExecutionDetail(id: string) {
   });
 }
 
+const historyCursor = (item: ExecutionSummary): HistoryCursor => ({ before_time: item.created_at, before_id: item.id });
+const atOrAbove = (item: ExecutionSummary, boundary: HistoryCursor) => {
+  // PostgreSQL cursor timestamps retain microseconds; Date alone truncates
+  // them and can misorder records created within the same millisecond.
+  const micros = (value: string) => Date.parse(value) * 1000
+    + Number((value.match(/\.(\d+)/)?.[1] ?? '').padEnd(6, '0').slice(3, 6));
+  const difference = micros(item.created_at) - micros(boundary.before_time);
+  return difference > 0 || (difference === 0 && item.id >= boundary.before_id);
+};
+
 export function useExecutionHistory(source: ExecutionSource, id: string, filter: ExecutionStatus | 'all' | 'mine') {
-  return useInfiniteQuery({
-    queryKey: ['workflow-execution-history', source, id, filter],
-    enabled: Boolean(id),
-    initialPageParam: null as HistoryCursor | null,
-    queryFn: async ({ pageParam }) => {
-      const query = new URLSearchParams({ source_type: source, source_id: id, limit: '25' });
-      if (filter === 'mine') query.set('mine', 'true');
-      else if (filter !== 'all') query.append('statuses', filter);
-      if (pageParam) {
-        query.set('before_time', pageParam.before_time);
-        query.set('before_id', pageParam.before_id);
-      }
-      return { ...await request<ExecutionHistoryPage>(`?${query}`), received_at: Date.now() };
-    },
-    getNextPageParam: (page) => {
+  const client = useQueryClient();
+  const key = ['workflow-execution-history', source, id, filter];
+  const readPage = async (before: HistoryCursor | null, limit: number, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ source_type: source, source_id: id, limit: String(limit) });
+    if (filter === 'mine') params.set('mine', 'true');
+    else if (filter !== 'all') params.append('statuses', filter);
+    if (before) {
+      params.set('before_time', before.before_time);
+      params.set('before_id', before.before_id);
+    }
+    return { ...await request<ExecutionHistoryPage>(`?${params}`, { signal }), received_at: Date.now() };
+  };
+  const next = useMutation({
+    mutationFn: async () => {
+      await client.cancelQueries({ queryKey: key, exact: true });
+      const previous = client.getQueryData<HistoryWindow>(key);
+      if (!previous?.pages.at(-1)?.has_more) return previous;
+      const page = await readPage(previous.boundary, 25);
       const last = page.items.at(-1);
-      return page.has_more && last ? { before_time: last.created_at, before_id: last.id } : undefined;
+      return { pages: [...previous.pages, page], boundary: last ? historyCursor(last) : previous.boundary };
     },
+    onSuccess: async (data) => {
+      await client.cancelQueries({ queryKey: key, exact: true });
+      if (data) client.setQueryData(key, data);
+    },
+  });
+  const query = useQuery({
+    queryKey: key,
+    enabled: Boolean(id) && !next.isPending,
+    queryFn: async ({ signal }): Promise<HistoryWindow> => {
+      const previous = client.getQueryData<HistoryWindow>(key);
+      const boundary = previous?.boundary ?? null;
+      // Refresh the entire loaded time range, including old records newly
+      // matching a status/assignee filter. Larger batches avoid one HTTP and
+      // authorization round trip for each previously loaded 25-row page.
+      const pages: ExecutionHistoryPage[] = [];
+      let cursor: HistoryCursor | null = null;
+      do {
+        const page = await readPage(cursor, boundary ? 1000 : 25, signal);
+        const last = page.items.at(-1);
+        const within = boundary ? page.items.filter(item => atOrAbove(item, boundary)) : page.items;
+        pages.push({ ...page, items: within, has_more: page.has_more || within.length < page.items.length });
+        if (!boundary) return { pages, boundary: last ? historyCursor(last) : null };
+        if (!last || !page.has_more || !atOrAbove(last, boundary) || last.id === boundary.before_id) break;
+        cursor = historyCursor(last);
+      } while (!signal.aborted);
+      return { pages, boundary };
+    },
+    staleTime: 3000,
     refetchInterval: 3000,
     retry: false,
   });
+  return {
+    ...query,
+    isError: query.isError || next.isError,
+    isFetching: query.isFetching || next.isPending,
+    hasNextPage: Boolean(query.data?.pages.at(-1)?.has_more),
+    isFetchingNextPage: query.isFetching || next.isPending,
+    fetchNextPage: () => next.mutateAsync().catch(() => undefined),
+  };
 }
 
 export function useExecutionEvents(id: string) {

@@ -118,7 +118,7 @@ async def history(
     mine: bool = False,
     before_time: datetime | None = None,
     before_id: uuid.UUID | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int = Query(default=50, ge=1, le=1000),
     auth: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),

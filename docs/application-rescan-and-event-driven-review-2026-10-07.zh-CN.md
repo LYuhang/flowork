@@ -1380,3 +1380,13 @@ O1/O2 的数字来自小型隔离脚本，不是线上内存或吞吐基准。O3
 - 修补时首次运行因漏导入 asyncio 出现 teardown 错误，已明确中止该失败进程、补齐导入并重新运行；未把中断运行作为通过证据。
 - 最终完整 api/tests/browser：97 passed，88.58 秒，进程退出码 0；未再出现已删除测试库的后台线程报错。仍有三个既有依赖弃用警告。覆盖独立 API 进程 WebSocket 测试，仍不能替代真实 Chrome/Terra 验收。
 - 线上 API healthz 当前正常，本轮未更新线上服务。
+
+2026-10-08，已更新服务与真实插件验收：
+
+- 将本分支已提交变更同步到 /opt/flowork 并通过 systemd 重启，前端完成生产构建；核对 API/后台任务实际环境仍为 POSIX、SANDBOX_MAX_RESIDENT=6、原服务 cgroup。Browser Runtime 系统安装包更新为 0.4.2，使用打包安装而非指向 /opt 的符号链接，保持沙盒挂载可用。
+- 首次 Terra 只读观察暴露真实缺陷：Redis Pub/Sub 继承普通命令 socket_timeout=5，正常空闲被误判为断线并关闭插件连接。新增短时间复现测试在修改前失败；订阅使用独立连接池且不设置空闲读取超时，普通查询/发布仍保留超时且不自动重发。连接生命周期、转发、多 API WebSocket 共 13 项回归通过（18.55 秒）。修复已更新实际 API。
+- 修复后真实 Chrome 插件 + Terra 单 API 观察成功，返回未写在指令中的 CLUSTER-ROUTING-20261008；证据 /tmp/browser-cluster-review.json、同前缀 transcript.txt/png。失败证据保留在 browser-cluster-review-before-idle-fix 前缀。
+- 两 API 实例实测：临时启动第二个完整 API（8002），Nginx 仅将插件 /api/v1/browser/ws 转到该实例，其他 API/CDP 保持 8000。第二次测试 Terra 返回 TWO-API-20261008，Redis 同时观测到插件和 CDP 的 instance_id 不同。证据 /tmp/browser-two-api-routing.json、/tmp/browser-two-api-review.json、同前缀 transcript.txt/png，时间 15:44:50–15:45:26 UTC。
+- 首次两 API 实测在发送对话时失败，未进入浏览器调用：OpenFGA 响应明确包含 PostgreSQL TCP read timeout；证据保留 failed-auth-browser-two-api-*。同时修正验收脚本：点击 New Chat 后必须等待创建接口返回，防止尚未创建完就向旧对话发送。第二次记录了创建返回的 chatId，但屏幕仍包含旧历史，不能据此宣称新旧历史切换正确；本次浏览器唯一码与跨实例路由证据独立成立。
+- 实测结束已恢复 Nginx 插件路由到 8000、停止临时 8002 和测试浏览器；复核 8002 不监听，公网 healthz 正常。未合并 main 或推送 GitHub。
+- 用户讨论独立浏览器连接网关：建议同仓库独立启动入口，复用当前鉴权/连接/转发模块，隔离业务 API 重启；目前为设计建议，尚未另行改造成独立网关。API 实例与沙盒执行进程是不同层次，本文后续避免统称 worker。

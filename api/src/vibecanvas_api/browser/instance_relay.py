@@ -13,6 +13,7 @@ import json
 import uuid
 
 from redis.exceptions import RedisError
+from redis.asyncio import ConnectionPool, Redis
 
 from .connection_directory import ConnectionDirectory, ConnectionOwner
 
@@ -39,6 +40,12 @@ class InstanceRelay:
         self.pending: dict[str, asyncio.Future] = {}
         self.handlers: set[asyncio.Task] = set()
         self.lanes: dict[str, tuple[asyncio.Lock, int]] = {}
+        # Pub/Sub can legitimately be silent indefinitely. Ordinary directory
+        # queries and publishes retain their bounded command socket timeout.
+        pool = self.redis.connection_pool
+        self.subscriber = Redis.from_pool(ConnectionPool(
+            connection_class=pool.connection_class,
+            **{**pool.connection_kwargs, "socket_timeout": None}))
         self.subscription = None
         self.listener: asyncio.Task | None = None
 
@@ -48,7 +55,7 @@ class InstanceRelay:
     async def start(self) -> None:
         if self.subscription is not None:
             raise RuntimeError("browser relay already started")
-        self.subscription = self.redis.pubsub()
+        self.subscription = self.subscriber.pubsub()
         try:
             await self.subscription.subscribe(self._channel(self.instance_id))
             # Await the subscription acknowledgement before publishing routes.
@@ -164,3 +171,4 @@ class InstanceRelay:
         await asyncio.gather(*tasks, return_exceptions=True)
         if self.subscription is not None:
             await self.subscription.aclose()
+        await self.subscriber.aclose()

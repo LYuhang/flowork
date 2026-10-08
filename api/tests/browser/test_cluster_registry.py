@@ -125,3 +125,19 @@ async def test_replaced_connection_is_rejected_before_maintenance_tick(directory
         new = await new_instance.bind("tenant:user:browser", AsyncMock(), AsyncMock(), "session")
         assert not await old_instance.is_current(old)
         assert await new_instance.is_current(new)
+
+
+async def test_idle_subscription_outlives_command_socket_timeout(directory):
+    _, socket = directory
+    runtime = await BrowserConnections(Redis(unix_socket_path=socket,
+        decode_responses=True, socket_timeout=0.05, retry=Retry(NoBackoff(), 0))).start()
+    try:
+        send, close = AsyncMock(), AsyncMock()
+        await runtime.bind("tenant:user:browser", send, close, "session")
+        await asyncio.sleep(0.15)
+        assert not runtime.relay.lost.is_set()
+        assert await runtime.send("tenant:user:browser", "snapshot")
+        send.assert_awaited_once_with("snapshot")
+        close.assert_not_awaited()
+    finally:
+        await runtime.close()

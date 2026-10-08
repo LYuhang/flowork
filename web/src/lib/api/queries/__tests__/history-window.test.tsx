@@ -113,3 +113,33 @@ it('keeps a late earlier-page response in its original filter cache', async () =
   hook.unmount();
   client.clear();
 });
+
+it('allows loading earlier records during a background refresh and cancels that read', async () => {
+  const client = new QueryClient();
+  const head = { id: 'head', created_at: '2026-10-01T12:00:00Z', status: 'succeeded', input_index: 0 };
+  const older = { ...head, id: 'older', created_at: '2026-10-01T11:00:00Z' };
+  const key = ['workflow-execution-history', 'task', 'refresh-overlap', 'all'];
+  client.setQueryData(key, { pages: [{ items: [head], has_more: true }], boundary: { before_id: head.id, before_time: head.created_at } });
+  let started = false;
+  let aborted = false;
+  vi.mocked(sessionFetch).mockImplementation(async (url, init) => {
+    const params = new URL(String(url), 'http://localhost').searchParams;
+    if (params.has('before_id')) return new Response(JSON.stringify({ items: [older], has_more: false }));
+    started = true;
+    return new Promise((_, reject) => init?.signal?.addEventListener('abort', () => {
+      aborted = true;
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true }));
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  const hook = renderHook(() => useExecutionHistory('task', 'refresh-overlap', 'all'), { wrapper });
+  let refresh!: Promise<unknown>;
+  act(() => { refresh = hook.result.current.refetch(); });
+  await waitFor(() => expect(started).toBe(true));
+  expect(hook.result.current.isFetchingNextPage).toBe(false);
+  await act(async () => { await hook.result.current.fetchNextPage(); await refresh; });
+  await waitFor(() => expect(hook.result.current.data?.pages.flatMap(page => page.items)).toEqual([head, older]));
+  expect(aborted).toBe(true);
+  hook.unmount();
+  client.clear();
+});

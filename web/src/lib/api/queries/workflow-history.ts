@@ -171,7 +171,7 @@ export function useExecutionHistory(source: ExecutionSource, id: string, filter:
     refetch: () => { next.reset(); return query.refetch(); },
     isFetching: query.isFetching || next.isPending,
     hasNextPage: Boolean(query.data?.pages.at(-1)?.has_more),
-    isFetchingNextPage: query.isFetching || next.isPending,
+    isFetchingNextPage: next.isPending,
     fetchNextPage: () => next.mutateAsync({ key, readPage }).catch(() => undefined),
   };
 }

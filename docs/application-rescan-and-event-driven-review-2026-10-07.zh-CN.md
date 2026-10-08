@@ -1934,3 +1934,14 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 清理：隔离Compose容器、网络、测试数据卷已正常down --volumes，临时环境文件已删除，未删除既有数据卷。启动前因磁盘仅余321MB清理了未使用Docker构建缓存约4GB，保留全部镜像与既有数据；超过一天过滤仅回收少量，后续清理全部未使用构建缓存释放空间。
 
 证据/tmp/flowork-compose-review/中的up.log、up-posix-fix.log、verify.log、services.txt、check.json、config-contract.json、tests.log、down.log；辅助测试脚本同目录。当前源码与配置修复仍在工作分支，未合并main或推送；跨网关真实控制、B6开销评估等剩余范围不因全栈健康通过而省略。
+
+
+### B5 跨网关真实控制验收遇到线程存储错误（2026-10-08，未通过）
+
+临时构建测试插件副本，仅把offscreen WebSocket地址改到127.0.0.1:18001的第二Docker网关；沙盒仍指向原生网关8001，正式插件未修改或发布。第二网关记录真实插件/ws连接accepted，但尚未证明跨实例CDP动作通过。
+
+新Terra对话23cf1b5f-72a7-4ca1-98dd-2f001d1e3142、run t_0075b2f2590f4d208a30b92c95e62f84在创建线程时终止：engine_error，明确内容为codex_app_server_request_failed: error creating thread: Fatal error: Failed to initialize session: thread-store internal error: Operation not permitted (os error 1)。真实页面操作计数0；数据库确认failed后停止仍在观察的辅助脚本，没有重发业务需求。
+
+新建QA Project prj_40c41723ac5451ad9d3aee792686ef4f，runtime volume 8e0b2203b51dc669ff7b4d9f38d2f5637f38be773a0ed6ecb83238a50a22eef5。宿主机目录及SQLite文件均归flowork，.codex为0700；版本仍0.157.1，二进制修改时间未变化。该证据排除不了运行环境内锁或文件操作限制，不能仅凭目录属性判断根因。日志显示启动成功后在thread初始化失败，尚未执行browser CLI，因此不把它归为网关路由失败。
+
+第二网关已停止并删除，临时密钥清理，测试Chromium/观察器进程已终止；正式入口及插件保持原样。证据/tmp/browser-cross-gateway.json、-terminal.json、.log、/tmp/cross-gateway-container.log，失败原文保存在AgentRun及sandboxd.log。下一步需先定位此线程存储错误，再明确发起新验收；跨网关项不标记通过。本轮没有产品代码变更、没有合并main或推送。

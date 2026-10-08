@@ -1134,7 +1134,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | B4 | 新版插件关闭16分钟后跨标签两轮通过，旧连接关闭后新连接成功 | 另有15/60秒三轮及5分钟两轮；真实代理断线30秒后恢复通过，系统休眠/无关闭信号的网络黑洞待补 |
 | B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker 尚仅配置检查 |
 | B6 | 修复四分钟主动断开端口，128项测试通过，新版16分钟恢复实测后已发布 | 20秒消息保留；无控制场景的唤醒开销及自然worker回收仍待评估 |
-| O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；待 Workflow、Task、Deployment 超时及取消验收 |
+| O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；Workflow超时/取消、Task取消及Deployment超时/取消实机通过；Task超时及共享worker并行隔离待补 |
 | O3 | 定时任务异步化已部署并补测真实计划读取；批量进度事务已发布 | 定时计划20次读取连接20→1；批量进度12项测试及发布后四条样本、人工通过/驳回、错误保留与CSV一致验收通过 |
 | O4 | 已配套发布并完成窗口刷新与线上任务/部署页面验收 | 1/10/50页刷新1/1/2请求；真实接口537/115条，页面50条刷新与滚动保持通过；详见末尾证据 |
 | O5 | 在途合并已发布，真实DB/OpenFGA测量与14项测试通过 | 同进程同身份/资源的重叠检查由N次降为1次；真实三个窗口登出清理通过，空间切换及撤权UI传播待补 |
@@ -1810,3 +1810,16 @@ BatchRuntime生成概要时，rows_failed不再包含cancelled/not_started；保
 后端5项、前端TaskDetailPage17项、Ruff、完整TypeScript检查及生产构建通过。同步两个后端文件并保留原环境优雅重启worker 4085671→4119555、API 4085675→4119559，无强杀；POSIX、cgroup和网关配置保持，网关未重启。前端静态资源发布保留插件下载包。证据 /tmp/batch-summary-backend-tests.log、/tmp/batch-summary-ui-tests.log、/tmp/batch-summary-typecheck.log、/tmp/batch-summary-build.log、两份batch-summary-*-publication.json。
 
 真实Task页面创建新批次52a55819-3fa5-4178-a2ed-dd11536a8c7b，2行、并发1，确认首条Code运行后取消。Task interrupted、仅首条执行cancelled、未继续派发第二条；概要total2/ok0/failed0/cancelled2、can_resume=true，页面显示取消2和失败0。旧批次60e579a2-258d-48ee-a620-038bf8038936读取也显示failed0/cancelled2，旧、新详情独立重新打开均确认Resume按钮可见。未点击Resume，不将此项描述为恢复运行的实测。证据 /tmp/batch-summary-live.json、.png、/tmp/batch-summary-old.json、.png、/tmp/batch-summary-new-refreshed.json、.png。初次旧任务验证因本机未安装headless-shell未启动浏览器，切换已安装Chromium后通过，非产品失败。所有测试浏览器退出。
+
+
+### O1/O2 Deployment超时、取消及资源回收实机通过（2026-10-08）
+
+从真实页面创建专用部署af3ed823-94fe-4e91-a8c2-92092cd03796，使用无模型Code工作流e341f209b384@v1.sv5，1 worker×1并发、500mCPU/256MB。页面保存配置并点击Test执行。列表曾返回授权检查503，后续创建201成功；创建脚本因两个Close按钮的严格定位失败，保留已创建ID继续，未重复创建。首次测试503 deployment_starting，不算引擎执行；只读检查实例ready后再发起明确的新调用。
+
+先输入delay0预热成功，然后页面把调用超时改为3秒，输入delay20。执行67d67e9a-a2cd-4fbc-894c-dfe7dc448a35约3448ms返回HTTP504/status timed_out/error execution_timeout。紧接着明确输入0的新调用9f4834cb-265f-41e9-8dec-fc7169af79c2成功（HTTP200，676ms含请求链路），实例ID408e430d-620e-42fe-be3a-6fbdd6834d6b未变，pending_requests=0。没有自动重发原输入。
+
+取消测试先把调用超时设60秒，页面启动delay30，等待持久Code running事件。第一版测试脚本直接POST cancel时漏了CSRF，返回403；原执行正常跑满30秒成功，不能据此认定引擎取消失败。修正请求，保留并检查取消回执202后，新执行0745c650-13ea-4b9f-93a2-e8e0020f56e3约338ms返回HTTP502/status cancelled/error execution_cancelled；历史同为cancelled，之后输入0的df05e507-14d0-46d0-ab8b-5c09302e403d成功，仍同一实例、pending_requests=0。取消由授权执行API触发，不冒称执行详情有人工取消按钮。
+
+进程核查：长Code执行中cgroup包含额外Python子进程；取消及后续调用完成后只剩常驻sandbox_entry、runtime.rpc及其bwrap父进程，没有Code子进程。最终在Deployment设置页面关闭Accept requests、确认保存，观察enabled=false/rollout stopped/instances=[]；该实例cgroup已删除，记录的7个进程PID均不存在，测试浏览器退出。任务/部署资源记录保留，停止运行以释放开发资源。
+
+证据目录 /tmp/deployment-deadline-review/，包括timeout.json及三次UI截图、cancel.json（无效CSRF夹具）、cancel-valid.json与截图、cgroup-observed.json/cgroup-after.json、retire.json、released-processes.json。该项不覆盖Task超时、多并发共享worker取消隔离或全量FD长期增长；这些仍按清单继续。此轮没有修改产品代码，尚未合并main或推送。

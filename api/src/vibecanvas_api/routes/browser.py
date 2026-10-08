@@ -330,32 +330,9 @@ async def ws_hub(
     except WebSocketDisconnect:
         pass
     finally:
-        removed_current_connection = registry.unregister(transport_id, _send)
-        if removed_current_connection:
-            # The live channel is ephemeral, but its loss is durable control
-            # state. A later reconnect snapshot can restore the same fenced
-            # session; until then tools must tell the Agent to verify first.
-            try:
-                async with session_scope(tenant_id=scoped.tenant_id) as session:
-                    repo = ChatRepo(session, scoped.user_id)
-                    binding = await repo.get_active_browser_binding_for_user()
-                    if (
-                        binding
-                        and binding.get("status") in {"attaching", "attached"}
-                        and binding.get("browser_session_id")
-                    ):
-                        await repo.mark_browser_lost(
-                            chat_id=str(binding["chat_id"]),
-                            browser_session_id=str(binding["browser_session_id"]),
-                            browser_session_generation=int(
-                                binding.get("browser_session_generation") or 0
-                            ),
-                            reason="websocket_disconnected",
-                        )
-            except Exception:
-                # Connection teardown must always finish; the next tool call's
-                # missing transport remains a second, fail-closed signal.
-                pass
+        # Transport teardown has no authority over another browser's lease.
+        # The CDP controller owns the exact Chat and generation to reconcile.
+        registry.unregister(transport_id, _send)
 
 
 @router.websocket("/playwright/cdp")
@@ -606,6 +583,17 @@ async def playwright_cdp(ws: WebSocket):
         # A replacement controller can connect before this one's finally runs.
         # Its session fence may be unchanged during recovery; do not close it.
         if owns_controller:
+            if not registry.is_connected(transport_id):
+                try:
+                    async with session_scope(tenant_id=capability.organization_id) as session:
+                        await ChatRepo(session, capability.user_id).mark_browser_lost(
+                            chat_id=capability.chat_id,
+                            browser_session_id=browser_session_id,
+                            browser_session_generation=browser_session_generation,
+                            reason="websocket_disconnected",
+                        )
+                except Exception:
+                    log.warning("browser_disconnect_state_update_failed chat_id=%s", capability.chat_id)
             try:
                 await _send_extension("close")
             except Exception:

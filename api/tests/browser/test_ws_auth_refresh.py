@@ -46,7 +46,12 @@ async def test_refresh_keeps_transport_only_for_verified_same_live_identity(monk
         yield object()
 
     monkeypatch.setattr(routes, "session_scope", scope)
-    repo = AsyncMock(); repo.get_active_browser_binding_for_user.return_value = None
+    repo = AsyncMock()
+    # A different browser of this account may own the active control lease.
+    repo.get_active_browser_binding_for_user.return_value = {
+        "chat_id": "another-browser-chat", "status": "attached",
+        "browser_session_id": "another-browser-lease", "browser_session_generation": 7,
+    }
     monkeypatch.setattr(routes, "ChatRepo", lambda *args: repo)
     ws = SimpleNamespace(headers={"sec-websocket-protocol": ", ".join(build_browser_ws_protocols(token, "browser")),
                                   "origin": "chrome-extension://extension"},
@@ -58,3 +63,5 @@ async def test_refresh_keeps_transport_only_for_verified_same_live_identity(monk
                               "expires_at": 1901 if change is None else 1900}
     assert token not in ws.send_text.call_args.args[0] and fresh not in ws.send_text.call_args.args[0]
     assert not registry.is_connected("tenant:user:browser")
+    repo.get_active_browser_binding_for_user.assert_not_awaited()
+    repo.mark_browser_lost.assert_not_awaited()

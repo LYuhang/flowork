@@ -55,6 +55,7 @@ def endpoint(monkeypatch):
                          receive_json=AsyncMock(side_effect=WebSocketDisconnect()))
     actions = []
     outcome = {"message": {"result": {"initialized": True}}, "available": True}
+    monkeypatch.setattr(routes.registry, "is_connected", lambda transport: outcome["available"])
 
     async def send(transport, raw):
         frame = decode(raw)
@@ -140,6 +141,40 @@ async def test_successful_initialization_still_forwards_cdp_and_cleans_disconnec
     ws.send_json.assert_awaited_once_with({"id": 1, "result": {}})
     ws.close.assert_not_awaited()
     assert actions == ["initialize", "request", "close"]
+    routes.ChatRepo().mark_browser_lost.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_extension_loss_updates_only_controllers_own_lease(endpoint):
+    ws, _, _, _, outcome = endpoint
+
+    async def disconnect():
+        outcome["available"] = False
+        raise WebSocketDisconnect()
+
+    ws.receive_json.side_effect = disconnect
+    await routes.playwright_cdp(ws)
+    repo = routes.ChatRepo()
+    repo.get_active_browser_binding_for_user.assert_not_awaited()
+    repo.mark_browser_lost.assert_awaited_once_with(
+        chat_id="chat", browser_session_id="brs_test", browser_session_generation=8,
+        reason="websocket_disconnected",
+    )
+
+
+@pytest.mark.asyncio
+async def test_replaced_controller_cannot_mark_lease_lost(endpoint):
+    ws, controllers, _, actions, outcome = endpoint
+
+    async def disconnect():
+        controllers.register(transport_id="transport", channel="chat:chat", send=AsyncMock())
+        outcome["available"] = False
+        raise WebSocketDisconnect()
+
+    ws.receive_json.side_effect = disconnect
+    await routes.playwright_cdp(ws)
+    routes.ChatRepo().mark_browser_lost.assert_not_awaited()
+    assert actions == ["initialize"]
 
 
 @pytest.mark.asyncio

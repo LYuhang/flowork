@@ -1139,7 +1139,8 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | O4 | 已配套发布并完成窗口刷新与线上任务/部署页面验收 | 1/10/50页刷新1/1/2请求；真实接口537/115条，页面50条刷新与滚动保持通过；详见末尾证据 |
 | O5 | 完成并发检查基线与仅在途合并，14项测试通过；未部署 | 同进程同身份/资源的重叠检查由N次降为1次；真实多窗口、登出及撤权传播仍待验收 |
 | O7 | 已部署稳定节点/边引用；32项测试、类型检查及本地 Chromium 画布交互通过 | 待部署页面验收及渲染耗时对比 |
-| O6、O8 | 待策略确认或随相关修改收敛 | 不默认清理历史，不为拆分模块新增抽象层 |
+| O6 | 已完成执行/消息相关表占用盘点；自动保留期限待确认 | 维持不自动清理用户历史，详见末尾分类 |
+| O8 | 已删除ChatRepo无调用旧接口59行，19项回归通过 | 网关模块边界已有实装；大型存储/生命周期模块仍逐项核对，避免机械拆文件 |
 
 本分支尚未合并 main 或推送 GitHub。部署、组件测试与实机验收分别记录，不能互相替代；末尾新增实施记录包含本轮连接网关及连续浏览器操作证据。
 
@@ -1667,3 +1668,28 @@ B6同步核对[Chrome官方生命周期说明](https://developer.chrome.com/docs
 ### 新版插件过期恢复测试启动记录（2026-10-08，进行中）
 
 f46e1df最初本地构建没有传VITE_WEB_BASE，默认localhost导致输入框等待超时，未发送Agent请求；不能记录为浏览器连接恢复失败。随后显式按https://flowork.top及相同allowlist重新构建，启动实际插件验收。对话 `f895d7fe-73d7-4671-94a4-431ca7633cbb` 首轮16次跨标签交互、5750金额和CHECK-1口令通过；正在关闭侧边栏960秒，之后才进行第二轮恢复验证。脚本 `/tmp/browser-new-keepalive-expiry.cjs`，结果前缀 `/tmp/browser-new-keepalive-expiry`。测试使用工作分支构建，部署目录尚未替换；进行中不计过期恢复通过。
+
+
+### O8 ChatRepo旧入口清理（2026-10-08，未部署）
+
+全仓库Python调用及名称检索确认：checkpointer_thread_id仅被prune_empty引用，prune_empty无调用；append_message/load_session磁盘时代别名无调用；save_attachment/add_attachment/resolve_attachment仅为抛NotImplementedError的旧占位，无调用。删除这七个方法，共59行；保留实际使用的消息持久化、历史分页、授权删除和测试中的drop_session。不替换现行删除规则，不引入兼容层。
+
+独立真实Postgres测试环境19项test_chat_repo_pg回归通过；Ruff与diff检查通过。证据 `/tmp/chat-repo-cleanup-tests.log`。代码提交b9772bb，尚未发布；这一局部清理不能作为其它大型模块全部完成的证明。
+
+### O6 执行数据保留盘点（2026-10-08，只读，无清理）
+
+读取Postgres系统目录的估算行数及pg_total_relation_size，未读取私有输入输出或删除数据。空间数字含表、索引及TOAST，不等于可回收空间；行数是数据库统计估算（-1表示尚无统计），不当作精确计数。证据 `/tmp/retention-inventory.json`。
+
+| 类别 | 主要表 | 当前空间（MiB，约） | 保留边界 |
+| --- | --- | --- | --- |
+| Agent流式回放 | agent_run_events | 155.7 | 支持断线后按游标恢复；未明确回放范围与快照覆盖前不自动裁剪 |
+| 持久对话消息 | chat_messages | 60.9 | 作为对话历史保留；与流式回放用途不同 |
+| 执行节点事件/Trace | workflow_execution_events | 25.5 | 与结果导出、执行详情和诊断关联，不按普通日志清除 |
+| Agent执行记录 | agent_runs | 22.6 | 状态、关联和私有执行上下文，需与消息/回放规则协调 |
+| Workflow执行结果 | workflow_execution_runs | 19.9 | Task/Deployment查询和导出的结果根记录 |
+| 对象后端文件变更 | vfs_artifact_events | 8.7 | 对象后端Preview仍使用；POSIX Preview按文件元数据扫描，不新增该类变更记录 |
+| Task事件 | task_events | 6.4 | Task日志及SSE回放依赖 |
+
+当前workflow_run_events在新画布执行初始化时清理对应执行视图，不等同于永久执行Trace。Chat显式删除会软删Chat并删消息，AgentRun/事件保留需单独核对产品规则；不能假设软删触发数据库CASCADE。账号删除保留配置、沙盒快照TTL及/run文件生命周期也不是执行历史TTL。
+
+已向用户提出“默认永久保留，管理员日后显式配置自动清理”的选项，尚无回复；本次保持现状，不新增自动删除计划或隐式期限。未来任何清理须保护运行中/等待人工的执行，明确结果、Trace、回放、附件各自规则，并验证分页、导出和断线恢复。尚未将O6标为已实现自动保留策略。

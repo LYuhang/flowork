@@ -1146,6 +1146,20 @@ describe('AgentChatSidebar redesign', () => {
     expect(typeof id === 'string' && id.length > 0).toBe(true);
   });
 
+  it('selects New Chat when startup restores an older Chat while creation is pending', async () => {
+    let finishCreate!: (value: unknown) => void;
+    useUIStore.getState().setActiveChatId('browser', 'initial-chat');
+    createChatMock.mockImplementationOnce(() => new Promise(resolve => { finishCreate = resolve; }));
+    render(<AgentChatSidebar embedded chatSurface="browser" />, { wrapper: SidebarWrapper });
+    await userEvent.click(screen.getByRole('button', { name: /new chat/i }));
+    const request = createChatMock.mock.calls[0][0];
+    act(() => useUIStore.getState().setActiveChatId('browser', 'restored-chat'));
+    await act(async () => {
+      finishCreate({ chat_id: request.chatId, surface: 'browser' });
+    });
+    expect(useUIStore.getState().activeChatIds.browser).toBe(request.chatId);
+  });
+
   it('selects the first extension Chat only after its Project and cwd are durable', async () => {
     let finishCreate!: (value: unknown) => void;
     createChatMock.mockImplementationOnce(() => new Promise(resolve => { finishCreate = resolve; }));

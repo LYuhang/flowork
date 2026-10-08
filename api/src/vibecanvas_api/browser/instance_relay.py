@@ -10,12 +10,16 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 import json
+import logging
 import uuid
 
 from redis.exceptions import RedisError
 from redis.asyncio import ConnectionPool, Redis
 
 from .connection_directory import ConnectionDirectory, ConnectionOwner
+
+
+log = logging.getLogger(__name__)
 
 
 class RelayUnavailable(Exception):
@@ -120,10 +124,11 @@ class InstanceRelay:
                     task = asyncio.create_task(self._deliver(data, lock))
                     self.handlers.add(task)
                     task.add_done_callback(lambda done, key=key: self._handler_done(done, key))
-        except Exception:
-            # The registry lifecycle watches lost and closes its local sockets.
-            # It must not keep advertising connections after losing this path.
-            pass
+        except Exception as exc:
+            # Keep diagnostics free of page data, Redis addresses and credentials.
+            log.warning("browser_relay_listener_lost instance_id=%s error_type=%s",
+                        self.instance_id, type(exc).__name__)
+            # The registry lifecycle closes local sockets and removes ownership.
         finally:
             self.lost.set()
             for future in self.pending.values():

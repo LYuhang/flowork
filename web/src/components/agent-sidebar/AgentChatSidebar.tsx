@@ -102,12 +102,15 @@ export function AgentChatSidebar({
   const setActiveChatId = useUIStore((s) => s.setActiveChatId);
   const { mutateAsync: createChatSession, isPending: creatingChat } = useCreateChatSession();
   const pendingChatCreation = useRef<Promise<void> | null>(null);
+  const selectionRevision = useRef(0);
   const createAndSelectChat = useCallback(() => {
     if (!lastWfId) return Promise.resolve();
     if (pendingChatCreation.current) return pendingChatCreation.current;
-    const previousChatId = useUIStore.getState().activeChatIds[chatSurface];
+    const revision = ++selectionRevision.current;
     const promise = createChatSession({ scopeId: lastWfId, chatId: crypto.randomUUID() }).then((chat) => {
-      if (useUIStore.getState().activeChatIds[chatSurface] === previousChatId) {
+      // Startup restoration is not a new user selection. Only a subsequent
+      // explicit history selection supersedes this pending New Chat request.
+      if (selectionRevision.current === revision) {
         setActiveChatId(chatSurface, chat.chat_id);
       }
     });
@@ -359,6 +362,7 @@ export function AgentChatSidebar({
   };
   const handleHistorySelect = (chatId: string) => {
     if (!lastWfId || chatId === activeChatId) return;
+    selectionRevision.current += 1;
     // Selection is synchronous; the transcript owns its own compact loading
     // region. Never keep the whole conversation behind a menu spinner.
     setActiveChatId(chatSurface, chatId);

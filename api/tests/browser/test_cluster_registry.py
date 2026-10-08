@@ -141,3 +141,35 @@ async def test_idle_subscription_outlives_command_socket_timeout(directory):
         close.assert_not_awaited()
     finally:
         await runtime.close()
+
+
+async def test_actual_subscription_disconnect_closes_socket_without_replay(directory, monkeypatch):
+    import pytest
+    from vibecanvas_api.browser.instance_relay import RelayUnavailable
+
+    from unittest.mock import Mock
+    from vibecanvas_api.browser import instance_relay
+
+    warning = Mock()
+    monkeypatch.setattr(instance_relay.log, "warning", warning)
+    routes, socket = directory
+    async with instances(socket, 1) as (runtime,):
+        closed = asyncio.Event()
+        send = AsyncMock()
+        await runtime.bind("tenant:user:browser", send, AsyncMock(side_effect=closed.set), "session")
+        # Kill the real Redis subscription connection, leaving command clients
+        # alive so cleanup and a later explicit connection remain possible.
+        assert await routes.redis.execute_command("CLIENT", "KILL", "TYPE", "pubsub") == 1
+        await asyncio.wait_for(closed.wait(), 2)
+        await runtime.maintenance
+        assert await routes.get("tenant:user:browser") is None
+        with pytest.raises(RelayUnavailable):
+            await runtime.send("tenant:user:browser", "click")
+        send.assert_not_awaited()
+        warning.assert_called_once()
+        assert warning.call_args.args[0].startswith("browser_relay_listener_lost")
+        async with instances(socket, 1) as (replacement,):
+            fresh_send = AsyncMock()
+            await replacement.bind("tenant:user:browser", fresh_send, AsyncMock(), "session")
+            assert await replacement.send("tenant:user:browser", "snapshot")
+            fresh_send.assert_awaited_once_with("snapshot")

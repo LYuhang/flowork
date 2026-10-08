@@ -722,7 +722,10 @@ the environment variable does not migrate existing files.
 
 ### Fresh native installation
 
-The bootstrap installs `gocryptfs`, `fuse3` and `nfs-common`. Prepare dependencies
+The bootstrap installs checksum-pinned upstream `gocryptfs` 2.6.1,
+`fuse3` and `nfs-common`. Older distribution builds can fail concurrent
+non-root writes on root-owned `-allow_other` mounts ([upstream issue #892](https://github.com/rfjakob/gocryptfs/issues/892)); the volume installer requires 2.6.1 or newer.
+Prepare dependencies
 first, then prepare the encrypted volume before starting services:
 
 ```bash
@@ -730,6 +733,13 @@ first, then prepare the encrypted volume before starting services:
 sudo .venv/bin/python scripts/security/install_encrypted_workspace_volume.py \
   --root /var/lib/flowork/workspaces --user "$(id -un)"
 ```
+
+For an existing host, `sudo bash scripts/security/install_gocryptfs.sh` installs
+the pinned binary in `/usr/local/bin`; it does not restart or remount a live
+volume. Stop application processes and sandbox users of the mount before
+updating the mount service's executable and restarting it. Verify existing
+files and a non-root write before restarting the application. Do not initialize
+an existing encrypted directory or replace its key.
 
 Set these values in `.env.launch.local`:
 

@@ -2005,3 +2005,11 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 隔离Postgres、flowork身份串行执行workspace_writeback_memory、sandbox_manager、project_workspace、sandbox_workflow_staging、vfs_run_context五组测试，94项通过（81.01秒），包含真实持久根目录/恢复、POSIX路径、恢复失败终止及12文件内存约束。Ruff和git diff --check通过。证据/tmp/workspace-files-tests.log及/tmp/run-review-workspace-files-tests.py；不是生产对象存储的端到端恢复验收。
 
 使用64c1b9d旧函数与新函数，相同模拟Repo生成12个各2MiB文件、实际写临时磁盘，逐文件SHA256一致。tracemalloc峰值旧25,534,333字节、新2,111,152字节（约24.4MiB→2.0MiB）。这是Python分配峰值，不是整个进程RSS；单次耗时0.073/0.052秒，不作为吞吐提升承诺。证据/tmp/measure-workspace-hydration.py、/tmp/workspace-hydration-measurement.json。源码可提交，线上运行模块尚未更新，需随后按完整环境部署并验证。
+
+### 并发工作区权限错误隔离复现及安装修正（2026-10-08）
+
+本机gocryptfs 2.4.0-1ubuntu0.24.04.3的Built-Using明确为golang.org/x/sys 0.17.0；上游#892指出旧版asUser使用的Setreuid/Setregid在新版依赖中变成进程范围，破坏并发身份切换。参考https://github.com/rfjakob/gocryptfs/issues/892及https://github.com/golang/sys/commit/d0df966e6959f00dc1c74363e537872647352d51。线上根挂载为root加-allow_other，应用为非root，与触发条件吻合；不把版本推断单独当作原AgentRun根因证明。
+
+使用独立临时加密目录、临时密钥，root挂载、flowork写入；8线程各500轮创建目录/写文件/rename/删除。已安装版4000轮出现1088轮权限错误（EPERM/EACCES），官方静态2.6.1同样4000轮为0错误。均正常卸载、删除临时密钥；测试未挂载生产密文或修改生产权限。首次测试因诊断脚本位于root私有目录未启动，改由stdin传入同一测试代码，不改变挂载权限。证据/tmp/gocryptfs-source-review/stress-result.json、stress.log、mount-stress.py、stress.py。
+
+新增固定版本与amd64/arm64 SHA256校验的安装脚本，bootstrap使用它代替旧发行版包；卷安装器在任何目录或密钥写入前检查>=2.6.1，给出明确升级命令。6项回归、Ruff、bash -n通过；真实amd64安装校验通过，/usr/local/bin/gocryptfs为2.6.1，但当前挂载仍使用旧进程。arm64只核对官方资产哈希，未进行arm64运行实测。待停止应用后更新挂载、核对已有文件并重新验收线程创建；不能先标记生产问题已修复。

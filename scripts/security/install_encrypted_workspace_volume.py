@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install a local encrypted POSIX volume, independent of application storage APIs.
 
-Prerequisites on Ubuntu: apt-get install gocryptfs fuse3. Invoke as root, before
+Prerequisites: gocryptfs >= 2.6.1 and fuse3. Invoke as root, before
 the offline workspace migration. For managed encrypted NFS/block volumes use
 their normal mount service instead; this helper is for this single-host setup.
 """
@@ -9,9 +9,20 @@ import argparse
 import os
 from pathlib import Path
 import pwd
+import re
 import secrets
 import shutil
 import subprocess
+
+
+def check_gocryptfs_version(binary: str) -> None:
+    output = subprocess.check_output([binary, '-version'], text=True)
+    version = re.search(r'^gocryptfs v?(\d+)\.(\d+)\.(\d+)(?:;|\s|$)', output)
+    if not version or tuple(map(int, version.groups())) < (2, 6, 1):
+        raise ValueError(
+            'gocryptfs >= 2.6.1 is required for concurrent non-root workspace writes; '
+            'run sudo bash scripts/security/install_gocryptfs.sh first'
+        )
 
 
 def install(root: Path, user: str):
@@ -21,6 +32,7 @@ def install(root: Path, user: str):
     unmount = shutil.which('fusermount3')
     if not binary or not unmount:
         raise ValueError('Install gocryptfs and fuse3 first')
+    check_gocryptfs_version(binary)
     if not root.is_absolute() or len(root.parts) < 4 or any(c.isspace() for c in str(root)):
         raise ValueError('Use a dedicated absolute mount path without whitespace')
     if any(c in str(root) for c in '%"\\\n'):

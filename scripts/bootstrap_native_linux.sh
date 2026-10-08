@@ -62,11 +62,13 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   binutils build-essential ca-certificates clang cmake curl file git gnupg jq libpq-dev libssl-dev pkg-config openssh-client \
   openssl patch postgresql postgresql-contrib procps redis-server ripgrep rsync \
   tar unzip util-linux zip \
-  bubblewrap gocryptfs fuse3 nfs-common \
+  bubblewrap fuse3 nfs-common \
   fonts-dejavu-core fonts-noto-cjk fonts-wqy-zenhei \
   xvfb xauth \
   libreoffice-writer-nogui libreoffice-impress-nogui libreoffice-calc-nogui \
   poppler-utils ffmpeg
+
+sudo bash "$REPO_ROOT/scripts/security/install_gocryptfs.sh"
 
 case "$(dpkg --print-architecture)" in
   amd64)

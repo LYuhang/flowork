@@ -1760,3 +1760,11 @@ Terra侧边栏对话 `f6851f95-5a23-49e6-9d13-3464479b0ed7`，先完成16次订�
 | 当前实现 | 撤销 | 140.80ms | 252.00ms | 3 | 未采集 |
 
 每次撤销断言恢复Node 0标题，全部通过。渲染耗时为一次操作观测窗口内Profiler actualDuration总和，非网络时延或最终绘制耗时；提交次数没有减少，改善是每次提交工作量下降。本机内存有限、使用开发构建，不能承诺生产环境同样绝对耗时或比例，也没有测单个CustomNode调用次数。证据 `/tmp/canvas-profile.json`、`/tmp/canvas-profile-summary.json`、`/tmp/canvas-profile.cjs`，临时源码保存 `/tmp/canvas-profile-source/`。测试进程退出0，Vite已停止，所有临时入口/组件副本从工作树移除，不进入产品构建。仍需线上已保存画布及Agent更新链路验收，不把该测量当作O7全部完成。
+
+### O1/O2 线上Workflow节点超时与后续执行（2026-10-08）
+
+建立无模型依赖的专用Workflow `e341f209b384`（Start→Code→End），Code仅按输入sleep后返回finished，节点timeout=2秒。修正夹具输出字段description后保存v1.sv2：输入10秒的执行 `d2d6bb43-2347-4d6d-bf28-68738518f0a9` 明确failed，error_dict保留 `node_2: [CodeNode Call]: code node timed out after 2s`，引擎execution_time=2.016秒、5条持久事件。随后明确发起输入0秒的新执行 `fb3886cb-2ad2-400b-a47d-a42a9b42ef74`，succeeded、execution_time=0.119秒、7条事件，最终输出finished，未自动重试原输入。
+
+真实浏览器打开失败执行详情，点击node_2，再进入Run info，显示Running→Failed记录及完整超时文本。页面初始画布只显示概括失败提示，详细原因位于节点运行信息，不能用首页直接搜索错误文本替代正确交互。测试浏览器退出，专用Workflow沙盒释放返回200。证据 `/tmp/workflow-node-timeout-valid.json`、`/tmp/workflow-node-timeout-ui.txt`、`.png`。本项证明线上Workflow节点超时后后续调用可成功；不证明Task/Deployment取消、满池竞争或全部子进程资源均已实机验收。
+
+本次新发现：第一版测试夹具漏写输出字段description，WorkflowRuntime.install本地复现明确返回 `[StartNode Check] ... 'description' is a required property, error_path: output_fields->delay`；RPC把它归为invalid_request，持久执行又仅保留execution_dispatch_failed且无节点事件。因此两条最初执行（89186605、de1991d3前缀）均为校验阶段失败，不能计入超时验收。错误详情丢失需要修复：区分工作流校验失败和普通RPC协议错误，并把可公开的校验诊断传递到执行记录，不能简单序列化任意异常或写入凭据。此项尚未修复，保留在当前收尾范围内。证据 `/tmp/workflow-node-timeout-live.json` 及对应sandboxd错误堆栈。

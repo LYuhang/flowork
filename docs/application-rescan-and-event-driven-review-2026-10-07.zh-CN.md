@@ -1132,7 +1132,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | B1、B2 | 修复已部署，组件回归通过；Terra 两轮多步骤浏览器任务通过 | `4d23504` 等；真实代理断线恢复已通过，替代连接及进程释放仍按场景核对 |
 | B3 | 断线处理范围已收窄并部署；真实双Chrome隔离通过 | 同账号两个独立浏览器，B退出不改变A连接，A等待45秒后继续观察成功 |
 | B4 | 新版插件关闭16分钟后跨标签两轮通过，旧连接关闭后新连接成功 | 另有15/60秒三轮及5分钟两轮；真实代理断线30秒及双向停传90秒后恢复通过；真实系统休眠仍待补 |
-| B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker独立网关启动/认证/连接清理已验；完整Compose栈仍待补 |
+| B5 | 跨实例路由实测通过；独立网关已实现并完成原生启动与代理切换 | `359a3bd`；真实插件下 API/网关独立重启与三轮任务通过；Docker网关认证/清理及独立Compose全栈启动、注册、登录、POSIX共享目录已验；跨网关实际控制仍待补 |
 | B6 | 修复四分钟主动断开端口，128项测试通过，新版16分钟恢复实测后已发布 | 20秒消息保留；受控Service Worker停止/启动后原Terra对话继续操作通过；无控制唤醒开销及自然回收仍待评估 |
 | O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；Workflow/Task/Deployment超时及取消实机通过；单worker并发取消隔离、显式恢复跳过成功样本与资源释放均已补验 |
 | O3 | 定时任务异步化已部署并补测真实计划读取；批量进度事务已发布 | 定时计划20次读取连接20→1；批量进度12项测试及发布后四条样本、人工通过/驳回、错误保留与CSV一致验收通过 |
@@ -1919,3 +1919,18 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 夹具首次挂载root私有源码导致普通用户无法导入，改为独立可读副本；随后将原生目录改为容器工作目录、必要密钥改为受限只读挂载，未调整仓库或线上文件权限。首次凭据捕获假设Playwright可读POST正文而失败，改从平台返回的短期令牌读取browser标识，验证仍由网关执行，不自行伪造授权。
 
 证据/tmp/review-docker-gateway.json、-check.json、/tmp/review-docker-auth-check.json、/tmp/review-docker-gateway-stopped.json及.log；脚本/tmp/review-docker-gateway.py、/tmp/review-docker-gateway-check.py、/tmp/review-docker-auth-check.py。后续仍需完整Compose依赖/网络验收与跨网关实际控制操作。工作分支继续，未合并main或推送GitHub。
+
+
+### B5 完整Compose POSIX启动缺陷修复及实机验收（2026-10-08）
+
+使用local_server.sh init生成独立环境，Compose项目flowork-review使用全新数据卷、独立端口（Web19001/API18002等）、独立POSIX工作目录，未切换线上入口。复用本地依赖镜像，以只读测试副本覆盖当前API/engine、迁移与安全脚本，并使用当前Nginx配置；验证完整依赖启动，不声称从零重建发行镜像或重新构建前端。
+
+首次真实启动失败于migrate：环境继承WORKSPACE_STORAGE_BACKEND=posix，但没有绝对WORKSPACE_STORAGE_ROOT，AppConfig抛出明确错误；同样遗漏sandbox_prewarm、browser_gateway。修复docker-compose.yml三服务的存储类型与容器根目录，共6行，保持与API/worker/sandboxd一致；辅助服务不因此新增文件访问或工作区挂载。没有放宽POSIX配置校验。
+
+修复后显式启动继续：数据库及DBOS迁移、OpenFGA迁移/模型初始化成功，API、worker、sandboxd、网关、Web、两个Postgres和Valkey均健康。项目自带verify_local.sh返回verify=pass，包含沙盒控制socket与实际预热执行。通过Web反向代理注册独立测试账号201、登录200、auth/me200；API写入测试文件，API/worker/sandboxd读取一致，随后删除。三服务Mount.Source均为独立测试目录。
+
+新增Compose配置回归覆盖object_store及posix，两模式下六个服务的backend/root一致；所在runtime_deployment_defaults测试9项通过（12.53秒），Ruff及diff检查通过。配置同步到/opt/flowork，原生线上无需因Compose配置重启。
+
+清理：隔离Compose容器、网络、测试数据卷已正常down --volumes，临时环境文件已删除，未删除既有数据卷。启动前因磁盘仅余321MB清理了未使用Docker构建缓存约4GB，保留全部镜像与既有数据；超过一天过滤仅回收少量，后续清理全部未使用构建缓存释放空间。
+
+证据/tmp/flowork-compose-review/中的up.log、up-posix-fix.log、verify.log、services.txt、check.json、config-contract.json、tests.log、down.log；辅助测试脚本同目录。当前源码与配置修复仍在工作分支，未合并main或推送；跨网关真实控制、B6开销评估等剩余范围不因全栈健康通过而省略。

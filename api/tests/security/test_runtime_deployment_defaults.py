@@ -107,3 +107,24 @@ def test_sandbox_rpc_ref_reports_actual_selected_backend(monkeypatch, backend):
     service = _SandboxGrpcService(SimpleNamespace(socket_path='/tmp/test.sock', generation=1))
     ref = service._ref(pb.SandboxScope(tenant_id='test', scope_id='test'))
     assert ref.provider == backend + '-local'
+
+
+@pytest.mark.parametrize('backend', ['object_store', 'posix'])
+def test_compose_initializers_and_gateway_share_storage_configuration(backend, tmp_path):
+    """POSIX selection must not prevent config import in auxiliary services."""
+    if not shutil.which('docker'):
+        pytest.skip('Docker Compose CLI unavailable')
+    env = dict(os.environ, VIBECANVAS_ENV_FILE=str(ROOT / '.env.example'),
+               WORKSPACE_STORAGE_BACKEND=backend, WORKSPACE_STORAGE_HOST_ROOT=str(tmp_path))
+    command = ['docker', 'compose', '--env-file', str(ROOT / '.env.example'),
+               '-f', str(ROOT / 'docker-compose.yml')]
+    if backend == 'posix':
+        command += ['-f', str(ROOT / 'docker-compose.posix.yml')]
+    result = subprocess.run(command + ['config', '--format', 'json'], env=env, cwd=ROOT,
+                            check=True, capture_output=True, text=True)
+    services = json.loads(result.stdout)['services']
+    for name in ('api', 'background_worker', 'sandboxd', 'migrate',
+                 'sandbox_prewarm', 'browser_gateway'):
+        settings = services[name]['environment']
+        assert settings['WORKSPACE_STORAGE_BACKEND'] == backend, name
+        assert settings['WORKSPACE_STORAGE_ROOT'] == '/var/lib/vibecanvas/workspaces', name

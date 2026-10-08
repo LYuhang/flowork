@@ -185,6 +185,8 @@ services:
     env_file:
       - ${VIBECANVAS_ENV_FILE:-.env}
     environment:
+      WORKSPACE_STORAGE_BACKEND: ${WORKSPACE_STORAGE_BACKEND:-object_store}
+      WORKSPACE_STORAGE_ROOT: /var/lib/vibecanvas/workspaces
       DATABASE_URL: postgresql+asyncpg://vibecanvas_migrator:${VIBECANVAS_MIGRATOR_PASSWORD:-vc_migrator}@postgres:5432/vibecanvas
       MIGRATION_DATABASE_URL: postgresql+asyncpg://vibecanvas_migrator:${VIBECANVAS_MIGRATOR_PASSWORD:-vc_migrator}@postgres:5432/vibecanvas
       DBOS_ADMIN_DATABASE_URL: postgresql+psycopg://vibecanvas_migrator:${VIBECANVAS_MIGRATOR_PASSWORD:-vc_migrator}@postgres:5432/vibecanvas
@@ -342,6 +344,8 @@ services:
     env_file:
       - ${VIBECANVAS_ENV_FILE:-.env}
     environment:
+      WORKSPACE_STORAGE_BACKEND: ${WORKSPACE_STORAGE_BACKEND:-object_store}
+      WORKSPACE_STORAGE_ROOT: /var/lib/vibecanvas/workspaces
       SANDBOX_SERVICE_MODE: service
       SANDBOX_SERVICE_SOCKET: /run/vibecanvas-sandbox/sandboxd.sock
       VIBECANVAS_STORAGE_ROOT: /var/lib/vibecanvas/local-data
@@ -360,6 +364,8 @@ services:
     env_file:
       - ${VIBECANVAS_ENV_FILE:-.env}
     environment:
+      WORKSPACE_STORAGE_BACKEND: ${WORKSPACE_STORAGE_BACKEND:-object_store}
+      WORKSPACE_STORAGE_ROOT: /var/lib/vibecanvas/workspaces
       DATABASE_URL: postgresql+asyncpg://vibecanvas_app:${VIBECANVAS_APP_PASSWORD:-vc_app}@postgres:5432/vibecanvas
       REDIS_URL: redis://redis:6379/0
       OPENFGA_API_URL: http://openfga:8080

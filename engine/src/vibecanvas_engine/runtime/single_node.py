@@ -12,20 +12,24 @@ from ..nodes.exec import dispatch_node_call
 from ..register import node_registry
 
 
+class WorkflowValidationError(ValueError):
+    """Public graph/node validation diagnostic, not an arbitrary runtime failure."""
+
+
 def validate_selected_node(workflow: dict, node_id: str) -> None:
     if not isinstance(node_id, str) or node_id.startswith("__"):
-        raise ValueError("invalid selected node")
+        raise WorkflowValidationError("invalid selected node")
     if set(workflow) - {"__meta__"} != {node_id}:
-        raise ValueError("standalone execution requires exactly the selected node")
+        raise WorkflowValidationError("standalone execution requires exactly the selected node")
     node = workflow[node_id]
     if not isinstance(node, dict) or node.get("node_id") != node_id:
-        raise ValueError("selected node ID mismatch")
+        raise WorkflowValidationError("selected node ID mismatch")
     kind = node.get("node_type")
     if kind in {"LoopBeginNode", "LoopEndNode", "ParallelStartNode", "ParallelEndNode"}:
-        raise ValueError("control node requires workflow scheduling")
+        raise WorkflowValidationError("control node requires workflow scheduling")
     validation = node_registry.get(kind).check(node)
     if validation.get("status") != "success":
-        raise ValueError(validation.get("error_message") or "invalid selected node")
+        raise WorkflowValidationError(validation.get("error_message") or "invalid selected node")
 
 
 async def node_events(workflow, node_id: str, inputs: dict, *, stop_event, run_context):

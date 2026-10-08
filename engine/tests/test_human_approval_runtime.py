@@ -585,3 +585,46 @@ async def test_approval_timeout_stops_parallel_work_but_not_sibling_invocation(m
         assert succeeded["status"] == "succeeded"
     finally:
         await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_rpc_preserves_workflow_validation_but_not_arbitrary_exception(tmp_path, monkeypatch):
+    from vibecanvas_engine.runtime.rpc import RuntimeServer
+    from vibecanvas_engine.sandbox_bus import encode_frame, read_frame
+
+    runtime = WorkflowRuntime(capacity=1)
+    token = "validation-test-token-" * 3
+    rpc = RuntimeServer(runtime, token)
+    path = str(tmp_path / "validation.sock")
+    server = await asyncio.start_unix_server(rpc.handle, path)
+
+    async def install(graph):
+        reader, writer = await asyncio.open_unix_connection(path)
+        try:
+            writer.write(encode_frame({"token": token, "method": "install", "args": {
+                "revision": "v1", "workflow": graph,
+            }}))
+            await writer.drain()
+            return await read_frame(reader)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    try:
+        graph = approval_workflow()
+        del graph["node_2"]["output_fields"]["approved"]["description"]
+        response = await install(graph)
+        assert response["error"] == "invalid_workflow"
+        assert "description" in response["message"]
+        assert "node_2" in response["message"]
+        assert not runtime.workflows
+
+        def unexpected(*args, **kwargs):
+            raise TypeError("private-runtime-value")
+
+        monkeypatch.setattr(runtime, "install", unexpected)
+        assert await install(graph) == {"ok": False, "error": "invalid_request"}
+    finally:
+        server.close()
+        await server.wait_closed()
+        await rpc.close()

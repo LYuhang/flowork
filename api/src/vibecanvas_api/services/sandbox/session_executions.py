@@ -21,6 +21,7 @@ from vibecanvas_api.storage.workflow_history_repo import TERMINAL_STATUSES, Work
 from .workflow_execution_driver import WorkflowExecutionDriver
 from .workflow_guard import classify_workflow
 from .workflow_rpc_pool import WorkflowRpcPool
+from .workflow_rpc import WorkflowRpcError
 
 
 @dataclass
@@ -158,7 +159,7 @@ class SessionExecutions:
             async with short_session_scope(tenant_id=self.session.tenant_id) as db:
                 run = await WorkflowHistoryRepo(db).get(execution_id)
             return {"status": {"status": "cancelled" if run["status"] == "cancelled" else "success"}, "result": result}
-        except BaseException:
+        except BaseException as exc:
             # acquire() has stopped any unconfirmed process before releasing
             # its reservation. Finalize startup failures as well as running loss.
             async with short_session_scope(tenant_id=self.session.tenant_id) as db:
@@ -167,7 +168,10 @@ class SessionExecutions:
                 if run["cancel_requested_at"] is not None:
                     await history.confirm_cancelled(execution_id)
                 else:
-                    await history.fail(execution_id, error_code="execution_dispatch_failed")
+                    await history.fail(
+                        execution_id, error_code="execution_dispatch_failed",
+                        error_detail=exc.detail if isinstance(exc, WorkflowRpcError) else None,
+                    )
             raise
 
     @complete_before_cancelling

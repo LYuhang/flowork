@@ -16,6 +16,7 @@ import sys
 
 from ..sandbox_bus import encode_frame, read_frame
 from .approvals import ApprovalConflict
+from .single_node import WorkflowValidationError
 from .executions import ExecutionCapacityError, ExecutionConflict, WorkflowRuntime
 
 MAX_FRAME_BYTES = 32 * 1024 * 1024
@@ -69,6 +70,8 @@ class RuntimeServer:
                 try:
                     result = await self.dispatch(request["method"], request.get("args") or {})
                     response = {"ok": True, "result": result}
+                except WorkflowValidationError as exc:
+                    response = {"ok": False, "error": "invalid_workflow", "message": str(exc)}
                 except ExecutionCapacityError as exc:
                     response = {"ok": False, "error": str(exc)}
                 except (ExecutionConflict, ApprovalConflict):

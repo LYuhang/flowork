@@ -19,7 +19,7 @@ import uuid
 from ..utils import normalize_inputs_for_fields, start_node_input_fields
 from ..workflow import Workflow
 from .approvals import ApprovalBroker
-from .single_node import node_events, validate_selected_node
+from .single_node import WorkflowValidationError, node_events, validate_selected_node
 
 
 class ExecutionCapacityError(RuntimeError):
@@ -119,7 +119,7 @@ class WorkflowRuntime:
         if node_id is None:
             validation = Workflow.check(workflow)
             if validation["status"] != "success":
-                raise ValueError(validation["error_message"])
+                raise WorkflowValidationError(validation["error_message"])
         else:
             validate_selected_node(workflow, node_id)
         self.workflows[revision] = (fingerprint, deepcopy(workflow), node_id)

@@ -522,3 +522,52 @@ async def test_approval_timeout_is_not_a_rejection(pg_engine, decision):
         assert detail["result"]["final_outputs"] == {}
         with pytest.raises(HistoryConflict):
             await WorkflowHistoryRepo(session).request_decision(run, approval, actor_user_id=actor, approved=True)
+
+
+@pytest.mark.asyncio
+async def test_install_validation_diagnostic_survives_rpc_and_history(pg_engine, tmp_path):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from vibecanvas_engine.runtime.executions import WorkflowRuntime
+    from vibecanvas_engine.runtime.rpc import RuntimeServer
+    from vibecanvas_api.services.sandbox.workflow_rpc import WorkflowRpcClient, WorkflowRpcError
+    from vibecanvas_api.services.sandbox.session_executions import SessionExecutions
+    from vibecanvas_api.services.workflow_execution_history import create_execution
+
+    tenant, actor, _ = await owner()
+    graph = approval_graph()
+    graph['node_2']['output_fields']['approved'].pop('description')
+    execution_id = await create_execution(
+        tenant_id=tenant, source_type='workflow', source_id='invalid-graph',
+        user_id=actor, workflow_id='invalid-graph', workflow=graph, inputs={},
+    )
+    token = 'validation-diagnostic-test-' * 2
+    rpc = RuntimeServer(WorkflowRuntime(capacity=1), token)
+    socket = str(tmp_path / 'validation.sock')
+    server = await asyncio.start_unix_server(rpc.handle, socket)
+    client = WorkflowRpcClient(socket, token)
+
+    @asynccontextmanager
+    async def acquire(execution_id):
+        await client.call('install', revision='v1', workflow=graph)
+        pytest.fail('Invalid workflow must not acquire an execution slot')
+        yield
+
+    try:
+        runtime = SessionExecutions(SimpleNamespace(tenant_id=tenant))
+        with pytest.raises(WorkflowRpcError, match='description') as failure:
+            await runtime._execute(SimpleNamespace(pool=SimpleNamespace(acquire=acquire)),
+                                   execution_id, {}, {}, 'invalid-graph')
+        assert failure.value.code == 'invalid_workflow'
+        async with session_scope(tenant_id=tenant) as db:
+            detail = await WorkflowHistoryRepo(db).detail(execution_id)
+        assert detail['status'] == 'failed'
+        assert detail['error_code'] == 'execution_dispatch_failed'
+        message = detail['result']['error_dict']['__engine__']
+        assert 'description' in message and 'node_2' in message
+        assert token not in message
+    finally:
+        server.close()
+        await server.wait_closed()
+        await rpc.close()

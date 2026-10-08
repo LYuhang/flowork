@@ -1768,3 +1768,9 @@ Terra侧边栏对话 `f6851f95-5a23-49e6-9d13-3464479b0ed7`，先完成16次订�
 真实浏览器打开失败执行详情，点击node_2，再进入Run info，显示Running→Failed记录及完整超时文本。页面初始画布只显示概括失败提示，详细原因位于节点运行信息，不能用首页直接搜索错误文本替代正确交互。测试浏览器退出，专用Workflow沙盒释放返回200。证据 `/tmp/workflow-node-timeout-valid.json`、`/tmp/workflow-node-timeout-ui.txt`、`.png`。本项证明线上Workflow节点超时后后续调用可成功；不证明Task/Deployment取消、满池竞争或全部子进程资源均已实机验收。
 
 本次新发现：第一版测试夹具漏写输出字段description，WorkflowRuntime.install本地复现明确返回 `[StartNode Check] ... 'description' is a required property, error_path: output_fields->delay`；RPC把它归为invalid_request，持久执行又仅保留execution_dispatch_failed且无节点事件。因此两条最初执行（89186605、de1991d3前缀）均为校验阶段失败，不能计入超时验收。错误详情丢失需要修复：区分工作流校验失败和普通RPC协议错误，并把可公开的校验诊断传递到执行记录，不能简单序列化任意异常或写入凭据。此项尚未修复，保留在当前收尾范围内。证据 `/tmp/workflow-node-timeout-live.json` 及对应sandboxd错误堆栈。
+
+### 工作流安装校验诊断保留修复（2026-10-08，未部署）
+
+新增专用WorkflowValidationError标识工作流/单节点校验失败，RPC返回invalid_workflow和现有校验诊断。宿主机WorkflowRpcError只接受该错误码对应的message，SessionExecutions在启动失败落库时保留该detail；既有execution_dispatch_failed状态码不变，诊断进入result.error_dict.__engine__。任意TypeError/ValueError或运行异常不因此开放消息透传。Deployment既有failure_detail记录会使用异常字符串，不新增重试或派发流程。
+
+引擎28项回归通过，包括真实Unix Socket传递缺失description的节点诊断，以及任意TypeError消息不透传；宿主机7项回归通过，新增集成测试贯穿RuntimeServer→WorkflowRpcClient→SessionExecutions→真实独立Postgres，确认failed及具体node_2/description诊断持久化。Ruff与diff检查通过。证据 `/tmp/workflow-validation-engine-tests.log`、`/tmp/workflow-validation-history-tests.log`。当前仅工作分支代码，尚未更新sandboxd/引擎运行包或实机复验，不把先前线上通用错误问题标为已上线解决。

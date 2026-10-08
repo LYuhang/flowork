@@ -13,8 +13,10 @@ from vibecanvas_engine.sandbox_bus import encode_frame, read_frame
 
 
 class WorkflowRpcError(RuntimeError):
-    def __init__(self, code: str):
-        super().__init__(code)
+    def __init__(self, code: str, message: str | None = None):
+        # Only the explicit validation envelope carries a public diagnostic.
+        self.detail = message if code == "invalid_workflow" and isinstance(message, str) else None
+        super().__init__(self.detail or code)
         self.code = code
 
 
@@ -36,7 +38,7 @@ class WorkflowRpcClient:
                 if response is None:
                     raise ConnectionError("workflow RPC disconnected")
                 if not response.get("ok"):
-                    raise WorkflowRpcError(response.get("error", "runtime_error"))
+                    raise WorkflowRpcError(response.get("error", "runtime_error"), response.get("message"))
                 result = response["result"]
                 if method == "hello":
                     self.generation = result["generation"]

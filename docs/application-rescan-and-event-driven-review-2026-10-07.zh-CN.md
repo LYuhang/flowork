@@ -1782,3 +1782,11 @@ Terra侧边栏对话 `f6851f95-5a23-49e6-9d13-3464479b0ed7`，先完成16次订�
 使用专用Workflow e341f209b384发布缺失description的v1.sv3并明确执行：70907e07-9d87-4969-919f-4ad8bc8c1109为failed，持久result.error_dict.__engine__现在包含node_1、description及output_fields->delay路径。随后修正为有效v1.sv4，新执行19fe78b0-c9d2-4ea9-92ef-90b996037800成功，执行耗时0.071秒，最终输出finished；沙盒释放200。证据 `/tmp/validation-fix-live.json`。没有自动重试或回改原失败结果。
 
 实机同时发现详情页只显示概括错误，而启动校验失败没有节点事件可供展开。因此ExecutionDetailPage侧栏新增“执行错误/Execution errors”，直接显示授权执行结果中的error_dict文本；React按文本渲染，不解释HTML。完整TypeScript检查、生产构建及diff检查通过。新静态文件发布后在真实Chromium打开上述失败详情，无需选择节点即可读到完整校验原因，截图已检查，换行和布局正常。发布保留现有插件下载包。证据 `/tmp/validation-ui-typecheck.log`、`/tmp/validation-ui-build.log`、`/tmp/validation-ui-publication.json`、`/tmp/validation-diagnostic-ui.txt`与`.png`。本项校验诊断从运行进程到数据库、API及页面的修复验收完成，其余清单继续保留。
+
+### O1/O2 线上运行中Code取消与批量取消（2026-10-08）
+
+专用Workflow e341f209b384更新v1.sv5，Code timeout=60秒、输入sleep=30秒。先确认持久node_2 running事件，再等1秒请求取消执行8b7d47f0-0bbd-4232-bd57-f4c2c80106a3，接口202，约497ms后确认cancelled；同一工作流下一条显式输入0秒执行succeeded，沙盒释放200。证据 `/tmp/workflow-code-cancel-live.json`。这是执行终态与后续可用性验证，不单凭终态声称操作系统全部FD/进程已逐项盘点。
+
+随后在真实Task页面创建两条输入30/0秒、并发1的批次60e579a2-258d-48ee-a620-038bf8038936，确认首条Code running后点击Cancel。接口200；持久事件19:43:31.616取消请求→19:43:33.045 task.cancelled，约1.43秒。Task状态interrupted（产品展示Cancelled、可Resume），已创建的首条执行cancelled，第二条未派发，没有残留queued/running执行。真实页面下载CSV，两条均cancelled，error.code=cancelled/message=cancelled by user，无自动后续执行。证据 `/tmp/batch-code-cancel-ui.json`、`.txt`、`.png`及`/tmp/batch-code-cancel-export/`。脚本最初把Task终态错误断言为cancelled，轮询44秒后报错；以实际Task的interrupted协议及事件时间核对，不能把44秒声称取消耗时或把脚本退出1误报为产品取消失败。
+
+发现并待修复的显示问题：取消后的Task概要为Rows total=2、Rows ok=0、Rows failed=2；底层_summary把所有非success都计入rows_failed，虽已另存cancelled=2，前端未展示该计数。需要把取消/未开始与实际执行错误区分，保留原有can_resume及skip_success语义，并补新旧结果展示的一致性验证。当前仅确认取消行为和CSV正确，统计展示尚未完成修复；Task/Deployment超时及Deployment运行中取消仍按原范围继续。

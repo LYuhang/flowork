@@ -1137,7 +1137,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | O1、O2 | 子进程管道/截止时间修复已部署，本地真实子进程测试通过 | `557a64f` 等；待 Workflow、Task、Deployment 超时及取消验收 |
 | O3 | 定时任务数据库访问已异步化并部署，局部回归通过 | `b2050a8`；性能测量和其余同步热点仍待核对 |
 | O4 | 已配套发布并完成窗口刷新与线上任务/部署页面验收 | 1/10/50页刷新1/1/2请求；真实接口537/115条，页面50条刷新与滚动保持通过；详见末尾证据 |
-| O5 | 待授权请求量测量和逐项优化 | 不凭定时器数量判断收益，保留权限撤销校验 |
+| O5 | 完成并发检查基线与仅在途合并，14项测试通过；未部署 | 同进程同身份/资源的重叠检查由N次降为1次；真实多窗口、登出及撤权传播仍待验收 |
 | O7 | 已部署稳定节点/边引用；32项测试、类型检查及本地 Chromium 画布交互通过 | 待部署页面验收及渲染耗时对比 |
 | O6、O8 | 待策略确认或随相关修改收敛 | 不默认清理历史，不为拆分模块新增抽象层 |
 
@@ -1222,7 +1222,7 @@ Terra 真实页面回归启动于原对话 3e792fb8-ff5c-4641-a3d2-f1933edec609�
 | O2 | 高 | 节点超时未覆盖调用全过程 | 同一文件中先获取 worker、启动并发送，再开始 read_result 超时；受控测试配置 0.05 秒，因等待单 worker 总耗时约 0.542 秒仍成功；待明确语义及修复 | 若保持节点“单次执行 wall-clock”契约，传递统一截止时间到排队、启动、发送和读取；测满池、堵塞发送、慢启动，外层 Workflow 超时与节点超时分别验证，不自动重跑 |
 | O3 | 中 | 同步数据库桥接反复建连接 | [sync_session.py](../api/src/vibecanvas_api/storage/sync_session.py) 使用每次新建 NullPool engine；在运行中的事件循环调用时创建线程池并同步等待 result；静态确认，热点成本待测 | 热点优先原生 async、复用同事件循环连接池；保留租户上下文及事务隔离；测连接数、事件循环延迟和请求耗时，不能直接跨事件循环共享连接池 |
 | O4 | 中 | 无限历史查询周期性刷新成本随页数增长 | [workflow-history.ts](../web/src/lib/api/queries/workflow-history.ts) 的 useInfiniteQuery 每 3 秒刷新；成本待实测 | 保留已加载历史，更新最新页和活动记录，结合可见性及操作后刷新；测 1/10/50 页的请求数和滚动位置，无历史消失、缺口或重复 |
-| O5 | 中 | 多窗口重复授权复核 | [state_notifications.py](../api/src/vibecanvas_api/services/state_notifications.py) 默认每 5 秒授权复核，[preview_workspace_events.py](../api/src/vibecanvas_api/services/preview_workspace_events.py) 每 2 秒检查；成本待测 | 先测数据库及 OpenFGA 请求量，再评估同身份、资源、权限检查的并发合并；不得取消撤权检查或引入长期允许缓存，验收登出、空间切换和撤权传播 |
+| O5 | 中 | 多窗口重复授权复核 | [state_notifications.py](../api/src/vibecanvas_api/services/state_notifications.py) 默认每 5 秒授权复核，[preview_workspace_events.py](../api/src/vibecanvas_api/services/preview_workspace_events.py) 每2秒扫描文件；Preview路由授权回调已有5秒门控，并非每次扫描都查授权；成本见末尾测量 | 先测数据库及 OpenFGA 请求量，再评估同身份、资源、权限检查的并发合并；不得取消撤权检查或引入长期允许缓存，验收登出、空间切换和撤权传播 |
 | O6 | 中 | 执行事件与 Trace 保留策略不统一 | 已找到账号删除及知识库清理，本轮扫描未找到统一执行历史保留配置；待进一步盘点和产品规则确认 | 分清结果、Trace、事件日志、附件的保留和归档；仅处理符合策略的终态数据，保护运行中及审批中执行；验证导出、查询和断线恢复，不自动删除用户历史 |
 | O7 | 中 | 大画布全图对象重建 | [Canvas.tsx](../web/src/pages/canvas/Canvas.tsx) 随 draft 变化转换整张图并创建节点及边对象；静态确认，渲染影响待测 | 保留未变化对象，缩小订阅范围；测大图中编辑单节点、拖动、撤销及 Agent 更新的渲染次数，保持只读、选择和布局行为 |
 | O8 | 低 | 大模块职责混合 | 基线 sandbox/manager.py 约 4600 行、routes/chats.py 约 4200 行；属于维护性观察，不是性能结论 | 按存储挂载、生命周期、历史读取、运行控制拆分，删除已证实无调用的旧逻辑；避免机械拆文件或新增通用框架，现有公开契约和回归保持一致 |
@@ -1584,3 +1584,16 @@ B3实机通过：使用两个独立Chrome进程及持久配置目录、同一tes
 - 两个接口的摘要字段严格为id/created_at/status/input_index/pending_approvals。没有重跑Task/Deployment业务。
 
 证据 `/tmp/history-window-live.json`、`/tmp/history-window-live-task.png`、`/tmp/history-window-live-deployment.png`；脚本退出0，浏览器已关闭。结合此前真实PostgreSQL权限/分页测试、17项前端回归与生产构建Chromium的50页、故障/权限/新增记录验收，O4当前实现已完成本项配套发布及验收。仍完整保留O5、B6及索引内其它待验收项；整份审查未完成，工作分支未合并main或推送。
+
+
+### O5 同时进行的授权检查合并（2026-10-08，未部署）
+
+先纠正扫描基线：Preview文件扫描每2秒调用授权回调，但路由回调内部已有5秒门控；不能据此称每2秒执行一次数据库/OpenFGA检查。原检查周期没有改变。
+
+真实PostgreSQL、生产authorization_lease_is_valid、内存OpenFGA关系测试替身对照：同一身份/资源的1/3/5个同时检查，改前SQL数12/36/60、OpenFGA batch_check调用1/3/5；改后均12条SQL和1次batch_check。证据 `/tmp/stream-guard-measurement-before.json`、`/tmp/stream-guard-measurement.json`。这是同进程同步发起的最佳重叠场景，不代表所有窗口定时器都会重叠，也不是生产网络延迟或吞吐量测量。
+
+实现仅在stream_guard内部合并尚未完成的相同读取。键包含事件循环、完整不可变AuthContext、资源、动作及授权客户端身份；完成立即删除，不缓存allow/deny，不更改HIGHER_CONSISTENCY，不新增Redis目录或周期任务。不同进程仍各自检查。一个观察者取消不影响其它观察者；最后观察者取消则终止读任务，释放在途记录。
+
+14项测试通过：5个同身份并发只读一次、完成后重新读取立即看到拒绝；不同用户/会话/会话受众/特权范围/代次/组织/成员关系/资源/动作/客户端不合并；取消清理；原真实数据库Chat私有权限、撤销creator关系、Session代次失效验证仍通过。Ruff、diff检查通过。首次误用root默认Postgres测试启动方式时fixture失败，已用flowork身份和独立测试数据库重跑；未放宽目录或数据库权限。
+
+尚待真实多窗口与实际OpenFGA网络请求验证，及发布后的登出/空间切换/撤权传播检查。该改动未部署，不将O5或整个审查标为完成。

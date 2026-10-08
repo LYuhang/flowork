@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
+
 import structlog
 from starlette.requests import Request
 
@@ -35,7 +38,45 @@ def _deny_lease(reason: str, *, auth: AuthContext) -> bool:
     return False
 
 
+@dataclass
+class _PendingCheck:
+    task: asyncio.Task[bool]
+    waiters: int = 0
+
+
+_pending_checks: dict[tuple, _PendingCheck] = {}
+
+
 async def authorization_lease_is_valid(
+    *, auth: AuthContext, openfga_client, resource: ResourceRef, action: Action,
+) -> bool:
+    """Share only an in-flight identical read; never cache an allow/deny result."""
+    key = (asyncio.get_running_loop(), auth, id(openfga_client), resource, action)
+    pending = _pending_checks.get(key)
+    if pending is None or pending.task.done():
+        pending = _PendingCheck(asyncio.create_task(_read_authorization_lease(
+            auth=auth, openfga_client=openfga_client, resource=resource, action=action,
+        )))
+        _pending_checks[key] = pending
+        def finished(_task):
+            if _pending_checks.get(key) is pending:
+                del _pending_checks[key]
+        pending.task.add_done_callback(finished)
+    pending.waiters += 1
+    try:
+        # Closing one stream must not cancel another stream's authorization.
+        return await asyncio.shield(pending.task)
+    finally:
+        pending.waiters -= 1
+        if not pending.waiters:
+            if _pending_checks.get(key) is pending:
+                del _pending_checks[key]
+            if not pending.task.done():
+                pending.task.cancel()
+                await asyncio.gather(pending.task, return_exceptions=True)
+
+
+async def _read_authorization_lease(
     *,
     auth: AuthContext,
     openfga_client,

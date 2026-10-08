@@ -1717,3 +1717,13 @@ f46e1df最初本地构建没有传VITE_WEB_BASE，默认localhost导致输入框
 插件下载包同步到开发/构建及实际web-dist下载目录，原子替换zip；公网 `/downloads/flowork-extension.zip` 返回200，SHA256为 `00dd826e7278f0b608779363eb430f1ee7846b4545d7f0586a38f92251257250`，与验证构建一致。API/gateway健康、应用首页均200，三进程存在。发布后用test真实登录态读取刚才浏览器对话历史，返回200、total147、最近30条。证据 `/tmp/review-runtime-publication.json`、`/tmp/review-runtime-publication-smoke.json`、`/tmp/review-postpublish-read.json`。
 
 上述健康/历史读取不等于新的批量Task、多个UI窗口登出或空间切换已实机通过；这些仍按索引补齐。当前分支尚未合并main或推送，整个审查未完成。
+
+### O3 新版批量进度发布后实机验收（2026-10-08）
+
+从test个人空间真实Task页面创建四条样本、并发1的批次 `e1792fba-5c48-4631-b6a2-bfce3ec6e72a`，复用Automation Mixed Execution `ad1e78c9b3eb@v1.sv2`。两条需要人工的样本分别进入执行画布点击Approve、Reject，均返回202，原执行继续；另两条走无需人工路径。没有自动重跑失败样本。
+
+第一条在Prompt节点收到NVIDIA服务商 `Service temporarily overloaded`，完整错误在Task事件和CSV保留。其余三条成功，approval_path分别为approved、rejected、not_required。拒绝审批在该Workflow定义中属于正常输出，不能误计为平台执行失败。
+
+最终真实页面显示Finished with errors、Rows total=4、Rows ok=3、Rows failed=1；GET Task为finished_with_errors、progress=1。18条持久事件中的进度单调经过0、0.25、0.5、0.75、1，CSV恰有4条，与终态计数和审批分支一致。输出列映射从Task持久payload复核为各自的__end__字段（提交是multipart，请求postDataJSON为空，未把它当作映射证据）。最终截图已人工查看。
+
+证据 `/tmp/review-batch-progress-live/` 中verification.json、task-api.json、events-api.json、task-ui-decisions.jsonl、terminal-overview.png及下载CSV。所有本次浏览器测试进程已退出。本次补齐新版批量进度正常/人工等待/服务商失败混合实机链路；不能声称四条模型调用全部成功，也不替代O1/O2超时取消、O5真实UI身份变化、浏览器断网恢复等剩余验收。完整目标尚未完成，尚未合并main或推送。

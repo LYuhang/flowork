@@ -7,6 +7,8 @@ tmp_path-rooted storage config — they never touch the user's
 
 from __future__ import annotations
 
+import asyncio
+
 import os
 import shutil
 import subprocess
@@ -546,8 +548,16 @@ async def _isolate_global_engine():
     closed'). Hoisted suite-wide because Task 8/9/10 route tests drive
     db.py's global engine through the ASGI app."""
     await dispose_engine()
-    yield
-    await dispose_engine()
+    try:
+        yield
+    finally:
+        # ASGITransport skips app lifespan. Registration and mutation routes
+        # can still create the lazy queue client; stop its listener before the
+        # disposable database is dropped.
+        from vibecanvas_api.services.background_queue import close_background_queue_client
+
+        await asyncio.to_thread(close_background_queue_client)
+        await dispose_engine()
 
 
 @pytest_asyncio.fixture(autouse=True)

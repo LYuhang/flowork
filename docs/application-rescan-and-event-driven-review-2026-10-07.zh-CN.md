@@ -1373,3 +1373,10 @@ O1/O2 的数字来自小型隔离脚本，不是线上内存或吞吐基准。O3
 - 新增测试启动两个独立 Uvicorn 进程，均加载生产 browser 路由；插件 WebSocket 固定连接进程 A，CDP WebSocket 固定连接进程 B，实际 TCP/WebSocket 与隔离 Redis 转发。检查共享归属确为不同 instance_id，完成初始化和连续三次 CDP 请求/结果对应，CDP 断开后插件收到 close，归属删除。
 - 两个进程通过 SIGTERM 退出，并核对 lifespan 的连接清理完成标记及目录清空。首次仅因预期退出码 0 而实际为 Uvicorn 重发 SIGTERM 的 -15 失败；修正测试为允许正常信号退出但必须完成 lifespan 清理后，完整用例通过（10.27 秒）。Ruff 与 diff 检查通过。
 - 该测试的插件是 WebSocket 协议客户端，数据库身份/控制租约为固定测试替身；不能替代 Chrome 插件 + Terra + 真实授权数据库的端到端验收。测试仅监听 loopback，不引入生产绕过授权入口。
+
+2026-10-08，浏览器后端完整复跑：
+
+- 补齐测试环境的后台队列客户端清理：ASGITransport 不运行应用 lifespan，但注册/变更接口可能创建 DBOSClient；每项测试退出时先关闭客户端及监听，再释放全局数据库引擎，避免临时库删除后监听线程继续访问。
+- 修补时首次运行因漏导入 asyncio 出现 teardown 错误，已明确中止该失败进程、补齐导入并重新运行；未把中断运行作为通过证据。
+- 最终完整 api/tests/browser：97 passed，88.58 秒，进程退出码 0；未再出现已删除测试库的后台线程报错。仍有三个既有依赖弃用警告。覆盖独立 API 进程 WebSocket 测试，仍不能替代真实 Chrome/Terra 验收。
+- 线上 API healthz 当前正常，本轮未更新线上服务。

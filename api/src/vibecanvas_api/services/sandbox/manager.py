@@ -56,6 +56,10 @@ from vibecanvas_api.services.codex_cli import (
     codex_cli_readonly_root,
     resolve_codex_executable,
 )
+from vibecanvas_api.services.file_format import content_type_for
+from vibecanvas_api.services.workspace_files import (
+    WORKSPACE_FOLDERS, collect_workspace_files, hydrate_workspace_files,
+)
 from vibecanvas_api.services.env.overlay_builder import ensure_overlay
 from vibecanvas_api.services.object_store import FilesystemObjectStore, get_object_store
 from vibecanvas_api.services.run_workspace import RunWorkspace
@@ -93,16 +97,12 @@ from vibecanvas_api.services.vfs_volume import (
     ProjectRuntimeVolume,
     get_project_runtime_volume_provider,
 )
-from vibecanvas_api.storage.db import session_scope, short_session_scope
+from vibecanvas_api.storage.db import short_session_scope
 from vibecanvas_api.storage.vfs_store import VfsRepo
 
 logger = structlog.get_logger(__name__)
 _SNAPSHOT_STORE_LOCK = asyncio.Lock()
 
-# The Chat workspace folders written back to durable VFS — agent working area
-# (/data), scratch memory (/memory), and run logs (/logs). Each is a host
-# subdir of the chat/workspace ``run_dir`` mirrored to the matching VFS prefix.
-_RUN_WRITEBACK_FOLDERS = ("data", "memory", "logs", "chats")
 _SANDBOX_BASELINE_TOOLS = (
     "git",
     "jq",
@@ -140,7 +140,6 @@ _SANDBOX_BASELINE_PYTHON_MODULES = (
     "xlsxwriter",
     "yaml",
 )
-DIR_KEEP_SENTINEL = ".vibekeep"
 
 
 def _runtime_identity_component(value: str, *, field: str) -> str:
@@ -152,15 +151,6 @@ def _runtime_identity_component(value: str, *, field: str) -> str:
     ):
         raise ValueError(f"invalid {field} for Runtime state path")
     return normalized
-
-
-def _empty_leaf_dirs(root: str) -> list[str]:
-    """Return empty leaf directories relative to ``root``."""
-    out: list[str] = []
-    for current, dirs, files in os.walk(root):
-        if current != root and not dirs and not files:
-            out.append(os.path.relpath(current, root).replace(os.sep, "/"))
-    return out
 
 
 def _session_inflight_operations(session: object) -> int:
@@ -233,110 +223,6 @@ sys.stdout.write(proc.stdout or "")
 sys.stderr.write(proc.stderr or "")
 sys.exit(proc.returncode)
 '''
-
-
-def _guess_ct(rel: str, data: bytes) -> str:
-    """Content type for files synced from the Chat workspace."""
-    from vibecanvas_api.services.vfs_run_context import _guess_ct as _g
-    return _g(rel, data)
-
-
-async def _hydrate_run_folders(run_dir: str, wf_id: str, tenant_id: str) -> int:
-    """Hydrate ``{run_dir}/data|memory|logs`` from the durable VFS — the exact
-    INVERSE of :meth:`SandboxSession._sync_run_folder`'s write-back.
-
-    On every session (re)build the run-dir folders are created EMPTY; the durable
-    truth lives in the wf's ``VfsArtifact`` rows under ``/{folder}/``. Without this
-    an LRU evict + rebuild would lose the agent's prior ``/data`` files from the
-    working FS (the rows persist for the Explorer, but the sandbox starts blank).
-
-    Lists rows under each ``/{folder}/`` prefix and fetches bytes through the
-    ``VfsRepo`` read path (object-store backed, InMemory-safe), and write them to
-    ``{run_dir}/{folder}/{rel}`` (``rel`` = the path after ``/{folder}/``), creating
-    parent dirs. ``.vibekeep`` sentinels are normal 0-byte rows → writing them
-    recreates empty dirs for free (no special handling).
-
-    A hydrate failure blocks creation: serving a partial workspace can silently
-    overwrite durable files on the next writeback. DB reads stay on the event loop (async
-    session); the blocking ``open().write()`` runs off-loop via ``asyncio.to_thread``
-    (matching how ``build_run_context`` is offloaded at the call site).
-
-    Returns the count of files written (for tests / observability).
-    """
-    written = 0
-    for folder in _RUN_WRITEBACK_FOLDERS:
-        prefix = f"/{folder}/"
-        sub = os.path.join(run_dir, folder)
-        # One failed prefix query must not poison the transaction used by the
-        # remaining folders. A missing/deleted logical scope is expected during
-        # recovery and should hydrate as an empty workspace.
-        try:
-            async with session_scope(tenant_id=tenant_id) as s:
-                repo = VfsRepo(s, object_store=get_object_store())
-                entries = await repo.ls(wf_id=wf_id, prefix=prefix)
-                payloads: list[tuple[str, bytes]] = []
-                for entry in entries:
-                    if not entry.path.startswith(prefix):
-                        continue
-                    relative = entry.path[len(prefix):]
-                    parts = relative.split("/")
-                    if (
-                        not relative
-                        or any(part in {"", ".", ".."} for part in parts)
-                    ):
-                        logger.warning(
-                            "agent_hydrate_unsafe_path_skipped",
-                            wf_id=wf_id,
-                            folder=folder,
-                            path=entry.path,
-                        )
-                        continue
-                    data = await repo.read_bytes(wf_id=wf_id, path=entry.path)
-                    if data is None:
-                        raise RuntimeError("workspace_artifact_unavailable")
-                    destination = os.path.join(sub, *parts)
-                    if os.path.commonpath(
-                        [os.path.realpath(sub), os.path.realpath(destination)]
-                    ) != os.path.realpath(sub):
-                        logger.warning(
-                            "agent_hydrate_unsafe_path_skipped",
-                            wf_id=wf_id,
-                            folder=folder,
-                            path=entry.path,
-                        )
-                        continue
-                    payloads.append((destination, data))
-        except Exception:
-            logger.warning(
-                "agent_hydrate_folder_failed",
-                wf_id=wf_id,
-                folder=folder,
-                exc_info=True,
-            )
-            raise
-
-        def _flush(items: list[tuple[str, bytes]]) -> int:
-            count = 0
-            for destination, data in items:
-                try:
-                    os.makedirs(os.path.dirname(destination), exist_ok=True)
-                    with open(destination, "wb") as file:
-                        file.write(data)
-                    count += 1
-                except OSError:
-                    logger.warning(
-                        "agent_hydrate_file_write_failed",
-                        wf_id=wf_id,
-                        folder=folder,
-                        dest=destination,
-                        exc_info=True,
-                    )
-                    raise
-            return count
-
-        if payloads:
-            written += await asyncio.to_thread(_flush, payloads)
-    return written
 
 
 _EDIT_DIFF_MAX_LINES = 200
@@ -426,7 +312,7 @@ class SandboxSession:
         if workspace_profile not in {"chat", "execution"}:
             raise ValueError("invalid_workspace_profile")
         self.workspace_profile = workspace_profile
-        self.workspace_folders = _RUN_WRITEBACK_FOLDERS if workspace_profile == "chat" else ()
+        self.workspace_folders = WORKSPACE_FOLDERS if workspace_profile == "chat" else ()
         self.tenant_id = tenant_id
         self.wf_id = wf_id
         # Chat/workspace-owned host dir. It backs /data, /memory, and /logs.
@@ -2492,7 +2378,7 @@ class SandboxSession:
                         tenant=self.tenant_id,
                         path=normalized,
                         data=data,
-                        content_type=_guess_ct(relative, data),
+                        content_type=content_type_for(relative, data),
                     )
             self.last_used = time.monotonic()
             logger.info(
@@ -2789,23 +2675,11 @@ class SandboxSession:
         if not os.path.isdir(sub):
             return 0
 
-        def _collect_paths() -> list[tuple[str, str | None]]:
-            # Dataset workspaces may exceed the service memory budget; retain
-            # paths here and release each payload before reading the next.
-            out: list[tuple[str, str | None]] = []
-            for root, _dirs, files in os.walk(sub):
-                for name in files:
-                    fp = os.path.join(root, name)
-                    out.append((os.path.relpath(fp, sub), fp))
-            for rel_dir in _empty_leaf_dirs(sub):
-                out.append((rel_dir + "/" + DIR_KEEP_SENTINEL, None))
-            return out
-
         def _read_file(path: str) -> bytes:
             with open(path, "rb") as handle:
                 return handle.read()
 
-        collected = await asyncio.to_thread(_collect_paths)
+        collected = await asyncio.to_thread(collect_workspace_files, sub)
         if not collected:
             return 0
         synced = 0
@@ -2823,7 +2697,7 @@ class SandboxSession:
                             tenant=self.tenant_id,
                             path=vfs_path,
                             data=data,
-                            content_type=_guess_ct(rel, data),
+                            content_type=content_type_for(rel, data),
                         )
                         del data
                     synced += 1
@@ -3067,7 +2941,7 @@ class SandboxManager:
         root = tempfile.mkdtemp(prefix="vcsbx-base-prewarm-")
         run_dir = os.path.join(root, "workspace")
         overlay_dir = os.path.join(root, "overlay")
-        for folder in _RUN_WRITEBACK_FOLDERS:
+        for folder in WORKSPACE_FOLDERS:
             os.makedirs(os.path.join(run_dir, folder), mode=0o700, exist_ok=True)
         os.makedirs(os.path.join(overlay_dir, "py"), mode=0o700, exist_ok=True)
         session = SandboxSession(
@@ -3215,7 +3089,7 @@ class SandboxManager:
             # (normally /tmp), unlike Skills/auth. Preserve that mixed parent /
             # child mount profile because runsc validates both independently.
             runtime_dir = os.path.join(probe_root, "runtime")
-            for folder in _RUN_WRITEBACK_FOLDERS:
+            for folder in WORKSPACE_FOLDERS:
                 os.makedirs(os.path.join(run_dir, folder), mode=0o700, exist_ok=True)
             os.makedirs(os.path.join(overlay_dir, "py"), mode=0o700, exist_ok=True)
             os.makedirs(mount_dir, mode=0o700, exist_ok=True)
@@ -4254,7 +4128,7 @@ class SandboxManager:
             os.makedirs(pool_runs_root, mode=0o700, exist_ok=True)
             if task_run_source is not None:
                 run_dir = os.path.join(pool_runs_root, _runtime_identity_component(wf_id, field="scope_id"))
-            for folder in _RUN_WRITEBACK_FOLDERS:
+            for folder in WORKSPACE_FOLDERS:
                 os.makedirs(os.path.join(run_dir, folder), mode=0o700, exist_ok=True)
         else:
             stage_started = time.perf_counter()
@@ -4286,7 +4160,7 @@ class SandboxManager:
 
             # Pre-create the workspace folders under run_dir so a bare write to
             # ``/data`` (etc.) just works without a manual ``mkdir -p`` first.
-            for f in _RUN_WRITEBACK_FOLDERS:
+            for f in WORKSPACE_FOLDERS:
                 os.makedirs(os.path.join(run_dir, f), exist_ok=True)
 
             # Boot-hydrate: the run dir is fresh per (re)build, but the durable VFS
@@ -4296,7 +4170,7 @@ class SandboxManager:
             # the loop; blocking writes are offloaded inside the helper.
             try:
                 stage_started = time.perf_counter()
-                await _hydrate_run_folders(run_dir, wf_id, tenant_id)
+                await hydrate_workspace_files(run_dir, wf_id, tenant_id)
                 logger.warning(
                     "agent_sandbox_session_build_stage_done",
                     stage="hydrate_chat_workspace",

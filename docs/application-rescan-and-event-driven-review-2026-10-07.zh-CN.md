@@ -1999,3 +1999,9 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 第一轮后等待15秒，关闭并重开同一侧边栏对话；第二轮后等待45秒，在同一对话继续。每轮修改一项数据，期望金额分别5750、8150、11750，口令CHECK-1/2/3；全部详情访问、金额、口令、唯一提交和最终回答均正确。三轮均在原页面连续六次、间隔5秒确认发送按钮存在且停止按钮不存在；随后截图仍为发送状态。三条AgentRun分别t_8f61adb87d4f416aa9c2b97decbdf559、t_f2a9486f861547ed9a5eeac3a5f48df0、t_cfd27c08d80942339d822ad5ae02483b，数据库均completed、error为空。
 
 证据/tmp/b6-terra-stable-multistep.cjs、.json、.log、-1/-2/-3.txt/png、-terminal.json，测试退出0并关闭浏览器、代理及测试网页服务。这证明本次三轮连续控制和同页终态通过；不据此抹掉上一长等待用例的瞬时截图不一致，也不宣称已覆盖真实OS休眠。
+
+### O8 工作区恢复回归与内存对照通过（2026-10-08）
+
+隔离Postgres、flowork身份串行执行workspace_writeback_memory、sandbox_manager、project_workspace、sandbox_workflow_staging、vfs_run_context五组测试，94项通过（81.01秒），包含真实持久根目录/恢复、POSIX路径、恢复失败终止及12文件内存约束。Ruff和git diff --check通过。证据/tmp/workspace-files-tests.log及/tmp/run-review-workspace-files-tests.py；不是生产对象存储的端到端恢复验收。
+
+使用64c1b9d旧函数与新函数，相同模拟Repo生成12个各2MiB文件、实际写临时磁盘，逐文件SHA256一致。tracemalloc峰值旧25,534,333字节、新2,111,152字节（约24.4MiB→2.0MiB）。这是Python分配峰值，不是整个进程RSS；单次耗时0.073/0.052秒，不作为吞吐提升承诺。证据/tmp/measure-workspace-hydration.py、/tmp/workspace-hydration-measurement.json。源码可提交，线上运行模块尚未更新，需随后按完整环境部署并验证。

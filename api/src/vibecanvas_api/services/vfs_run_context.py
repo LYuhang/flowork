@@ -13,6 +13,7 @@ import os
 import structlog
 
 from vibecanvas_api.services.file_format import content_type_for
+from vibecanvas_api.services.workspace_files import WORKSPACE_FOLDERS
 from sqlalchemy import delete
 
 from vibecanvas_api.services.object_store import FilesystemObjectStore, get_object_store
@@ -24,7 +25,7 @@ from vibecanvas_api.storage.vfs_run_repo import PostgresVfsRunStore, VfsRunRepo
 logger = structlog.get_logger(__name__)
 
 # These are durable Chat workspace bind sources, not execution output.
-PERSISTENT_WORKSPACE_FOLDERS = frozenset({"data", "memory", "logs", "chats"})
+PERSISTENT_WORKSPACE_FOLDERS = frozenset(WORKSPACE_FOLDERS)
 
 def _guess_ct(rel: str, data: bytes) -> str:
     """Determine the content type of a temporary run output."""

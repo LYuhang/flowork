@@ -17,7 +17,7 @@ from vibecanvas_api.services.sandbox.manager import SandboxSession
 async def test_vfs_hydration_rejects_failed_reads_and_skips_unsafe_paths(
     tmp_path, monkeypatch, read_failure,
 ) -> None:
-    from vibecanvas_api.services.sandbox import manager as manager_module
+    from vibecanvas_api.services import workspace_files as manager_module
 
     opened: list[int] = []
     queried: list[tuple[int, str]] = []
@@ -52,11 +52,11 @@ async def test_vfs_hydration_rejects_failed_reads_and_skips_unsafe_paths(
 
     if read_failure:
         with pytest.raises(RuntimeError, match="simulated failed transaction"):
-            await manager_module._hydrate_run_folders(str(tmp_path / "run"), "workflow-1", "tenant-a")
+            await manager_module.hydrate_workspace_files(str(tmp_path / "run"), "workflow-1", "tenant-a")
         assert queried == [(0, "/data/")]
         return
 
-    written = await manager_module._hydrate_run_folders(
+    written = await manager_module.hydrate_workspace_files(
         str(tmp_path / "run"), "workflow-1", "tenant-a"
     )
 
@@ -287,7 +287,7 @@ async def test_task_workspace_is_private_and_mount_is_opt_in(tmp_path, monkeypat
     monkeypatch.setattr(module, "FilesystemObjectStore", LocalStore)
     monkeypatch.setattr(module, "get_object_store", LocalStore)
     monkeypatch.setattr(module, "build_run_context", lambda *args: {"run_dir": str(root)})
-    monkeypatch.setattr(module, "_hydrate_run_folders", AsyncMock(return_value=0))
+    monkeypatch.setattr(module, "hydrate_workspace_files", AsyncMock(return_value=0))
     monkeypatch.setattr(module, "create_user_mount", hydrate)
     monkeypatch.setattr(module, "get_sandbox_provider", lambda: object())
     monkeypatch.setattr(module, "_workflow_python_binds", lambda: [])
@@ -328,7 +328,7 @@ async def test_object_backed_session_uses_private_logical_mount_projection(
         lambda _run_id, _tenant_id: {"run_dir": str(hydrated)},
     )
     monkeypatch.setattr(manager_module, "get_object_store", ObjectBackedStore)
-    monkeypatch.setattr(manager_module, "_hydrate_run_folders", no_hydrate)
+    monkeypatch.setattr(manager_module, "hydrate_workspace_files", no_hydrate)
     monkeypatch.setattr(manager_module, "get_sandbox_provider", lambda: object())
     monkeypatch.setattr(manager_module, "_workflow_python_binds", lambda: [])
 

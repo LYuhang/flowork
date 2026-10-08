@@ -9,7 +9,8 @@ import pytest
 from sqlalchemy import text
 
 from vibecanvas_api.services.chat_workspace import chat_working_directory, project_workspace_scope_id
-from vibecanvas_api.services.sandbox.manager import SandboxSession, _hydrate_run_folders
+from vibecanvas_api.services.sandbox.manager import SandboxSession
+from vibecanvas_api.services.workspace_files import hydrate_workspace_files
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.models import Chat
 from vibecanvas_api.config import config
@@ -233,7 +234,7 @@ async def test_chat_files_write_back_and_restore_with_the_project(client, tmp_pa
     # Exercise the actual hydration/writeback functions with fresh host mounts.
     scope = project_workspace_scope_id(project_id)
     first = tmp_path / "first-mount"
-    await _hydrate_run_folders(str(first), scope, me["tenant_id"])
+    await hydrate_workspace_files(str(first), scope, me["tenant_id"])
     workdir = first / chat_working_directory(chat_id).lstrip("/")
     assert (workdir / ".keep").is_file()
     assert next((workdir / "attachments").glob("*_input.txt")).read_bytes() == b"source"
@@ -260,7 +261,7 @@ async def test_chat_files_write_back_and_restore_with_the_project(client, tmp_pa
     # The old sandbox files are gone: only persisted storage can restore them.
     shutil.rmtree(first)
     restored = tmp_path / "new-mount"
-    await _hydrate_run_folders(str(restored), scope, me["tenant_id"])
+    await hydrate_workspace_files(str(restored), scope, me["tenant_id"])
     assert (restored / "chats" / chat_id / "result.txt").read_text() == "durable result"
     for path, data in persisted.items():
         assert (restored / path).read_bytes() == data

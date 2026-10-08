@@ -109,7 +109,7 @@ async def test_file_upsert_failure_reaches_strict_writeback(tmp_path, monkeypatc
 
 @pytest.mark.asyncio
 async def test_hydration_failure_does_not_start_with_a_partial_workspace(tmp_path, monkeypatch):
-    import vibecanvas_api.services.sandbox.manager as mod
+    import vibecanvas_api.services.workspace_files as mod
     repository = MagicMock(ls=AsyncMock(side_effect=OSError("storage offline")))
 
     @asynccontextmanager
@@ -119,7 +119,7 @@ async def test_hydration_failure_does_not_start_with_a_partial_workspace(tmp_pat
     monkeypatch.setattr(mod, "session_scope", transaction)
     monkeypatch.setattr(mod, "VfsRepo", lambda *args, **kwargs: repository)
     with pytest.raises(OSError, match="storage offline"):
-        await mod._hydrate_run_folders(str(tmp_path), "workflow", "tenant")
+        await mod.hydrate_workspace_files(str(tmp_path), "workflow", "tenant")
 
 
 @pytest.mark.asyncio

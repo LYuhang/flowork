@@ -3,9 +3,84 @@ import asyncio
 from contextlib import asynccontextmanager
 import hashlib
 import tracemalloc
+from types import SimpleNamespace
 
 import pytest
 from vibecanvas_api.services.sandbox import manager
+from vibecanvas_api.services import workspace_files
+
+
+@pytest.mark.asyncio
+async def test_hydration_bounds_payload_memory_and_restores_empty_directories(tmp_path, monkeypatch):
+    size = 2 * 1024 * 1024
+
+    @asynccontextmanager
+    async def session_scope(*, tenant_id):
+        assert tenant_id == 'tenant'
+        yield object()
+
+    class Repo:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def ls(self, *, wf_id, prefix):
+            assert wf_id == 'project'
+            if prefix != '/data/':
+                return []
+            return [SimpleNamespace(path=f'/data/{i}.bin') for i in range(12)] + [
+                SimpleNamespace(path='/data/empty/.vibekeep'),
+            ]
+
+        async def read_bytes(self, *, wf_id, path):
+            return b'' if path.endswith('.vibekeep') else b'x' * size
+
+    monkeypatch.setattr(workspace_files, 'session_scope', session_scope)
+    monkeypatch.setattr(workspace_files, 'VfsRepo', Repo)
+    monkeypatch.setattr(workspace_files, 'get_object_store', lambda: None)
+    tracemalloc.start()
+    try:
+        assert await workspace_files.hydrate_workspace_files(str(tmp_path), 'project', 'tenant') == 13
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 8 * 1024 * 1024, peak
+    expected = hashlib.sha256(b'x' * size).hexdigest()
+    for i in range(12):
+        assert hashlib.sha256((tmp_path / f'data/{i}.bin').read_bytes()).hexdigest() == expected
+    assert (tmp_path / 'data/empty/.vibekeep').read_bytes() == b''
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['missing_bytes', 'write_error'])
+async def test_hydration_propagates_file_failures_without_reading_later_files(tmp_path, monkeypatch, failure):
+    reads = []
+
+    @asynccontextmanager
+    async def session_scope(**kwargs):
+        yield object()
+
+    class Repo:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def ls(self, **kwargs):
+            return [SimpleNamespace(path=f'/data/{name}') for name in ['first', 'blocked/result', 'last']]
+
+        async def read_bytes(self, *, path, **kwargs):
+            reads.append(path)
+            return None if failure == 'missing_bytes' and path.endswith('result') else b'contents'
+
+    monkeypatch.setattr(workspace_files, 'session_scope', session_scope)
+    monkeypatch.setattr(workspace_files, 'VfsRepo', Repo)
+    monkeypatch.setattr(workspace_files, 'get_object_store', lambda: None)
+    if failure == 'write_error':
+        (tmp_path / 'data').mkdir()
+        (tmp_path / 'data/blocked').write_text('not a directory')
+    with pytest.raises(RuntimeError if failure == 'missing_bytes' else OSError):
+        await workspace_files.hydrate_workspace_files(str(tmp_path), 'project', 'tenant')
+    assert reads == ['/data/first', '/data/blocked/result']
+    assert (tmp_path / 'data/first').read_bytes() == b'contents'
+    assert not (tmp_path / 'data/last').exists()
 
 
 @pytest.mark.asyncio
@@ -52,7 +127,7 @@ async def test_writeback_bounds_payload_memory_and_preserves_artifacts(tmp_path,
     assert '/data/fenced.bin' not in written
     for i in range(12):
         assert written[f'/data/{i}.bin'] == (2 * 1024 * 1024, digest)
-    assert written[f'/data/empty/{manager.DIR_KEEP_SENTINEL}'][0] == 0
+    assert written[f'/data/empty/{workspace_files.DIR_KEEP_SENTINEL}'][0] == 0
 
 
 @pytest.mark.asyncio

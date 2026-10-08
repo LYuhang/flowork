@@ -1367,3 +1367,9 @@ O1/O2 的数字来自小型隔离脚本，不是线上内存或吞吐基准。O3
 - 完整 browser 测试初跑 95 项通过、1 项失败（83.88 秒）：原 echo WebSocket 测试未提供 Redis。改为隔离 Redis + 真实路由的最小 ASGI 应用，使用 lifespan 关闭连接；该用例单独复测通过（6.07 秒）。这不是最终版本完整套件一次全绿的证据。
 - 初跑测试结束后还出现 DBOS 测试后台线程访问已清理测试库的日志，需要在后续完整测试时核对清理顺序；不是线上数据库错误。相关 Ruff 与 diff 检查通过。
 - 多 API 进程真实 WebSocket/插件验收尚未完成，继续保留未验收状态，不解除部署限制。
+
+2026-10-08，B5 两个 API 进程真实 WebSocket 验证：
+
+- 新增测试启动两个独立 Uvicorn 进程，均加载生产 browser 路由；插件 WebSocket 固定连接进程 A，CDP WebSocket 固定连接进程 B，实际 TCP/WebSocket 与隔离 Redis 转发。检查共享归属确为不同 instance_id，完成初始化和连续三次 CDP 请求/结果对应，CDP 断开后插件收到 close，归属删除。
+- 两个进程通过 SIGTERM 退出，并核对 lifespan 的连接清理完成标记及目录清空。首次仅因预期退出码 0 而实际为 Uvicorn 重发 SIGTERM 的 -15 失败；修正测试为允许正常信号退出但必须完成 lifespan 清理后，完整用例通过（10.27 秒）。Ruff 与 diff 检查通过。
+- 该测试的插件是 WebSocket 协议客户端，数据库身份/控制租约为固定测试替身；不能替代 Chrome 插件 + Terra + 真实授权数据库的端到端验收。测试仅监听 loopback，不引入生产绕过授权入口。

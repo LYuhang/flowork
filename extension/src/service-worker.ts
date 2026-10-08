@@ -396,10 +396,9 @@ async function releaseControlledBrowserSession(
   }
 }
 
-// Keep-alive: the persistent offscreen holds a long-lived port to us. While that
-// port is connected the SW is NOT evicted — so the chrome.debugger session it
-// holds isn't released (which would drop the "debugging" banner + the attach,
-// forcing a re-attach after every command). §23 robustness.
+// Offscreen port messages extend service worker lifetime even without debugger
+// activity. Merely opening this port does not reset the idle timer; an active
+// chrome.debugger session separately keeps the worker alive on Chrome 118+.
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "keepalive") {
     // Each inbound ping resets the SW idle timer (the actual keep-alive).

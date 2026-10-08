@@ -44,15 +44,14 @@ let client: WsClient | null = null;
 let clientKey = "";
 let clientEndpoint = "";
 
-// Keep the service worker alive while this (persistent) offscreen document
-// exists, so the SW-held chrome.debugger session isn't released by SW eviction
-// (which would drop the controlled-tab attach + the "debugging" banner). A
-// connected port keeps the SW alive; we reconnect well under Chrome's 5-min cap.
+// Keep the service worker active while the offscreen document exists, including
+// periods without an attached debugger. Chrome 118+ already keeps active
+// chrome.debugger sessions alive; an open runtime port alone does not do so.
+// Retain the existing ping/port rotation until idle recovery is measured.
 function keepSwAlive(): void {
   const port = chrome.runtime.connect({ name: "keepalive" });
-  // An open port alone is not reliably enough — periodic ACTIVITY on it resets
-  // the SW's ~30s idle timer. Ping every 20s so the SW (and its chrome.debugger
-  // session) never gets evicted while a session is active.
+  // Port message traffic resets the service worker idle timer. This socket is
+  // held in an offscreen document, not in the service worker itself.
   const ping = setInterval(() => {
     try {
       port.postMessage("ping");

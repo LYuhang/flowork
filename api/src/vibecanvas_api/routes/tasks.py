@@ -201,6 +201,15 @@ async def _task_to_out(
     frontend treats task ids as opaque strings).
     """
     can_view_content = decision_allows_content(decision)
+    result = t.result if can_view_content else None
+    if t.task_type == "batch_exec" and result is not None and "rows_total" in result:
+        # Derive the grouped count from canonical row outcomes on every read.
+        # Cancellation and unstarted rows remain resumable, but are not failures.
+        result = {
+            **result,
+            "rows_failed": result["rows_total"] - result["rows_ok"]
+            - result.get("cancelled", 0) - result.get("not_started", 0),
+        }
     return {
         "id": str(t.id),
         "status": t.status,
@@ -209,7 +218,7 @@ async def _task_to_out(
         "workflow_id": t.workflow_id,
         "workflow_version": getattr(t, "workflow_version", None) if can_view_content else None,
         "payload": t.payload if can_view_content else {},
-        "result": t.result if can_view_content else None,
+        "result": result,
         "results_uri": t.results_uri if can_view_content else None,
         "error": t.error if can_view_content else None,
         "background_job_id": t.background_job_id if can_view_content else None,

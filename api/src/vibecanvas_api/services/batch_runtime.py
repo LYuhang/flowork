@@ -265,7 +265,7 @@ def _summary(
         "task_status": task_status,
         "rows_total": len(rows),
         "rows_ok": counts.get("success", 0),
-        "rows_failed": failed,
+        "rows_failed": failed - counts.get("cancelled", 0) - counts.get("not_started", 0),
         "success": counts.get("success", 0),
         "error": counts.get("error", 0),
         "timeout": counts.get("timeout", 0),

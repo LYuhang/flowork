@@ -1801,3 +1801,12 @@ Terra侧边栏对话 `f6851f95-5a23-49e6-9d13-3464479b0ed7`，先完成16次订�
 发现并保留的限制：Agent报告不能通过CLI激活标签，最终复核页仍为活动页，没有满足“切回订单标签页”的最后一步；内容读取及操作链路成功不能替代此项界面体验。第三轮最终截图仍见处理中编辑框，虽然采样脚本已判断结束且数据库随后确认completed，不能用本次证据声称前端终态显示完全正确，需要另行稳态检查。没有出现已报告的控制断联；不据三轮验收排除长时休眠、网络黑洞和自然Service Worker回收风险。
 
 证据：/tmp/browser-multistep-reentry.json、/tmp/browser-multistep-reentry-third.json、对应逐轮截图/文本、/tmp/browser-multistep-reentry-terminal.json。测试浏览器、代理与临时网页服务均已关闭。当前记录本项结果，未因本次测试变更线上代码或合并main；批量取消计数修复等原有未提交改动继续保留。
+
+
+### 批量取消计数修复并上线验收（2026-10-08）
+
+BatchRuntime生成概要时，rows_failed不再包含cancelled/not_started；保持can_resume、skip_success及任务终态语义。Task授权详情读取从规范行计数推导失败数，因此旧概要无需改写即可正确展示；无内容权限仍不返回result。详情页新增非零“已取消行数/未开始行数”，支持中英文。
+
+后端5项、前端TaskDetailPage17项、Ruff、完整TypeScript检查及生产构建通过。同步两个后端文件并保留原环境优雅重启worker 4085671→4119555、API 4085675→4119559，无强杀；POSIX、cgroup和网关配置保持，网关未重启。前端静态资源发布保留插件下载包。证据 /tmp/batch-summary-backend-tests.log、/tmp/batch-summary-ui-tests.log、/tmp/batch-summary-typecheck.log、/tmp/batch-summary-build.log、两份batch-summary-*-publication.json。
+
+真实Task页面创建新批次52a55819-3fa5-4178-a2ed-dd11536a8c7b，2行、并发1，确认首条Code运行后取消。Task interrupted、仅首条执行cancelled、未继续派发第二条；概要total2/ok0/failed0/cancelled2、can_resume=true，页面显示取消2和失败0。旧批次60e579a2-258d-48ee-a620-038bf8038936读取也显示failed0/cancelled2，旧、新详情独立重新打开均确认Resume按钮可见。未点击Resume，不将此项描述为恢复运行的实测。证据 /tmp/batch-summary-live.json、.png、/tmp/batch-summary-old.json、.png、/tmp/batch-summary-new-refreshed.json、.png。初次旧任务验证因本机未安装headless-shell未启动浏览器，切换已安装Chromium后通过，非产品失败。所有测试浏览器退出。

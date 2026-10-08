@@ -89,6 +89,7 @@ async def test_cancel_kills_owned_pool_and_skips_waiting_rows(monkeypatch, silen
     assert coordinator.closed == [("tenant-1", f"batch-{task_id}")]
     assert result.status == "interrupted"
     assert result.summary["cancelled"] == 2
+    assert result.summary["rows_failed"] == 0
     assert result.summary["can_resume"] is True
     assert [row["status"] for row in result.rows] == ["cancelled", "cancelled"]
     assert all("late business error" not in str(row) for row in result.rows)

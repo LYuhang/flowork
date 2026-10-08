@@ -1146,6 +1146,8 @@
   "taskDetail.summaryDescription": "Outcome of the completed batch and access to its result files.",
   "taskDetail.rowsTotal": "Rows total",
   "taskDetail.rowsOk": "Rows ok",
+  "taskDetail.rowsCancelled": "Rows cancelled",
+  "taskDetail.rowsNotStarted": "Rows not started",
   "taskDetail.rowsFailed": "Rows failed",
   "taskDetail.rowsProgress": "{{done}} of {{total}} rows done",
   "taskDetail.setup": "Task setup",

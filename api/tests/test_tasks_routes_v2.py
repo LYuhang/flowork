@@ -91,6 +91,15 @@ async def test_task_to_out_serializes_uuid_and_datetime():
     assert out["finished_at"] is None
     assert out["access"]["capabilities"] == ["view"]
 
+    stored = {"rows_total": 7, "rows_ok": 2, "rows_failed": 5, "cancelled": 3, "not_started": 1}
+    task = _Stub()
+    task.result = stored
+    projected = await _task_to_out(task, Decision(True, capabilities=frozenset({Action.VIEW})), _Provenance())
+    assert projected["result"]["rows_failed"] == 1
+    assert projected["result"]["cancelled"] == 3
+    assert projected["result"]["not_started"] == 1
+    assert stored["rows_failed"] == 5  # Read projection does not rewrite stored history.
+
 
 def test_cancel_body_drops_unknown_fields():
     """``CancelBody`` ignores fields it doesn't know about."""

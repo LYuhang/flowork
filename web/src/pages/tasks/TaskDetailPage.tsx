@@ -146,6 +146,8 @@ interface BatchSummary {
   rows_total?: number;
   rows_ok?: number;
   rows_failed?: number;
+  cancelled?: number;
+  not_started?: number;
 }
 
 interface BatchSetup {
@@ -162,6 +164,8 @@ function asBatchSummary(r: unknown): BatchSummary | null {
   if (typeof o.rows_total === "number") out.rows_total = o.rows_total;
   if (typeof o.rows_ok === "number") out.rows_ok = o.rows_ok;
   if (typeof o.rows_failed === "number") out.rows_failed = o.rows_failed;
+  if (typeof o.cancelled === "number") out.cancelled = o.cancelled;
+  if (typeof o.not_started === "number") out.not_started = o.not_started;
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -848,6 +852,14 @@ export function TaskDetailPage() {
                   {summary.rows_failed ?? "—"}
                 </dd>
               </div>
+              {(summary.cancelled ?? 0) > 0 && <div className="flex flex-col">
+                <dt className="text-xs text-muted-foreground">{t("taskDetail.rowsCancelled", "Rows cancelled")}</dt>
+                <dd className="tabular-nums">{summary.cancelled}</dd>
+              </div>}
+              {(summary.not_started ?? 0) > 0 && <div className="flex flex-col">
+                <dt className="text-xs text-muted-foreground">{t("taskDetail.rowsNotStarted", "Rows not started")}</dt>
+                <dd className="tabular-nums">{summary.not_started}</dd>
+              </div>}
             </dl>
           ) : <ProgressState
             status={taskStatusTone(task.status)}

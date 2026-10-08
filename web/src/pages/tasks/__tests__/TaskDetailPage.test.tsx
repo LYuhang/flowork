@@ -211,6 +211,19 @@ describe("<TaskDetailPage>", () => {
     expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
   });
 
+  it("shows cancelled and unstarted rows separately from failures", async () => {
+    vi.mocked(getTask).mockResolvedValue(makeTask({
+      status: "interrupted", progress: 0.2,
+      result: { rows_total: 10, rows_ok: 2, rows_failed: 1, cancelled: 4, not_started: 3, can_resume: true, artifact_uris: { jsonl: "memory://tasks/abc/results.jsonl" } },
+    }));
+    renderAt(TASK_ID);
+    await waitFor(() => expect(screen.getByText("Rows cancelled")).toBeInTheDocument());
+    expect(screen.getByText("Rows cancelled").parentElement).toHaveTextContent("4");
+    expect(screen.getByText("Rows not started").parentElement).toHaveTextContent("3");
+    expect(screen.getByText("Rows failed").parentElement).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+  });
+
   it("renders the summary card when the task has finished with a result", async () => {
     const completed = makeTask({
         status: "finished",

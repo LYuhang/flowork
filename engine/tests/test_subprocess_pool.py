@@ -221,3 +221,86 @@ def test_kill_queued_job_never_runs_when_slot_becomes_free(tmp_path):
         finally:
             first_kill.touch()
             pool.close()
+
+
+def test_waiting_for_capacity_consumes_timeout_without_killing_owner(tmp_path):
+    script = tmp_path / "blocking.py"
+    script.write_text(_ECHO.replace(
+        '    body = json.dumps',
+        '    if job.get("started"):\n'
+        '        import time\n'
+        '        open(job["started"], "w").close()\n'
+        '        while not os.path.exists(job["release"]): time.sleep(0.005)\n'
+        '    body = json.dumps',
+    ))
+    started, release = tmp_path / "started", tmp_path / "release"
+    with BoundedSubprocessPool(str(script), str(tmp_path), _env(), max_workers=1) as pool:
+        with ThreadPoolExecutor(max_workers=1) as threads:
+            owner = threads.submit(pool.run, {"started": str(started), "release": str(release)}, 3)
+            try:
+                deadline = time.monotonic() + 2
+                while not started.exists() and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                assert started.exists()
+                before = time.monotonic()
+                result = pool.run({"queued": True}, timeout=0.05)
+                assert result["status"] == "error" and "timed out" in result["error_message"]
+                assert time.monotonic() - before < 0.5
+                assert not owner.done()
+            finally:
+                release.touch()
+            assert owner.result(timeout=2)["status"] == "success"
+        assert pool.run({"next": True}, timeout=2)["output"]["echo"] == {"next": True}
+
+
+def test_nonreading_worker_input_pipe_respects_timeout(tmp_path):
+    script = tmp_path / "no_read.py"
+    script.write_text("import time\ntime.sleep(10)\n")
+    with BoundedSubprocessPool(str(script), str(tmp_path), _env(), max_workers=1) as pool:
+        before = time.monotonic()
+        result = pool.run({"large": "x" * (1024 * 1024)}, timeout=0.1)
+        assert result["status"] == "error" and "timed out" in result["error_message"]
+        assert time.monotonic() - before < 2
+        assert pool._total == 0
+        assert not pool._busy
+
+
+def test_slow_startup_does_not_receive_fresh_execution_budget(tmp_path):
+    marker = tmp_path / "executed"
+    script = tmp_path / "echo.py"
+    script.write_text(_ECHO.replace(
+        '    body = json.dumps',
+        '    open(job["marker"], "w").close()\n    body = json.dumps',
+    ))
+
+    class SlowPool(BoundedSubprocessPool):
+        def _spawn(self):
+            worker = super()._spawn()
+            time.sleep(0.1)
+            return worker
+
+    with SlowPool(str(script), str(tmp_path), _env(), max_workers=1) as pool:
+        result = pool.run({"marker": str(marker)}, timeout=0.05)
+        assert result["status"] == "error" and "timed out" in result["error_message"]
+        assert not marker.exists()
+        assert pool._total == 0
+
+
+def test_blocked_input_send_can_be_cancelled_without_a_deadline(tmp_path):
+    from threading import Timer
+
+    script = tmp_path / "no_read_cancel.py"
+    script.write_text("import time\ntime.sleep(10)\n")
+    cancel = tmp_path / "cancel-input"
+    timer = Timer(0.15, cancel.touch)
+    with BoundedSubprocessPool(str(script), str(tmp_path), _env(), max_workers=1) as pool:
+        timer.start()
+        try:
+            before = time.monotonic()
+            result = pool.run({"large": "x" * (1024 * 1024)}, timeout=None, kill_path=str(cancel))
+            assert result["status"] == "cancelled"
+            assert time.monotonic() - before < 2
+            assert pool._total == 0
+        finally:
+            timer.cancel()
+            timer.join()

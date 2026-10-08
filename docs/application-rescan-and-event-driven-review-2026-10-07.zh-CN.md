@@ -1878,3 +1878,16 @@ Terra对话 `4b9beb0d-12e0-4da6-bd3f-578c7144f1f1` 分两轮仅改node_10与node
 第一轮Agent错误使用new-tab，CLI明确返回invalid choice，Agent自行改为tab-new继续；未重复提交表单，平台没有自动重放业务命令。第二轮Agent报告无浏览器错误。此次未复现多轮控制断联，仍不能替代实际系统休眠或自然Service Worker回收测试。
 
 证据 `/tmp/browser-form-reentry.cjs`、`.json`、`.log`、逐轮`-1/-2.txt/png`、`-terminal.json`。脚本退出0，浏览器、代理及临时网页服务已关闭。此前200节点画布QA项目沙盒也经正常释放接口返回200/closed，文件与历史保留，证据 `/tmp/canvas-production-review/release.json`。本次新增验收记录，不涉及产品代码或服务重启；整个审查目标仍有剩余项，未合并main或推送。
+
+
+### O8 聊天路由旧调试转换清理（2026-10-08）
+
+对routes/chats.py与sandbox/manager.py私有函数做AST及全仓引用核对，发现聊天路由_debug_meta仅有定义，无调用或动态名字引用；当前debug/messages接口使用持久消息的meta、ChatRepo及AgentRunsRepo.list_debug_turns。删除该旧消息对象转换函数和仅供它使用的compaction_forms导入，共45行；没有改变对外接口、存储格式或消息读取顺序。manager.py本轮没有发现同样可直接确认删除的私有函数，不根据文件长度机械拆分生命周期锁和共享状态。
+
+Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.py共46项通过（94.62秒），包含调试历史所有回合、产物、游标和所有者边界。证据/tmp/chat-route-cleanup-tests.log。尚未发布这次纯死代码清理，计划随最终服务更新交付；不以现网旧代码的功能测试冒称新代码已经部署。
+
+### B6 后台进程回收夹具核验（2026-10-08，未通过故障注入）
+
+在原Terra对话恢复历史后、发送新需求前尝试终止测试插件后台进程。Target.closeTarget以及ServiceWorker.stopWorker返回后，Target.getTargets仍见原service_worker target ID；夹具因此主动失败，没有发送第三轮任务，没有重复任何表单操作。该实验没有成功制造后台回收，不能算恢复通过，也不能算产品无法恢复。浏览器与临时服务已退出。证据/tmp/browser-worker-recovery.cjs、.log。保留20秒保活，后续需要可验证的进程退出证据；实际系统休眠/自然回收仍未覆盖。
+
+本轮git fetch origin --prune成功，origin/main为当前分支祖先（0个上游独有提交、提交本轮清理前54个分支独有提交）；没有远端新冲突需要先解决。全目标继续，尚未合并或推送。

@@ -162,9 +162,6 @@ from .deps import (
     get_hitl_repo,
     get_workflow_repo,
 )
-from ..agents.middleware.compaction_forms import (
-    parse_envelope, output_content_type, output_path,
-)
 
 router = APIRouter(prefix="/api/v1", tags=["chats"])
 
@@ -1182,48 +1179,6 @@ async def delete_chat_session(
     }
 
 
-
-
-def _debug_meta(m) -> dict:
-    """Per-message debug meta for the ?debug history read — role, approx tokens,
-    and (for tool outputs) content_type/path + whether the lifecycle middleware
-    would degrade it (the `context_editing` stamp, if present)."""
-    role = {"HumanMessage": "user", "AIMessage": "assistant",
-            "ToolMessage": "tool", "SystemMessage": "system"}.get(
-        type(m).__name__, "unknown")
-    raw_content = getattr(m, "content", "")
-    rendered_content = (
-        raw_content
-        if isinstance(raw_content, str)
-        else json.dumps(raw_content, ensure_ascii=False, default=str)
-    )
-    meta: dict = {
-        "role": role,
-        "approx_tokens": max(0, (len(rendered_content) + 3) // 4),
-    }
-    artifact = getattr(m, "artifact", None)
-    if isinstance(artifact, dict):
-        ameta = artifact.get("meta") if isinstance(artifact.get("meta"), dict) else {}
-        payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
-        art = artifact.get("artifact") if isinstance(artifact.get("artifact"), dict) else {}
-        target = art.get("target") if isinstance(art.get("target"), dict) else {}
-        if isinstance(ameta.get("content_type"), str):
-            meta["content_type"] = ameta["content_type"]
-        path = payload.get("ref") or target.get("path")
-        if isinstance(path, str) and path:
-            meta["path"] = path
-    content = getattr(m, "content", "")
-    if isinstance(content, str):
-        env = parse_envelope(content)
-        if env:
-            meta.setdefault("content_type", output_content_type(env))
-            meta.setdefault("path", output_path(env))
-    ce = (getattr(m, "response_metadata", {}) or {}).get("context_editing", {})
-    if ce:
-        meta["frozen"] = bool(ce.get("cleared"))
-        if ce.get("form"):
-            meta["aged_form"] = ce["form"]
-    return meta
 
 
 def _last_event_id(request: Request) -> int:

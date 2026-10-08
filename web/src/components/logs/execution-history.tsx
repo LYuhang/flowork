@@ -52,8 +52,8 @@ export function ExecutionHistory({ source, sourceId }: { source: ExecutionSource
         </div>
       }
     >
-      {query.isError ? <p role="alert" className="text-sm text-state-danger">{t('execution.unavailable')}</p>
-        : query.isLoading ? <p role="status" className="text-sm text-content-secondary">{t('execution.loading')}</p>
+      {query.isError && <p role="alert" className="text-sm text-state-danger">{t('execution.unavailable')}</p>}
+      {query.isError && items.length === 0 ? null : query.isLoading ? <p role="status" className="text-sm text-content-secondary">{t('execution.loading')}</p>
           : items.length === 0 ? <p className="text-sm text-content-secondary">{t('execution.empty')}</p>
             : <div className="app-scrollbar max-h-[32rem] overflow-auto rounded-lg border border-edge-subtle">
               <table data-slot="execution-table" className="w-full text-left text-sm" aria-label={t('execution.history')}>

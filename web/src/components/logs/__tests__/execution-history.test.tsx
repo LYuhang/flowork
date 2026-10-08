@@ -43,6 +43,37 @@ beforeEach(() => {
 afterEach(() => { cleanup(); client?.clear(); });
 
 describe('Execution history', () => {
+  it('keeps loaded rows and the scroll container after a failed refresh, then recovers', async () => {
+    await show();
+    const link = await screen.findByRole('link', { name: 'Execution details' });
+    const table = screen.getByRole('table');
+    const scroll = table.parentElement!;
+    scroll.scrollTop = 120;
+    request.mockRejectedValue(new TypeError('network unavailable'));
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh executions' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Execution details' })).toBe(link);
+    expect(screen.getByRole('table').parentElement).toBe(scroll);
+    expect(scroll.scrollTop).toBe(120);
+    request.mockResolvedValue(new Response(JSON.stringify({ items: [first], has_more: false })));
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh executions' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(screen.getByRole('link', { name: 'Execution details' })).toBe(link);
+  });
+
+  it.each([401, 403, 404])('removes revoked history on HTTP %s and does not restore it after a network error', async status => {
+    await show();
+    await screen.findByRole('link', { name: 'Execution details' });
+    request.mockImplementation(async () => new Response('{}', { status }));
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh executions' }));
+    await screen.findByRole('alert');
+    expect(screen.queryByRole('link', { name: 'Execution details' })).toBeNull();
+    request.mockRejectedValue(new TypeError('network unavailable'));
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh executions' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh executions' })).toBeEnabled());
+    expect(screen.queryByRole('link', { name: 'Execution details' })).toBeNull();
+  });
+
   it('shows the reviewer and a countdown relative to server time', async () => {
     request.mockResolvedValue(new Response(JSON.stringify({
       items: [{ ...first, pending_approvals: [{

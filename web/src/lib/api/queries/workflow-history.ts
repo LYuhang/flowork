@@ -60,9 +60,19 @@ interface ExecutionEvents {
 export const executionDetailKey = (id: string) => ['workflow-execution', id] as const;
 export const executionActive = (status?: string) => !status || ['queued', 'running', 'waiting_approval'].includes(status);
 
+class ExecutionRequestError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Execution request failed (${status})`);
+    this.status = status;
+  }
+}
+const accessUnavailable = (error: unknown) => error instanceof ExecutionRequestError
+  && [401, 403, 404].includes(error.status);
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await sessionFetch(resolveApiUrl(`/api/v1/workflow-executions${path}`), init);
-  if (!response.ok) throw new Error(`Execution request failed (${response.status})`);
+  if (!response.ok) throw new ExecutionRequestError(response.status);
   return response.json() as Promise<T>;
 }
 
@@ -106,22 +116,29 @@ export function useExecutionHistory(source: ExecutionSource, id: string, filter:
       params.set('before_time', before.before_time);
       params.set('before_id', before.before_id);
     }
-    return { ...await request<ExecutionHistoryPage>(`?${params}`, { signal }), received_at: Date.now() };
+    try {
+      return { ...await request<ExecutionHistoryPage>(`?${params}`, { signal }), received_at: Date.now() };
+    } catch (error) {
+      // Do not redisplay a revoked snapshot if a later request fails offline.
+      if (accessUnavailable(error)) client.setQueryData<HistoryWindow>(key, { pages: [], boundary: null });
+      throw error;
+    }
   };
   const next = useMutation({
-    mutationFn: async () => {
-      await client.cancelQueries({ queryKey: key, exact: true });
-      const previous = client.getQueryData<HistoryWindow>(key);
+    mutationFn: async (target: { key: string[]; readPage: typeof readPage }) => {
+      await client.cancelQueries({ queryKey: target.key, exact: true });
+      const previous = client.getQueryData<HistoryWindow>(target.key);
       if (!previous?.pages.at(-1)?.has_more) return previous;
-      const page = await readPage(previous.boundary, 25);
+      const page = await target.readPage(previous.boundary, 25);
       const last = page.items.at(-1);
       return { pages: [...previous.pages, page], boundary: last ? historyCursor(last) : previous.boundary };
     },
-    onSuccess: async (data) => {
-      await client.cancelQueries({ queryKey: key, exact: true });
-      if (data) client.setQueryData(key, data);
+    onSuccess: async (data, target) => {
+      await client.cancelQueries({ queryKey: target.key, exact: true });
+      if (data) client.setQueryData(target.key, data);
     },
   });
+  useEffect(() => { next.reset(); }, [source, id, filter, next.reset]);
   const query = useQuery({
     queryKey: key,
     enabled: Boolean(id) && !next.isPending,
@@ -145,16 +162,17 @@ export function useExecutionHistory(source: ExecutionSource, id: string, filter:
       return { pages, boundary };
     },
     staleTime: 3000,
-    refetchInterval: 3000,
+    refetchInterval: current => accessUnavailable(current.state.error) || accessUnavailable(next.error) ? false : 3000,
     retry: false,
   });
   return {
     ...query,
     isError: query.isError || next.isError,
+    refetch: () => { next.reset(); return query.refetch(); },
     isFetching: query.isFetching || next.isPending,
     hasNextPage: Boolean(query.data?.pages.at(-1)?.has_more),
     isFetchingNextPage: query.isFetching || next.isPending,
-    fetchNextPage: () => next.mutateAsync().catch(() => undefined),
+    fetchNextPage: () => next.mutateAsync({ key, readPage }).catch(() => undefined),
   };
 }
 

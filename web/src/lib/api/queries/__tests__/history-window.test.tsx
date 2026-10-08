@@ -80,3 +80,36 @@ it('retains the loaded boundary when an old approval leaves the filter, then pag
   expect(hook.result.current.hasNextPage).toBe(false);
   hook.unmount();client.clear();
 });
+
+it('keeps a late earlier-page response in its original filter cache', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const original = { id: 'head', created_at: '2026-10-01T12:00:00Z', status: 'succeeded', input_index: 0 };
+  const older = { ...original, id: 'older', created_at: '2026-10-01T11:00:00Z' };
+  const failed = { ...original, id: 'failure', status: 'failed' };
+  const key = ['workflow-execution-history', 'task', 'switch-filter', 'all'];
+  client.setQueryData(key, { pages: [{ items: [original], has_more: true }], boundary: { before_id: original.id, before_time: original.created_at } });
+  let completePage!: (value: Response) => void;
+  const request = vi.mocked(sessionFetch);
+  request.mockReset();
+  request.mockImplementation(async url => {
+    const params = new URL(String(url), 'http://localhost').searchParams;
+    if (params.has('before_id')) return new Promise(resolve => { completePage = resolve; });
+    expect(params.get('statuses')).toBe('failed');
+    return new Response(JSON.stringify({ items: [failed], has_more: false }));
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  const hook = renderHook(({ filter }: { filter: 'all' | 'failed' }) => useExecutionHistory('task', 'switch-filter', filter), { wrapper, initialProps: { filter: 'all' } });
+  let pending!: Promise<unknown>;
+  act(() => { pending = hook.result.current.fetchNextPage(); });
+  await waitFor(() => expect(completePage).toBeDefined());
+  hook.rerender({ filter: 'failed' });
+  await waitFor(() => expect(hook.result.current.data?.pages.flatMap(page => page.items)).toEqual([failed]));
+  await act(async () => {
+    completePage(new Response(JSON.stringify({ items: [older], has_more: false })));
+    await pending;
+  });
+  expect(hook.result.current.data?.pages.flatMap(page => page.items)).toEqual([failed]);
+  expect(client.getQueryData<{ pages: Array<{ items: unknown[] }> }>(key)?.pages.flatMap(page => page.items)).toEqual([original, older]);
+  hook.unmount();
+  client.clear();
+});

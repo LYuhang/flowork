@@ -1301,3 +1301,9 @@ O1/O2 的数字来自小型隔离脚本，不是线上内存或吞吐基准。O3
 - offscreen、WsClient 和 sidepanel 共 18 项回归通过；插件 TypeScript 检查通过。这些用例没有证明需要改写现有续期协议，暂不增加新的重试层。
 - 真实 Chrome 实验已启动：在现有测试账号插件 profile 打开并关闭侧边栏，等待 960 秒，再重开并使用 Terra 读取仅供验收的本地测试页面。脚本 `/tmp/browser-auth-idle-review.cjs`；运行结果将写入同名前缀 JSON、transcript 和 PNG。当前仍处于等待阶段，不算实机通过。
 - 本次真实实验针对当前服务已有认证恢复路径；B1–B3 的新修复尚未发布，不能以本实验替代它们的部署后验收。系统休眠、API 重启和真实多浏览器隔离仍待测试。
+
+2026-10-08，B5 当前部署约束落实：
+
+- 检查实际 Uvicorn 配置发现，原 Docker/native 启动入口未显式传 workers，宿主环境的 WEB_CONCURRENCY 可以改变 API 进程数。两处入口现已明确传 `--workers 1`，避免无意启用多个独立浏览器注册表。
+- 架构及安装文档明确：当前支持一个 API 进程、一个 API 副本；浏览器 WebSocket、沙盒 CDP 及依赖内存注册表的授权请求必须归属同一控制进程。普通 IP 粘性路由不足以保证此要求。Deployment 推理 worker/并发配置不受此限制。
+- 使用当前安装 Uvicorn 且 WEB_CONCURRENCY=4 实验：未传 workers 得到 4，显式 workers=1 得到 1；native 脚本 bash 语法及差异检查通过。没有新增分布式 relay 或宣称已完成多副本支持；发布后仍需核对启动参数及浏览器实际调用。

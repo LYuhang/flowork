@@ -272,6 +272,18 @@ messages, and reports tab lifecycle events. It has no Flowork-specific DOM
 query/action protocol and never evaluates Agent scripts in the extension worker.
 Page scripts run in authorized webpages; Playwright scripts run in the sandbox.
 
+The browser transport and Playwright controller registries are process-local.
+The supported application topology currently has one API process and one API
+replica; the native launcher and API image explicitly set `--workers 1`.
+This is independent of Deployment inference worker counts and background-task
+concurrency. Increasing those does not distribute the browser registries.
+
+Before scaling the API, browser WebSockets, sandbox CDP connections and the
+authorization calls that inspect those registries must reach the same controller
+process. Client-IP affinity is insufficient: the extension and sandbox are
+different clients. A future dedicated relay or browser-identity routing scheme
+must cover the complete path before multiple API replicas are supported.
+
 The relay allow-list and dispatch live in
 [`relay-executor.ts`](../extension/src/playwright/relay-executor.ts), the
 upstream-derived target model in

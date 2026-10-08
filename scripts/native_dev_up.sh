@@ -565,10 +565,12 @@ exec "\$@"
 EOF
   chmod +x "$RUNDIR/run.sh"
 
+  # Browser WebSocket/CDP registries share this process. Do not inherit
+  # WEB_CONCURRENCY from a host configured for unrelated ASGI applications.
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/api.pid" --log-file "$RUNDIR/api.log" -- \
     "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m uvicorn vibecanvas_api.app:build_app \
-    --factory --host 127.0.0.1 --port "$API_PORT"
+    --factory --host 127.0.0.1 --port "$API_PORT" --workers 1
   "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
     --pid-file "$RUNDIR/worker.pid" --log-file "$RUNDIR/worker.log" -- \
     "$RUNDIR/run.sh" "$VIBECANVAS_PYTHON" -m vibecanvas_api.background_worker

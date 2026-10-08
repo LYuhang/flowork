@@ -607,6 +607,18 @@ for connection lifetime, cancellation and permission-revocation behavior.
 
 ### Browser runtime installation and diagnostics
 
+The supported browser-control deployment uses **one API process and one API
+replica**. Both repository launchers explicitly pass `--workers 1`, overriding
+an inherited `WEB_CONCURRENCY`. Do not override this command with a multi-worker
+Gunicorn/Uvicorn setup or scale the API service to multiple replicas: extension
+WebSockets, sandbox CDP connections and browser authorization currently share
+process-local registries. Client-IP sticky sessions do not join connections
+originating from the user's browser and the sandbox. API scaling requires a
+separate browser-routing design and acceptance tests first.
+
+This restriction does not set the worker count or execution concurrency inside
+a Workflow Deployment; those remain independently configurable.
+
 The native bootstrap installs `flowork-browser-runtime` 0.4.0 and its pinned
 `playwright-core` 1.63.0-alpha-2026-08-05 dependency as a self-contained global
 npm package. It packs the source first; installing the source directory directly

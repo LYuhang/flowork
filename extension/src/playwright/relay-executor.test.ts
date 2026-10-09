@@ -558,3 +558,22 @@ describe("Playwright extension relay", () => {
     expect(tabCreated.count()).toBe(0);
   });
 });
+
+it.each(['detach-first', 'remove-first'])("closing tabs preserves the session in %s event order", async order => {
+ const f = fixture(); f.tabs.set(12, { id: 12, windowId: 7 });
+ for (const tabId of [10, 12]) expect((await f.relay.handle({ id: tabId, method: 'chrome.debugger.attach', params: [{ tabId }, '1.3'] })).error).toBeUndefined();
+ f.onAttachedTabsChanged.mockClear();
+ const close = (id: number) => {
+   if (order === 'detach-first') { f.debuggerDetach.emit({ tabId: id }, 'target_closed'); f.tabRemoved.emit(id); }
+   else { f.tabRemoved.emit(id); f.debuggerDetach.emit({ tabId: id }, 'target_closed'); }
+ };
+ close(12);
+ expect(f.onOwnedTabDetached).not.toHaveBeenCalled();
+ expect(f.onAttachedTabsChanged).toHaveBeenCalledTimes(1);
+ expect(f.onAttachedTabsChanged).toHaveBeenCalledWith([10], 'tab_removed', 12);
+ expect((await f.relay.handle({ id: 30, method: 'chrome.debugger.sendCommand', params: [{ tabId: 10 }, 'Runtime.evaluate', { expression: '1' }] })).error).toBeUndefined();
+ close(10);
+ expect(f.onOwnedTabDetached).not.toHaveBeenCalled();
+ expect(f.onAttachedTabsChanged).toHaveBeenLastCalledWith([], 'tab_removed', 10);
+ await f.relay.close();
+});

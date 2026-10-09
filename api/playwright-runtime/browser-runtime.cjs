@@ -315,7 +315,7 @@ class BrowserRuntime {
         ...(error.details ? { details: error.details } : {}),
         _artifacts: [...this.commandArtifacts.values()],
         hint: error.hint || (interrupted
-          ? "Browser access was interrupted. Ask the user to check the intended browser window and restore control in the side panel. Do not repeat the command automatically; after access is restored, rediscover tabs and inspect any earlier effects first."
+          ? "Browser access was interrupted. A new explicit tab-list can reconnect in the authorized window while the side panel is open. Do not repeat the previous action automatically. Inspect existing tabs and earlier effects; ask the user only if the window or permission is unavailable."
           : dispatched && !READS.has(name) ? "Inspect the page before retrying; earlier effects may already have occurred." : "Inspect the page and command help before retrying."),
         effects_may_have_occurred: dispatched && !READS.has(name) };
     } finally { observationCurrent = false; state?.dialogWaiters.delete(resolveDialog); }

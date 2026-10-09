@@ -127,9 +127,9 @@ test("typed download failures retain their code while raw disconnects remain unk
   assert.equal(unknown.status, "unknown");
   assert.equal(unknown.error, "result_unknown");
   assert.equal(unknown.effects_may_have_occurred, true);
-  assert.match(unknown.hint, /restore control in the side panel/);
-  assert.match(unknown.hint, /Do not repeat the command automatically/);
-  assert.match(unknown.hint, /rediscover tabs/);
+  assert.match(unknown.hint, /new explicit tab-list can reconnect/);
+  assert.match(unknown.hint, /Do not repeat the previous action automatically/);
+  assert.match(unknown.hint, /Inspect existing tabs/);
 });
 
 test("read-only transport interruptions explain restoration without claiming a write", async () => {
@@ -138,8 +138,8 @@ test("read-only transport interruptions explain restoration without claiming a w
   const result = await runtime.execute("browser.snapshot", { tab_id: "test" });
   assert.equal(result.status, "failed");
   assert.equal(result.effects_may_have_occurred, false);
-  assert.match(result.hint, /restore control in the side panel/);
-  assert.match(result.hint, /Do not repeat the command automatically/);
+  assert.match(result.hint, /new explicit tab-list can reconnect/);
+  assert.match(result.hint, /Do not repeat the previous action automatically/);
 });
 
 test("highlight removal uses scoped and all-frame lifecycle APIs without rebuilding overlays", async () => {

@@ -29,7 +29,7 @@ async def authorize_browser_cli(*, operation, arguments, token, endpoint, expect
                 "hint": "Check service availability before issuing another command."}
     if transport is None:
         return {"error": "browser_disconnected", "message": "The authorized browser extension is not connected.",
-                "hint": "Open the Flowork side panel in the intended browser and reconnect. No other browser was selected."}
+                "hint": "If the side panel is open, let its transport reconnect before an explicit new command. Do not replay previous actions. Open it only if it is closed. No other browser was selected."}
     if expected_fence is not None:
         # A running command's periodic authorization must never reacquire
         # control after the user detached debugger or another generation won.

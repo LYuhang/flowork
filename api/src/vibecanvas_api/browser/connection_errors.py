@@ -7,10 +7,10 @@ contain page data, URLs or credentials. Close-frame reasons must fit 123 bytes.
 RELAY_UNAVAILABLE = "Browser routing unavailable. The frame was not dispatched. Check service availability."
 RELAY_DELIVERY_UNKNOWN = "Browser delivery is uncertain. Inspect the page before taking another action; do not repeat the action."
 
-INITIALIZATION_FAILED = "Browser initialization failed. Reopen the side panel and check browser-control permission."
-INITIALIZATION_TIMEOUT = "Browser extension did not initialize in time. Check its connection and reopen the side panel."
-SESSION_CHANGED = "Browser control changed during initialization. Reopen the side panel in the intended Chat."
-EXTENSION_DISCONNECTED = "Browser extension disconnected. Reconnect it before retrying."
+INITIALIZATION_FAILED = "Browser initialization failed. A new explicit command can reconnect. Check permission if it still fails."
+INITIALIZATION_TIMEOUT = "Browser initialization timed out. A new explicit command can reconnect; do not replay previous actions."
+SESSION_CHANGED = "Browser control changed during initialization. A new explicit command can request control for this Chat."
+EXTENSION_DISCONNECTED = "Browser transport disconnected. Let the open side panel reconnect; do not replay previous actions."
 
 INITIALIZATION_REASONS = {
     "No controllable active page is available in the side-panel window":

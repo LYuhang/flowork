@@ -66,8 +66,14 @@ failed after a successful action is not a reason to repeat that action. On
 disconnection stop mutations. Healthy commands reuse the current connection;
 do not reconnect, reopen the sidebar or run extra health checks between actions.
 A debugger banner or transport reconnection does not prove command readiness.
+Closing a target does not revoke control of the remaining tabs. If the user
+cancels debugging, stop the current operation; do not resume it automatically.
+A subsequent explicit browser command can request control again under the
+existing authorization. Do not require a sidebar refresh just to reconnect.
 After a connection failure, an explicit tab-list can establish a fresh session;
-inspect existing tabs before deciding whether to repeat any action. Do not loop
+use the newly returned tab IDs and scope; tab_unavailable does not prove a
+page was closed (it may be stale or outside the new authorization). Inspect
+existing tabs before deciding whether to repeat any action. Do not loop
 on failed calls. Report the error and its stage if access remains unavailable.
 For tab_new_timeout, use details.stage and any details.tab_id: a tab may already
 exist. The expired runtime is released; the tab-new operation is never replayed.

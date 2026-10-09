@@ -2085,3 +2085,20 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 本机临时证据：/tmp/browser-relay-032-events.json、/tmp/browser-relay-032-runs.json、/tmp/browser-relay-reconnect-032.json、/tmp/browser-relay-newtab-timeout-032-transcript.txt；失败保留 .old-runtime / .permissions-failure 副本。这些不是仓库永久附件。
 
 未覆盖：写操作瞬间物理断网、整机睡眠、企业受管浏览器。不能据此宣称所有断联场景均已消除。验收沙盒释放后保留对话历史。
+
+
+### 2026-10-09：标签关闭和取消调试后的按需连接（插件 0.3.3）
+
+修复：Chrome debugger 的 target_closed 现在按单个标签移除处理，不调用整会话取消回调；最后一个标签关闭仍释放当前会话。canceled_by_user 保留立即释放控制的语义。新命令可在原授权下申请新会话，旧命令续期不得重新夺回控制。正常命令继续复用连接，不新增自动页面操作重试。
+
+CLI、网关错误及 /browser 提示不再默认要求刷新侧边栏。重连后应使用新 tab-list 返回的 ID 和授权范围；tab_unavailable 不等于页面已关闭。仅窗口不存在、权限不足等情况需要用户介入。Browser Runtime 升级 0.4.4，同步原生安装版本检查。
+
+验证：148 项扩展测试、19 项 Node runtime 测试、30 项 Python 授权/错误测试通过；TypeScript、构建、安装脚本语法检查通过。
+
+实机使用真实 Chromium、Terra、独立本地页面，串行进行：
+- 旧版 0.3.2 对照 c5c0fd21-203f-4105-beca-1c142e9eeed0：这一轮关闭临时标签未复现断联，不能声称旧版实机稳定复现。两个原生关闭事件顺序的差异由回归测试覆盖。
+- 候选 0.3.3 对话 121458fb-14a8-4229-941f-1f73792c54c0：运行中手动关闭 Agent 新开的标签，随后同轮 tab-list 和剩余页 snapshot 成功；再连续两轮关闭所有测试页、保留 Chrome 新标签页，不重开侧边栏，Agent 均成功创建新页、读到 TAB-LIFECYCLE-OK 并完成 tab-list。
+- 原生 debugger.detach 对话 07b81f08-4bfd-43ec-9049-e6fb559749dc：后续读取成功，但未收到 canceled_by_user，因此不能替代用户取消按钮测试。
+- 真实浏览器中实际 detach 后注入 canceled_by_user 事件，对话 b4ff7949-6b59-4395-9940-12b8343efb72：生产处理器释放控制，后续显式 tab-list 自行建立新连接，未刷新侧边栏。旧 /home 不在新授权列表，对旧 ID 的 snapshot 返回 tab_unavailable；这部分不能记为成功读取旧页，也不能据此认定页面已关闭。事件注入不等同于物理点击 Chrome 横幅。
+
+本机临时证据 /tmp/browser-tab-close-{baseline,candidate,cancel,cancel-event}.json 及对应 transcript、events 文件。截图中的反复操作后初始化超时仍未稳定复现，企业策略和物理断网未覆盖。发布归档 SHA-256：b7e25f0b06346105bc35781337108501b7ff564b215da58849ac8c9a094b1105。

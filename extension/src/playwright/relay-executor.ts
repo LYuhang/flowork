@@ -180,8 +180,15 @@ export class PlaywrightRelayExecutor {
       this.attachedTabs.delete(source.tabId);
       this.forgetActivity(source.tabId);
       this.emit({ method: "chrome.debugger.onDetach", params: [source, reason] });
-      this.notifyTabsChanged("detached", source.tabId);
-      this.onOwnedTabDetached(source.tabId, reason);
+      // Closing one target is not cancellation of the browser session. Route
+      // both Chrome event orders through the same tab-removal lifecycle.
+      if (reason === "target_closed") {
+        this.announcedTabs.delete(source.tabId);
+        this.notifyTabsChanged("tab_removed", source.tabId);
+      } else {
+        this.notifyTabsChanged("detached", source.tabId);
+        this.onOwnedTabDetached(source.tabId, reason);
+      }
     };
     const onTabCreated = (tab: RelayTab) => {
       if (

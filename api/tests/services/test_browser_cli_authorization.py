@@ -80,6 +80,12 @@ async def test_renewal_after_detach_does_not_reacquire_control(authority, monkey
         token='private', endpoint='private-endpoint', expected_fence=['transport', 'lease', 3])
     assert result['error'] == 'browser_control_released'
     reserve.assert_not_awaited()
+    # A later explicit command may reacquire; renewal of the old command may not.
+    fresh = await auth.authorize_browser_cli(operation='browser.tab-list', arguments={},
+        token='private', endpoint='private-endpoint')
+    assert fresh['fence'] == ['transport', 'lease', 3]
+    reserve.assert_awaited_once()
+
 
 
 @pytest.mark.asyncio

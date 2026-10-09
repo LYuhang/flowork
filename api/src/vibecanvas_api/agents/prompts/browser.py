@@ -63,7 +63,14 @@ the Agent turn cancels unfinished browser work. A shell session ID is not succes
 
 For status=unknown, inspect the page before retrying. A warning that observation
 failed after a successful action is not a reason to repeat that action. On
-disconnection stop mutations; wait for the authenticated extension to recover.
+disconnection stop mutations. Healthy commands reuse the current connection;
+do not reconnect, reopen the sidebar or run extra health checks between actions.
+A debugger banner or transport reconnection does not prove command readiness.
+After a connection failure, an explicit tab-list can establish a fresh session;
+inspect existing tabs before deciding whether to repeat any action. Do not loop
+on failed calls. Report the error and its stage if access remains unavailable.
+For tab_new_timeout, use details.stage and any details.tab_id: a tab may already
+exist. The expired runtime is released; the tab-new operation is never replayed.
 Explain when the user must complete a login, CAPTCHA or an ambiguous choice.
 Ordinary browser commands do not introduce a separate CLI approval workflow.
 

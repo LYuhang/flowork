@@ -132,3 +132,28 @@ describe('offscreen worker wakeups', () => {
     }, expect.any(Function));
   });
 });
+
+it('returns a correlated CDP error when the service worker messaging fails', async () => {
+ const open = await setup(); await open('token');
+ const socket = Socket.instances[0]; socket.open();
+ const env = { v: 1, kind: 'playwright_relay', id: 'outer', channel: 'chat:one', transport: 'browser',
+   data: { action: 'request', request: { id: 73, sessionId: 'page', method: 'Flowork.tabInfo' } } };
+ socket.onmessage?.({ data: JSON.stringify(env) } as MessageEvent);
+ const call = vi.mocked(chrome.runtime.sendMessage).mock.calls.find(args => (args[0] as unknown as { type?: string })?.type === 'PLAYWRIGHT_RELAY_FRAME')!;
+ Object.defineProperty(chrome.runtime, 'lastError', { configurable: true, value: { message: 'worker channel closed' } });
+ (call[1] as (value?: unknown) => void)();
+ const response = JSON.parse(socket.sent.at(-1)!);
+ expect(response.data.message).toEqual({ id: 73, sessionId: 'page', error: { code: -32603, message: 'worker channel closed' } });
+});
+
+it('does not forward a late old command reply into a replacement socket', async () => {
+ const open = await setup(); await open('token');
+ const socket = Socket.instances[0]; socket.open();
+ socket.onmessage?.({ data: JSON.stringify({ v: 1, kind: 'playwright_relay', id: 'old', channel: 'chat:one', transport: 'browser', data: {} }) } as MessageEvent);
+ const call = vi.mocked(chrome.runtime.sendMessage).mock.calls.find(args => (args[0] as unknown as { type?: string })?.type === 'PLAYWRIGHT_RELAY_FRAME')!;
+ socket.close(1006); await vi.advanceTimersByTimeAsync(1000);
+ const next = Socket.instances[1]; next.open();
+ (call[1] as (value: unknown) => void)('old-reply');
+ expect(next.sent).not.toContain('old-reply');
+ expect(Socket.instances).toHaveLength(2);
+});

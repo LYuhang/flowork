@@ -1,3 +1,4 @@
+import { relayError } from './shared/relay-error';
 /**
  * Offscreen document entry (B1). The offscreen page is the ONE place that holds
  * the backend WebSocket, because a persistent socket must outlive the MV3
@@ -99,11 +100,16 @@ chrome.runtime.onMessage.addListener(
       });
       connected.onPlaywrightRelay((env) => {
         if (client !== connected) return;
+        const reply = connected.replyToCurrentSocket();
         chrome.runtime.sendMessage(
           { type: "PLAYWRIGHT_RELAY_FRAME", env },
           (relayRaw) => {
-            if (chrome.runtime.lastError || client !== connected) return;
-            if (typeof relayRaw === "string" && !connected.sendRaw(relayRaw)) {
+            if (client !== connected) return;
+            const error = chrome.runtime.lastError;
+            const raw = error || typeof relayRaw !== "string"
+              ? relayError(env, error?.message || "The extension worker returned no browser command response")
+              : relayRaw;
+            if (!reply(raw)) {
               console.warn("[offscreen] dropped Playwright relay response without an active socket");
             }
           },

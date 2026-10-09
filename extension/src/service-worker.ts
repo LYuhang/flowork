@@ -1,3 +1,4 @@
+import { relayError } from './shared/relay-error';
 import { registerPageQuotes, quotedTabsForChat, clearQuotedTabs } from './page-quotes';
 import { registerChatOrigins, chatOrigin, clearChatOrigins } from './chat-origins';
 /**
@@ -617,13 +618,8 @@ async function requestAuthSyncFromOpenAppTabs(): Promise<void> {
 chrome.runtime.onMessage.addListener((msg: unknown) => {
   const m = msg as { type?: string; echo?: unknown } | null;
   if (m?.type === "WS_OPEN") {
-    const recovered = !state.connected;
+    // A transport open is not proof that the command session is usable.
     state.connected = true;
-    if (recovered) {
-      void liveRememberedControlledTabIds().then((ids) => {
-        if (ids.length > 0) void setIsland(true, "recovered");
-      });
-    }
     void replayPendingBrowserTerminalEvent()
       .then(() => sendBrowserSessionSnapshot())
       .catch(() => undefined);
@@ -825,7 +821,7 @@ chrome.runtime.onMessage.addListener(
             data: { action: "message", message },
           });
         const fail = (message: string) =>
-          response({ error: { code: -32603, message } });
+          relayError(env, message);
 
         const action = String(data.action || "");
         if (action === "initialize") {
@@ -1004,19 +1000,8 @@ chrome.runtime.onMessage.addListener(
         }
         sendResponse(response(await playwrightCdpBridge.handle(request)));
       })().catch((error) => {
-        sendResponse(
-          encode("playwright_relay", {
-            id: String((m!.env as { id?: unknown })?.id || ""),
-            channel: String((m!.env as { channel?: unknown })?.channel || ""),
-            transport: String((m!.env as { transport?: unknown })?.transport || ""),
-            data: {
-              action: "message",
-              message: {
-                error: { code: -32603, message: String((error as Error)?.message || error) },
-              },
-            },
-          }),
-        );
+        sendResponse(relayError(m!.env as { id?: unknown; channel?: unknown; transport?: unknown; data?: unknown },
+          String((error as Error)?.message || error)));
       });
       return true;
     }

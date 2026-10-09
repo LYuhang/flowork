@@ -231,6 +231,16 @@ export class WsClient {
    * extension never constructs Agent run state, so this remains a thin
    * passthrough to the socket.
    */
+  /** A command reply belongs to the socket that received its request. */
+  replyToCurrentSocket(): (raw: string) => boolean {
+    const socket = this.ws;
+    return raw => {
+      if (!socket || this.ws !== socket || socket.readyState !== WebSocket.OPEN) return false;
+      socket.send(raw);
+      return true;
+    };
+  }
+
   sendRaw(raw: string): boolean {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(raw);

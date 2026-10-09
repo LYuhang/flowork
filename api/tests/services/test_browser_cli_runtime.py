@@ -322,3 +322,20 @@ async def test_missing_failed_or_mismatched_receipt_is_not_download_success(monk
     assert result["local_artifacts"] == [ARTIFACT]
     assert "Do not repeat" in result["hint"]
     assert len(frames) == 1
+
+
+@pytest.mark.asyncio
+async def test_tab_new_deadline_retires_worker_without_replay(monkeypatch):
+    def respond(reader, frame):
+        reply(reader, frame, {"status": "failed", "error": "tab_new_timeout",
+                              "details": {"stage": "read_tab_info", "tab_id": "tab_created"}} if frame["operation"] == "browser.tab-new" else {"status": "succeeded"})
+
+    runtime, _, frames, _ = worker(monkeypatch, on_write=respond)
+    result = await runtime.execute("browser.tab-new", {"opener_tab_id": "tab_test", "url": "https://example.com", "timeout": 1}, AsyncMock())
+    assert result["details"] == {"stage": "read_tab_info", "tab_id": "tab_created"}
+    runtime._stop.assert_awaited_once()
+    assert len(frames) == 1
+    assert runtime._process is None
+    assert (await runtime.execute("browser.tab-list", {}, AsyncMock()))["status"] == "succeeded"
+    assert runtime._start.await_count == 2
+    assert [frame["operation"] for frame in frames] == ["browser.tab-new", "browser.tab-list"]

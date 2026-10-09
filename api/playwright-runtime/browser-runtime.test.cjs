@@ -169,3 +169,38 @@ test("failed highlight teardown preserves tracking instead of reporting false cl
   await assert.rejects(runtime.hideHighlight(state), failure);
   assert.equal(state.highlights.size, 1);
 });
+
+for (const blockedStage of ["create_tab", "attach_tab", "navigate", "read_tab_info"]) {
+  test(`tab-new deadline covers ${blockedStage} and prevents late continuation`, async () => {
+    const runtime = new BrowserRuntime();
+    let release;
+    const stalled = new Promise(resolve => { release = resolve; });
+    const calls = [];
+    const page = { goto: async () => { calls.push("navigate"); if (blockedStage === "navigate") await stalled; } };
+    const state = { id: "tab_created", page };
+    runtime.tab = async () => ({ page: { context: () => ({ newPage: async () => {
+      calls.push("create_tab"); if (blockedStage === "create_tab") await stalled; return page;
+    } }) } });
+    runtime.attach = async () => { calls.push("attach_tab"); if (blockedStage === "attach_tab") await stalled; return state; };
+    runtime.tabInfo = async () => { calls.push("read_tab_info"); if (blockedStage === "read_tab_info") await stalled; return { tab_id: state.id }; };
+    await assert.rejects(runtime.newTab("opener", "https://example.com", 0.02), error => {
+      assert.equal(error.code, "tab_new_timeout");
+      assert.equal(error.details.stage, blockedStage);
+      assert.equal(error.details.tab_id, ["navigate", "read_tab_info"].includes(blockedStage) ? state.id : undefined);
+      return true;
+    });
+    const before = [...calls];
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls, before);
+  });
+}
+
+test("tab-new zero deadline permits slow metadata and returns the created tab", async () => {
+  const runtime = new BrowserRuntime();
+  const page = { goto: async (_url, options) => assert.equal(options.timeout, 0) };
+  runtime.tab = async () => ({ page: { context: () => ({ newPage: async () => page }) } });
+  runtime.attach = async () => ({ id: "tab_created", page });
+  runtime.tabInfo = async () => { await new Promise(resolve => setTimeout(resolve, 30)); return { tab_id: "tab_created" }; };
+  assert.deepEqual(await runtime.newTab("opener", "https://example.com", 0), { tab_id: "tab_created" });
+});

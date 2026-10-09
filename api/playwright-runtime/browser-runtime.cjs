@@ -116,16 +116,49 @@ class BrowserRuntime {
   }
 
   async newTab(openerId, url, timeout = 30) {
-    const opener = await this.tab(openerId);
-    // The extension enforces the authorized side-panel window at createTarget.
-    const page = await opener.page.context().newPage();
-    const state = await this.attach(page);
+    let stage = "resolve_opener", state, expired = false, timer;
+    const deadline = timeout > 0 ? Date.now() + timeout * 1000 : null;
+    const timeoutError = () => {
+      const error = new BrowserCommandError("tab_new_timeout",
+        `Creating a tab exceeded ${timeout}s during ${stage}.`,
+        "The runtime will be released. On the next explicit command, list tabs and inspect any created tab before deciding what to do. Do not repeat tab-new automatically.");
+      error.details = { stage, ...(state ? { tab_id: state.id } : {}), effects_may_have_occurred: stage !== "resolve_opener" };
+      return error;
+    };
+    const checkpoint = next => {
+      if (expired || (deadline !== null && Date.now() >= deadline)) throw timeoutError();
+      stage = next;
+    };
+    const run = async () => {
+      const opener = await this.tab(openerId);
+      checkpoint("create_tab");
+      const page = await opener.page.context().newPage();
+      checkpoint("attach_tab");
+      state = await this.attach(page);
+      checkpoint("navigate");
+      let navigationError;
+      try {
+        if (url !== "about:blank") await page.goto(url, {
+          waitUntil: "domcontentloaded", timeout: deadline === null ? 0 : Math.max(1, deadline - Date.now()),
+        });
+      } catch (error) {
+        if (deadline !== null && error.name === "TimeoutError") throw timeoutError();
+        navigationError = error;
+      }
+      checkpoint("read_tab_info");
+      const info = await this.tabInfo(state);
+      checkpoint("complete");
+      return navigationError ? { ...info,
+        warning: "The tab was created, but navigation failed. Inspect it before retrying.",
+        navigation_error: safeText(navigationError.message) } : info;
+    };
+    if (deadline === null) return run();
     try {
-      if (url !== "about:blank") await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeout * 1000 });
-    } catch (error) {
-      return { ...await this.tabInfo(state), warning: "The tab was created, but navigation failed. Inspect it before retrying.", navigation_error: safeText(error.message) };
-    }
-    return this.tabInfo(state);
+      const limit = new Promise((_, reject) => {
+        timer = setTimeout(() => { expired = true; reject(timeoutError()); }, Math.max(0, deadline - Date.now()));
+      });
+      return await Promise.race([run(), limit]);
+    } finally { clearTimeout(timer); }
   }
 
   cursor(state, sequence) { return `${this.epoch}:${state.id}:${sequence}`; }

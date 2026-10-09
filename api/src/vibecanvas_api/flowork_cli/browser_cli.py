@@ -33,7 +33,7 @@ WORKER_LIFETIME = (
 COMMANDS = {
     "tab-list": ("List this Chat's live authorized tabs, including window_id, title, URL and active flag. No implicit current tab.", {}),
     "tab-info": ("Read the explicit tab's current URL, title, window and connection state.", {"tab_id": TAB}),
-    "tab-new": ("Create a tab in the authorized opener's window; return its new platform tab_id. Does not authorize other existing tabs.", {"opener_tab_id": TAB, "url": option(default="about:blank"), "timeout": TIMEOUT}),
+    "tab-new": ("Create a tab in the authorized opener's window; return its new platform tab_id. Does not authorize other existing tabs. --timeout covers creation, attachment, navigation and metadata lookup; 0 disables the deadline. On tab_new_timeout inspect details.stage and any details.tab_id, then explicitly list/inspect existing tabs instead of repeating tab-new.", {"opener_tab_id": TAB, "url": option(default="about:blank"), "timeout": TIMEOUT}),
     "tab-close": ("Close only the specified authorized tab, never the whole browser.", {"tab_id": TAB}),
     "snapshot": ("Observe the page or an element. Returns readable structure with fresh refs; --boxes adds viewport CSS-pixel coordinates. Partial depth is not the whole document. With --output-file, the saved artifact is UTF-8 snapshot text, not JSON; use a .txt path and read it as text. The command receipt on stdout is JSON.", {"tab_id": TAB, **TARGET, "depth": option(int), "boxes": option(bool, default=False), "output_file": OUTPUT, "timeout": TIMEOUT}),
     "find": ("Search the current snapshot and return matching nodes/refs with context. --regex treats --text as a regular expression.", {"tab_id": TAB, "text": option(required=True), "regex": option(bool, default=False), "timeout": TIMEOUT}),

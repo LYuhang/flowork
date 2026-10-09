@@ -193,7 +193,9 @@ class BrowserCliRuntime:
                             raise ValueError("Invalid browser runtime response")
                         connection_lost = result.pop("_connection_lost", False)
                         result = await self._commit_artifacts(operation, arguments, result, emit)
-                        if connection_lost:
+                        if connection_lost or result.get("error") == "tab_new_timeout":
+                            # A tab deadline also retires pending CDP requests;
+                            # never replay the timed-out command.
                             # Keep this command's outcome. Only a subsequent
                             # explicit call may create a fresh CDP connection.
                             await self._stop()

@@ -2055,3 +2055,13 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 候选插件真实Terra对话13071f31-56d1-4d77-8dde-7b43079b5a6d：新开慢页面并观察成功；第二次导航主动设为3秒，返回action_timeout且保留原错误；未重发导航，随后独立tab-list确认连接可用，等待页面自然完成后40秒快照成功。AgentRun t_609b4035029444dc802062ca3630e1a4 completed/error为空，同页连续30秒为完成状态。证据/tmp/browser-slow-nav-candidate.*，另有持久化事件-events.json与-terminal.json。验证的是普通页面动作超时不应连带关闭连接，并未复现用户环境的初始化卡住，不能用此宣称所有断联均已解决。
 
 确认7个租户没有活跃Agent/Workflow后，发布运行代码与插件并通过现有systemd入口完整重启。服务active、内部healthz200，POSIX/独立网关/cgroup配置核对一致。公开下载包中的service-worker/offscreen/sidepanel/manifest与实测构建逐字节一致，包SHA256为9f06e5b90713244a04c0c7d06e434083de036d17c96fd09b56ea483d9ac51abd。已安装插件仍需更新或重新加载；服务重启不会自动更新用户机器上的插件代码。
+
+### Chrome 新标签页初始化闭环（2026-10-09）
+
+原初始化只接收HTTP(S)/file活动页，而tab-new要求先有授权opener，导致从chrome://newtab/开始时在创建目标网页前被拒绝。新增initialControlTab：仅对chrome://newtab/及chrome://new-tab-page/在原窗口创建独立about:blank入口；已有about:blank/普通网页直接使用，设置页、扩展页、DevTools等仍拒绝，pendingUrl与窗口归属均校验。记忆控制页的恢复也接受about:blank。没有扩大内部页面访问权限，不修改/browser提示词来掩盖初始化缺陷。
+
+插件142项测试、TypeScript与生产构建通过；版本更新为0.3.1后17项相关入口/权限测试通过。初次实测仍返回旧初始化错误（/tmp/browser-chrome-newtab-live.*）；程序化reload后测试Chrome将命令行加载的扩展标记禁用，后续两次等待后台失败，没有发起Agent任务。保留reloaded/v031/wake记录，改用独立干净测试配置并复用测试账号登录态，不修改用户浏览器。
+
+最终实测/tmp/browser-chrome-newtab-clean.*：读取运行扩展版本为0.3.1，Chrome tabs API确认活动页chrome://newtab/，Playwright报告其等价内部地址chrome://new-tab-page/。Terra对话ce147007-9e9d-4645-96a7-1b691849905a新开主文档延迟8秒、跨站iframe延迟25秒的页面，读取正文和iframe并单独tab-list；测试直接核对新页面h1=SLOW-PAGE-OK、iframe=Child ready SLOW-CHILD-OK，原Chrome内部页URL未变。AgentRun t_469cf42c958149579e978bed347602b7 completed/error为空，同页连续30秒为完成状态。
+
+0.3.1下载包已发布，公开下载SHA256与实测打包结果一致：633dc9490c1a98738b528289afebbb44d3825bdc0a2be3018912d4a74bb6e336。仅更新插件源代码及下载产物，未重启后端；用户已有插件需更新/重新加载。验收使用自有测试网页，未访问用户公司的私有站点。

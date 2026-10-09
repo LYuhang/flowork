@@ -25,6 +25,7 @@ import {
   PlaywrightCdpBridge,
 } from "./playwright/cdp-bridge";
 import type { CDPMessage } from "./playwright/browser-model";
+import { initialControlTab, isControllableInitialUrl } from "./playwright/initial-tab";
 import { CookieConsentStore, accessCookies, type CookieConsentScope, type Cookie } from "./playwright/cookie-consent";
 
 // ---- CDP layer (service-worker context — chrome.debugger lives here) ----
@@ -161,7 +162,7 @@ async function liveRememberedControlledTabIds(): Promise<number[]> {
         Number.isInteger(expectedWindow) &&
         tab.windowId === expectedWindow &&
         !!tab.url &&
-        /^(https?|file):/.test(tab.url)
+        isControllableInitialUrl(tab.url)
       ) {
         live.push(tabId);
       }
@@ -864,16 +865,7 @@ chrome.runtime.onMessage.addListener(
           }
           for (const tab of quotedTabs) if (!tabs.some(existing => existing.id === tab.id)) tabs.push(tab);
           if (tabs.length === 0) {
-            const [active] = await chrome.tabs.query({ active: true, windowId });
-            if (
-              active?.id === undefined ||
-              !active.url ||
-              !/^(https?|file):/.test(active.url)
-            ) {
-              sendResponse(fail("No controllable active page is available in the side-panel window"));
-              return;
-            }
-            tabs.push(active as RelayTab);
+            tabs.push(await initialControlTab(chrome.tabs, windowId));
           }
 
           await closePlaywrightCdpBridge();

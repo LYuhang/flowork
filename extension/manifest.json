@@ -2,7 +2,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoNn8DyZlWX7syJr6T9J5V2JGO+Aa8FUruJrWrDeNz2oY3QajV1U8O8Xr/BzlBSzI46UsbMVB0i1QPuGq/VpLFhr/uz6F136bwnaxbm5P7YpoImYz+F3eXDfI0CLFeEyOGVQgIhwcCf+ihiInmkMk7meUtoKCi5SUrKm5Tcb+WbBIyggbRCTTYA20VNj+9uvDf1bXZ1kKfKmPrxMzB6m79e/azBGtx2tBZHAtRGvbUMyPJ3k916vaRfnGLffedhwehJC1XV2a7P+/6DTtta2Hvzt0nupnIDToU3r02bc+wXF0P+AufEwrZdrv8f0f0VFkKvo+PokptI4wB5euIeksMwIDAQAB",
   "manifest_version": 3,
   "name": "Flowork Browser Automation",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Holds a tenant-scoped WebSocket channel to the Flowork backend for browser automation.",
   "minimum_chrome_version": "125",
   "background": {

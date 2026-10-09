@@ -88,7 +88,7 @@ class NativeBrowserDownloads {
         else if (Date.now() - settledAt >= 350) return info;
       } else { stable = ""; settledAt = 0; }
       if (!active.observedStart && active.timeout > 0 && Date.now() - active.began >= active.timeout)
-        throw new BrowserCommandError("download_timeout", "No attributable Chrome download started before the wait timeout.", "Inspect browser Downloads before retrying; do not repeat the trigger automatically.");
+        throw new BrowserCommandError("download_timeout", "No attributable Chrome download started before the wait timeout.", "Inspect the current page and Chrome Downloads; the click may have navigated or opened media instead. A cross-origin <a download> may not trigger a download. Use an actual download control or attachment response. This timeout alone does not indicate a browser disconnection. Do not repeat the trigger automatically.");
       await pause(150);
     }
     throw new BrowserCommandError("download_cancelled", "The download observation ended.");

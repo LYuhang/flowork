@@ -180,3 +180,25 @@ test("late trigger errors are preserved without retrying or keeping partial file
   assert.equal(f.adapter.active, null);
   assert.deepEqual(await fs.readdir(f.root), []);
 });
+
+
+test("a click without a native download times out without replay or file transfer", async t => {
+  const f = await fixture(t);
+  let clicks = 0;
+  await assert.rejects(f.adapter.capture({ file: f.file, timeout: 0.001 }, async () => {
+    clicks++;
+  }), error => {
+    assert.equal(error.code, "download_timeout");
+    assert.match(error.hint, /cross-origin/);
+    assert.match(error.hint, /does not indicate a browser disconnection/);
+    return true;
+  });
+  assert.equal(clicks, 1);
+  assert.equal(f.adapter.active, null);
+  assert.equal(f.approvals.length, 0);
+  assert.equal(f.calls.some(c => c.method === "Flowork.downloadRead"), false);
+  assert.equal(f.calls.at(-1).method, "Flowork.downloadEnd");
+  assert.deepEqual(await fs.readdir(f.root), []);
+  const result = await f.adapter.capture({ file: f.file, timeout: 1 }, f.trigger);
+  assert.equal(result.bytes, f.bytes.length);
+});

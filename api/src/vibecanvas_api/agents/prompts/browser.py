@@ -86,7 +86,13 @@ drag moves existing page elements. Confirm the site finishes processing and
 retains the uploaded attachment after reopening/reloading when appropriate.
 
 For a download, prepare a new path under /data and use the atomic download
-command: it registers the observer before clicking. Chrome downloads locally,
+command: it registers the observer before clicking an actual download control.
+It does not fetch arbitrary URLs or convert navigation into downloads. Do not
+assume a constructed cross-origin <a download> will download: Chrome may open
+the video/resource instead. Prefer the site's native download/export control or
+a link whose server response is an attachment. If neither is available, report
+that limitation rather than claiming the file was downloaded.
+Chrome downloads locally,
 then the command waits for file-transfer approval according to approval mode.
 For Blob/data downloads without provable tab attribution, the command first
 waits for the user to select and confirm the file in the extension-local panel.

@@ -2065,3 +2065,23 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 最终实测/tmp/browser-chrome-newtab-clean.*：读取运行扩展版本为0.3.1，Chrome tabs API确认活动页chrome://newtab/，Playwright报告其等价内部地址chrome://new-tab-page/。Terra对话ce147007-9e9d-4645-96a7-1b691849905a新开主文档延迟8秒、跨站iframe延迟25秒的页面，读取正文和iframe并单独tab-list；测试直接核对新页面h1=SLOW-PAGE-OK、iframe=Child ready SLOW-CHILD-OK，原Chrome内部页URL未变。AgentRun t_469cf42c958149579e978bed347602b7 completed/error为空，同页连续30秒为完成状态。
 
 0.3.1下载包已发布，公开下载SHA256与实测打包结果一致：633dc9490c1a98738b528289afebbb44d3825bdc0a2be3018912d4a74bb6e336。仅更新插件源代码及下载产物，未重启后端；用户已有插件需更新/重新加载。验收使用自有测试网页，未访问用户公司的私有站点。
+
+
+### 2026-10-09：侧边栏 0.3.2 / Browser Runtime 0.4.3 实机验收
+
+真实 headed Chromium、侧边栏 UI、GPT-5.6-Terra，服务使用 POSIX。验收对话 b0797aa0-48ba-46e8-84a3-5a8f8e5f00ad，逐轮执行。
+
+- 从 Chrome 新标签页打开延迟 8 秒的页面、读取延迟 25 秒的跨域 iframe：标题和 iframe 内容均正确，最后 tab-list 成功。
+- 同一对话空闲后继续 tab-list / snapshot / tab-list：成功读取原标签；每轮内部复用 CDP，未逐命令重建。
+- context 离线 20 秒后继续：成功。此操作未证明扩展 WebSocket 断开，不作为控制通道断线证据。
+- 明确关闭扩展 WebSocket、关闭侧边栏等待 30 秒再重开：关闭后 WS_PING 为 ok=false，重开后 ok=true，Terra 成功读取页面。
+- goto 预期 1 秒超时：返回 action_timeout；未重试导航，后续 tab-list / snapshot 成功。
+- tab-new 整体期限：Runtime 0.4.3 返回 tab_new_timeout，details 包含 navigate 阶段和已创建 tab_id；未重复创建，随后显式 tab-list / wait-for / snapshot 成功。
+
+保留两次失败：首次只部署源码，全局安装包仍为 0.4.2，返回旧的导航失败 warning；随后手动 npm 安装受 root umask 影响，服务用户无法执行。已升级 runtime/package-lock 与原生 bootstrap 版本检查至 0.4.3，修复安装权限，以 flowork 用户验证版本，释放验收沙盒后重新通过实测。失败不计为通过；正常安装脚本原本已使用 umask 022，不新增权限兜底。
+
+146 项插件测试、TypeScript 和生产构建通过。真实 Chromium 另验证五次无会话错误立即返回且保留 CDP id/sessionId。公网插件包 SHA-256：958b82e5ead9dfafa93184d218b1ee5b6402cdd081cdef41b6e53e0efcd461cc，与已验收候选一致。
+
+本机临时证据：/tmp/browser-relay-032-events.json、/tmp/browser-relay-032-runs.json、/tmp/browser-relay-reconnect-032.json、/tmp/browser-relay-newtab-timeout-032-transcript.txt；失败保留 .old-runtime / .permissions-failure 副本。这些不是仓库永久附件。
+
+未覆盖：写操作瞬间物理断网、整机睡眠、企业受管浏览器。不能据此宣称所有断联场景均已消除。验收沙盒释放后保留对话历史。

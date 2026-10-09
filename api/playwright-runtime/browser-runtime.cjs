@@ -96,7 +96,7 @@ class BrowserRuntime {
   }
 
   async tab(id) {
-    if (!this.browser?.isConnected() || this.closed) throw new BrowserCommandError("browser_disconnected", "The authorized browser is disconnected.");
+    if (!this.browser?.isConnected() || this.closed) throw new BrowserCommandError("browser_disconnected", "The authorized browser is disconnected.", "Use flowork-cli browser tab-list to request access in the open authorized side panel, then snapshot the intended returned tab. Do not replay earlier actions; if access still fails, report the diagnostic instead of looping.");
     const state = this.states.get(id);
     if (!state || state.page.isClosed()) throw new BrowserCommandError("tab_unavailable", "This tab is closed, stale or not authorized for this Chat.", "Run tab-list; do not guess another browser or tab ID.");
     return state;
@@ -194,10 +194,10 @@ class BrowserRuntime {
       request_headers: safeHeaders(await entry.request.allHeaders()), status: response?.status() ?? null,
       response_headers: response ? safeHeaders(await response.allHeaders()) : null, failure: entry.request.failure() };
     if (args.output_file) {
-      if (!response) throw new BrowserCommandError("response_unavailable", "The response body is unavailable; no file was saved.");
+      if (!response) throw new BrowserCommandError("response_unavailable", "The response body is unavailable; no file was saved.", "Inspect requests and the page state; do not resend the HTTP request merely to recover its body.");
       let body;
       try { body = await response.body(); }
-      catch { throw new BrowserCommandError("response_unavailable", "The response body could not be retrieved; no file was saved."); }
+      catch { throw new BrowserCommandError("response_unavailable", "The response body could not be retrieved; no file was saved.", "Inspect requests and the page state; do not resend the HTTP request merely to recover its body."); }
       result.artifact = await writeArtifact(args.output_file, body);
     }
     return result;
@@ -245,7 +245,7 @@ class BrowserRuntime {
     try {
       const permission = await state.cdp.send("Flowork.cookieStatus");
       if (!permission.allowed || permission.grant_id !== result.grant_id)
-        throw new BrowserCommandError("cookie_consent_revoked", "Cookie permission changed during export; the private file was removed.");
+        throw new BrowserCommandError("cookie_consent_revoked", "Cookie permission changed during export; the private file was removed.", "Stop using the private Cookie file. Ask the user to review site-specific consent before any new export; ordinary page actions need no Cookie export.");
     } catch (error) { await this.privateFiles.revoke(result.grant_id); throw error; }
     return { ...file, cookie_count: result.cookie_count, url: result.url };
   }
@@ -277,7 +277,7 @@ class BrowserRuntime {
           // The original action may resume after a later dialog-accept command.
           // Its abandoned snapshot must not replace that command's fresh refs.
           observationCurrent = false;
-          return { dialog: { type: value.type(), message: safeText(value.message()) }, hint: "Resolve the dialog with dialog-accept or dialog-dismiss." };
+          return { dialog: { type: value.type(), message: safeText(value.message()) }, hint: "Resolve the dialog with dialog-accept or dialog-dismiss, then observe the resulting state. Do not repeat the original trigger; it may resume after the dialog closes." };
         })])
         : await action;
       if (result?.observation_error) result.observation_error.message = safeText(result.observation_error.message);
@@ -316,7 +316,7 @@ class BrowserRuntime {
         _artifacts: [...this.commandArtifacts.values()],
         hint: error.hint || (interrupted
           ? "Browser access was interrupted. A new explicit tab-list can reconnect in the authorized window while the side panel is open. Do not repeat the previous action automatically. Inspect existing tabs and earlier effects; ask the user only if the window or permission is unavailable."
-          : dispatched && !READS.has(name) ? "Inspect the page before retrying; earlier effects may already have occurred." : "Inspect the page and command help before retrying."),
+          : dispatched && !READS.has(name) ? "Run snapshot on the intended tab and inspect output files; earlier effects may already have occurred. Do not replay the action or entire script automatically." : "Read this command's --help and inspect the current tab with snapshot or tab-info. For action_timeout on a slow page, use a suitable --timeout for the next observation; a timeout alone does not prove disconnection."),
         effects_may_have_occurred: dispatched && !READS.has(name) };
     } finally { observationCurrent = false; state?.dialogWaiters.delete(resolveDialog); }
   }

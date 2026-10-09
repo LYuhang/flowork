@@ -43,8 +43,8 @@ def upstream_close(code: int | None, reason: str | None) -> tuple[int, str]:
     return code, {
         1000: "Browser connection closed.",
         1001: EXTENSION_DISCONNECTED,
-        1012: "Browser service restarted or the Agent turn ended. Reconnect before retrying.",
-        4401: "Browser authorization expired or was revoked. Reconnect the extension.",
+        1012: "Browser service restarted or turn ended. Use tab-list in an active turn; do not replay the old action.",
+        4401: "Browser authorization expired or was revoked. Ask the user to restore authorization; do not bypass it.",
         4403: "The originating Agent turn is no longer active.",
         4409: "Browser control is unavailable for this Chat. Check the extension connection and control ownership.",
     }.get(code, EXTENSION_DISCONNECTED)

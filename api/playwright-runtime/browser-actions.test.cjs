@@ -55,7 +55,12 @@ test("refs are scoped to the exact observation, never inferred or reused", async
   target(state, { ref });
   assert.equal(selector, "aria-ref=e1");
   await snapshot(state);
-  assert.throws(() => target(state, { ref }), error => error.code === "stale_ref");
+  assert.throws(() => target(state, { ref }), error => {
+    assert.equal(error.code, "stale_ref");
+    assert.match(error.hint, /flowork-cli browser snapshot --tab-id tab_test/);
+    assert.doesNotMatch(error.hint, /--tab_id/);
+    return true;
+  });
   assert.throws(() => target(state, { ref: "e1" }), error => error.code === "stale_ref");
 });
 

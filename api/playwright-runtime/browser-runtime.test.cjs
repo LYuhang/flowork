@@ -22,6 +22,8 @@ test("CDP loss is reported separately from an action timeout", async () => {
   const disconnected = await runtime.execute("browser.snapshot", { tab_id: "test" });
   assert.equal(disconnected.error, "browser_disconnected");
   assert.equal(disconnected._connection_lost, true);
+  assert.match(disconnected.hint, /flowork-cli browser tab-list/);
+  assert.match(disconnected.hint, /Do not replay/);
 });
 
 test("an action resumed after dialog acceptance cannot invalidate the returned fresh refs", async () => {

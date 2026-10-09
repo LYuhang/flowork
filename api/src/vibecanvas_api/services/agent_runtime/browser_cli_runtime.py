@@ -210,14 +210,14 @@ class BrowserCliRuntime:
             except BrowserStartupError as error:
                 await self._stop()
                 return {"status": "failed", "error": "browser_initialization_failed", "message": str(error),
-                        "hint": "No page action was dispatched. Check the extension connection or report this startup diagnostic before retrying."}
+                        "hint": "No page action was dispatched. Use flowork-cli browser tab-list to request access in the open authorized side panel. If that also fails, report the startup diagnostic; do not loop or replay earlier actions. Only ask to open the side panel if it is closed."}
             except Exception:
                 await self._stop()
                 unknown = dispatched and operation in browser_cli.WRITE_OPERATIONS
                 return {"status": "unknown" if unknown else "failed",
                         "error": "result_unknown" if unknown else "browser_unavailable",
                         "message": "The browser connection or runtime was interrupted.",
-                        "hint": "Inspect the page and output files before retrying; an action may already have happened." if unknown else "Check the extension connection, then retry the observation."}
+                        "hint": "Use flowork-cli browser tab-list, then snapshot the intended tab and inspect output files. An action may already have happened; do not replay it automatically." if unknown else "Use flowork-cli browser tab-list to request access in the open authorized side panel, then snapshot the intended returned tab. Do not replay earlier actions; if access still fails, report the diagnostic instead of looping."}
             finally:
                 await self._finish_transfers()
 

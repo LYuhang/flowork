@@ -195,3 +195,17 @@ def test_observation_commands_accept_explicit_timeout(name, timeout):
         arguments["timeout"] = invalid
         with pytest.raises(ValueError):
             browser_cli.validate("browser." + name, arguments)
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("tab-new", "Whole tab-new deadline"),
+    ("download", "Download-start wait"),
+    ("snapshot", "Not a whole CLI duration limit"),
+])
+def test_timeout_help_matches_command_scope(name, expected, capsys):
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args(["browser", name, "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert expected in help_text
+    if name in {"tab-new", "download"}:
+        assert "Not a whole CLI duration limit" not in help_text

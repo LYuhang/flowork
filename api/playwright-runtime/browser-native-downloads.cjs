@@ -162,7 +162,7 @@ class NativeBrowserDownloads {
         throw error;
       }
       if (decision.status !== "approved") throw new BrowserCommandError("approval_" + decision.status,
-        decision.message || "File transfer was not approved. No bytes were read.");
+        decision.message || "File transfer was not approved. No bytes were read.", "Stop this transfer and report the decision. Do not resubmit a denied, cancelled or expired approval automatically; a new transfer needs explicit user intent.");
       let offset = 0, lastProgress = 0;
       for (;;) {
         const chunk = await this.state.cdp.send("Flowork.downloadRead", {

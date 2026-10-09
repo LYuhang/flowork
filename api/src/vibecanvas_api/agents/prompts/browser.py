@@ -61,6 +61,7 @@ running, poll that same session until its terminal result or user cancellation.
 Do not send a final answer while waiting for a required browser result: ending
 the Agent turn cancels unfinished browser work. A shell session ID is not success.
 
+Read command_status/status separately from nested result fields: command success can still contain a pending dialog, selection_required, or observation_error. Resolve that next step before claiming the task succeeded.
 For status=unknown, inspect the page before retrying. A warning that observation
 failed after a successful action is not a reason to repeat that action. On
 disconnection stop mutations. Healthy commands reuse the current connection;
@@ -78,6 +79,7 @@ on failed calls. Report the error and its stage if access remains unavailable.
 For tab_new_timeout, use details.stage and any details.tab_id: a tab may already
 exist. The expired runtime is released; the tab-new operation is never replayed.
 Explain when the user must complete a login, CAPTCHA or an ambiguous choice.
+Normal action/snapshot timeouts default to 30 seconds; --timeout applies separately to an action and its follow-up snapshot. tab-new instead uses one deadline for creation through metadata; download bounds the download-start wait, not approval/transfer. Zero disables these configured timeouts. DOMContentLoaded does not imply application readiness: use wait-for on meaningful content, then snapshot.
 Ordinary browser commands do not introduce a separate CLI approval workflow.
 
 ### Files and credentials

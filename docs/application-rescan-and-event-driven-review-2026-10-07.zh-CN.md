@@ -2102,3 +2102,28 @@ CLI、网关错误及 /browser 提示不再默认要求刷新侧边栏。重连�
 - 真实浏览器中实际 detach 后注入 canceled_by_user 事件，对话 b4ff7949-6b59-4395-9940-12b8343efb72：生产处理器释放控制，后续显式 tab-list 自行建立新连接，未刷新侧边栏。旧 /home 不在新授权列表，对旧 ID 的 snapshot 返回 tab_unavailable；这部分不能记为成功读取旧页，也不能据此认定页面已关闭。事件注入不等同于物理点击 Chrome 横幅。
 
 本机临时证据 /tmp/browser-tab-close-{baseline,candidate,cancel,cancel-event}.json 及对应 transcript、events 文件。截图中的反复操作后初始化超时仍未稳定复现，企业策略和物理断网未覆盖。发布归档 SHA-256：b7e25f0b06346105bc35781337108501b7ff564b215da58849ac8c9a094b1105。
+
+### 2026-10-09：Browser CLI 提示与下一步链路审查
+
+范围：全部 `browser` 子命令帮助、`/browser` prompt、Agent 通用说明、Python CLI/授权/运行时错误、Node 页面操作和文件传输错误，以及插件 Cookie 权限提示。保持现有执行逻辑，不新增自动动作重试。
+
+| 当前结果 | Agent 下一步 |
+| --- | --- |
+| tab-list 成功 | 使用本次返回的授权 tab_id，snapshot 确认目标；健康连接复用 |
+| 连接初始化失败/断联 | 在仍打开的授权侧边栏中显式调用 tab-list 请求恢复；仍失败则报告诊断，不循环或要求默认刷新插件 |
+| 用户取消调试 | 当前命令停止；后续用户要求继续时，新命令可以重新申请连接，不自动恢复旧动作 |
+| 其他 Chat 占用/权限失效 | 等待用户释放控制或恢复权限，不接管、不绕过 |
+| stale_ref/locator_ambiguous/stale_frame | 获取新 snapshot/frame-list、缩小目标；不猜 ID、不默认选第一项 |
+| 动作成功但 observation_error | 对已有页面补 snapshot/wait-for，不重复动作；超时不等于连接断开 |
+| tab_new_timeout | 看 stage 和已有 tab_id，再 tab-list 检查；不重复创建 |
+| dialog 返回 | 根据任务意图 accept/dismiss，再观察；原动作可能继续，不重复触发 |
+| 脚本异常/unknown | 先核对页面与文件，前序副作用不会回滚，不重跑整段脚本 |
+| find 无匹配 | 看 snapshot/调整查询；不能据此判定断联 |
+| download selection_required | 用原 choice_set_id 调 render_choices，确认后 download-receive；取消则 download-cancel |
+| 文件审批拒绝/取消/过期 | 停止传输并报告，不自动重提审批 |
+| request body 不可读 | 看捕获记录和页面，不为拿响应体重新发业务请求 |
+| Cookie 权限撤销 | 停用私有文件，需用户重新授权；普通网页操作不需要导出 Cookie |
+
+具体修复：过期 ref 的错误参数 `--tab_id` 改为可执行的 `--tab-id`；tab-new/download 分别使用符合实际范围的 timeout 帮助，消除与通用说明的矛盾；补齐连接恢复、对话框、审批取消和响应体缺失等下一步说明。runtime 版本升为 0.4.5，使启动检查能安装新提示；插件沿用 0.3.3。
+
+验证记录：Node Browser runtime 全套 68 项通过（命令行为、超时、下载/上传与取消等），新增/加强过期引用提示的合法参数检查、断联恢复 hint 检查和按命令区分 timeout 帮助的检查。Python 的 CLI 帮助/授权/运行时回归 170 项通过；最后两处提示调整后相关 Node 32 项再验通过。发布后真实 Terra 侧边栏会话 `a3233230-5d3e-41a5-b229-558327c29b16` 通过：仅提供业务目标，Agent 自行 tab-list、阅读帮助、goto/snapshot、click、dialog-accept/snapshot；实际网页最终 Count: 1，事件记录中只有一次 click。证据 `/tmp/browser-tab-close-hints-{events.json,transcript.txt}`、`/tmp/browser-tab-close-hints.png`；本次覆盖确认框提示串接，不代表所有错误分支都实机触发。服务/API/gateway 健康，runtime 0.4.5，公开插件包 0.3.3。以上自动化不等同于全部命令逐一经过真实 Terra 会话验收。

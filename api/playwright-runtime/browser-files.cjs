@@ -42,7 +42,7 @@ async function writeArtifact(filename, content) {
     await fs.link(staged, destination);
   } catch (error) {
     if (error.code === "EEXIST")
-      throw new BrowserCommandError("file_exists", "The output file already exists; it was not replaced.", "Choose a new output path.");
+      throw new BrowserCommandError("file_exists", "The output file already exists; it was not replaced.", "Inspect the existing file and choose a new output path only if needed. Do not repeat an earlier page action merely to save its result.");
     throw error;
   } finally {
     await handle?.close();
@@ -58,7 +58,7 @@ async function artifactWriter(filename) {
   // at commit still handles a concurrent creator without overwriting it.
   try {
     await fs.lstat(destination);
-    throw new BrowserCommandError("file_exists", "The output file already exists; it was not replaced.", "Choose a new output path.");
+    throw new BrowserCommandError("file_exists", "The output file already exists; it was not replaced.", "Inspect the existing file and choose a new output path only if needed. Do not repeat an earlier page action merely to save its result.");
   } catch (error) { if (error.code !== "ENOENT") throw error; }
   const staged = path.join(parent, ".browser-" + crypto.randomUUID());
   const handle = await fs.open(staged, "wx", 0o600);
@@ -196,7 +196,7 @@ async function approvedTransferFiles(target, input, { requestTransfer, tabId, ..
     const decision = await requestTransfer({ direction: "upload", tab_id: tabId, destination,
       files: prepared.map(({ name, bytes, sha256 }) => ({ name, bytes, sha256 })) });
     if (decision.status !== "approved") throw new BrowserCommandError("approval_" + decision.status,
-      decision.message || "File transfer was not approved. No file bytes were sent.");
+      decision.message || "File transfer was not approved. No file bytes were sent.", "Stop this transfer and report the decision. Do not resubmit a denied, cancelled or expired approval automatically; a new transfer needs explicit user intent.");
     const unchanged = await element.evaluate((el, url) => el.isConnected && el.ownerDocument.URL === url, documentUrl)
       && (!pageUrl || ownerFrame.page().url() === pageUrl);
     if (!unchanged) throw new BrowserCommandError("upload_target_changed", "The approved upload target changed. No file bytes were sent.", "Inspect the page and request a new upload approval.");

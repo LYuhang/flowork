@@ -37,7 +37,8 @@ async def authorize_browser_cli(*, operation, arguments, token, endpoint, expect
             binding = await ChatRepo(session, capability.user_id).get_browser_binding(capability.chat_id)
         current = [transport, binding.get("browser_session_id"), binding.get("browser_session_generation")] if binding else None
         if current != expected_fence or not binding or binding.get("status") not in {"attaching", "attached"}:
-            return {"error": "browser_control_released", "message": "Browser control was released or replaced. The running browser command was stopped."}
+            return {"error": "browser_control_released", "message": "Browser control was released or replaced. The running browser command was stopped.",
+                    "hint": "Do not resume the cancelled operation automatically. If the user requests further browser work, a new explicit tab-list can request access under current authorization."}
         return {"endpoint": endpoint, "bearer": token, "fence": current}
     # Browser ownership is acquired only when an actual browser command runs.
     # Ordinary conversation must not reserve the browser or fail on another Chat's lease.

@@ -42,7 +42,7 @@ function omitDefaultExact(source) {
 function target(state, args) {
   if (args.ref) {
     const native = state.refs.get(args.ref);
-    if (!native) throw new BrowserCommandError("stale_ref", "The element reference is not valid for this tab and observation.", `Run browser snapshot --tab_id ${state.id}.`);
+    if (!native) throw new BrowserCommandError("stale_ref", "The element reference is not valid for this tab and observation.", `Run flowork-cli browser snapshot --tab-id ${state.id}, then use a fresh ref for the intended element.`);
     return state.page.locator(`aria-ref=${native}`);
   }
   if (args.locator) {
@@ -100,7 +100,7 @@ async function evaluate(state, args) {
       const handle = await locator.elementHandle();
       try {
         if (await handle.ownerFrame() !== state.frames.get(args.frame_id))
-          throw new BrowserCommandError("frame_mismatch", "The element reference is not in the specified frame.");
+          throw new BrowserCommandError("frame_mismatch", "The element reference is not in the specified frame.", "Run frame-list and snapshot on the same tab; use a matching frame and fresh ref.");
       } finally { await handle?.dispose(); }
     }
     result = await locator.evaluate(evaluateInPage);
@@ -133,7 +133,7 @@ async function executeAction(owner, name, args, isCurrent = () => true) {
       if (observation.snapshot === null) return observation;
       let matcher;
       try { matcher = args.regex ? new RegExp(args.text) : null; }
-      catch { throw new BrowserCommandError("invalid_regex", "The regular expression is invalid."); }
+      catch { throw new BrowserCommandError("invalid_regex", "The regular expression is invalid.", "Correct --text or omit --regex for a literal search; no page action was performed."); }
       const lines = observation.snapshot.split("\n");
       const indices = new Set();
       lines.forEach((line, index) => {
@@ -236,7 +236,7 @@ async function executeAction(owner, name, args, isCurrent = () => true) {
     case "drop": result = await drop(state, args, locator); break;
     case "dialog-accept":
     case "dialog-dismiss": {
-      if (!state.dialog) throw new BrowserCommandError("dialog_missing", "No JavaScript dialog is pending in this tab.");
+      if (!state.dialog) throw new BrowserCommandError("dialog_missing", "No JavaScript dialog is pending in this tab.", "Run snapshot on this tab to inspect its current state; do not repeat the action that originally opened the dialog.");
       const dialog = state.dialog;
       if (name === "dialog-accept") await dialog.accept(args.text);
       else await dialog.dismiss();

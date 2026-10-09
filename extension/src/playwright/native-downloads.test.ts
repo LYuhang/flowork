@@ -254,3 +254,45 @@ describe("native browser downloads", () => {
     }
   });
 });
+
+it("URL downloads bind Chrome's ID, not matching URLs, and require transfer approval", async () => {
+  const f = fixture(); const start = vi.fn(async () => {
+    f.download(10, -1, "https://cdn.example.com/a.png");
+    f.download(11, 999, "https://cdn.example.com/a.png"); return 10;
+  });
+  Object.assign(f.api.downloads, { download: start });
+  const { capture_id } = await f.manager.begin(1, true); const id = String(capture_id);
+  for (const url of ["file:///private", "blob:https://example.com/id", "data:text/plain,a", "https://u:p@example.com/a", "bad"])
+    await expect(f.manager.startUrl(1, id, url)).rejects.toThrow(/download_url/);
+  f.owner.live = false;
+  await expect(f.manager.startUrl(1, id, "https://cdn.example.com/a.png")).rejects.toThrow("authorized");
+  expect(start).not.toHaveBeenCalled(); f.owner.live = true;
+  await f.manager.startUrl(1, id, "https://cdn.example.com/a.png");
+  expect(start).toHaveBeenCalledWith({ url: "https://cdn.example.com/a.png", saveAs: false, conflictAction: "uniquify" });
+  const info = await f.manager.info(1, id);
+  expect(info.status).toBe("ready");
+  const candidates = info.candidates as { candidate_id: string; name: string }[];
+  expect(candidates.map(x => x.name)).toEqual(["report-10.txt"]);
+  await expect(f.manager.read(1, id, 0)).rejects.toThrow("approval_required"); expect(f.read).not.toHaveBeenCalled();
+  f.manager.allowRead(1, id, candidates[0].candidate_id);
+  expect(await f.manager.read(1, id, 0)).toMatchObject({ data: "YWJj" });
+  await expect(f.manager.startUrl(1, id, "https://cdn.example.com/a.png")).rejects.toThrow("already_started");
+  expect(start).toHaveBeenCalledTimes(1);
+  f.items.get(10)!.state = "interrupted"; f.items.get(10)!.error = "SERVER_FORBIDDEN";
+  await expect(f.manager.info(1, id)).rejects.toThrow("SERVER_FORBIDDEN");
+  await f.manager.close();
+});
+
+it("a late URL start cannot attach its file to a replacement capture", async () => {
+  const f = fixture(); let finish!: (id: number) => void;
+  const start = vi.fn(() => new Promise<number>(resolve => { finish = resolve; }));
+  Object.assign(f.api.downloads, { download: start });
+  const first = await f.manager.begin(1, true);
+  const pending = f.manager.startUrl(1, String(first.capture_id), "https://example.com/image");
+  await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+  await f.manager.end(1, String(first.capture_id));
+  const second = await f.manager.begin(1, true); finish(10);
+  await expect(pending).rejects.toThrow("no longer active");
+  expect(await f.manager.info(1, String(second.capture_id))).toMatchObject({ status: "watching" });
+  await f.manager.close();
+});

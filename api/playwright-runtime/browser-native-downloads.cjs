@@ -27,14 +27,14 @@ class NativeBrowserDownloads {
     this.closed = false;
   }
 
-  async arm({ file, timeout = 30000 }) {
+  async arm({ file, timeout = 30000, url }) {
     if (this.closed) throw new BrowserCommandError("download_expired", "The browser turn ended.");
     if (this.active || this.arming) throw new BrowserCommandError("download_pending", "This tab already has a pending download.", "Resolve or cancel the existing choice_set_id; do not trigger another download.");
     this.arming = true;
     let writer, begin;
     try {
       writer = await artifactWriter(file);
-      begin = await this.state.cdp.send("Flowork.downloadBegin", {});
+      begin = await this.state.cdp.send("Flowork.downloadBegin", url ? { url_mode: true } : {});
       if (begin.error) throw new BrowserCommandError(begin.error, begin.message, begin.hint);
       if (!begin.capture_id) throw new BrowserCommandError("download_unavailable", "Chrome did not start download observation. No click was sent.");
       if (this.closed) throw new BrowserCommandError("download_expired", "The browser turn ended before the download trigger.");
@@ -113,10 +113,13 @@ class NativeBrowserDownloads {
   }
 
   async capture(args, trigger) {
-    const active = await this.arm({ file: args.file, timeout: (args.timeout ?? 30) * 1000 });
+    const active = await this.arm({ file: args.file, url: args.url, timeout: (args.timeout ?? 30) * 1000 });
     try {
       await this.enable();
-      await trigger();
+      // The extension URL API has no Playwright action timeout. Preserve the
+      // existing click error behavior, but bound URL initiation by start wait.
+      if (args.url) await Promise.race([Promise.resolve().then(() => trigger(active)), active.started.promise]);
+      else await trigger(active);
       const download = await active.started.promise;
       return await download.saveAs(args.file);
     } catch (error) {

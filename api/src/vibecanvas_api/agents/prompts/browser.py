@@ -100,13 +100,19 @@ Drop sends files or MIME data;
 drag moves existing page elements. Confirm the site finishes processing and
 retains the uploaded attachment after reopening/reloading when appropriate.
 
-For a download, prepare a new path under /data and use the atomic download
-command: it registers the observer before clicking an actual download control.
-It does not fetch arbitrary URLs or convert navigation into downloads. Do not
-assume a constructed cross-origin <a download> will download: Chrome may open
-the video/resource instead. Prefer the site's native download/export control or
-a link whose server response is an attachment. If neither is available, report
-that limitation rather than claiming the file was downloaded.
+For a download, prepare a new path under /data. Use download --ref/--locator
+for a real download control, or download --url for a known HTTP(S) resource URL
+when there is no button. Get image/video currentSrc with eval or inspect captured
+requests; do not guess URLs. URL mode uses Chrome downloads and browser-managed
+cookies without exporting credentials or navigating the tab. No visible download
+button is required, and its absence is not a prohibition on authorized downloads.
+A constructed cross-origin <a download> may navigate instead; use --url for a
+direct resource. This does not merge HLS/DASH segments, resolve MediaSource/blob
+videos, or decrypt DRM. A manifest or HTML response is not a saved video: verify
+the actual file type and contents. Report authentication/network failures as
+such, not as a blanket ban. This URL mode downloads in the user's browser, not
+by fetching the URL from the sandbox. Preserve the file-transfer approval. Do not automatically
+switch methods or retry after an uncertain outcome.
 Chrome downloads locally,
 then the command waits for file-transfer approval according to approval mode.
 For Blob/data downloads without provable tab attribution, the command first

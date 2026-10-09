@@ -209,3 +209,14 @@ def test_timeout_help_matches_command_scope(name, expected, capsys):
     assert expected in help_text
     if name in {"tab-new", "download"}:
         assert "Not a whole CLI duration limit" not in help_text
+
+
+def test_url_download_target_is_exclusive_and_not_navigation():
+    args = {"tab_id": "tab_test", "url": "https://cdn.example.com/a.png?sig=123", "file": "/data/a.png"}
+    assert browser_cli.validate("browser.download", args)["url"] == args["url"]
+    for extra in [{"ref": "r1"}, {"locator": "img"}]:
+        with pytest.raises(ValueError, match="Exactly one"):
+            browser_cli.validate("browser.download", {**args, **extra})
+    for url in ["file:///etc/passwd", "blob:https://example.com/id", "data:image/png,x", "https://", "https://u:p@example.com/a"]:
+        with pytest.raises(ValueError, match="HTTP"):
+            browser_cli.validate("browser.download", {**args, "url": url})

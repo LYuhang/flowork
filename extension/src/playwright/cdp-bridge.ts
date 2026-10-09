@@ -88,6 +88,7 @@ export class PlaywrightCdpBridge {
       switch (method) {
         case "Flowork.downloadRead":
           throw new Error("download_approval_required: Native file reads require a trusted host envelope");
+        case "Flowork.downloadStartUrl":
         case "Flowork.downloadBegin":
         case "Flowork.downloadInfo":
         case "Flowork.downloadEnd": {
@@ -95,7 +96,8 @@ export class PlaywrightCdpBridge {
           const tabId = this.model.ownedTabId(message.sessionId);
           const params = (message.params ?? {}) as Record<string, unknown>;
           const captureId = String(params.capture_id || "");
-          if (method === "Flowork.downloadBegin") result = await this.downloads.begin(tabId);
+          if (method === "Flowork.downloadBegin") result = await this.downloads.begin(tabId, params.url_mode === true);
+          else if (method === "Flowork.downloadStartUrl") result = await this.downloads.startUrl(tabId, captureId, String(params.url || ""));
           else if (method === "Flowork.downloadInfo") result = { ...await this.downloads.info(tabId, captureId), tab_id: tabId };
           else { await this.downloads.end(tabId, captureId); result = { ended: true, capture_id: captureId }; }
           break;

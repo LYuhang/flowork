@@ -1,4 +1,4 @@
-/** Observe Chrome's download manager; never replay or consume a site response.
+/** Observe Chrome downloads or explicitly start one URL download; never replay a site action.
  * Local paths stay in this module. Callers receive opaque capture IDs and may
  * read bytes only after the host has approved the exact download record.
  */
@@ -7,6 +7,7 @@ export type DownloadRecord = Pick<chrome.downloads.DownloadItem,
 type RequestRecord = { requestId: string; tabId: number; url: string };
 type Capture = {
   id: string; tabId: number; started: number; tabs: Set<number>;
+  urlMode: boolean; urlRequested?: boolean; directDownloadId?: number;
   requests: Map<string, { tabId: number; urls: Set<string> }>;
   downloads: Map<number, DownloadRecord>; selected?: DownloadRecord;
   error?: string; reader?: ReadableStreamDefaultReader<Uint8Array>;
@@ -65,7 +66,7 @@ export class NativeDownloads {
     }
   };
 
-  async begin(tabId: number): Promise<Record<string, unknown>> {
+  async begin(tabId: number, urlMode = false): Promise<Record<string, unknown>> {
     if (this.closed) throw new Error("The browser download session has ended");
     if (this.capture) throw new Error("A browser download is already pending; finish or cancel it first");
     if (!await this.api.extension.isAllowedFileSchemeAccess())
@@ -75,7 +76,7 @@ export class NativeDownloads {
     const tab = await this.api.tabs.get(tabId);
     if (this.closed || this.capture || !this.ownsTab(tabId) || tab.windowId !== this.windowId)
       throw new Error("The download target is no longer authorized");
-    this.capture = { id: crypto.randomUUID(), tabId, started: Date.now(), tabs: new Set([tabId]),
+    this.capture = { urlMode, id: crypto.randomUUID(), tabId, started: Date.now(), tabs: new Set([tabId]),
       requests: new Map(), downloads: new Map(), candidates: new Map(), readAllowed: false, reading: false,
       local: new Map(), confirmed: new Map(),
       abort: new AbortController(), offset: 0 };
@@ -91,6 +92,29 @@ export class NativeDownloads {
     return { capture_id: this.capture.id, status: "watching" };
   }
 
+  async startUrl(tabId: number, id: string, source: string): Promise<Record<string, unknown>> {
+    let url: URL;
+    try { url = new URL(source); } catch { throw new Error("download_url_invalid: Supply an absolute HTTP(S) resource URL"); }
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
+      throw new Error("download_url_unsupported: Use an HTTP(S) resource URL without embedded credentials. Blob URLs and media manifests need a separate workflow.");
+    const capture = this.current(tabId, id);
+    if (!capture.urlMode) throw new Error("download_mode_mismatch: Start a new URL download capture");
+    if (capture.urlRequested) throw new Error("download_already_started: Inspect the existing download; do not start it again");
+    const tab = await this.api.tabs.get(tabId);
+    this.current(tabId, id);
+    if (tab.windowId !== this.windowId) throw new Error("download_window_changed");
+    // Recheck after the await: concurrent CDP requests must not start twice.
+    if (capture.urlRequested) throw new Error("download_already_started: Inspect the existing download");
+    capture.urlRequested = true;
+    // Chrome supplies host cookies. Do not export credentials, spoof headers,
+    // navigate the page, or infer identity from another download's URL.
+    const downloadId = await this.api.downloads.download({ url: url.href, saveAs: false, conflictAction: "uniquify" });
+    this.current(tabId, id);
+    if (!Number.isSafeInteger(downloadId)) throw new Error("download_start_failed: Chrome returned no download ID");
+    capture.directDownloadId = downloadId;
+    return { status: "started", capture_id: id };
+  }
+
   private current(tabId: number, id: string): Capture {
     const capture = this.capture;
     if (this.closed || !capture || capture.id !== id || capture.tabId !== tabId || !this.ownsTab(tabId))
@@ -102,6 +126,7 @@ export class NativeDownloads {
   }
 
   private isOwnedDownload(capture: Capture, item: DownloadRecord): boolean {
+    if (capture.urlMode) return item.id === capture.directDownloadId;
     const confirmed = capture.confirmed.get(item.id);
     if (confirmed) return confirmed.filename === item.filename && confirmed.fileSize === item.fileSize
       && confirmed.url === item.url && confirmed.finalUrl === item.finalUrl;
@@ -154,10 +179,21 @@ export class NativeDownloads {
     const tab = await this.api.tabs.get(tabId);
     if (tab.windowId !== this.windowId) throw new Error("download_window_changed");
     this.current(tabId, id);
+    if (capture.urlMode) {
+      if (capture.directDownloadId === undefined) return { status: "watching", capture_id: id };
+      const [item] = await this.api.downloads.search({ id: capture.directDownloadId });
+      this.current(tabId, id);
+      if (!item) throw new Error("download_unavailable: The URL download is no longer in Chrome Downloads");
+      if (item.state === "interrupted")
+        throw new Error(`download_interrupted: ${item.error || "Chrome interrupted the URL download"}. Inspect Chrome Downloads; do not restart automatically.`);
+      if (!["safe", "accepted", "allowlistedByPolicy"].includes(item.danger))
+        throw new Error("download_blocked: Review Chrome Downloads; the file is not cleared for transfer");
+      capture.downloads.set(item.id, item);
+    }
     // Chrome has no tab identity for Blob/data downloads. Never infer ownership
     // from URLs/timestamps; ask the human locally before exposing metadata.
     let localDownloading = false;
-    if (!capture.confirmed.size) for (const candidate of capture.downloads.values()) {
+    if (!capture.urlMode && !capture.confirmed.size) for (const candidate of capture.downloads.values()) {
       if (!/^(blob:|data:)/.test(candidate.url) || this.isOwnedDownload(capture, candidate)) continue;
       const [item] = await this.api.downloads.search({ id: candidate.id });
       this.current(tabId, id);

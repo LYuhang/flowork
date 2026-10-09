@@ -202,3 +202,14 @@ test("a click without a native download times out without replay or file transfe
   const result = await f.adapter.capture({ file: f.file, timeout: 1 }, f.trigger);
   assert.equal(result.bytes, f.bytes.length);
 });
+
+test("a stalled download trigger cannot hide the start timeout or be retried", async t => {
+  const f = await fixture(t); let attempts = 0;
+  await assert.rejects(f.adapter.capture({ file: f.file, url: "https://example.com/image", timeout: 0.01 }, () => {
+    attempts++; return new Promise(() => {});
+  }), error => error.code === "download_timeout");
+  assert.equal(attempts, 1);
+  assert.equal(f.adapter.active, null);
+  assert.equal(f.approvals.length, 0);
+  assert.equal(f.calls.at(-1).method, "Flowork.downloadEnd");
+});

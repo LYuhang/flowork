@@ -206,3 +206,16 @@ test("tab-new zero deadline permits slow metadata and returns the created tab", 
   runtime.tabInfo = async () => { await new Promise(resolve => setTimeout(resolve, 30)); return { tab_id: "tab_created" }; };
   assert.deepEqual(await runtime.newTab("opener", "https://example.com", 0), { tab_id: "tab_created" });
 });
+
+test("URL download starts through the extension capture without clicking or sandbox HTTP", async () => {
+  const runtime = new BrowserRuntime(); const calls = [];
+  const state = { page: {}, dialogWaiters: new Set(), cdp: { send: async (method, params) => {
+    calls.push({ method, params }); return { status: "started" };
+  } }, downloads: { capture: async (args, trigger) => {
+    await trigger({ capture_id: "bound-capture" }); return { file: args.file, bytes: 3 };
+  } } };
+  runtime.tab = async () => state;
+  const result = await runtime.execute("browser.download", { tab_id: "tab_test", url: "https://example.com/image.png", file: "/data/image.png" });
+  assert.equal(result.status, "succeeded");
+  assert.deepEqual(calls, [{ method: "Flowork.downloadStartUrl", params: { capture_id: "bound-capture", url: "https://example.com/image.png" } }]);
+});

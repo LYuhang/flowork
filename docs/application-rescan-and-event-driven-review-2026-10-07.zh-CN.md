@@ -2127,3 +2127,19 @@ CLI、网关错误及 /browser 提示不再默认要求刷新侧边栏。重连�
 具体修复：过期 ref 的错误参数 `--tab_id` 改为可执行的 `--tab-id`；tab-new/download 分别使用符合实际范围的 timeout 帮助，消除与通用说明的矛盾；补齐连接恢复、对话框、审批取消和响应体缺失等下一步说明。runtime 版本升为 0.4.5，使启动检查能安装新提示；插件沿用 0.3.3。
 
 验证记录：Node Browser runtime 全套 68 项通过（命令行为、超时、下载/上传与取消等），新增/加强过期引用提示的合法参数检查、断联恢复 hint 检查和按命令区分 timeout 帮助的检查。Python 的 CLI 帮助/授权/运行时回归 170 项通过；最后两处提示调整后相关 Node 32 项再验通过。发布后真实 Terra 侧边栏会话 `a3233230-5d3e-41a5-b229-558327c29b16` 通过：仅提供业务目标，Agent 自行 tab-list、阅读帮助、goto/snapshot、click、dialog-accept/snapshot；实际网页最终 Count: 1，事件记录中只有一次 click。证据 `/tmp/browser-tab-close-hints-{events.json,transcript.txt}`、`/tmp/browser-tab-close-hints.png`；本次覆盖确认框提示串接，不代表所有错误分支都实机触发。服务/API/gateway 健康，runtime 0.4.5，公开插件包 0.3.3。以上自动化不等同于全部命令逐一经过真实 Terra 会话验收。
+
+### 2026-10-09：无下载按钮的图片/视频直链下载
+
+`browser download` 新增 `--url`，与 `--ref`/`--locator` 三选一，继续要求 `--tab-id` 和 `--file`：
+
+```sh
+flowork-cli browser download --tab-id tab_ID --url 'https://example.com/image.png' --file /data/image.png
+```
+
+执行路径为 Agent 提交 URL → 授权标签所属插件调用 `chrome.downloads.download` → Chrome 保存本机文件 → 原有文件传输审批 → 分块传入沙盒 → 原有持久化回执。不是沙盒直接请求 URL。插件使用 Chrome 返回的 download ID 关联此次捕获，不凭相同 URL 认领其他标签的下载；即使无需本地候选确认，仍需传输审批。
+
+[Chrome 官方 downloads API](https://developer.chrome.com/docs/extensions/reference/api/downloads#method-download) 说明 HTTP(S) 下载会带目标主机的 Cookie。这里不导出 Cookie、不提供任意请求头、不自动重试、不导航目标标签、不取消或删除用户本地文件。适用普通图片、MP4 等直接文件；`blob:`/MediaSource、HLS/DASH 合并和 DRM 不在新增 URL 模式范围内。传入网页或清单 URL 不代表获得完整视频，提示 Agent 校验实际文件内容。
+
+同步调整 `/browser` 和 CLI 帮助：没有可见下载按钮不等于禁止授权资源下载；从页面 currentSrc 或捕获的请求发现地址，失败报告浏览器原因。旧插件需更新到 0.3.4；runtime 0.4.6。URL 启动等待有超时，迟到返回不能污染后续捕获；保留原点击模式的错误行为。
+
+自动化：Python 171 项、Node 70 项、插件 150 项通过，插件 TypeScript 与生产构建通过。新增覆盖 URL/点击互斥、协议限制、同 URL 不同下载 ID 隔离、授权失效、审批前禁读、Chrome 中断原因、迟到启动和 URL 启动超时。实机 Terra 会话 `02e32061-b1d0-42a1-883b-f88471c80823` 通过：页面只有图片/视频，无下载按钮，资源必须带测试 Cookie。Agent 自行读帮助、提取 currentSrc 并用 --url；Chrome 记录 byExtensionId 和两个完整本地文件，服务器确认两次下载请求来自带 Cookie 的 Chrome。PNG 67 字节、MP4 2247 字节，本机、沙盒 sha256sum 和 fixture 哈希一致；两个 CLI 回执均 persistence=durable。实机审批模式是 always_allow，没有绕过审批处理；拒绝/取消由自动化覆盖。证据 `/tmp/browser-tab-close-url-download.{json,png}`、`/tmp/browser-tab-close-url-download-events.json`、`/tmp/browser-tab-close-url-download-transcript.txt`。这不证明任意第三方站点/大视频/特殊认证均可下载。服务和公开插件包已更新。

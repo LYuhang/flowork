@@ -252,7 +252,14 @@ class BrowserRuntime {
 
   async download(state, args, locator) {
     // Implemented by a byte-transfer adapter, not native remote Chrome paths.
-    return state.downloads.capture(args, () => locator.click({ timeout: args.timeout * 1000 }));
+    return state.downloads.capture(args, async active => {
+      if (!args.url) return locator.click({ timeout: args.timeout * 1000 });
+      try { return await state.cdp.send("Flowork.downloadStartUrl", { capture_id: active.capture_id, url: args.url }); }
+      catch (error) {
+        throw new BrowserCommandError("download_url_start_failed", error.message,
+          "Inspect Chrome Downloads before any further attempt; a download may already exist. URL mode needs extension 0.3.4 or newer. Report the browser error; do not automatically replay the download or fetch the URL from the sandbox.");
+      }
+    });
   }
 
   async execute(operation, args) {

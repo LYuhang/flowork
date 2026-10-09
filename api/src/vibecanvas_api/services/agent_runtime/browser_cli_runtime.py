@@ -54,6 +54,7 @@ class BrowserCliRuntime:
         self._private_root = None
         self._stderr_tail = bytearray()
         self._stderr_task = None
+        self._startup_stage = "not_started"
 
     async def _drain_stderr(self, stream):
         while chunk := await stream.read(4096):
@@ -62,12 +63,17 @@ class BrowserCliRuntime:
 
     async def _start(self, material):
         local_bearer = secrets.token_urlsafe(32)
+        self._startup_stage = "runtime_setup"
+        self._stderr_tail.clear()
         try:
             await self._start_runtime(material, local_bearer)
         except BrowserStartupError:
             raise
         except Exception as error:
-            diagnostic = _startup_diagnostic(f"{type(error).__name__}: {error}", material, local_bearer)
+            detail = f"stage={self._startup_stage}; {type(error).__name__}: {error}"
+            if self._stderr_tail:
+                detail += f"; runtime stderr: {self._stderr_tail.decode(errors='replace')}"
+            diagnostic = _startup_diagnostic(detail, material, local_bearer)
             logging.getLogger(__name__).warning("Browser CLI startup failed: %s", diagnostic)
             raise BrowserStartupError(f"Browser CLI could not start: {diagnostic}") from error
 
@@ -78,8 +84,11 @@ class BrowserCliRuntime:
         if not executable:
             raise BrowserStartupError("Browser CLI runtime is not installed in the sandbox. Contact the platform operator.")
         self._private_root = tempfile.mkdtemp(prefix="flowork-browser-private-")
+        self._startup_stage = "local_relay_start"
         self._relay = await start_browser_cdp_relay(local_bearer=local_bearer)
+        self._startup_stage = "local_relay_activate"
         await self._relay.activate(upstream_url=material["endpoint"], upstream_bearer=material["bearer"])
+        self._startup_stage = "runtime_process_start"
         self._process = await asyncio.create_subprocess_exec(
             executable, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, start_new_session=True,
@@ -94,8 +103,13 @@ class BrowserCliRuntime:
             "id": self._sequence, "operation": "initialize",
             "arguments": {"endpoint": self._relay.endpoint, "bearer": local_bearer, "private_root": self._private_root},
         }).encode() + b"\n")
+        self._startup_stage = "initialize_request_write"
         await self._process.stdin.drain()
-        line = await asyncio.wait_for(self._process.stdout.readline(), timeout=30)
+        self._startup_stage = "initialize_response_wait"
+        try:
+            line = await asyncio.wait_for(self._process.stdout.readline(), timeout=30)
+        except TimeoutError as error:
+            raise TimeoutError("No initialization response within 30 seconds; no page action was dispatched") from error
         if not line:
             # A missing binary/module or permission failure must not masquerade
             # as a browser disconnect. Drain only a bounded diagnostic tail.

@@ -20,6 +20,7 @@ export class PlaywrightCdpBridge {
   private readonly relay: PlaywrightRelayExecutor;
   private relaySequence = 1;
   private readonly downloads?: NativeDownloads;
+  private closed = false;
 
   constructor(
     api: PlaywrightRelayChrome,
@@ -53,7 +54,13 @@ export class PlaywrightCdpBridge {
       api,
       windowId,
       (message) => this.handleRelayEvent(message),
-      onOwnedTabDetached,
+      (tabId, reason) => {
+        // Let the detach event reach Playwright first. A replaced bridge must
+        // never release the new session when this deferred callback runs.
+        setTimeout(() => {
+          if (!this.closed) onOwnedTabDetached(tabId, reason);
+        }, 0);
+      },
       onAttachedTabsChanged,
       quotedTabWindows,
     );
@@ -164,6 +171,7 @@ export class PlaywrightCdpBridge {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     this.model.disconnectFromCDP();
     await this.downloads?.close();
     await this.relay.close();

@@ -207,12 +207,10 @@ function handlePlaywrightDebuggerDetach(tabId: number, reason: string): void {
   // The bridge cannot safely keep driving a page after Chrome or the user has
   // removed its debugger attachment. Release the fenced session; a later user
   // message can initialize a fresh Playwright connection to the visible page.
-  setTimeout(() => {
-    void releaseControlledBrowserSession(
-      String(reason || "debugger_detached"),
-      { tabId },
-    );
-  }, 0);
+  void releaseControlledBrowserSession(
+    String(reason || "debugger_detached"),
+    { tabId },
+  );
 }
 
 async function persistPlaywrightControlledTabs(ids: number[]): Promise<void> {

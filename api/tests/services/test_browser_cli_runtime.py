@@ -147,6 +147,25 @@ async def test_unexpected_startup_error_retains_safe_cause(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_initialization_timeout_reports_stage_and_redacted_runtime_diagnostic(monkeypatch):
+    runtime = module.BrowserCliRuntime(AsyncMock(return_value=MATERIAL))
+
+    async def stalled_start(material, local_bearer):
+        runtime._startup_stage = "initialize_response_wait"
+        runtime._stderr_tail.extend(f"CDP handshake at {material['endpoint']} {material['bearer']} {local_bearer}".encode())
+        raise TimeoutError("No initialization response within 30 seconds")
+
+    monkeypatch.setattr(runtime, "_start_runtime", stalled_start)
+    with pytest.raises(module.BrowserStartupError) as caught:
+        await runtime._start(MATERIAL)
+    message = str(caught.value)
+    assert "stage=initialize_response_wait" in message
+    assert "30 seconds" in message
+    assert "CDP handshake" in message
+    assert "private" not in message
+
+
+@pytest.mark.asyncio
 async def test_missing_module_reports_stderr_without_credentials(monkeypatch, tmp_path):
     runtime = module.BrowserCliRuntime(AsyncMock(return_value=MATERIAL))
     stdout, stderr = asyncio.StreamReader(), asyncio.StreamReader()

@@ -2041,3 +2041,17 @@ Ruff通过；隔离真实PostgreSQL中test_routes_chats.py与test_chat_repo_pg.p
 保留前两次未完成故障注入的证据：/tmp/browser-terminal-ack-live.*及/tmp/browser-terminal-ack-attached.*。两次Agent均完成观察，但测试通过chrome.debugger.detach触发断开时返回“Debugger is not attached”，没有进入回执验收，不能记为通过或据此认定产品连接缺陷。最终采用关闭受控测试页触发释放，没有伪造确认消息或修改生产状态。
 
 运行代码已快进合并并推送main，提交cb2ae1966af7f933d5d454f2fbe8981083a95771；本地与线上运行文件及配置逐项比较一致。该提交Web和插件CI通过，Python/API检查截至23:13 UTC仍在运行。镜像安全检查失败，当前GitHub日志接口403、尚未获得具体错误日志，不能将全套CI标记通过。真实系统电源休眠仍需对应设备验收；O6没有确定自动删除期限，继续保留历史。
+
+### 浏览器初始化／导航断联追加排查（2026-10-09）
+
+用户提供的日志显示初始化TimeoutError及导航后的Playwright对象关闭；不能仅据此归因为页面加载慢或公司网络。当前实现的CDP连接限时20秒，Python等待初始化回执限时30秒，与页面动作的CLI timeout不同。
+
+确认旧连接的debugger断开回调通过setTimeout延迟调用全局释放函数，未检查所属桥接实例是否已关闭。替换连接后旧回调可能释放新连接。现在把延迟处理归入桥接实例，close时同步标记关闭，执行回调前核对实例生命周期。回归测试覆盖旧实例关闭后新实例附着，旧回调不释放新连接，以及当前实例真实断开仍通知释放；移除生命周期检查时测试失败。证据/tmp/browser-stale-detach-regression.log。不能据此断言已还原用户截图的唯一根因。
+
+初始化失败增加具体阶段、30秒等待说明和脱敏运行进程stderr，不增加自动重试、不重放页面操作。25项后端运行生命周期测试通过，插件130项测试、TypeScript检查及生产构建通过。首次后端测试因root不能启动隔离Postgres而未执行用例，改用已有独立测试库和flowork身份后通过；未更改生产数据库。
+
+真实Terra基线对话3ffe0407-c16a-4bd6-8b76-c66f8a8241bd，新开标签页访问主文档延迟8秒、跨站iframe延迟25秒的专用测试网页，40秒动作超时下两次导航、快照和tab-list成功，主标题及iframe内容正确，原页面连续30秒为完成状态。证据/tmp/browser-slow-nav-baseline.*。这是慢页面可成功的基线，不是用户故障的复现。候选超时测试第一次误用默认localhost开发构建，未进入对话；保留/tmp/browser-slow-nav-fixed.*，随后改用生产域名构建另行验收。
+
+候选插件真实Terra对话13071f31-56d1-4d77-8dde-7b43079b5a6d：新开慢页面并观察成功；第二次导航主动设为3秒，返回action_timeout且保留原错误；未重发导航，随后独立tab-list确认连接可用，等待页面自然完成后40秒快照成功。AgentRun t_609b4035029444dc802062ca3630e1a4 completed/error为空，同页连续30秒为完成状态。证据/tmp/browser-slow-nav-candidate.*，另有持久化事件-events.json与-terminal.json。验证的是普通页面动作超时不应连带关闭连接，并未复现用户环境的初始化卡住，不能用此宣称所有断联均已解决。
+
+确认7个租户没有活跃Agent/Workflow后，发布运行代码与插件并通过现有systemd入口完整重启。服务active、内部healthz200，POSIX/独立网关/cgroup配置核对一致。公开下载包中的service-worker/offscreen/sidepanel/manifest与实测构建逐字节一致，包SHA256为9f06e5b90713244a04c0c7d06e434083de036d17c96fd09b56ea483d9ac51abd。已安装插件仍需更新或重新加载；服务重启不会自动更新用户机器上的插件代码。

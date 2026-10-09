@@ -12,7 +12,7 @@ function event() {
   };
 }
 
-function fixture(downloadChrome?: DownloadChrome) {
+function fixture(downloadChrome?: DownloadChrome, onDetached = vi.fn()) {
   const tabs = new Map<number, RelayTab>([
     [10, { id: 10, windowId: 7, url: "https://example.com" }],
   ]);
@@ -51,12 +51,32 @@ function fixture(downloadChrome?: DownloadChrome) {
   const events: unknown[] = [];
   const errors: unknown[] = [];
   const bridge = new PlaywrightCdpBridge(api, 7, (message) => events.push(message), error => errors.push(error),
-    undefined, undefined, undefined, downloadChrome);
+    onDetached, undefined, undefined, downloadChrome);
   bridge.initialize([tabs.get(10)!]);
-  return { api, bridge, events, errors, debuggerEvent, tabCreated, tabRemoved, tabDetached, tabs };
+  return { api, bridge, events, errors, debuggerEvent, debuggerDetach, onDetached, tabCreated, tabRemoved, tabDetached, tabs };
 }
 
 describe("Playwright CDP bridge", () => {
+  it("does not release a replacement connection from a retired bridge's deferred detach", async () => {
+    vi.useFakeTimers();
+    try {
+      const release = vi.fn();
+      const old = fixture(undefined, release);
+      await old.bridge.handle({ id: 1, method: "Target.setAutoAttach" });
+      old.debuggerDetach.emit({ tabId: 10 }, "canceled_by_user");
+      await old.bridge.close();
+      const current = fixture(undefined, release);
+      await current.bridge.handle({ id: 1, method: "Target.setAutoAttach" });
+      await vi.runAllTimersAsync();
+      expect(release).not.toHaveBeenCalled();
+      expect(current.bridge.attachedTabIds()).toEqual([10]);
+      current.debuggerDetach.emit({ tabId: 10 }, "canceled_by_user");
+      await vi.runAllTimersAsync();
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledWith(10, "canceled_by_user");
+      await current.bridge.close();
+    } finally { vi.useRealTimers(); }
+  });
   it("routes native metadata through an owned tab, without exposing a CDP read grant", async () => {
     const requests = event(), downloads = event();
     const item = { id: 1, url: "https://example.com/report", finalUrl: "https://example.com/report",

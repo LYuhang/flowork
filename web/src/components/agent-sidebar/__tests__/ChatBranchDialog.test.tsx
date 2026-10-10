@@ -4,17 +4,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import '@/lib/i18n';
 import i18n from '@/lib/i18n';
-import { useUIStore } from '@/stores/ui';
+import { ChatBranchNavigationContext } from '../ChatBranchNavigationContext';
 import { ChatBranchDialog } from '../ChatBranchDialog';
 const mocks = vi.hoisted(() => ({ preview: vi.fn(), create: vi.fn(), workspace: vi.fn() }));
 vi.mock('@/lib/api/chat-branches', () => ({ previewChatBranch: mocks.preview, createChatBranch: mocks.create }));
 vi.mock('@/lib/api/queries/chats', () => ({ fetchChatWorkspace: mocks.workspace }));
-function mount() {
+function mount(openBranch: ((id: string) => void) | null = null) {
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })}>
-    <MemoryRouter><Routes>
+    <ChatBranchNavigationContext.Provider value={openBranch}><MemoryRouter><Routes>
       <Route path="/" element={<ChatBranchDialog chatId="source" turnId="selected" excerpt="Selected response" />} />
       <Route path="/chat/open/:id" element={<p>Opened branch</p>} />
-    </Routes></MemoryRouter>
+    </Routes></MemoryRouter></ChatBranchNavigationContext.Provider>
   </QueryClientProvider>);
 }
 beforeEach(async () => {
@@ -61,15 +61,16 @@ it('does not offer creation when the turn is ineligible', async () => {
 });
 
 it('selects a canvas branch in its current workflow instead of opening general chat', async () => {
-  mocks.preview.mockResolvedValue({ project_id: 'project', scope_id: 'workflow-id' });
+  const openBranch = vi.fn();
+  mocks.preview.mockResolvedValue({ project_id: 'project', scope_id: '__chat_carrier' });
   mocks.create.mockResolvedValue({ chat_id: 'canvas-branch' });
-  mount();
+  mount(openBranch);
   fireEvent.click(screen.getByRole('button', { name: 'Branch from this turn' }));
   await screen.findByText('project');
   fireEvent.change(screen.getByRole('textbox', { name: 'New conversation name' }), { target: { value: 'Alternative' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create branch' }));
   await screen.findByRole('button', { name: 'Branch from this turn' });
-  await waitFor(() => expect(useUIStore.getState().activeChatIds.chat).toBe('canvas-branch'));
+  await waitFor(() => expect(openBranch).toHaveBeenCalledExactlyOnceWith('canvas-branch'));
   expect(screen.queryByText('Opened branch')).not.toBeInTheDocument();
 });
 it('explains unavailable files without pretending they are restored', async () => {

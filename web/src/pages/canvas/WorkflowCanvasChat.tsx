@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { ChatComposer } from '@/components/agent-sidebar/ChatComposer';
 import { ChatHistoryMenu } from '@/components/agent-sidebar/ChatHistoryMenu';
+import { ChatBranchNavigationContext } from '@/components/agent-sidebar/ChatBranchNavigationContext';
 import { ChatMessageList } from '@/components/agent-sidebar/ChatMessageList';
 import { SSEStatusBanner } from '@/components/agent-sidebar/SSEStatusBanner';
 import { useChatSessions, useChatWorkspace, useCreateChatSession, type ChatListItem } from '@/lib/api/queries/chats';
@@ -258,6 +259,9 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
     <CanvasChatControlsContext.Provider value={controls}>
       <CanvasChatReferenceContext.Provider value={{ enabled: referenceEnabled, add: addReference }}>{children}</CanvasChatReferenceContext.Provider>
     </CanvasChatControlsContext.Provider>
+    <ChatBranchNavigationContext.Provider value={id => {
+      setDraft(null); setCreated(null); setSelectedId(id); setOpen(true); remember(id);
+    }}>
     <div ref={panel} hidden={!open} role="dialog" aria-label={title} data-role="canvas-chat"
       onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); dismiss(); } }}
       className="fixed z-40 flex min-h-[320px] min-w-[300px] resize flex-col overflow-hidden rounded-xl border bg-background shadow-xl"
@@ -304,5 +308,6 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
         {sessions.isLoading ? t('loading', 'Loading…') : selectedId ? t('canvasChat.unavailable') : t('canvasChat.empty')}
       </div>}
     </div>
+    </ChatBranchNavigationContext.Provider>
   </CanvasChatContext.Provider>;
 }

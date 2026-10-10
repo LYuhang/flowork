@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { useUIStore } from '@/stores/ui';
+import { useContext, useRef, useState } from 'react';
+import { ChatBranchNavigationContext } from './ChatBranchNavigationContext';
 import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitBranch, Loader2 } from 'lucide-react';
@@ -13,6 +13,7 @@ import { fetchChatWorkspace } from '@/lib/api/queries/chats';
 export function ChatBranchDialog({ chatId, turnId, excerpt }: { chatId: string; turnId: string; excerpt: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const openBranch = useContext(ChatBranchNavigationContext);
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -28,8 +29,8 @@ export function ChatBranchDialog({ chatId, turnId, excerpt }: { chatId: string; 
   const goToBranch = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ['chats'] });
     setOpen(false);
-    if (preview.data?.scope_id && !preview.data.scope_id.startsWith('__')) {
-      useUIStore.getState().setActiveChatId('chat', id);
+    if (openBranch) {
+      openBranch(id);
     } else {
       navigate(`/chat/open/${encodeURIComponent(id)}`);
     }

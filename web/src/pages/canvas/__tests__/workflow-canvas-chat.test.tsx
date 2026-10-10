@@ -1,3 +1,5 @@
+import { useContext } from 'react';
+import { ChatBranchNavigationContext } from '@/components/agent-sidebar/ChatBranchNavigationContext';
 import { createPortal } from 'react-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -27,7 +29,10 @@ vi.mock('@/components/agent-sidebar/ChatComposer', () => ({ ChatComposer: (props
   <button disabled={!!props.disabledReason} onClick={async () => {
     try { await props.prepareConversation?.(); props.onSendAccepted?.(); } catch { /* Error retained for retry. */ }
   }}>Send contextual message</button> }));
-vi.mock('@/components/agent-sidebar/ChatMessageList', () => ({ ChatMessageList: () => <div>Transcript</div> }));
+vi.mock('@/components/agent-sidebar/ChatMessageList', () => ({ ChatMessageList: () => {
+  const openBranch = useContext(ChatBranchNavigationContext);
+  return <div>Transcript<button onClick={() => openBranch?.('branch')}>Open created branch</button></div>;
+} }));
 vi.mock('@/components/agent-sidebar/SSEStatusBanner', () => ({ SSEStatusBanner: () => null }));
 vi.mock('@/components/agent-sidebar/ChatHistoryMenu', () => ({ ChatHistoryMenu: ({ onSelect }: { onSelect: (id: string) => void }) =>
   <><button onClick={() => onSelect('history')}>Choose history</button>
@@ -65,6 +70,19 @@ beforeEach(() => {
 });
 
 describe('Workflow contextual conversation lifecycle', () => {
+  it('opens a created branch and remembers it without starting a turn', async () => {
+    mocks.items = [{ chat_id: 'branch', project_id: 'project', workflow_context: { workflow_id: 'wf', major_version: 2, initial_subversion: 3, target: { kind: 'workflow' } } }] as ChatListItem[];
+    const view = mount();
+    fireEvent.click(screen.getByText('Node context'));
+    fireEvent.click(screen.getByText('Open created branch'));
+    await waitFor(() => expect(mocks.history).toHaveBeenLastCalledWith('wf', 'branch', true));
+    expect(mocks.create).not.toHaveBeenCalled();
+    view.unmount();
+    mount();
+    expect(mocks.history).toHaveBeenLastCalledWith('wf', 'branch', true);
+    expect(screen.getByRole('dialog')).toBeVisible();
+  });
+
   it('names a draft edge with readable endpoints and disambiguates duplicate names', () => {
     useWorkflowEditStore.getState().setDraft({
       code: { node_id: 'code', node_type: 'CodeNode', node_name: 'Result', children: ['end'] },

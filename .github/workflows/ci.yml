@@ -72,6 +72,25 @@ jobs:
             "$PWD/.venv/bin/python" -m pytest -q api/tests --maxfail=20 \
             --junitxml="$RUNNER_TEMP/python-test-reports/api.xml" \
             2>&1 | tee "$RUNNER_TEMP/python-test-reports/api.log"
+      - name: Summarize failed Python tests
+        if: always()
+        run: |
+          python - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          reports = Path(os.environ["RUNNER_TEMP"]) / "python-test-reports"
+          for report in sorted(reports.glob("*.xml")):
+              for case in ET.parse(report).iter("testcase"):
+                  if case.find("failure") is None and case.find("error") is None:
+                      continue
+                  # Keep tracebacks and captured output in the diagnostic artifact.
+                  # Test names are enough to identify failures through Checks API.
+                  name = f"{report.stem}: {case.get('classname', '')}::{case.get('name', '')}"
+                  name = name.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                  print(f"::error::{name}")
+          PYTHON
       - name: Upload Python test diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

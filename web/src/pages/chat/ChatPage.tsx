@@ -17,8 +17,7 @@ import {
   FolderPlus,
   ListChecks,
   MoreHorizontal,
-  PanelRightClose,
-  PanelRightOpen,
+  FolderOpen,
   Plus,
   RefreshCw,
   Sparkles,
@@ -1095,6 +1094,22 @@ export function ChatPage() {
           </Button>
         </ChatToolbarTooltip>
         )}
+        <ChatToolbarTooltip label={t('chat.toolbar.sandbox', 'Sandbox files')}>
+          <Button
+            variant={explorerOpen ? 'secondary' : 'ghost'}
+            size="sm"
+            disabled={!carrierScopeId}
+            onClick={() => setExplorerOpen((value) => !value)}
+            aria-label={t('chat.toolbar.sandbox', 'Sandbox files')}
+            aria-pressed={explorerOpen}
+            data-action="chat-explorer-toggle"
+            className="h-8 shrink-0 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
+          >
+            <FolderOpen className="h-4 w-4" />
+            <span className="hidden sm:inline">{t('chat.toolbar.files', 'Files')}</span>
+          </Button>
+        </ChatToolbarTooltip>
+        {debugAvailable && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1118,16 +1133,9 @@ export function ChatPage() {
                 {debugOpen ? t('chat.toolbar.closeDebug', 'Close debug') : t('chat.toolbar.debug', 'Debug page')}
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem
-              disabled={!carrierScopeId}
-              onSelect={() => setExplorerOpen((v) => !v)}
-              data-action="chat-explorer-toggle"
-            >
-              {explorerOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-              {explorerOpen ? t('chat.toolbar.closeSandbox', 'Close sandbox') : t('chat.toolbar.sandbox', 'Sandbox files')}
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </header>
 
       {boot.isLoading && !activeHistory.isSuccess ? (
@@ -1146,7 +1154,7 @@ export function ChatPage() {
       ) : (
         <>
           <SSEStatusBanner wfId={carrierScopeId} activeChatId={activeChatId} />
-          <div className="flex min-h-0 flex-1">
+          <div className="relative flex min-h-0 flex-1">
             <ResizableGroup
               key={paneLayoutKey}
               id={paneLayoutKey}
@@ -1402,18 +1410,20 @@ export function ChatPage() {
             </ResizableGroup>
             {explorerOpen && (
               <aside
-                className="relative flex shrink-0 flex-col border-l border-edge-structural bg-surface-work"
-                style={{ width: sandboxPane.width }}
+                className="absolute inset-y-0 right-0 z-20 flex shrink-0 flex-col border-l border-edge-structural bg-surface-work sm:relative sm:inset-auto sm:z-auto"
+                style={{ width: sandboxPane.width, maxWidth: '100%' }}
               >
-                <PaneResizeHandle
-                  side="left"
-                  width={sandboxPane.width}
-                  minWidth={272}
-                  maxWidth={560}
-                  onWidthChange={sandboxPane.setWidth}
-                  onReset={sandboxPane.resetWidth}
-                  label={t('chat.sandbox.resize', 'Resize Sandbox panel')}
-                />
+                <div className="hidden sm:block">
+                  <PaneResizeHandle
+                    side="left"
+                    width={sandboxPane.width}
+                    minWidth={272}
+                    maxWidth={560}
+                    onWidthChange={sandboxPane.setWidth}
+                    onReset={sandboxPane.resetWidth}
+                    label={t('chat.sandbox.resize', 'Resize Sandbox panel')}
+                  />
+                </div>
                 <div className="chat-pane-header flex h-11 shrink-0 items-center justify-between px-3">
                   <div className="flex min-w-0 items-center">
                     <span className="truncate text-section">
@@ -1463,7 +1473,10 @@ export function ChatPage() {
                         onSelectionKeyChange={setSandboxSelectionKey}
                         onOpenFile={(path) => {
                           const fileRef = fileRefFromAgentPath(path, { projectId: selectedProjectId });
-                          if (fileRef) openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
+                          if (fileRef) {
+                            openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
+                            if (window.matchMedia('(max-width: 639px)').matches) setExplorerOpen(false);
+                          }
                         }}
                       />
                       {mountScopeId && (
@@ -1476,7 +1489,10 @@ export function ChatPage() {
                           defaultSelectFirst={false}
                           onOpenFile={(path) => {
                             const fileRef = fileRefFromAgentPath(path, { projectId: selectedProjectId });
-                            if (fileRef) openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
+                            if (fileRef) {
+                            openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
+                            if (window.matchMedia('(max-width: 639px)').matches) setExplorerOpen(false);
+                          }
                           }}
                         />
                       )}

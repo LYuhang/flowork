@@ -294,6 +294,7 @@
   "chat.toolbar.more": "More chat actions",
   "chat.toolbar.closeDebug": "Close debug",
   "chat.toolbar.closeSandbox": "Close sandbox",
+  "composer.nextDraft": "Draft for the next message · not sent",
   "composer.expandEditor": "Expand editor",
   "composer.collapseEditor": "Collapse editor",
   "composer.shortcut.choose": "Keyboard shortcuts",

@@ -151,6 +151,38 @@ describe('ChatComposer Stop', () => {
     expect(container.querySelector('[data-role="agent-composer-attachments"]')).toHaveTextContent('notes.txt');
   });
 
+  it.each([false, true])('keeps attachments added during execution in the next draft (embedded=%s)', async (embedded) => {
+    const chatId = 'next-attachment';
+    const attachment = { type: 'file' as const, name: 'next.txt', path: '/data/attachments/next.txt', content_type: 'text/plain', size_bytes: 4 };
+    const sent: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post('*/api/v1/chat-scopes/wf_x/chats/next-attachment/attachments', () => HttpResponse.json(attachment)),
+      http.post('*/api/v1/chat-scopes/wf_x/chats/next-attachment/messages', async ({ request }) => {
+        sent.push(await request.json() as Record<string, unknown>);
+        return new HttpResponse(null, { status: 503 });
+      }),
+    );
+    useChatStreamStore.getState().beginTurn(chatId, 'current-turn');
+    useChatStreamStore.getState().setLastInput({ content: 'Current request' }, chatId);
+    const { container } = renderComposer(chatId, false, undefined, embedded);
+    expect(screen.getByRole('button', { name: /add attachment|添加附件/i })).toBeEnabled();
+    await userEvent.upload(container.querySelector<HTMLInputElement>('[data-role="agent-composer-file-input"]')!, new File(['next'], 'next.txt', { type: 'text/plain' }));
+    await waitFor(() => expect(container.querySelector('[data-role="agent-composer-attachment-chip"]')).toHaveTextContent('next.txt'));
+    await userEvent.type(screen.getByRole('textbox'), 'Next request');
+    expect(container.querySelector('[data-role="composer-next-draft"]')).toHaveTextContent(/not sent|尚未发送/);
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ctrlKey: true });
+    expect(sent).toHaveLength(0);
+    expect(cancelled).toHaveLength(0);
+    expect(useChatStreamStore.getState().lastInput).toEqual({ content: 'Current request' });
+    act(() => useChatStreamStore.getState().setState('complete', chatId));
+    expect(container.querySelector('[data-role="composer-next-draft"]')).toBeNull();
+    expect(container.querySelector('[data-role="agent-composer-attachment-chip"]')).toHaveTextContent('next.txt');
+    expect(sent).toHaveLength(0);
+    await userEvent.click(screen.getByRole('button', { name: /send|发送/i }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ content: 'Next request', attachments: [attachment] });
+  });
+
   it('renders a restored goal above and outside the embedded composer frame', async () => {
     server.use(http.get('*/api/v1/chat-scopes/wf_x/chats/sidebar-goal/state', () => HttpResponse.json({
       goal: { objective: 'Verify browser workflow', status: 'paused', timeUsedSeconds: 90, tokensUsed: 100, updatedAt: 1000 },

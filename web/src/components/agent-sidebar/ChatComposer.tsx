@@ -1054,7 +1054,7 @@ export function ChatComposer({
       ? 'px-0 py-1.5 text-readable leading-6'
       : 'px-3 py-2 text-readable leading-6';
   const attachmentPickerDisabled =
-    !chatId || isStreaming || readOnly || !historyReady || externallyDisabled || draftPreparing;
+    !chatId || readOnly || !historyReady || externallyDisabled || draftPreparing;
   const openAttachmentPicker = (type: ChatFileAttachmentType) => {
     const input = type === 'image'
       ? imageInputRef.current
@@ -1295,6 +1295,11 @@ export function ChatComposer({
           ) : null}
         </div>
       </div>
+      {isStreaming && (hasNewDraft || activeUploads.length > 0) && (
+        <p className="text-xs text-content-secondary" role="status" data-role="composer-next-draft">
+          {t('composer.nextDraft')}
+        </p>
+      )}
       {notice && (
         <p
           className="text-xs text-muted-foreground"

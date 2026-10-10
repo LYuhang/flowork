@@ -294,6 +294,7 @@
   "chat.toolbar.more": "更多对话操作",
   "chat.toolbar.closeDebug": "关闭调试",
   "chat.toolbar.closeSandbox": "关闭沙盒",
+  "composer.nextDraft": "下一轮消息草稿 · 尚未发送",
   "composer.expandEditor": "展开编辑",
   "composer.collapseEditor": "收起编辑",
   "composer.shortcut.choose": "键盘快捷键",

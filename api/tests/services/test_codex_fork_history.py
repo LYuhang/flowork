@@ -5,7 +5,7 @@ import asyncio
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from threading import Event, Thread
 
 import pytest
 
@@ -16,6 +16,9 @@ from vibecanvas_api.services.codex_cli import resolve_codex_executable
 @pytest.fixture
 def local_provider():
     calls = []
+    entered = Event()
+    release = Event()
+    release.set()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -23,13 +26,15 @@ def local_provider():
 
         def do_POST(self):
             calls.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+            entered.set()
+            release.wait(timeout=10)
             item = {
-                'id': 'msg_fixture', 'type': 'message', 'role': 'assistant',
+                'id': f'msg_fixture_{len(calls)}', 'type': 'message', 'role': 'assistant',
                 'status': 'completed',
                 'content': [{'type': 'output_text', 'text': 'Fork fixture answer', 'annotations': []}],
             }
             response = {
-                'id': 'resp_fixture', 'object': 'response', 'created_at': 1,
+                'id': f'resp_fixture_{len(calls)}', 'object': 'response', 'created_at': 1,
                 'status': 'completed', 'model': 'gpt-5.6-terra', 'output': [item],
                 'usage': {'input_tokens': 10, 'output_tokens': 4, 'total_tokens': 14},
             }
@@ -55,25 +60,16 @@ def local_provider():
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f'http://127.0.0.1:{server.server_port}/v1', calls
+        yield f'http://127.0.0.1:{server.server_port}/v1', calls, entered, release
     finally:
+        release.set()
         server.shutdown()
         server.server_close()
         thread.join()
 
 
-@pytest.mark.asyncio
-async def test_metadata_only_fork_preserves_native_completed_history(tmp_path, local_provider):
-    executable = resolve_codex_executable()
-    if executable is None:
-        pytest.skip('Codex CLI is not installed')
-    provider_url, calls = local_provider
-    client = CodexAppServer(
-        executable=executable,
-        env={'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'CODEX_HOME': str(tmp_path)},
-        cwd=str(tmp_path), experimental=True,
-    )
-    common = {
+def thread_options(tmp_path, provider_url):
+    return {
         'cwd': str(tmp_path), 'approvalPolicy': 'never', 'sandbox': 'read-only',
         'model': 'gpt-5.6-terra', 'modelProvider': 'fixture',
         'config': {
@@ -85,6 +81,20 @@ async def test_metadata_only_fork_preserves_native_completed_history(tmp_path, l
             }},
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_metadata_only_fork_preserves_native_completed_history(tmp_path, local_provider):
+    executable = resolve_codex_executable()
+    if executable is None:
+        pytest.skip('Codex CLI is not installed')
+    provider_url, calls, _entered, _release = local_provider
+    client = CodexAppServer(
+        executable=executable,
+        env={'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'CODEX_HOME': str(tmp_path)},
+        cwd=str(tmp_path), experimental=True,
+    )
+    common = thread_options(tmp_path, provider_url)
     try:
         await client.start()
         first = await client.request('thread/start', common, timeout_s=20)
@@ -115,4 +125,53 @@ async def test_metadata_only_fork_preserves_native_completed_history(tmp_path, l
             assert 'Fork fixture answer' in contents
         assert len(calls) == 1  # Forking never starts another model request.
     finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_native_steering_keeps_the_active_turn_and_consumes_the_update(tmp_path, local_provider):
+    from vibecanvas_api.services.agent_runtime.codex_steering import steer_native_turn
+    from vibecanvas_api.services.agent_runtime.protocol import RuntimeSteerInput
+
+    executable = resolve_codex_executable()
+    if executable is None:
+        pytest.skip('Codex CLI is not installed')
+    provider_url, calls, entered, release = local_provider
+    release.clear()
+    client = CodexAppServer(
+        executable=executable,
+        env={'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'CODEX_HOME': str(tmp_path)},
+        cwd=str(tmp_path), experimental=True,
+    )
+    try:
+        await client.start()
+        thread = await client.request('thread/start', thread_options(tmp_path, provider_url), timeout_s=20)
+        thread_id = thread['thread']['id']
+        started = await client.request('turn/start', {
+            'threadId': thread_id, 'input': [{'type': 'text', 'text': 'Original fixture request'}],
+        }, timeout_s=20)
+        native_id = started['turn']['id']
+        assert await asyncio.to_thread(entered.wait, 10), 'Provider request did not start'
+        result = await steer_native_turn(client, RuntimeSteerInput(
+            input_id='steer-fixture', chat_id='chat', turn_id='run', text='Additional fixture direction',
+        ), chat_id='chat', turn_id='run', thread_id=thread_id, native_turn_id=native_id, stopping=False)
+        assert result['status'] == 'accepted'
+        release.set()
+        started_ids = []
+        async with asyncio.timeout(40):
+            async for event in client.messages():
+                if event.get('method') == 'turn/started':
+                    started_ids.append(event['params']['turn']['id'])
+                if event.get('method') == 'turn/completed':
+                    assert event['params']['turn']['status'] == 'completed'
+                    assert event['params']['turn']['id'] == native_id
+                    break
+            else:
+                pytest.fail('Native turn did not finish')
+        assert started_ids == [native_id]
+        assert len(calls) == 2  # A follow-up model step in the same turn, not a new user turn.
+        assert 'Additional fixture direction' not in json.dumps(calls[0])
+        assert 'Additional fixture direction' in json.dumps(calls[1])
+    finally:
+        release.set()
         await client.close()

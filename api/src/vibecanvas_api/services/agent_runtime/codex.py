@@ -20,6 +20,8 @@ from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
 from vibecanvas_engine.sandbox_bus import MSG_RUNTIME_CONTROL
 
 from vibecanvas_api.services.agent_runtime.cli_gateway import (
@@ -37,8 +39,10 @@ from vibecanvas_api.services.agent_runtime.codex_mcp_hub_gateway import (
     CodexMcpHubGateway,
 )
 from vibecanvas_api.services.agent_runtime.control import RuntimeControlRouter
+from vibecanvas_api.services.agent_runtime.codex_steering import steer_native_turn
 from vibecanvas_api.services.agent_runtime.protocol import (
     RuntimeEvent,
+    RuntimeSteerInput,
     RuntimeTurnRequest,
     RuntimeType,
 )
@@ -1797,6 +1801,20 @@ async def run_codex_turn(
                         )
                     except Exception:
                         pass
+                continue
+            if response.get("action") == "steer":
+                try:
+                    update = RuntimeSteerInput.model_validate(response)
+                except ValidationError:
+                    steering_result = {"input_id": response.get("input_id"),
+                                       "status": "rejected", "error": "invalid_steer_input"}
+                else:
+                    steering_result = await steer_native_turn(
+                        client, update, chat_id=request.chat_id, turn_id=request.turn_id,
+                        thread_id=current["thread_id"], native_turn_id=current["turn_id"],
+                        stopping=stop_event.is_set(),
+                    )
+                await emit("projection", {"event_type": "USER_INPUT_STATUS", "payload": steering_result})
                 continue
             control_router.deliver(response)
 

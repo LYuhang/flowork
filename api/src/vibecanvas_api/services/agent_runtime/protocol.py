@@ -742,9 +742,29 @@ class RuntimeMcpGatewayResponse(BaseModel):
         return self
 
 
+class RuntimeSteerInput(BaseModel):
+    """Explicit user input for an existing platform Turn, never a new Turn."""
+
+    model_config = ConfigDict(extra="forbid")
+    protocol_version: Literal[2] = RUNTIME_PROTOCOL_VERSION
+    action: Literal["steer"] = "steer"
+    input_id: str = Field(min_length=1, max_length=160)
+    chat_id: str = Field(min_length=1)
+    turn_id: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=32_768)
+
+    @field_validator("text")
+    @classmethod
+    def require_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("steering input must contain text")
+        return value
+
+
 RuntimeControlMessage = (
     RuntimeControlResponse
     | RuntimeMcpGatewayResponse
+    | RuntimeSteerInput
 )
 
 

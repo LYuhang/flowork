@@ -3248,3 +3248,88 @@ async def test_resume_restores_goal_after_cancelled_turn_rebuilds_thread(monkeyp
     ),client=client)
     assert client.goal['status'] == 'complete'
     assert channel.sent[-1]['type'] == MSG_RUNTIME_RESULT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('outcome', ['accepted', 'rejected', 'unknown', 'invalid'])
+async def test_user_steering_control_never_restarts_or_fails_original_turn(monkeypatch, outcome):
+    from vibecanvas_engine.sandbox_bus import MSG_RUNTIME_CONTROL
+
+    ready = asyncio.Event()
+    received = asyncio.Event()
+
+    class Channel(_Channel):
+        def __init__(self):
+            super().__init__()
+            self.incoming = asyncio.Queue()
+
+        async def recv(self):
+            return await self.incoming.get()
+
+        async def send(self, message):
+            await super().send(message)
+            if message.get('event', {}).get('payload', {}).get('event_type') == 'USER_INPUT_STATUS':
+                received.set()
+
+    channel = Channel()
+
+    class Client:
+        def __init__(self):
+            self.requests = []
+
+        async def start(self):
+            pass
+
+        async def close(self):
+            pass
+
+        async def request(self, method, params, **_kwargs):
+            if method == 'thread/goal/get':
+                return {'goal': None}
+            self.requests.append((method, params))
+            if method == 'thread/start':
+                return {'thread': {'id': 'thread'}}
+            if method == 'turn/start':
+                ready.set()
+                return {'turn': {'id': 'native-turn'}}
+            if method == 'turn/steer':
+                if outcome == 'rejected':
+                    raise CodexAppServerError('codex_app_server_request_failed')
+                if outcome == 'unknown':
+                    raise CodexAppServerError('codex_app_server_request_timed_out')
+                return {'turnId': 'native-turn'}
+            raise AssertionError(method)
+
+        async def messages(self):
+            await ready.wait()
+            update = {'action': 'steer', 'input_id': 'extra-input', 'chat_id': 'chat',
+                      'turn_id': 'platform-turn', 'text': 'Keep scope small'}
+            if outcome == 'invalid':
+                update['model'] = 'another-model'
+            await channel.incoming.put({'type': MSG_RUNTIME_CONTROL, 'response': update})
+            await asyncio.wait_for(received.wait(), timeout=5)
+            yield {'method': 'item/completed', 'params': {'item': {
+                'id': 'reply', 'type': 'agentMessage', 'text': 'Original work completed',
+            }}}
+            yield {'method': 'turn/completed', 'params': {'turn': {
+                'id': 'native-turn', 'status': 'completed',
+            }}}
+
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.path.isdir', lambda path: path in {"/runtime", "/data"})
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.makedirs', lambda *_args, **_kwargs: None)
+    client = Client()
+    await asyncio.wait_for(run_codex_turn(channel, RuntimeTurnRequest(
+        tenant_id='tenant', user_id='user', chat_id='chat', turn_id='platform-turn',
+        runtime_type='codex', runtime_session_id='runtime-session', runtime_root='/runtime/.codex',
+        message={'role': 'user', 'content': 'Do the original work'}, model=_BROKER_MODEL,
+    ), client=client), timeout=10)
+    methods = [method for method, _params in client.requests]
+    assert methods == ['thread/start', 'turn/start'] + ([] if outcome == 'invalid' else ['turn/steer'])
+    events = [entry['event'] for entry in channel.sent if 'event' in entry]
+    updates = [entry['payload']['payload'] for entry in events
+               if entry['payload'].get('event_type') == 'USER_INPUT_STATUS']
+    assert len(updates) == 1
+    assert updates[0]['input_id'] == 'extra-input'
+    assert updates[0]['status'] == ('rejected' if outcome == 'invalid' else outcome)
+    assert any(entry['type'] == 'runtime.completed' for entry in events)
+    assert not any(entry['type'] == 'runtime.failed' for entry in events)

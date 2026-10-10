@@ -64,6 +64,32 @@ it('does not offer steering for an old runtime and respects disabled draft input
   expect(await screen.findByRole('button', { name: 'Add to current response' })).toBeDisabled();
 });
 
+it('settles a lost POST response only when its own receipt confirms acceptance', async () => {
+  const test = setup();
+  let receipt: ChatInputReceipt | null = null;
+  let posts = 0;
+  server.use(
+    http.get(`*${key}`, () => HttpResponse.json({ chat_id: 'chat', run_id: 'run',
+      supported_controls: ['steer'], available_controls: ['steer'], latest_input: receipt })),
+    http.post('*/api/v1/chats/chat/inputs', async ({ request }) => {
+      posts++;
+      const body = await request.json() as { input_id: string; text: string };
+      receipt = { ...body, chat_id: 'chat', run_id: 'run', status: 'unknown', error_code: null };
+      return HttpResponse.error();
+    }),
+  );
+  render(test.element);
+  fireEvent.click(await screen.findByRole('button', { name: 'Add to current response' }));
+  expect(await screen.findByText(/Receipt is uncertain/)).toBeTruthy();
+  expect(test.submitted).not.toHaveBeenCalled();
+  receipt = { ...receipt!, status: 'accepted' };
+  fireEvent.click(screen.getByRole('button', { name: 'Check input status' }));
+  await waitFor(() => expect(test.submitted).toHaveBeenCalledExactlyOnceWith('Additional instruction'));
+  expect(screen.getByText('Agent received the additional input')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Check input status' })).toBeNull();
+  expect(posts).toBe(1);
+});
+
 it('replays accepted input by stable ID without clearing assistant output or accepting a stale turn', () => {
   const client = new QueryClient();
   const store = useChatStreamStore.getState();

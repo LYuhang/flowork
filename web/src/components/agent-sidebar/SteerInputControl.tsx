@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CornerDownRight, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,16 @@ export function SteerInputControl({ chatId, runId, text, active, disabled, onSub
     onError: () => { void client.invalidateQueries({ queryKey: inputControlsKey(chatId, runId) }); },
   });
   const receipt = controls.data?.latest_input;
+  const recoveredText = submit.isError && receipt?.status === 'accepted'
+    && receipt.input_id === submit.variables?.input_id ? submit.variables.text : null;
+  const resetSubmission = submit.reset;
+  useEffect(() => {
+    if (recoveredText === null) return;
+    // A lost POST response is no longer uncertain after this input's receipt
+    // confirms acceptance. The composer preserves any subsequently edited draft.
+    onSubmitted(recoveredText);
+    resetSubmission();
+  }, [recoveredText, onSubmitted, resetSubmission]);
   const statusUnavailable = controls.isError && submit.isSuccess;
   const unconfirmed = submit.isError && receipt?.input_id !== submit.variables?.input_id;
   const receiptLabel = receipt ? {

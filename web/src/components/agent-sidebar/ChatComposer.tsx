@@ -1,3 +1,5 @@
+import { SendShortcutPreference } from './SendShortcutPreference';
+import { useComposerPreferences } from '@/stores/composer-preferences';
 import { GoalStatus } from './GoalStatus';
 import { extensionOrigin } from '@/lib/extension';
 import { useChatState } from '@/lib/api/queries/chats';
@@ -30,7 +32,8 @@ import { ContextAttachmentCard } from './ContextAttachmentCard';
  * snapshot `lastInput` to component state because a sidebar re-mount
  * (collapsed → expanded) should preserve the option to retry.
  *
- * Keys: ⌘/Ctrl+Enter sends; Shift+Enter and plain Enter insert a newline. An
+ * Keys: ⌘/Ctrl+Enter sends by default; users can opt into Enter to send.
+ * Shift+Enter always inserts a newline. An
  * Enter while an IME composition is active never sends. When the input starts with `/`,
  * a VSCode-style command menu opens: ↑/↓ select, Tab/Enter complete, Esc closes,
  * and continued typing filters by prefix.
@@ -207,6 +210,7 @@ export function ChatComposer({
   onSendAccepted,
 }: ChatComposerProps) {
   const { t } = useTranslation();
+  const sendShortcut = useComposerPreferences((state) => state.sendShortcut);
   const account = useAuthStore((state) => state.user);
   const preparedConversation = useRef<{ chatId: string; projectId: string } | null>(null);
   const currentConversation = useRef(chatId);
@@ -1029,8 +1033,8 @@ export function ChatComposer({
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     // Shift+Enter is always a newline (the escape hatch).
     if (e.shiftKey) return;
-    // ⌘/Ctrl+Enter sends; bare Enter falls through to the textarea = newline.
-    if (e.metaKey || e.ctrlKey) {
+    // Modifier+Enter remains available when Enter-to-send is selected.
+    if (!e.altKey && (e.metaKey || e.ctrlKey || sendShortcut === 'enter')) {
       e.preventDefault();
       void handleSend();
     }
@@ -1441,6 +1445,7 @@ export function ChatComposer({
           </div>
         ) : null}
       </div>
+      <SendShortcutPreference />
       {showModelSelector ? (
         <Sheet
           open={optionsOpen && compactOptions}

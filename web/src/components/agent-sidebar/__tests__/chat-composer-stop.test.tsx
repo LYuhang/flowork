@@ -1,6 +1,7 @@
+import { useComposerPreferences, type SendShortcut } from '@/stores/composer-preferences';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { StrictMode } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -56,7 +57,9 @@ describe('ChatComposer Stop', () => {
 
   beforeEach(() => {
     cancelled = [];
+    useComposerPreferences.setState({ sendShortcut: 'modifier-enter' });
     server.use(
+      http.get('*/api/v1/chat-scopes/:scopeId/chats/:chatId/state', () => HttpResponse.json({})),
       http.get('*/api/v1/projects/:projectId/mcp', () => HttpResponse.json({
         mcp_server_ids: [], mcp_config_revision: 0,
       })),
@@ -84,6 +87,48 @@ describe('ChatComposer Stop', () => {
     useChatStreamStore.getState().reset();
     useAgentSettingsStore.getState().reset();
     useChatAgentSettingsStore.setState({ entries: {} });
+  });
+
+  it.each([
+    ['modifier-enter', false], ['modifier-enter', true], ['enter', false], ['enter', true],
+  ] as const)('handles %s shortcuts with embedded=%s without sending IME confirmation', async (shortcut: SendShortcut, embedded) => {
+    useComposerPreferences.setState({ sendShortcut: shortcut });
+    const sent = vi.fn();
+    server.use(http.post('*/api/v1/chat-scopes/wf_x/chats/shortcut-chat/messages', () => {
+      sent();
+      return new HttpResponse(null, { status: 503 });
+    }));
+    renderComposer('shortcut-chat', false, undefined, embedded);
+    const input = screen.getByRole('textbox');
+    await userEvent.type(input, 'A draft');
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    fireEvent.keyDown(input, { key: 'Enter', altKey: true });
+    if (shortcut === 'modifier-enter') fireEvent.keyDown(input, { key: 'Enter' });
+    expect(sent).not.toHaveBeenCalled();
+    expect(input).toHaveValue('A draft');
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: shortcut === 'modifier-enter' });
+    await waitFor(() => expect(sent).toHaveBeenCalledOnce());
+  });
+
+  it('completes a slash command instead of sending when Enter-to-send is selected', async () => {
+    useComposerPreferences.setState({ sendShortcut: 'enter' });
+    server.use(http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({
+      carrier_scope_id: 'wf_x', surface: 'chat', debug_view_enabled: false,
+      available_commands: ['workflow'],
+    })));
+    const sent = vi.fn();
+    server.use(http.post('*/api/v1/chat-scopes/wf_x/chats/shortcut-command/messages', () => {
+      sent(); return new HttpResponse(null, { status: 503 });
+    }));
+    renderComposer('shortcut-command');
+    const input = screen.getByRole('textbox');
+    await userEvent.type(input, '/');
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(input).toHaveValue('/workflow ');
+    expect(sent).not.toHaveBeenCalled();
   });
 
   it('renders a restored goal above and outside the embedded composer frame', async () => {

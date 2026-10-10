@@ -16,15 +16,24 @@ from .chats import _authorize_chat
 router = APIRouter(prefix='/api/v1/chats', tags=['chat-inputs'])
 
 
+@router.get('/{chat_id}/input-controls')
 @router.get('/{chat_id}/runs/{run_id}/input-controls')
 async def get_chat_input_controls(
-    chat_id: str, run_id: str, request: Request,
+    chat_id: str, request: Request, run_id: str | None = None,
     auth: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
     await owned_chat(request, auth, service, session, chat_id)
     repo = AgentRunsRepo(session)
+    if run_id is None:
+        run_id = await session.scalar(text("""
+            SELECT run_id FROM agent_runs WHERE chat_id=:chat AND creator_user_id=:owner
+                ORDER BY created_at DESC, run_id DESC LIMIT 1
+        """), {'chat': chat_id, 'owner': str(auth.user_id)})
+        if run_id is None:
+            return {'chat_id': chat_id, 'run_id': None, 'run_status': None, 'latest_input': None,
+                    'supported_controls': [], 'available_controls': [], 'unavailable_reason': 'turn_not_running'}
     run = await repo.get_for_chat(chat_id, run_id, creator_user_id=auth.user_id)
     if run is None:
         raise HTTPException(404, 'run_not_found')
@@ -38,7 +47,12 @@ async def get_chat_input_controls(
         reason = 'turn_waiting_for_input'
     elif await session.scalar(text("SELECT EXISTS(SELECT 1 FROM chat_user_inputs WHERE run_id=:run AND status='submitting')"), {'run': run_id}):
         reason = 'steer_already_submitting'
-    return {'chat_id': chat_id, 'run_id': run_id, 'run_status': run.status,
+    latest_id = await session.scalar(text('''
+        SELECT input_id FROM chat_user_inputs WHERE chat_id=:chat AND run_id=:run
+            AND creator_user_id=:owner ORDER BY created_at DESC, input_id DESC LIMIT 1
+    '''), {'chat': chat_id, 'run': run_id, 'owner': str(auth.user_id)})
+    latest = await ChatInputsRepo(session, str(auth.user_id)).get(chat_id, latest_id) if latest_id else None
+    return {'chat_id': chat_id, 'run_id': run_id, 'run_status': run.status, 'latest_input': latest,
             'supported_controls': supported, 'available_controls': supported if reason is None else [],
             'unavailable_reason': reason}
 

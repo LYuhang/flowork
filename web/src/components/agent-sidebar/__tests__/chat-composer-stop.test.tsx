@@ -62,6 +62,8 @@ describe('ChatComposer Stop', () => {
     cancelled = [];
     useComposerPreferences.setState({ sendShortcut: 'modifier-enter' });
     server.use(
+      http.get('*/api/v1/chats/:chatId/input-controls', () => HttpResponse.json({ supported_controls: [], available_controls: [], latest_input: null })),
+      http.get('*/api/v1/chats/:chatId/runs/:runId/input-controls', () => HttpResponse.json({ supported_controls: [], available_controls: [], latest_input: null })),
       http.get('*/api/v1/chat-scopes/:scopeId/chats/:chatId/state', () => HttpResponse.json({})),
       http.get('*/api/v1/projects/:projectId/mcp', () => HttpResponse.json({
         mcp_server_ids: [], mcp_config_revision: 0,

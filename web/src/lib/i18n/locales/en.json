@@ -4124,5 +4124,13 @@
   "chat.list.filter": "Conversation list",
   "chat.list.archivedNotice": "This conversation is archived.",
   "chat.list.updateFailed": "Could not update the conversation list. Try again.",
-  "chat.list.emptyArchived": "No archived conversations."
+  "chat.list.emptyArchived": "No archived conversations.",
+  "composer.steer.action": "Add to current response",
+  "composer.steer.hint": "Send plain text to the active Agent turn without starting a new one. Keep attachments and commands for the next turn.",
+  "composer.steer.checkStatus": "Submission is unconfirmed. Your draft is preserved. Check its status before sending again.",
+  "composer.steer.refresh": "Check input status",
+  "composer.steer.status.submitting": "Submitted, awaiting Agent confirmation",
+  "composer.steer.status.accepted": "Agent received the additional input",
+  "composer.steer.status.rejected": "Additional input was not accepted",
+  "composer.steer.status.unknown": "Receipt is uncertain. Check its status before deciding what to do next."
 }

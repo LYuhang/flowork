@@ -141,6 +141,7 @@ export type ChatStreamEvent =
   | { type: 'message_delta'; message_id: string; delta: string }
   | { type: 'message_replace'; message_id: string; content: string; artifact?: Record<string, unknown> | null; parts?: Array<Record<string, unknown>> }
   | { type: 'message_end'; message_id: string }
+  | { type: 'user_input'; message_id: string; content: string }
   | { type: 'tool_start'; message_id: string; tool_call_id: string; name: string; arguments?: string; invocation?: ToolInvocationEnvelope; artifact?: Record<string, unknown> | null; parts?: Array<Record<string, unknown>> }
   | { type: 'tool_delta'; tool_call_id: string; arguments_delta?: string }
   | { type: 'tool_update'; tool_call_id: string; content?: string; artifact?: Record<string, unknown> | null; status?: 'running' | 'done' | 'error' }
@@ -403,6 +404,8 @@ function applyStreamEvent(
   event: ChatStreamEvent,
 ): StreamUiMessage[] {
   switch (event.type) {
+    case 'user_input':
+      return upsertMessage(messages, { id: event.message_id, role: 'user', content: event.content, tool_calls: [] });
     case 'message_start':
       return upsertMessage(messages, {
         id: event.message_id,

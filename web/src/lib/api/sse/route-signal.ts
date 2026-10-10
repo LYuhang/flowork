@@ -32,6 +32,7 @@
  */
 import type { QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { inputControlsKey } from '@/lib/api/chat-inputs';
 import { queryClient } from '@/app/query-client';
 import i18n from '@/lib/i18n';
 import { useChatStreamStore } from '@/stores/chat-stream';
@@ -545,6 +546,18 @@ export function routeAgentSignalWith(
           }
         }
         emitChatEventPhase(event);
+      }
+      return;
+    }
+    case 'RUNTIME_CAPABILITIES':
+    case 'USER_INPUT_STATUS': {
+      if (!isObject(payload) || typeof payload.turn_id !== 'string') return;
+      const runtime = store.runtimes[ctx.chatId];
+      if (!runtime || runtime.turnId !== payload.turn_id) return;
+      void client.invalidateQueries({ queryKey: inputControlsKey(ctx.chatId, payload.turn_id) });
+      if (event === 'USER_INPUT_STATUS' && payload.status === 'accepted'
+          && typeof payload.input_id === 'string' && typeof payload.text === 'string') {
+        store.applyEvent({ type: 'user_input', message_id: payload.input_id, content: payload.text }, ctx.chatId);
       }
       return;
     }

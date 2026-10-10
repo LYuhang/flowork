@@ -1,3 +1,4 @@
+import { SteerInputControl } from './SteerInputControl';
 import { SendShortcutPreference } from './SendShortcutPreference';
 import { useComposerPreferences } from '@/stores/composer-preferences';
 import { GoalStatus } from './GoalStatus';
@@ -348,6 +349,7 @@ export function ChatComposer({
   const fallbackMessages = useChatStreamStore((s) => s.messages);
   const fallbackTodoItems = useChatStreamStore((s) => s.todoItems);
   const fallbackAbortController = useChatStreamStore((s) => s.abortController);
+  const fallbackWaitingForUser = useChatStreamStore((s) => s.waitingForUser);
   const fallbackLastInput = useChatStreamStore((s) => s.lastInput);
   const fallbackRuntime = useMemo(
     () =>
@@ -361,6 +363,7 @@ export function ChatComposer({
             todoItems: fallbackTodoItems,
             abortController: fallbackAbortController,
             lastInput: fallbackLastInput,
+            waitingForUser: fallbackWaitingForUser,
           }
         : undefined,
     [
@@ -369,6 +372,7 @@ export function ChatComposer({
       fallbackBuffer,
       fallbackChatId,
       fallbackLastInput,
+      fallbackWaitingForUser,
       fallbackMessages,
       fallbackState,
       fallbackTodoItems,
@@ -1268,6 +1272,13 @@ export function ChatComposer({
           ) : null}
         </div>
       </div>
+      {chatId && (chatPersisted || runtime?.turnId) && historyReady && (
+        <SteerInputControl key={`${chatId}:${runtime?.turnId ?? 'latest'}`} chatId={chatId} runId={runtime?.turnId ?? null}
+          text={value} active={isStreaming}
+          disabled={readOnly || externallyDisabled || !!runtime?.waitingForUser || !!contextDraft?.conflict || pendingAttachments.length > 0
+            || activeUploads.length > 0 || !!selectedSkill || value.trimStart().startsWith('/') || stoppingChatId === chatId}
+          onSubmitted={submitted => setValue(current => current === submitted ? '' : current)} />
+      )}
       {isStreaming && (hasNewDraft || activeUploads.length > 0) && (
         <p className="text-xs text-content-secondary" role="status" data-role="composer-next-draft">
           {t('composer.nextDraft')}

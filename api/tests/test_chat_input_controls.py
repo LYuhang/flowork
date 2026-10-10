@@ -28,7 +28,10 @@ async def test_controls_require_native_readiness_and_receipts_survive_reload(cli
     input_id = uuid.uuid4().hex
     async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
         await ChatInputsRepo(db, me['user_id']).create(chat, run, input_id, 'Private extra input')
-    assert (await client.get(endpoint, headers=headers)).json()['unavailable_reason'] == 'steer_already_submitting'
+    pending = (await client.get(endpoint, headers=headers)).json()
+    assert pending['unavailable_reason'] == 'steer_already_submitting'
+    assert pending['latest_input']['input_id'] == input_id
+    assert pending['latest_input']['text'] == 'Private extra input'
     receipt_url = f'/api/v1/chats/{chat}/inputs/{input_id}'
     response = await client.get(receipt_url, headers=headers)
     assert response.status_code == 200
@@ -38,6 +41,10 @@ async def test_controls_require_native_readiness_and_receipts_survive_reload(cli
         await db.execute(text("UPDATE agent_runs SET status='completed' WHERE run_id=:run"), {'run': run})
     assert (await client.get(endpoint, headers=headers)).json()['available_controls'] == []
     assert (await client.get(receipt_url, headers=headers)).json()['status'] == 'unknown'
+    restored = (await client.get(f'/api/v1/chats/{chat}/input-controls', headers=headers)).json()
+    assert restored['run_id'] == run
+    assert restored['latest_input']['status'] == 'unknown'
+    assert restored['available_controls'] == []
     # A different account cannot use a known Chat/Run/input ID to recover text.
     other_headers, _, _ = await seed(client)
     assert (await client.get(endpoint, headers=other_headers)).status_code in {403, 404}

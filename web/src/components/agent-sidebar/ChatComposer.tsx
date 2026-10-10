@@ -207,6 +207,7 @@ export function ChatComposer({
     currentConversation.current = chatId;
     return () => { currentConversation.current = null; };
   }, [chatId]);
+  const [stoppingChatId, setStoppingChatId] = useState<string | null>(null);
   const [draftMcpIds, setDraftMcpIds] = useState<string[] | null>(null);
   const commandBootstrap = useChatBootstrap(agentSurface);
   const slashCommands = useMemo<SlashCommand[]>(
@@ -872,11 +873,15 @@ export function ChatComposer({
     }
   };
 
-  const handleStop = () => {
-    if (chatId) {
-      void cancelActiveTurn(chatId);
-    }
+  const handleStop = async () => {
+    if (!chatId || stoppingChatId === chatId) return;
+    setStoppingChatId(chatId);
+    const stopped = await cancelActiveTurn(chatId);
+    if (!stopped) setStoppingChatId(current => current === chatId ? null : current);
   };
+  useEffect(() => useChatStreamStore.subscribe(state => {
+    if (chatId && state.runtimes[chatId]?.state !== 'streaming') setStoppingChatId(null);
+  }), [chatId]);
 
   // ── Slash-command autocomplete ─────────────────────────────────────────
   // Active only while the input IS a command token being typed: starts with "/"
@@ -1351,14 +1356,16 @@ export function ChatComposer({
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={handleStop}
+                onClick={() => void handleStop()}
+                disabled={stoppingChatId === chatId}
+                aria-busy={stoppingChatId === chatId}
                 aria-label={t('stop', 'Stop')}
                 title={t('stop', 'Stop')}
                 className={compactButtonClass}
                 data-action="agent-composer-stop"
               >
                 <Square className="h-3.5 w-3.5" />
-                {!embedded && t('stop', 'Stop')}
+                {!embedded && (stoppingChatId === chatId ? t('chat.stopping') : t('stop', 'Stop'))}
               </Button>
             )}
             {action === 'send' && (

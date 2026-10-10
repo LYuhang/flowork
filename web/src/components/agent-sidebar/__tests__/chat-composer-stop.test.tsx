@@ -1,6 +1,7 @@
 import { useComposerPreferences, type SendShortcut } from '@/stores/composer-preferences';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { StrictMode } from 'react';
+import { toast } from 'sonner';
 import { MessageItem } from '../MessageItem';
 import { ChatRenderProvider } from '../chat-render-context';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -89,6 +90,51 @@ describe('ChatComposer Stop', () => {
     useChatStreamStore.getState().reset();
     useAgentSettingsStore.getState().reset();
     useChatAgentSettingsStore.setState({ entries: {} });
+  });
+
+  it('waits for the local send acknowledgement before issuing Stop once', async () => {
+    const store = useChatStreamStore.getState();
+    store.setAbort(new AbortController(), 'pending-stop');
+    store.beginTurn('pending-stop', '');
+    renderComposer('pending-stop');
+    await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(cancelled).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
+    act(() => store.markStarted('turn_a', 'pending-stop'));
+    await waitFor(() => expect(cancelled).toEqual([{ chatId: 'pending-stop', turnId: 'turn_a' }]));
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeDisabled();
+    act(() => store.setState('cancelled', 'pending-stop'));
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeVisible();
+  });
+
+  it('reports a failed Stop and permits a deliberate second click without automatic retries', async () => {
+    let requests = 0;
+    server.use(http.post('*/api/v1/chats/stop-error/active-turn/cancel', () => {
+      requests += 1;
+      return new HttpResponse(null, { status: 404 });
+    }));
+    const feedback = vi.spyOn(toast, 'error');
+    try {
+      useChatStreamStore.getState().beginTurn('stop-error', 'known-turn');
+      renderComposer('stop-error');
+      await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
+      await waitFor(() => expect(feedback).toHaveBeenCalled());
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+      expect(requests).toBe(1);
+      expect(useChatStreamStore.getState().runtimes['stop-error'].state).toBe('streaming');
+    } finally { feedback.mockRestore(); }
+  });
+
+  it('does not cancel another run when the pending send fails before acknowledgement', async () => {
+    const store = useChatStreamStore.getState();
+    store.setAbort(new AbortController(), 'failed-start');
+    store.beginTurn('failed-start', '');
+    renderComposer('failed-start');
+    await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    act(() => store.setState('failed', 'failed-start'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeVisible());
+    expect(cancelled).toEqual([]);
   });
 
   it.each([false, true])('copies history text into the existing draft without sending (embedded=%s)', async (embedded) => {

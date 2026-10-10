@@ -5840,6 +5840,8 @@ export interface components {
              * @default false
              */
             starts_agent: boolean;
+            /** Unavailable Files */
+            unavailable_files?: string[];
         };
         /** BrowserBindingOut */
         BrowserBindingOut: {

@@ -9,6 +9,7 @@ from ..auth.deps import AuthContext, current_user, tenant_db
 from ..authorization.dependencies import authorize_resource, get_authz_service
 from ..authorization.service import AuthzService
 from ..authorization.types import Action, ResourceRef, ResourceType
+from ..services.chat_branch_files import unavailable_branch_files
 from ..services.chat_history_projection import hitl_history_projection, interactive_artifact_out
 from ..storage.chat_repo import ChatRepo
 from ..storage.hitl_repo import HitlRepo
@@ -35,6 +36,7 @@ class BranchOut(BaseModel):
     message_count: int
     file_policy: str = 'shared_current_project_files'
     starts_agent: bool = False
+    unavailable_files: list[str] = Field(default_factory=list)
 
 
 async def branch_source(chat_id, turn_id, request, auth, session, service):
@@ -61,7 +63,11 @@ async def branch_source(chat_id, turn_id, request, auth, session, service):
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return source, repo, total
+    unavailable = await unavailable_branch_files(
+        repo=repo, source=source, turn_id=turn_id, request=request,
+        auth=auth, session=session, service=service,
+    )
+    return source, repo, total, unavailable
 
 
 @router.get('/{chat_id}/branches/preview', response_model=BranchOut)
@@ -71,9 +77,10 @@ async def preview_branch(
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
-    source, _, total = await branch_source(chat_id, turn_id, request, auth, session, service)
+    source, _, total, unavailable = await branch_source(chat_id, turn_id, request, auth, session, service)
     return BranchOut(chat_id='', source_chat_id=chat_id, through_turn_id=turn_id,
-                     project_id=source.project_id, scope_id=source.scope_id, message_count=total)
+                     project_id=source.project_id, scope_id=source.scope_id, message_count=total,
+                     unavailable_files=unavailable)
 
 
 @router.post('/{chat_id}/branches', response_model=BranchOut, status_code=201)
@@ -83,7 +90,7 @@ async def create_branch(
     session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
-    source, repo, total = await branch_source(chat_id, body.turn_id, request, auth, session, service)
+    source, repo, total, unavailable = await branch_source(chat_id, body.turn_id, request, auth, session, service)
     definitions, projections = {}, {}
     for artifact, hitl in await HitlRepo(session).list_artifact_refs_for_chat(chat_id):
         definitions[artifact.artifact_id] = interactive_artifact_out(
@@ -107,4 +114,5 @@ async def create_branch(
         operation_id=f'{target}:create',
     )
     return BranchOut(chat_id=target, source_chat_id=chat_id, through_turn_id=body.turn_id,
-                     project_id=source.project_id, scope_id=source.scope_id, message_count=total)
+                     project_id=source.project_id, scope_id=source.scope_id, message_count=total,
+                     unavailable_files=unavailable)

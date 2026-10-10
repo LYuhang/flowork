@@ -1,4 +1,5 @@
 {
+  "chat.branch.unavailableFiles": "以下文件目前不存在或无法访问。历史引用会保留，但创建分支不会恢复这些文件。",
   "chat.branch.open": "从此轮创建分支",
   "chat.branch.description": "将选定的已结束轮次及之前的历史创建为新对话。原对话保持不变，Agent 不会自动运行。",
   "chat.branch.files": "两个对话共享项目当前文件。创建分支不会复制或回滚文件。",

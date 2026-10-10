@@ -1,4 +1,5 @@
 {
+  "chat.branch.unavailableFiles": "These files are currently missing or inaccessible. Their history references remain, but branching will not restore the files.",
   "chat.branch.open": "Branch from this turn",
   "chat.branch.description": "Create a new conversation through the selected finished turn. The source stays unchanged and the Agent will not start automatically.",
   "chat.branch.files": "Both conversations share the project’s current files. Branching does not copy or restore files.",

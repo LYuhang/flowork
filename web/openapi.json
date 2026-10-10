@@ -19913,6 +19913,13 @@
             "type": "boolean",
             "title": "Starts Agent",
             "default": false
+          },
+          "unavailable_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unavailable Files"
           }
         },
         "type": "object",

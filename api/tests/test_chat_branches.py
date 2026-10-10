@@ -34,6 +34,7 @@ async def test_branch_preview_and_create_keep_boundary_and_do_not_start_agent(cl
     preview = await client.get(endpoint + '/preview', params={'turn_id': run}, headers=headers)
     assert preview.status_code == 200, preview.text
     assert preview.json()['message_count'] == 5
+    assert preview.json()['unavailable_files'] == ['file']
     assert preview.json()['starts_agent'] is False
     target = str(uuid.uuid4())
     body = {'chat_id': target, 'turn_id': run, 'name': 'My branch'}

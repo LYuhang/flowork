@@ -72,3 +72,11 @@ it('selects a canvas branch in its current workflow instead of opening general c
   await waitFor(() => expect(useUIStore.getState().activeChatIds.chat).toBe('canvas-branch'));
   expect(screen.queryByText('Opened branch')).not.toBeInTheDocument();
 });
+it('explains unavailable files without pretending they are restored', async () => {
+  mocks.preview.mockResolvedValue({ project_id: 'project', unavailable_files: ['missing.pdf'] });
+  mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Branch from this turn' }));
+  await screen.findByText('missing.pdf');
+  expect(screen.getByText(/branching will not restore the files/)).toBeInTheDocument();
+  expect(mocks.create).not.toHaveBeenCalled();
+});

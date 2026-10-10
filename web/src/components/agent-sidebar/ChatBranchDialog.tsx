@@ -83,6 +83,10 @@ export function ChatBranchDialog({ chatId, turnId, excerpt }: { chatId: string; 
           <div><dt className="font-medium">{t('chat.branch.source')}</dt><dd className="break-all">{chatId}</dd></div>
           <div><dt className="font-medium">{t('chat.branch.project')}</dt><dd className="break-all">{preview.data.project_id}</dd></div>
         </dl>
+        {!!preview.data.unavailable_files?.length && <div role="status" className="space-y-1 text-sm text-muted-foreground">
+          <p>{t('chat.branch.unavailableFiles')}</p>
+          <ul className="list-disc pl-5">{preview.data.unavailable_files.map((file, index) => <li key={index} className="break-all">{file}</li>)}</ul>
+        </div>}
         <label className="space-y-2 text-sm"><span>{t('chat.branch.name')}</span>
           <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} disabled={busy || !!attemptId} />
         </label>

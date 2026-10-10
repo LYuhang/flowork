@@ -4113,5 +4113,16 @@
   "chat.attention.empty": "暂无待处理事项。",
   "chat.attention.retry": "无法加载待处理事项，点击重试",
   "chat.attention.more": "载入更多待处理事项",
-  "chat.attention.notFound": "未能定位此请求，请重新打开“待我处理”查看其状态。"
+  "chat.attention.notFound": "未能定位此请求，请重新打开“待我处理”查看其状态。",
+  "chat.list.pin": "置顶",
+  "chat.list.unpin": "取消置顶",
+  "chat.list.pinned": "已置顶",
+  "chat.list.archive": "归档对话",
+  "chat.list.restore": "恢复对话",
+  "chat.list.active": "当前对话",
+  "chat.list.archived": "已归档对话",
+  "chat.list.filter": "对话列表",
+  "chat.list.archivedNotice": "此对话已归档。",
+  "chat.list.updateFailed": "无法更新对话列表，请重试。",
+  "chat.list.emptyArchived": "暂无归档对话。"
 }

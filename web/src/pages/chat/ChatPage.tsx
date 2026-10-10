@@ -40,6 +40,7 @@ import { AsyncState } from '@/components/ui/async-state';
 import { PaneResizeHandle } from '@/components/ui/pane-resize-handle';
 import { usePersistedPaneWidth } from '@/components/ui/use-persisted-pane-width';
 import { StatusDot, type SemanticStatus } from '@/components/ui/status';
+import { ArchivedChatNotice } from '@/components/agent-sidebar/ArchivedChatNotice';
 import { ChatMessageList } from '@/components/agent-sidebar/ChatMessageList';
 import type { SubmitInteractiveAsNewTurn } from '@/components/agent-sidebar/tool-render/InteractiveArtifactBlock';
 import {
@@ -632,7 +633,7 @@ export function ChatPage() {
         return;
       }
       setActiveProjectId(projectId);
-      setActiveChatId('chat', chatSessions.data?.items.find((chat) => chat.project_id === projectId)?.chat_id ?? null);
+      setActiveChatId('chat', chatSessions.data?.items.find((chat) => chat.project_id === projectId && !chat.archived_at)?.chat_id ?? null);
       setChatEntryIntent(null);
       queueMicrotask(() => setActiveRunDiscoveryStatus('ready'));
       return;
@@ -689,7 +690,7 @@ export function ChatPage() {
       }
       const latestPersistedChat = (
         (chatSessions.data?.items ?? []) as ChatListItem[]
-      )[0];
+      ).find(chat => !chat.archived_at);
       if (latestPersistedChat) {
         if (latestPersistedChat.project_id) {
           setActiveProjectId(latestPersistedChat.project_id);
@@ -1230,6 +1231,8 @@ export function ChatPage() {
                     </form>
                   </div>
                 ) : showConversation ? (
+                  <>
+                  <ArchivedChatNotice chat={activeChatSession} />
                   <ChatMessageList
                     focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
                     focusMessageId={searchParams.get('resumeChat') === activeChatId ? searchParams.get('focusMessage') : null}
@@ -1278,6 +1281,7 @@ export function ChatPage() {
                       });
                     }}
                   />
+                  </>
                 ) : (
                   <div className="flex min-h-0 flex-1 flex-col items-center justify-start overflow-y-auto px-6 pb-20 pt-6 sm:justify-center sm:pt-0">
                     <div

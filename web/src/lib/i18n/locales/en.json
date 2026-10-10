@@ -4113,5 +4113,16 @@
   "chat.attention.empty": "Nothing needs your attention.",
   "chat.attention.retry": "Could not load requests. Retry",
   "chat.attention.more": "Load more requests",
-  "chat.attention.notFound": "This request could not be located. Reopen the attention menu to check its status."
+  "chat.attention.notFound": "This request could not be located. Reopen the attention menu to check its status.",
+  "chat.list.pin": "Pin",
+  "chat.list.unpin": "Unpin",
+  "chat.list.pinned": "Pinned",
+  "chat.list.archive": "Archive conversation",
+  "chat.list.restore": "Restore conversation",
+  "chat.list.active": "Current chats",
+  "chat.list.archived": "Archived chats",
+  "chat.list.filter": "Conversation list",
+  "chat.list.archivedNotice": "This conversation is archived.",
+  "chat.list.updateFailed": "Could not update the conversation list. Try again.",
+  "chat.list.emptyArchived": "No archived conversations."
 }

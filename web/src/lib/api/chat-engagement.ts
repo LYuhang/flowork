@@ -106,3 +106,10 @@ export function fetchPendingChatActions(scopeId: string, afterId?: string) {
   if (afterId) params.set('after_id', afterId);
   return request<PendingChatActionsPage>(`/chat-scopes/${encodeURIComponent(scopeId)}/attention?${params}`);
 }
+
+export type ChatListState = components['schemas']['ChatListState'];
+export type ChatListStateChange = { pinned?: boolean; archived?: boolean };
+export const updateChatListState = (chatId: string, change: ChatListStateChange) =>
+  request<ChatListState>(`${chatPath(chatId)}/list-state`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change),
+  });

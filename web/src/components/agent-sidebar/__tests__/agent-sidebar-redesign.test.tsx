@@ -1169,11 +1169,11 @@ describe('ChatHistoryMenu', () => {
           target: { kind: 'node', node_id: 'parser' } },
       }] },
     });
-    render(<ChatHistoryMenu wfId="wf" activeChatId="workflow-chat" onSelect={onSelect} />);
+    render(<ChatHistoryMenu wfId="wf" activeChatId="workflow-chat" onSelect={onSelect} />, { wrapper: ChatQueryWrapper });
     await userEvent.click(screen.getByRole('button', { name: /chat history/i }));
     expect(refetch).toHaveBeenCalledOnce();
     expect(screen.getByText('v2.sv3 · parser')).toBeInTheDocument();
-    const item = screen.getByRole('menuitem');
+    const item = screen.getByRole('menuitem', { current: true });
     expect(item).toHaveAttribute('aria-current', 'true');
     expect(item.querySelector('time')).toHaveAttribute('datetime', '2026-10-02T12:00:00Z');
     await userEvent.click(item);
@@ -1182,7 +1182,7 @@ describe('ChatHistoryMenu', () => {
 
   it('empty → "No chats yet."', async () => {
     sessionsMock.mockReturnValue({ data: { items: [] }, isLoading: false });
-    render(<ChatHistoryMenu wfId="wf" activeChatId={null} onSelect={() => {}} />);
+    render(<ChatHistoryMenu wfId="wf" activeChatId={null} onSelect={() => {}} />, { wrapper: ChatQueryWrapper });
     await userEvent.click(screen.getByRole('button', { name: /chat history/i }));
     expect(await screen.findByText('No chats yet.')).toBeInTheDocument();
   });
@@ -1196,7 +1196,7 @@ describe('ChatHistoryMenu', () => {
       isLoading: false,
     });
     const onSelect = vi.fn();
-    render(<ChatHistoryMenu wfId="wf" activeChatId="c1" onSelect={onSelect} />);
+    render(<ChatHistoryMenu wfId="wf" activeChatId="c1" onSelect={onSelect} />, { wrapper: ChatQueryWrapper });
     await userEvent.click(screen.getByRole('button', { name: /chat history/i }));
     await userEvent.click(await screen.findByText('Research'));
     expect(onSelect).toHaveBeenCalledWith('c1');
@@ -1211,6 +1211,7 @@ describe('ChatHistoryMenu', () => {
         onSelect={() => {}}
         surface="browser"
       />,
+      { wrapper: ChatQueryWrapper },
     );
     expect(sessionsMock).toHaveBeenCalledWith('browser-scope', 'browser');
   });

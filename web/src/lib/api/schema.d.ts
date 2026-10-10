@@ -1744,6 +1744,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/{chat_id}/list-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Chat List State */
+        patch: operations["update_chat_list_state_api_v1_chats__chat_id__list_state_patch"];
+        trace?: never;
+    };
     "/api/v1/chats/{chat_id}/runtime": {
         parameters: {
             query?: never;
@@ -5789,6 +5806,10 @@ export interface components {
         };
         /** ChatListItem */
         ChatListItem: {
+            /** Pinned At */
+            pinned_at?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
             /** Chat Id */
             chat_id: string;
             latest_run?: components["schemas"]["ChatRunSummary"] | null;
@@ -5826,6 +5847,20 @@ export interface components {
             /** Runtime Type */
             runtime_type?: string | null;
             access?: components["schemas"]["ResourceAccessOut"] | null;
+        };
+        /** ChatListState */
+        ChatListState: {
+            /** Pinned At */
+            pinned_at?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
+        };
+        /** ChatListStatePatch */
+        ChatListStatePatch: {
+            /** Pinned */
+            pinned?: boolean | null;
+            /** Archived */
+            archived?: boolean | null;
         };
         /** ChatProjectCreateBody */
         ChatProjectCreateBody: {
@@ -13041,6 +13076,41 @@ export interface operations {
             };
         };
     };
+    update_chat_list_state_api_v1_chats__chat_id__list_state_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatListStatePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatListState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_chat_runtime_binding_api_v1_chats__chat_id__runtime_get: {
         parameters: {
             query?: never;
@@ -13108,6 +13178,7 @@ export interface operations {
         parameters: {
             query?: {
                 surface?: string | null;
+                archive_state?: "active" | "archived" | "all";
                 limit?: number;
                 offset?: number;
             };

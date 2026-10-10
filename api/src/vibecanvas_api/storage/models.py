@@ -333,6 +333,8 @@ class Chat(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False,
         server_default=text("current_setting('app.tenant_id', true)::uuid"))
+    pinned_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    archived_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     last_message_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at:      Mapped[datetime] = _ts()
     updated_at:      Mapped[datetime] = _ts()

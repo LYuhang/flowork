@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -281,6 +282,7 @@ class ChatRepo:
             await self._materialize_chat_private(chat)
         return [{"chat_id": c.chat_id, "project_id": c.project_id, "workflow_id": c.project.workflow_id, "name": c.name,
                  "chat_context": c.name,
+                 "pinned_at": c.pinned_at, "archived_at": c.archived_at,
                  "surface": c.surface,
                  "runtime_type": c.project.runtime_type,
                  "browser_control_status": c.browser_control_status,
@@ -324,6 +326,7 @@ class ChatRepo:
         *,
         major_version: int = 0,
         surface: str | None = None,
+        archive_state: Literal["active", "archived", "all"] = "all",
     ) -> list[dict]:
         """Intersect OpenFGA ListObjects with tenant-scoped Chat rows.
 
@@ -348,9 +351,15 @@ class ChatRepo:
             query = query.where(Chat.major_version == major_version)
         if surface:
             query = query.where(Chat.surface == surface)
+        if archive_state == "active":
+            query = query.where(Chat.archived_at.is_(None))
+        elif archive_state == "archived":
+            query = query.where(Chat.archived_at.is_not(None))
         query = query.order_by(
+            Chat.pinned_at.desc().nullslast(),
             Chat.last_message_at.desc().nullslast(),
             Chat.created_at.desc(),
+            Chat.chat_id,
         )
         rows = (await self._s.execute(query)).scalars().all()
         for chat in rows:
@@ -360,6 +369,8 @@ class ChatRepo:
             {
                 "chat_id": chat.chat_id,
                 "latest_run": runs.get(chat.chat_id),
+                "pinned_at": chat.pinned_at,
+                "archived_at": chat.archived_at,
                 "project_id": chat.project_id,
                 "workflow_id": chat.project.workflow_id if chat.project is not None else None,
                 "name": chat.name,
@@ -883,6 +894,21 @@ class ChatRepo:
         await self._store_chat_private(chat, name=title, meta=chat.meta)
         await self._s.flush()
         return True
+
+    async def set_list_state(
+        self, chat_id: str, *, pinned: bool | None = None, archived: bool | None = None,
+    ) -> dict | None:
+        """Change list preferences only; no messages, runtime or workspace writes."""
+        values = {}
+        for column, enabled in (("pinned_at", pinned), ("archived_at", archived)):
+            if enabled is not None:
+                values[column] = func.coalesce(getattr(Chat, column), func.now()) if enabled else None
+        row = (await self._s.execute(
+            update(Chat).where(Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
+                               Chat.deleted_at.is_(None))
+            .values(**values).returning(Chat.pinned_at, Chat.archived_at)
+        )).mappings().first()
+        return dict(row) if row is not None else None
 
     async def rename_session(
         self,

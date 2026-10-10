@@ -23,7 +23,24 @@ class ChatRunSummary(BaseModel):
     ended_at: datetime | None = None
 
 
-class ChatListItem(BaseModel):
+class ChatListState(BaseModel):
+    pinned_at: datetime | None = None
+    archived_at: datetime | None = None
+
+
+class ChatListStatePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pinned: bool | None = None
+    archived: bool | None = None
+
+    @model_validator(mode="after")
+    def require_change(self):
+        if self.pinned is None and self.archived is None:
+            raise ValueError("Specify pinned or archived")
+        return self
+
+
+class ChatListItem(ChatListState):
     chat_id: str
     latest_run: ChatRunSummary | None = None
     project_id: str | None = None

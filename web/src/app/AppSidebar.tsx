@@ -13,6 +13,8 @@
  * The app wordmark and account utilities live here because the global empty
  * brand header has been removed from the management shell.
  */
+import { useChatListActions } from '@/components/agent-sidebar/use-chat-list-actions';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
 import { openProjectChatDraft } from '@/lib/chat/project-draft';
 import { useMemo, useState } from 'react';
@@ -26,6 +28,7 @@ import {
   FolderPlus,
   Plus,
   Pencil,
+  Pin,
   Power,
   Search,
   Trash2,
@@ -84,6 +87,8 @@ type SidebarChatItem = {
   chat_context: string;
   surface?: 'chat' | 'browser';
   latest_run?: ChatListItem['latest_run'];
+  pinned_at?: string | null;
+  archived_at?: string | null;
 };
 
 interface NavItem {
@@ -232,6 +237,8 @@ export function AppSidebar({
   const deleteProject = useDeleteChatProject();
   const deleteChat = useDeleteChatSession(carrierScopeId, 'chat', deleteChatFiles);
   const renameChat = useRenameChatSession(carrierScopeId, 'chat');
+  const [showArchivedChats, setShowArchivedChats] = useState(false);
+  const actionsForChat = useChatListActions();
   const chatItems = useMemo<SidebarChatItem[]>(() => {
     const persistedRaw = (sessions.data?.items ?? []) as SidebarChatItem[];
     if (!carrierScopeId) return persistedRaw;
@@ -258,7 +265,7 @@ export function AppSidebar({
         chat_context: item.chat_context,
         surface: item.surface,
       }));
-    return [...optimistic, ...persisted];
+    return [...optimistic, ...persisted].sort((a, b) => Number(Boolean(b.pinned_at)) - Number(Boolean(a.pinned_at)));
   }, [carrierScopeId, optimisticChatSessions, sessions.data?.items]);
   const sandboxStatuses = useProjectSandboxStatuses(
     showChatContext ? (projects.data ?? []).map((item) => item.project_id) : [],
@@ -541,16 +548,29 @@ export function AppSidebar({
               <FolderPlus className="size-4" />
             </button>
           </div>
+          <div className="mt-2 px-3">
+            <Select value={showArchivedChats ? 'archived' : 'active'} onValueChange={value => setShowArchivedChats(value === 'archived')}>
+              <SelectTrigger className="h-7 text-xs" aria-label={t('chat.list.filter', 'Conversation list')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">{t('chat.list.active', 'Current chats')}</SelectItem>
+                <SelectItem value="archived">{t('chat.list.archived', 'Archived chats')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="app-scrollbar mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
             {boot.isLoading || sessions.isLoading || projects.isLoading ? (
               <div className="space-y-1 px-3">
                 <Skeleton className="h-7 w-full" />
                 <Skeleton className="h-7 w-5/6" />
               </div>
+            ) : showArchivedChats && !chatItems.some(item => item.archived_at) ? (
+              <p className="px-3 py-4 text-xs text-muted-foreground">{t('chat.list.emptyArchived', 'No archived conversations.')}</p>
             ) : projects.data?.length ? (
-              projects.data.map((project) => {
+              projects.data.filter(project => !showArchivedChats || chatItems.some(item => item.project_id === project.project_id && item.archived_at)).map((project) => {
                 const projectChats = chatItems.filter(
-                  (item) => item.project_id === project.project_id,
+                  (item) => item.project_id === project.project_id && Boolean(item.archived_at) === showArchivedChats,
                 );
                 const expanded = !collapsedProjects.has(project.project_id);
                 const sandboxState: SandboxLifecycleStatus = sandboxStatusByProject.get(project.project_id)?.status ?? 'idle';
@@ -629,12 +649,14 @@ export function AppSidebar({
                               >
                                 <ResourceIcon kind="chat" size="sm" className="size-5 rounded" />
                                 <span className="min-w-0 flex-1 truncate">{label}</span>
+                                {item.pinned_at && <Pin className="size-3 shrink-0" aria-label={t('chat.list.pinned', 'Pinned')} />}
                                 <ChatRunStatus chatId={item.chat_id} run={item.latest_run} />
                               </button>
                             </div>
                           );
                           return (
                             <SidebarRowMenu key={item.chat_id} label={t('nav.chatHistory.actions', 'Actions for conversation {{name}}', { name: label })} actions={[
+                              ...actionsForChat(item),
                               { label: t('nav.chatHistory.rename', 'Rename'), icon: Pencil,
                                 onSelect: () => openRenameChat(item.chat_id, label) },
                               { label: t('nav.chatHistory.delete', 'Delete'), icon: Trash2, destructive: true,

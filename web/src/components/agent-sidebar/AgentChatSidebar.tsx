@@ -35,6 +35,7 @@ import { useWorkflow } from '@/lib/api/queries/workflow';
 import { getBasePath } from '@/lib/base-path';
 import { SSEStatusBanner } from '@/components/agent-sidebar/SSEStatusBanner';
 import { ChatHistoryMenu } from '@/components/agent-sidebar/ChatHistoryMenu';
+import { ArchivedChatNotice } from './ArchivedChatNotice';
 import { ChatMessageList } from '@/components/agent-sidebar/ChatMessageList';
 import type { SubmitInteractiveAsNewTurn } from '@/components/agent-sidebar/tool-render/InteractiveArtifactBlock';
 import { ChatComposer } from '@/components/agent-sidebar/ChatComposer';
@@ -58,6 +59,8 @@ const MIN_AGENT_WIDTH = 320;
 const MAX_AGENT_WIDTH = 760;
 const DEFAULT_AGENT_WIDTH = 420;
 type BrowserChatSession = {
+  pinned_at?: string | null;
+  archived_at?: string | null;
   chat_id: string;
   project_id: string;
   browser_control_status?: 'inactive' | 'attaching' | 'attached' | 'lost';
@@ -273,8 +276,9 @@ export function AgentChatSidebar({
       const sessionsReady =
         sessions.data !== undefined || sessions.isFetched || sessions.isError;
       if (embedded && !sessionsReady) return;
-      if (sessionItems[0]?.chat_id) {
-        setActiveChatId(chatSurface, sessionItems[0].chat_id);
+      const latestVisible = sessionItems.find(item => !item.archived_at);
+      if (latestVisible) {
+        setActiveChatId(chatSurface, latestVisible.chat_id);
       } else if (initialCreationScope.current !== lastWfId) {
         initialCreationScope.current = lastWfId;
         void createAndSelectChat().catch(() => {
@@ -507,6 +511,7 @@ export function AgentChatSidebar({
       <SSEStatusBanner wfId={lastWfId} activeChatId={activeChatId} />
 
       <div className="flex min-h-0 flex-1 flex-col">
+        <ArchivedChatNotice chat={sessionItems.find(item => item.chat_id === activeChatId)} />
         <ChatMessageList
           focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
           readingActive={active}

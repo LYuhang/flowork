@@ -22,6 +22,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -71,6 +72,7 @@ from ..schemas.chat import (
     BackgroundJobCancelBody, BackgroundJobOut,
     BackgroundResultsControl,
     BrowserBindingOut, ChatCreateBody, ChatInventoryItem, ChatListItem, ChatRenameBody,
+    ChatListState, ChatListStatePatch,
     ChatProjectCreateBody, ChatProjectOut, ChatProjectRenameBody, ProjectMcpSelection,
     ChatRuntimeBindingOut, ChatStateOut, HistoryMessage,
     HitlContinueControl, HitlDecisionBody, HitlRequestOut, PendingChatAction, PendingChatActionsPage,
@@ -1014,6 +1016,22 @@ async def upload_chat_attachment(
     )
 
 
+@router.patch("/chats/{chat_id}/list-state", response_model=ChatListState)
+async def update_chat_list_state(
+    chat_id: str, body: ChatListStatePatch, request: Request,
+    chat_repo: ChatRepo = Depends(get_chat_repo),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_chat(request=request, auth=auth, service=service, chat_id=chat_id,
+                          action=Action.UPDATE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    updated = await chat_repo.set_list_state(chat_id, pinned=body.pinned, archived=body.archived)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="chat_not_found")
+    await chat_repo.commit()
+    return ChatListState(**updated)
+
+
 @router.patch(
     "/chat-scopes/{scope_id}/chats/{chat_id}",
     response_model=ChatListItem,
@@ -1270,6 +1288,8 @@ def _session_to_list_item(
         updated_at=session.get("updated_at"),
         last_message_at=session.get("last_message_at"),
         latest_run=session.get("latest_run") if can_view_content else None,
+        pinned_at=session.get("pinned_at"),
+        archived_at=session.get("archived_at"),
         workflow_context=session.get("workflow_context") if can_view_content else None,
         browser_control_status=session.get("browser_control_status", "inactive"),
         runtime_type=session.get("runtime_type") if can_view_content else None,
@@ -1362,6 +1382,7 @@ async def list_chats(
     request: Request,
     page: PageRequest = Depends(PageRequest.as_query),
     surface: str | None = Query(default=None),
+    archive_state: Literal["active", "archived", "all"] = Query(default="all"),
     chat_repo: ChatRepo = Depends(get_chat_repo),
     workflow_repo: WorkflowRepo = Depends(get_workflow_repo),
     auth: AuthContext = Depends(current_user),
@@ -1394,6 +1415,7 @@ async def list_chats(
         scope_id,
         authorized_ids,
         surface=chat_surface,
+        archive_state=archive_state,
     )
     sliced = chats[page.offset:page.offset + page.limit]
     resources = [

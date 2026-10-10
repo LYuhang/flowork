@@ -653,3 +653,11 @@ F03 组件交互已实现，真实运行任务的端到端附件链路仍需补�
 - 新增迁移 175，HITL 变化及会话删除在事务提交后通知对应组织/用户。菜单仅在打开时订阅现有 SSE 通道，关闭后释放；复用读取合并及断线补读，不新增操作重试或消息持久化系统。
 - 数据库实测提交/回滚、用户隔离和删除会话通知通过；订阅入口权限和心跳测试通过。前端菜单与通知组件 12 项测试通过，完整类型检查、候选构建、修改文件 lint、包体及部署路径检查通过。
 - 候选代码准备部署以进行真实双窗口审批和插件验收；尚不能以本地测试代替端到端结果。
+
+### F14 上线与真实交互验收（2026-10-10）
+
+- 候选代码 `96f3794` 已部署，数据库为迁移 175，公网 `/healthz` 返回正常，存储继续使用 POSIX。首次重启被安装目录中旧前端源码的不可读权限阻断；统一已跟踪 API/Web 源码的服务账号归属和读取权限后，服务账号构建及完整启动通过。部署文件需明确所有者/模式，不能直接保留开发目录的私有权限；不调整配置密钥文件权限。
+- 主应用使用 Terra 创建真实交互式提问。390px 暗色观察窗口与 1280px 亮色操作窗口同时打开菜单，点击准确定位请求卡片；确认中文仅产生一次决定请求，另一个仍打开的菜单无需刷新即显示无待办，卡片同步确认，Agent 收到选择后完成。未拦截 API，未出现页面脚本错误或横向溢出。证据 `/tmp/attention-public-result.json`、`/tmp/attention-menu-390.png`、`/tmp/attention-located-card.png`、`/tmp/attention-other-window-resolved.png`。
+- 已安装扩展 `mkfldhmlgdbpmhplaphhcfcdcoaakcik` 的实际 `sidepanel.html` 与生产 iframe/API 中，用 Terra 独立创建提问，验证菜单选择、定位、单次提交、Agent 继续回答及重开后保留结果。另一次只读重开检查以退出码 0 完成，已处理请求不再出现。证据 `/tmp/attention-extension-result.json`、`/tmp/attention-extension-reopen-result.json`、`/tmp/attention-extension-located.png`、`/tmp/attention-extension-reopened.png`。此项通过扩展页面启动，不覆盖 Chrome 原生侧边栏开关按钮本身。
+- 两个实机 Agent run 均为 completed。数据库/API 测试覆盖审批、结果确认、提问三种汇总类型及权限边界；本批实际由模型发起并人工处理的链路是提问，不把它当成另外两种决策的实机覆盖。
+- 后续继续 F13 会话置顶/归档、F15/F16 独立设计及文档中其他未完成项；本次上线不代表全部需求完成。GitHub CI 需在推送后另行核对。

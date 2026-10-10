@@ -1,3 +1,4 @@
+import { PendingActionsMenu, type PendingActionFocus } from '@/components/agent-sidebar/PendingActionsMenu';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
@@ -182,6 +183,7 @@ export function ChatPage() {
   const qc = useQueryClient();
   const account = useAuthStore((state) => state.user);
   const activeChatId = useUIStore((s) => s.activeChatIds.chat);
+  const [attentionFocus, setAttentionFocus] = useState<PendingActionFocus | null>(null);
   const [searchParams] = useSearchParams();
   // Empty persisted chats are intentionally absent from conversation history.
   // A source deep link verifies their workspace independently, including reloads.
@@ -1021,6 +1023,15 @@ export function ChatPage() {
           <Plus className="h-4 w-4" />
           <span className="hidden sm:inline">{t('new_chat', 'New Chat')}</span>
         </Button>
+        <PendingActionsMenu scopeId={carrierScopeId} onSelect={action => {
+          activeRunDiscoveryGenerationRef.current += 1;
+          setActiveRunDiscoveryStatus('ready');
+          setChatEntryIntent('select');
+          setActiveChatId('chat', action.chat_id);
+          const chat = chatSessionItems.find(item => item.chat_id === action.chat_id);
+          if (chat?.project_id) setActiveProjectId(chat.project_id);
+          setAttentionFocus(previous => ({ chatId: action.chat_id, id: action.hitl_request_id, revision: (previous?.revision ?? 0) + 1 }));
+        }} />
         <ChatShareDialog key={activeChatId} chatId={activeChatId ?? ''} disabled={!activeChatIsPersisted} />
         <ChatToolbarTooltip label={t('chat.toolbar.preview', 'Preview page')}>
           <Button
@@ -1220,6 +1231,7 @@ export function ChatPage() {
                   </div>
                 ) : showConversation ? (
                   <ChatMessageList
+                    focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
                     focusMessageId={searchParams.get('resumeChat') === activeChatId ? searchParams.get('focusMessage') : null}
                     wfId={carrierScopeId}
                     vfsScopeId={workspaceScopeId || carrierScopeId}

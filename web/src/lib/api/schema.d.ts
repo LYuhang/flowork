@@ -1815,6 +1815,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat-scopes/{scope_id}/attention/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream Chat Attention */
+        get: operations["stream_chat_attention_api_v1_chat_scopes__scope_id__attention_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat-scopes/{scope_id}/attention": {
         parameters: {
             query?: never;
@@ -13140,6 +13157,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BrowserBindingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_chat_attention_api_v1_chat_scopes__scope_id__attention_activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -173,7 +173,7 @@ describe('ChatMessageList', () => {
     expect(useChatStreamStore.getState().runtimes['search-chat'].state).toBe('streaming');
   });
 
-  it('keeps a located message anchored when later content resizes', async () => {
+  it.each(['message', 'request'] as const)('keeps a located %s anchored when later content resizes', async (kind) => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     let resize = () => {};
     vi.stubGlobal('ResizeObserver', class {
@@ -198,12 +198,32 @@ describe('ChatMessageList', () => {
     await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
     log.scrollTop = 900;
     fireEvent.scroll(log);
-    view.rerender(<ChatMessageList {...props} focusMessageId="old" />);
+    if (kind === 'request') {
+      view.container.querySelector('[data-quotable-message="old"]')!.setAttribute('data-hitl-request-id', 'approval-1');
+    }
+    view.rerender(<ChatMessageList {...props}
+      focusMessageId={kind === 'message' ? 'old' : undefined}
+      focusRequest={kind === 'request' ? { id: 'approval-1', revision: 1 } : undefined} />);
     await waitFor(() => expect(log.scrollTop).toBe(68));
     act(() => resize());
     expect(log.scrollTop).toBe(68);
     view.unmount();
     vi.unstubAllGlobals();
+  });
+
+  it('locates a late pending request after initially reporting it missing', async () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const rows = [{ id: 'request-message', role: 'user', content: 'Request context stays visible' }];
+    const props = { wfId: 'wf', activeChatId: 'late-request', historyItems: rows,
+      focusRequest: { id: 'approval-late', revision: 1 } };
+    const view = render(<ChatMessageList {...props} />);
+    await screen.findByText('This request could not be located. Reopen the attention menu to check its status.');
+    const target = view.container.querySelector('[data-quotable-message="request-message"]')!;
+    target.setAttribute('data-hitl-request-id', 'approval-late');
+    view.rerender(<ChatMessageList {...props} historyItems={[...rows]} />);
+    await waitFor(() => expect(target).toHaveAttribute('data-reference-highlight', 'true'));
+    expect(screen.queryByText('This request could not be located. Reopen the attention menu to check its status.')).toBeNull();
+    expect(screen.getByText('Request context stays visible')).toBeVisible();
   });
 
   it('renders only the selected chat preparation and hands off without a duplicate bubble', () => {

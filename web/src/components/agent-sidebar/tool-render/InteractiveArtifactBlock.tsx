@@ -1592,7 +1592,7 @@ export function InteractiveArtifactBlock({
   }, [hitlRequestId, reconcileEpoch]);
 
   if (artifact?.component_type === 'user_input' && artifact.props?.mode === 'choices' && !renderError) {
-    return <ChoicesCard key={artifact.artifact_id} artifact={artifact} />;
+    return <div data-hitl-request-id={hitlRequestId ?? undefined}><ChoicesCard key={artifact.artifact_id} artifact={artifact} /></div>;
   }
 
   return (
@@ -1601,6 +1601,7 @@ export function InteractiveArtifactBlock({
       data-message-role="assistant"
       data-tool-name={call.name}
       data-role="interactive-artifact"
+      data-hitl-request-id={hitlRequestId ?? undefined}
       data-preview-render-state={isFilePreviewSummary ? 'summary' : undefined}
       data-file-preview-type={isFilePreviewSummary ? fileSummaryAppearance.type : undefined}
     >

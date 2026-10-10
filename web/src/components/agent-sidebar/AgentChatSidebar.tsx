@@ -1,3 +1,4 @@
+import { PendingActionsMenu, type PendingActionFocus } from './PendingActionsMenu';
 import { watchChatActivity } from '@/lib/api/sse/chat-activity';
 /**
  * Browser-extension conversation surface, mounted by EmbedShell.
@@ -103,6 +104,7 @@ export function AgentChatSidebar({
   const { mutateAsync: createChatSession, isPending: creatingChat } = useCreateChatSession();
   const pendingChatCreation = useRef<Promise<void> | null>(null);
   const selectionRevision = useRef(0);
+  const [attentionFocus, setAttentionFocus] = useState<PendingActionFocus | null>(null);
   const createAndSelectChat = useCallback(() => {
     if (!lastWfId) return Promise.resolve();
     if (pendingChatCreation.current) return pendingChatCreation.current;
@@ -461,6 +463,10 @@ export function AgentChatSidebar({
         >
           <Plus className="h-4 w-4" />
         </Button>
+        <PendingActionsMenu scopeId={lastWfId} active={active} onSelect={action => {
+          handleHistorySelect(action.chat_id);
+          setAttentionFocus(previous => ({ chatId: action.chat_id, id: action.hitl_request_id, revision: (previous?.revision ?? 0) + 1 }));
+        }} />
         <ChatHistoryMenu
           wfId={lastWfId}
           activeChatId={activeChatId}
@@ -502,6 +508,7 @@ export function AgentChatSidebar({
 
       <div className="flex min-h-0 flex-1 flex-col">
         <ChatMessageList
+          focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
           readingActive={active}
           wfId={lastWfId}
           vfsScopeId={workspaceScopeId || undefined}

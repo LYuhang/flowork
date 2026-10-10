@@ -5992,6 +5992,51 @@
         }
       }
     },
+    "/api/v1/chat-scopes/{scope_id}/attention/activity": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Stream Chat Attention",
+        "operationId": "stream_chat_attention_api_v1_chat_scopes__scope_id__attention_activity_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scope_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scope Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chat-scopes/{scope_id}/attention": {
       "get": {
         "tags": [

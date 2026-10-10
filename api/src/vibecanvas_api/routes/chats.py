@@ -1468,6 +1468,38 @@ def _hitl_out(row, *, decision_applied: bool | None = None) -> HitlRequestOut:
     )
 
 
+@router.get("/chat-scopes/{scope_id}/attention/activity")
+async def stream_chat_attention(
+    scope_id: str, request: Request,
+    workflow_repo: WorkflowRepo = Depends(get_workflow_repo),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    from contextlib import aclosing
+    from vibecanvas_api.services.state_notifications import invalidations
+
+    await _authorize_chat_carrier(request=request, auth=auth, service=service,
+                                  workflow_repo=workflow_repo, scope_id=scope_id, action=Action.VIEW)
+    await workflow_repo._s.commit()
+    # Notifications contain no request data. Every refreshed page separately
+    # checks current Chat permissions before reading private request content.
+    internal = scope_id.startswith("__")
+    guard = _chat_stream_guard(
+        request=request, auth=auth,
+        resource_type=ResourceType.ORGANIZATION if internal else ResourceType.WORKFLOW,
+        resource_id=auth.active_organization_id if internal else scope_id,
+        action=Action.VIEW_METADATA if internal else Action.VIEW,
+    )
+    owner_key = f"{auth.active_organization_id}:{auth.user_id}"
+
+    async def events():
+        async with aclosing(invalidations('flowork_chat_attention', owner_key, guard)) as stream:
+            async for changed in stream:
+                yield format_event('changed', {}) if changed else b': heartbeat\n\n'
+
+    return StreamingResponse(events(), media_type='text/event-stream', headers=SSE_HEADERS)
+
+
 @router.get("/chat-scopes/{scope_id}/attention", response_model=PendingChatActionsPage)
 async def list_pending_chat_actions(
     scope_id: str, request: Request,

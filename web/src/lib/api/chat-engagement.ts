@@ -98,3 +98,11 @@ export const markChatTurnRead = (chatId: string, runId: string) =>
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ run_id: runId }),
   });
+
+export type PendingChatAction = components['schemas']['PendingChatAction'];
+export type PendingChatActionsPage = components['schemas']['PendingChatActionsPage'];
+export function fetchPendingChatActions(scopeId: string, afterId?: string) {
+  const params = new URLSearchParams({ limit: '30' });
+  if (afterId) params.set('after_id', afterId);
+  return request<PendingChatActionsPage>(`/chat-scopes/${encodeURIComponent(scopeId)}/attention?${params}`);
+}

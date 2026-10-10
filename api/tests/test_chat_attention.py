@@ -90,3 +90,62 @@ async def test_attention_requires_content_access_and_rejects_other_carriers(clie
     result = await client.get(endpoint, headers=headers)
     assert result.status_code == 200, result.text
     assert result.json() == {'items': [], 'next_cursor': None}
+
+
+@pytest.mark.asyncio
+async def test_attention_notifications_are_committed_and_owner_scoped(client):
+    import asyncio
+    from vibecanvas_api.services.state_notifications import state_changes
+
+    _, me, chat, _, ids = await attention_fixture(client)
+    key = f"{me['tenant_id']}:{me['user_id']}"
+    async with state_changes('flowork_chat_attention', key) as changed:
+        await asyncio.wait_for(changed.wait(), 5)
+        async with state_changes('flowork_chat_attention', f"{me['tenant_id']}:{uuid.uuid4()}") as other:
+            changed.clear()
+            async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+                await HitlRepo(session).resolve(hitl_request_id=ids[0], decision='approve', decision_payload={})
+                assert not changed.is_set()
+                await session.rollback()
+            await asyncio.sleep(.1)
+            assert not changed.is_set()
+            async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+                await HitlRepo(session).resolve(hitl_request_id=ids[0], decision='approve', decision_payload={})
+            await asyncio.wait_for(changed.wait(), 5)
+            assert not other.is_set()
+            changed.clear()
+            async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+                await session.execute(text('UPDATE chats SET deleted_at=now() WHERE chat_id=:chat'), {'chat': chat})
+            await asyncio.wait_for(changed.wait(), 5)
+            assert not other.is_set()
+
+
+@pytest.mark.asyncio
+async def test_attention_stream_authorizes_before_subscribing(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from vibecanvas_api.routes import chats
+    from vibecanvas_api.services import state_notifications
+
+    authorize = AsyncMock()
+    monkeypatch.setattr(chats, '_authorize_chat_carrier', authorize)
+    guard = lambda: None
+    monkeypatch.setattr(chats, '_chat_stream_guard', lambda **kwargs: guard)
+    seen = []
+    async def invalidations(channel, owner, authorized):
+        seen.append((channel, owner, authorized))
+        yield True
+        yield False
+    monkeypatch.setattr(state_notifications, 'invalidations', invalidations)
+    repo = SimpleNamespace(_s=SimpleNamespace(commit=AsyncMock()))
+    auth = SimpleNamespace(active_organization_id='org', user_id='user')
+    response = await chats.stream_chat_attention('__chat_user', SimpleNamespace(), repo, auth, SimpleNamespace())
+    assert [chunk async for chunk in response.body_iterator] == [b'event: changed\ndata: {}\n\n', b': heartbeat\n\n']
+    assert seen == [('flowork_chat_attention', 'org:user', guard)]
+    repo._s.commit.assert_awaited_once()
+    authorize.assert_awaited_once()
+    authorize.side_effect = HTTPException(403)
+    with pytest.raises(HTTPException):
+        await chats.stream_chat_attention('__chat_user', SimpleNamespace(), repo, auth, SimpleNamespace())
+    assert len(seen) == 1

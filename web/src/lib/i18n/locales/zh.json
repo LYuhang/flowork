@@ -4104,5 +4104,14 @@
   "chat.runStatus.cancelled": "已停止",
   "chat.runStatus.failed": "失败",
   "chat.runStatus.unread": "已完成 · 未读",
-  "chat.read.retry": "未能更新已读状态，点击重试"
+  "chat.read.retry": "未能更新已读状态，点击重试",
+  "chat.attention.title": "待我处理",
+  "chat.attention.untitled": "待处理请求",
+  "chat.attention.approval": "审批",
+  "chat.attention.review": "确认",
+  "chat.attention.question": "提问",
+  "chat.attention.empty": "暂无待处理事项。",
+  "chat.attention.retry": "无法加载待处理事项，点击重试",
+  "chat.attention.more": "载入更多待处理事项",
+  "chat.attention.notFound": "未能定位此请求，请重新打开“待我处理”查看其状态。"
 }

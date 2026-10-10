@@ -159,6 +159,7 @@ export interface ChatMessageListProps {
   workflowViewerId?: string | null;
   onOpenWorkflowPreview?: (workflowId: string) => void;
   focusMessageId?: string | null;
+  focusRequest?: { id: string; revision: number } | null;
   historyItems?: RawChunk[];
   historyLoading?: boolean;
   historyFetching?: boolean;
@@ -409,6 +410,7 @@ export function ChatMessageList({
   readingActive = true,
   onOpenWorkflowPreview,
   focusMessageId: referenceMessageId,
+  focusRequest,
   historyItems: historyItemsProp,
   historyLoading: historyLoadingProp,
   hasOlderHistory = false,
@@ -778,24 +780,28 @@ export function ChatMessageList({
     requestAnimationFrame(() => scrollToBottom('auto'));
   }, [isStreaming, streamBuffer.length, merged.length, scrollToBottom]);
 
-  const [searchFocus, setSearchFocus] = useState<{ chatId: string; id: string | null; revision: number } | null>(null);
-  const searchMessageId = searchFocus?.chatId === activeChatId ? searchFocus.id : null;
-  const focusMessageId = searchMessageId ?? referenceMessageId;
-  const focusKey = `${activeChatId ?? ''}:${focusMessageId ?? ''}:${searchMessageId ? searchFocus?.revision : ''}`;
+  const [searchFocus, setSearchFocus] = useState<{ chatId: string; id: string | null; revision: number; requestRevision?: number } | null>(null);
+  // A new attention selection supersedes an earlier search; a later search still wins.
+  const searchMessageId = searchFocus?.chatId === activeChatId && searchFocus.requestRevision === focusRequest?.revision ? searchFocus.id : null;
+  const focusMessageId = searchMessageId ?? focusRequest?.id ?? referenceMessageId;
+  const focusKind = !searchMessageId && focusRequest ? 'request' : 'message';
+  const focusKey = `${activeChatId ?? ''}:${focusKind}:${focusMessageId ?? ''}:${searchMessageId ? searchFocus?.revision : focusRequest?.revision ?? ''}`;
   const focusedKey = useRef('');
   const focusLoading = useRef(false);
   const [focusErrorKey, setFocusErrorKey] = useState('');
   useEffect(() => {
-    if (!focusMessageId || focusedKey.current === focusKey || focusErrorKey === focusKey || historyIsLoading || olderHistoryLoading) return;
+    if (!focusMessageId || focusedKey.current === focusKey || historyIsLoading || olderHistoryLoading) return;
     const container = scrollRef.current;
     if (!container) return;
-    const target = Array.from(container.querySelectorAll<HTMLElement>('[data-quotable-message]'))
-      .find(element => element.dataset.quotableMessage === focusMessageId);
+    const attribute = focusKind === 'request' ? 'data-hitl-request-id' : 'data-quotable-message';
+    const target = Array.from(container.querySelectorAll<HTMLElement>(`[${attribute}]`))
+      .find(element => element.getAttribute(attribute) === focusMessageId);
     if (target) {
       shouldStickToBottomRef.current = false;
       const frame = requestAnimationFrame(() => {
         setShowJumpToBottom(true);
         focusedKey.current = focusKey;
+        setFocusErrorKey('');
         container.querySelectorAll('[data-reference-highlight]').forEach(element => element.removeAttribute('data-reference-highlight'));
         target.setAttribute('data-reference-highlight', 'true');
         container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 32;
@@ -807,6 +813,9 @@ export function ChatMessageList({
       });
       return () => cancelAnimationFrame(frame);
     }
+    // A late projection can reveal the target after an earlier failed lookup.
+    // Do not repeat failed history reads, but always check the rendered target.
+    if (focusErrorKey === focusKey) return;
     if (hasOlderHistory && onLoadOlderHistory) {
       if (focusLoading.current) return;
       focusLoading.current = true;
@@ -816,16 +825,16 @@ export function ChatMessageList({
       const frame = requestAnimationFrame(() => setFocusErrorKey(focusKey));
       return () => cancelAnimationFrame(frame);
     }
-  }, [focusMessageId, focusKey, focusErrorKey, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems, captureViewport]);
+  }, [focusMessageId, focusKind, focusKey, focusErrorKey, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems, captureViewport]);
 
   return (
     <ChatRenderProvider value={{ chatId: activeChatId, surface }}>
     <div className="relative flex min-h-0 flex-1 flex-col">
       {activeChatId && historyItems.length > 0 && <ChatMessageSearch key={activeChatId} chatId={activeChatId} onLocate={id => {
-        setSearchFocus(previous => ({ chatId: activeChatId, id, revision: (previous?.revision ?? 0) + 1 }));
+        setSearchFocus(previous => ({ chatId: activeChatId, id, revision: (previous?.revision ?? 0) + 1, requestRevision: focusRequest?.revision }));
         if (!id) scrollRef.current?.querySelectorAll('[data-reference-highlight]').forEach(element => element.removeAttribute('data-reference-highlight'));
       }} />}
-      {focusMessageId && focusErrorKey === focusKey && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{t('composer.context.sourceMissing', 'The referenced message could not be located. Your saved excerpt is unchanged.')}</div>}
+      {focusMessageId && focusErrorKey === focusKey && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{focusKind === 'request' ? t('chat.attention.notFound', 'This request could not be located. Reopen the attention menu to check its status.') : t('composer.context.sourceMissing', 'The referenced message could not be located. Your saved excerpt is unchanged.')}</div>}
       <div
         className="sr-only"
         role="status"

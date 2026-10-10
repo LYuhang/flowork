@@ -154,6 +154,7 @@ _EXPLICIT_ACTIONS = {
     "get_chat_sandbox_statuses": Action.INSPECT_RUNS,
     "list_chat_hitl_requests": Action.VIEW,
     "list_pending_chat_actions": Action.VIEW,
+    "stream_chat_attention": Action.VIEW,
     "mark_completed_turn_read": Action.VIEW,
     "decide_hitl_request": Action.RESUME,
     "create_interactive_resource_session": Action.VIEW,

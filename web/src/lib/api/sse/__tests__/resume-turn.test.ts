@@ -68,6 +68,29 @@ describe('resumeActiveTurn HITL projection', () => {
     await resumeActiveTurn({ wfId: 'scope_slow', chatId: 'chat_slow', turnId: 'slow', status: 'running' }, stream);
   });
 
+  it('replays accepted extra input in a cold window despite another window’s newer cursor', async () => {
+    const chatId = 'cold_steering';
+    const turnId = 'steering_run';
+    const stream: typeof fetchEventSource = async (_url, opts) => {
+      expect(new Headers(opts.headers).has('Last-Event-ID')).toBe(false);
+      await opts.onopen?.(new Response('', { status: 200 }));
+      const emit = (id: string, event: string, payload: unknown) =>
+        opts.onmessage?.({ id, event, data: JSON.stringify(payload) });
+      emit('1', 'started', { turn_id: turnId });
+      emit('2', 'CHAT_EVENT', { type: 'message_start', message_id: 'answer', role: 'assistant', content: 'Before' });
+      emit('3', 'USER_INPUT_STATUS', { turn_id: turnId, input_id: 'extra', status: 'accepted', text: 'Additional instruction' });
+      emit('3', 'USER_INPUT_STATUS', { turn_id: turnId, input_id: 'extra', status: 'accepted', text: 'Additional instruction' });
+      emit('4', 'CHAT_EVENT', { type: 'message_delta', message_id: 'answer', delta: ' after' });
+      // Non-text frames flush pending text before the next state observation.
+      emit('5', 'RUNTIME_CAPABILITIES', { turn_id: turnId, supported_controls: ['steer'] });
+      expect(useChatStreamStore.getState().runtimes[chatId].messages.map(message => [message.id, message.content])).toEqual([
+        ['answer', 'Before after'], ['extra', 'Additional instruction'],
+      ]);
+      emit('6', 'done', {});
+    };
+    await expect(resumeActiveTurn({ wfId: 'cold_scope', chatId, turnId, status: 'running', lastEventId: 99 }, stream)).resolves.toBe(true);
+  });
+
   it('restores the durable active-Turn user message before replaying events', async () => {
     const stream: typeof fetchEventSource = async (_url, opts) => {
       await opts.onopen?.(new Response('', { status: 200 }));

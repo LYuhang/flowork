@@ -216,6 +216,72 @@ class ChatRepo:
             project_id,
         )
 
+    async def create_branch_snapshot(
+        self, source_chat_id: str, *, through_turn_id: str, chat_id: str,
+        name: str, tool_projections: dict[str, dict],
+    ) -> str:
+        """Create a bounded encrypted history in the caller's transaction.
+
+        The caller authorizes project creation and resolves source artifact
+        projections before invoking this method. Native thread initialization
+        and authorization projection must complete before the transaction is
+        exposed as a usable branch. This method never starts a model turn.
+        """
+        from vibecanvas_api.services.chat_branch_history import branch_message_snapshot
+
+        async with self._s.begin_nested():
+            source = await self._s.scalar(select(Chat).where(
+                Chat.chat_id == source_chat_id,
+                Chat.creator_user_id == self._user_id,
+                Chat.deleted_at.is_(None),
+            ))
+            if source is None:
+                raise LookupError("branch_source_not_found")
+            await self._materialize_chat_private(source)
+            # Validate the boundary before creating any target or workspace marker.
+            rows, total, _ = await self.list_message_page(
+                source_chat_id, through_turn_id=through_turn_id, limit=200,
+            )
+            await self._s.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"chat-create:{chat_id}"},
+            )
+            if await self._s.scalar(select(Chat.chat_id).where(Chat.chat_id == chat_id)):
+                raise ValueError("branch_target_already_exists")
+            await self._create_session(
+                source.scope_id, name, source.major_version, chat_id,
+                source.surface, source.project_id,
+            )
+            target = await self._s.scalar(select(Chat).where(Chat.chat_id == chat_id))
+            target.runtime_model_id = source.runtime_model_id
+            target.runtime_agent_settings = dict(source.runtime_agent_settings or {})
+            metadata = {"branch_source": {
+                "chat_id": source_chat_id, "turn_id": through_turn_id,
+                "file_policy": "shared_current_project_files",
+            }}
+            if "workflow_context" in source.meta:
+                metadata["workflow_context"] = source.meta["workflow_context"]
+            await self._store_chat_private(target, name=name, meta=metadata)
+            copied = 0
+            while rows:
+                for row in rows:
+                    snapshot = branch_message_snapshot(
+                        row, source_chat_id=source_chat_id, tool_projections=tool_projections,
+                    )
+                    await self.persist_message(
+                        chat_id, snapshot,
+                        source_timestamp=datetime.fromtimestamp(row["ts"], timezone.utc),
+                    )
+                copied += len(rows)
+                if copied >= total:
+                    break
+                rows, _, _ = await self.list_message_page(
+                    source_chat_id, through_turn_id=through_turn_id,
+                    limit=200, offset=copied,
+                )
+            await self._s.flush()
+        return chat_id
+
     async def get_workflow_context(self, chat_id: str) -> dict | None:
         chat = (await self._s.execute(select(Chat).where(
             Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
@@ -1191,7 +1257,10 @@ class ChatRepo:
     # Message API: one row per completed message.
     # ===================================================================
 
-    async def persist_message(self, chat_id: str, msg: dict, *, replace_content: bool = False) -> None:
+    async def persist_message(
+        self, chat_id: str, msg: dict, *, replace_content: bool = False,
+        source_timestamp: datetime | None = None,
+    ) -> None:
         """Persist a message; only the streaming writer may update its own snapshot."""
         chat = (await self._s.execute(
             select(Chat).where(
@@ -1228,6 +1297,8 @@ class ChatRepo:
             content_nonce=encrypted.nonce,
             content_key_id=encrypted.key_id,
         )
+        if source_timestamp is not None:
+            insert = insert.values(ts=source_timestamp)
         if replace_content:
             statement = insert.on_conflict_do_update(
                 index_elements=["chat_id", "message_id"],

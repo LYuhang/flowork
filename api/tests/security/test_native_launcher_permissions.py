@@ -235,3 +235,32 @@ def test_node_and_pnpm_entrypoints_share_the_pinned_toolchain():
     assert (root / ".nvmrc").read_text().strip() == "24.21.0"
     for package in ("package.json", "web/package.json", "extension/package.json"):
         assert json.loads((root / package).read_text())["packageManager"] == "pnpm@10.34.4"
+
+
+@pytest.mark.parametrize("failed_stage", ["extension", "prepare-web", "publish", "none"])
+def test_launch_prepares_artifacts_before_stopping_services(tmp_path, failed_stage):
+    """Execute the launch orchestrator with controlled build failures."""
+    launcher = tmp_path / "native.sh"
+    log = tmp_path / "stages"
+    launcher.write_text('echo "$1" >> "$STAGES"\nif [[ "$1" == "$FAILED_STAGE" ]]; then exit 42; fi\n')
+    function = "start_stack() {" + (ROOT / "launch.sh").read_text().split(
+        "start_stack() {", 1
+    )[1].split("\n}", 1)[0] + "\n}\n"
+    script = '''
+load_local_env() { :; }
+configure_debug_stack() { :; }
+stop_stack() { echo stop >> "$STAGES"; }
+build_extension() { echo extension >> "$STAGES"; [[ "$FAILED_STAGE" != extension ]]; }
+publish_extension_archive() { echo publish >> "$STAGES"; [[ "$FAILED_STAGE" != publish ]]; }
+''' + function + "start_stack\n"
+    result = subprocess.run(["bash", "-eu", "-c", script], env={
+        **os.environ, "NATIVE_LAUNCHER": str(launcher), "STAGES": str(log),
+        "FAILED_STAGE": failed_stage, "REPO_ROOT": str(tmp_path), "VIBECANVAS_PUBLIC_URL": "http://localhost",
+    }, capture_output=True, text=True)
+    stages = log.read_text().splitlines()
+    if failed_stage != "none":
+        assert result.returncode != 0
+        assert "stop" not in stages and "up" not in stages
+    else:
+        assert result.returncode == 0, result.stderr
+        assert stages.index("extension") < stages.index("prepare-web") < stages.index("stop") < stages.index("up")

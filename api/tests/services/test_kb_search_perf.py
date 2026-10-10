@@ -1,25 +1,7 @@
-"""Encrypted lexical retrieval latency baseline at 10k chunks.
+"""Opt-in encrypted lexical search baseline, including SQL/decryption/ranking.
 
-Skipped by default — opt-in via ``KB_PERF_BASELINE=1`` env var so the
-test doesn't slow down normal pytest runs. The baseline is for manual
-inspection (and for the post-Phase-7 perf-tracking dashboard); CI does
-NOT enforce the latency assertion as a gate.
-
-What it measures
-----------------
-* Insert 10k deterministic text chunks into a single KB.
-* Issue one ``KbSearchService.search_async(..., top_k=5)`` call with a
-  random query vector.
-* Wall-clock the search call (excludes the bulk-insert, includes the
-  ``SET LOCAL hnsw.ef_search = 40``, the SQL, and the Pydantic
-  serialisation).
-
-The bar is a generous 200ms — the HNSW index from migration 002 + the
-search SQL is expected to land well below that on a developer laptop,
-but apt-installed postgres-15 in a kube pod is not a perf rig. Anything
-above that line is a real regression worth investigating.
-
-Fixture pattern matches ``test_kb_search.py``.
+Set KB_PERF_BASELINE=1. The 3-second ceiling is a coarse regression guard,
+not an HNSW/vector benchmark or a production latency promise.
 """
 from __future__ import annotations
 
@@ -60,8 +42,8 @@ async def _seed_tenant_and_user(pg_engine, tenant_id, user_id) -> None:
     reason="set KB_PERF_BASELINE=1 to run the perf baseline",
 )
 @pytest.mark.asyncio
-async def test_hnsw_search_under_200ms_at_10k(pg_engine):
-    """10k chunks, top-5 search → wall-clock < 200ms."""
+async def test_encrypted_lexical_search_at_10k(pg_engine):
+    """10k encrypted chunks, top-5 search with a coarse latency ceiling."""
     tenant_id = uuid.uuid4()
     user_id = uuid.uuid4()
     await _seed_tenant_and_user(pg_engine, tenant_id, user_id)

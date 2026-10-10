@@ -48,7 +48,14 @@ async def test_empty_kb_ids_rejected(pg_engine):
 
 
 @pytest.mark.asyncio
-async def test_lexical_search_ranks_exact_and_filename_matches(pg_engine):
+async def test_lexical_search_ranks_exact_and_filename_matches(pg_engine, monkeypatch):
+    from unittest.mock import AsyncMock
+    decrypt_file = KbRepo._materialize_file
+    calls = AsyncMock()
+    async def counted(repo, file):
+        await calls(file.id)
+        return await decrypt_file(repo, file)
+    monkeypatch.setattr(KbRepo, "_materialize_file", counted)
     tenant_id, user_id = uuid.uuid4(), uuid.uuid4()
     await _seed_tenant_and_user(pg_engine, tenant_id, user_id)
     async with session_scope(tenant_id=str(tenant_id)) as session:
@@ -78,6 +85,7 @@ async def test_lexical_search_ranks_exact_and_filename_matches(pg_engine):
     ]
     assert results[0].match_kind == "exact_phrase"
     assert results[0].score > 0
+    assert calls.await_count == 1
 
 
 @pytest.mark.asyncio

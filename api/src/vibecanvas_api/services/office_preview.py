@@ -26,6 +26,8 @@ _CACHE_MAX_FILES = 64
 _CACHE_ROOT = Path(tempfile.gettempdir()) / "flowork-office-preview"
 _CACHE_LOCK = threading.RLock()
 _CONVERSION_SLOTS = threading.BoundedSemaphore(2)
+# Fixed stripes avoid retaining a lock for every document ever previewed.
+_SOURCE_LOCKS = tuple(threading.Lock() for _ in range(32))
 
 
 class OfficePreviewError(RuntimeError):
@@ -97,9 +99,16 @@ def render_office_preview_pdf(data: bytes, suffix: str) -> bytes:
         if cached is not None:
             return cached
 
-    with _CONVERSION_SLOTS, tempfile.TemporaryDirectory(
+    source_lock = _SOURCE_LOCKS[int(cache_path.stem[:8], 16) % len(_SOURCE_LOCKS)]
+    with source_lock, _CONVERSION_SLOTS, tempfile.TemporaryDirectory(
         prefix="flowork-office-preview-",
     ) as temporary:
+        # Another request may have completed this exact conversion while we
+        # waited. Recheck under the source lock before starting LibreOffice.
+        with _CACHE_LOCK:
+            cached = _read_cached(cache_path)
+            if cached is not None:
+                return cached
         temporary_path = Path(temporary)
         source = temporary_path / f"source{normalized_suffix}"
         source.write_bytes(data)
@@ -141,15 +150,15 @@ def render_office_preview_pdf(data: bytes, suffix: str) -> bytes:
         if len(pdf) > OFFICE_PREVIEW_PDF_MAX_BYTES:
             raise OfficePreviewError("office_preview_too_large")
 
-    with _CACHE_LOCK:
-        temporary_cache = cache_path.with_name(
-            f".{cache_path.stem}-{os.getpid()}-{threading.get_ident()}.tmp"
-        )
-        temporary_cache.write_bytes(pdf)
-        os.chmod(temporary_cache, 0o600)
-        os.replace(temporary_cache, cache_path)
-        _prune_cache()
-    return pdf
+        with _CACHE_LOCK:
+            temporary_cache = cache_path.with_name(
+                f".{cache_path.stem}-{os.getpid()}-{threading.get_ident()}.tmp"
+            )
+            temporary_cache.write_bytes(pdf)
+            os.chmod(temporary_cache, 0o600)
+            os.replace(temporary_cache, cache_path)
+            _prune_cache()
+        return pdf
 
 
 __all__ = [

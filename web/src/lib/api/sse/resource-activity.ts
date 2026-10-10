@@ -4,20 +4,27 @@ import { useAuthStore } from '@/stores/auth';
 import type { QueryClient } from '@tanstack/react-query';
 
 /** Drain an older read, then read the state invalidated by this event. */
-export async function refreshResourceQuery(client: QueryClient, queryKey: readonly unknown[]) {
-  const filter = { queryKey, exact: true };
+export async function refreshResourceQuery(client: QueryClient, queryKey: readonly unknown[], exact = true) {
+  const filter = { queryKey, exact };
   const options = { cancelRefetch: false, throwOnError: true };
-  if (client.isFetching(filter)) await client.refetchQueries(filter, options);
+  const activeFilter = { ...filter, type: 'active' as const };
+  if (client.isFetching(activeFilter)) await client.refetchQueries(activeFilter, options);
   await client.invalidateQueries(filter, options);
 }
 
 /** Snapshot invalidations: coalesce bursts, preserve changes during a read. */
-export function watchResourceActivity(path: string, refresh: () => Promise<unknown>, coalesceMs = 100): () => void {
+export function watchResourceActivity(
+  path: string, refresh: () => Promise<unknown>, coalesceMs = 100, onStop?: () => void,
+): () => void {
   const ctrl = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let dirty = false;
   let reading = false;
   let retryMs = 0;
+  ctrl.signal.addEventListener('abort', () => {
+    if (timer) clearTimeout(timer);
+    onStop?.();
+  }, { once: true });
   const schedule = () => {
     if (timer || reading || ctrl.signal.aborted) return;
     timer = setTimeout(() => {
@@ -25,7 +32,12 @@ export function watchResourceActivity(path: string, refresh: () => Promise<unkno
       if (ctrl.signal.aborted) return;
       dirty = false;
       reading = true;
-      void refresh().then(() => { retryMs = 0; }).catch(() => {
+      void refresh().then(() => { retryMs = 0; }).catch((error: unknown) => {
+        const status = (error as { status?: number } | null)?.status;
+        if (status && [401, 403, 404].includes(status)) {
+          ctrl.abort();
+          return;
+        }
         // The notification may have arrived even when its snapshot request
         // failed. Keep that invalidation until a read succeeds.
         dirty = true;

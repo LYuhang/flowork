@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/app/query-client', () => ({
   queryClient: {
+    isFetching: () => 0,
     invalidateQueries: mocks.invalidateQueries,
     refetchQueries: mocks.refetchQueries,
   },
@@ -98,4 +99,10 @@ describe('reconcileChatWithServer terminal recovery', () => {
 
     expect(mocks.resumeActiveTurn).not.toHaveBeenCalled();
   });
+});
+
+it('reports discovery failure to the activity refresher without clearing history', async () => {
+  mocks.readServerActiveTurns.mockResolvedValueOnce(null);
+  await expect(reconcileChatWithServer({ wfId: 'scope', chatId: 'chat' }, { throwOnError: true }))
+    .rejects.toThrow('discovery unavailable');
 });

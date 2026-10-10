@@ -10,7 +10,8 @@
  * in Task Center" link hands off to the cross-workflow view.
  *
  * Polling: a 5s `refetchInterval` keeps the in-tab list fresh while a batch
- * is queued/running. The detail SSE (reused from the Task Center) owns the
+ * is queued/running. Idle lists refresh every 30s and on focus, so external
+ * submissions remain discoverable. The detail SSE (reused from the Task Center) owns the
  * live per-row progress once a task is opened; this list owns the canonical
  * status snapshot — mirrors `TaskDetailPage`'s two-channel split.
  */
@@ -18,6 +19,8 @@ import { useQuery } from '@tanstack/react-query';
 import { listTasks, type TaskType, type TaskListResponse } from '@/lib/api/tasks';
 
 const POLL_INTERVAL_MS = 5_000;
+const IDLE_POLL_INTERVAL_MS = 30_000;
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'resuming', 'waiting_approval', 'cancelling']);
 
 /**
  * The batch tasks for a single workflow, newest-first (the route orders by
@@ -29,7 +32,10 @@ export function useWorkflowTasks(wfId: string | undefined, enabled = true, taskT
     queryKey: ['tasks', 'workflow', wfId, taskType, offset],
     queryFn: () => listTasks({ workflow_id: wfId, task_type: [taskType], limit: 10, offset }),
     enabled: !!wfId && enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
-    refetchOnWindowFocus: false,
+    refetchInterval: (query) => !enabled ? false
+      : !query.state.data || query.state.data.items.some((task) => ACTIVE_STATUSES.has(task.status))
+        ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: 'always',
   });
 }

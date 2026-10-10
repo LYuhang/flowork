@@ -12,7 +12,9 @@ an Agent-friendly grep/read loop.
 """
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
+from heapq import nsmallest
 import re
 import uuid
 
@@ -74,12 +76,14 @@ class KbSearchResult(BaseModel):
     chunk_metadata: dict
 
 
-def _rank(query: str, text: str, file_name: str, metadata: dict) -> tuple[float, str, list[str]] | None:
-    normalized_query = _normalize(query)
+def _rank(
+    query: str, text: str, file_name: str, metadata: dict,
+    *, prepared: tuple[str, list[str]] | None = None,
+) -> tuple[float, str, list[str]] | None:
+    normalized_query, query_terms = prepared or (_normalize(query), list(dict.fromkeys(_tokens(query))))
     normalized_text = _normalize(text)
     normalized_file = _normalize(file_name)
     metadata_text = _normalize(" ".join(str(value) for value in metadata.values()))
-    query_terms = list(dict.fromkeys(_tokens(query)))
     if not normalized_query:
         return None
 
@@ -142,10 +146,19 @@ class KbSearchService:
                 "encrypted_knowledge_search_corpus_too_large"
             )
 
+        prepared = (_normalize(query), list(dict.fromkeys(_tokens(query))))
         ranked: list[KbSearchResult] = []
-        for chunk, file in rows:
+        def order(item: KbSearchResult):
+            return (-item.score, item.file_name.casefold(), item.chunk_id)
+
+        for index, (chunk, file) in enumerate(rows):
+            # Bound temporary result objects and let other requests run between
+            # CPU batches. No new pool, index, or plaintext persistent cache.
+            if index % 128 == 0:
+                ranked = nsmallest(top_k, ranked, key=order)
+                await asyncio.sleep(0)
             metadata = chunk.chunk_metadata or {}
-            match = _rank(query, chunk.text, file.name, metadata)
+            match = _rank(query, chunk.text, file.name, metadata, prepared=prepared)
             if match is None:
                 continue
             score, match_kind, matched_terms = match
@@ -160,5 +173,4 @@ class KbSearchService:
                 matched_terms=matched_terms,
                 chunk_metadata=metadata,
             ))
-        ranked.sort(key=lambda item: (-item.score, item.file_name.casefold(), item.chunk_id))
-        return ranked[:top_k]
+        return nsmallest(top_k, ranked, key=order)

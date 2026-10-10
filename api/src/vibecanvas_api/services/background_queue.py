@@ -114,8 +114,8 @@ def enqueue_background_job(
     """Durably enqueue one named background workflow.
 
     ``job_id`` is both the platform delivery identifier and the DBOS workflow
-    id. Repeating the call is therefore idempotent and is used by the queued-row
-    reconciler after an API/database commit succeeds but delivery is uncertain.
+    id. DBOS identifies the enqueue by that id. This helper performs one
+    enqueue attempt and propagates errors; it does not retry business work.
     """
     _validate_payload(workflow_name, kwargs)
     _ensure_queue(queue)

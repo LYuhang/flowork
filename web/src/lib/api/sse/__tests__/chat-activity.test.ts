@@ -26,16 +26,19 @@ describe('chat activity discovery', () => {
   });
 
   it('does not lose a completion invalidation while the initial snapshot is pending', async () => {
+    vi.useFakeTimers();
     mocks.connect.mockReturnValue(new Promise(() => {}));
     let finish!: () => void;
     mocks.reconcile.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
     const stop = watchChatActivity({ wfId: 'scope', chatId: 'chat' });
     const options = mocks.connect.mock.calls.at(-1)![1];
     options.onmessage({ event: 'changed' });
+    await vi.advanceTimersByTimeAsync(100);
     options.onmessage({ event: 'changed' });
     expect(mocks.reconcile).toHaveBeenCalledTimes(1);
     finish();
-    await vi.waitFor(() => expect(mocks.reconcile).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(mocks.reconcile).toHaveBeenCalledTimes(2);
     options.onmessage({ event: 'heartbeat' });
     expect(mocks.reconcile).toHaveBeenCalledTimes(2);
     stop();
@@ -43,6 +46,7 @@ describe('chat activity discovery', () => {
   });
 
   it('opens independent transports and retries EOF, but stops on revoked access', async () => {
+    vi.useFakeTimers();
     mocks.connect.mockReturnValue(new Promise(() => {}));
     const first = watchChatActivity({ wfId: 's', chatId: 'c' });
     const second = watchChatActivity({ wfId: 's', chatId: 'c' });
@@ -54,6 +58,37 @@ describe('chat activity discovery', () => {
     expect(() => b.onclose()).toThrow('disconnected');
     await expect(b.onopen(new Response('', { status: 403 }))).rejects.toThrow();
     expect(b.signal.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
     second();
   });
+});
+
+it('recovers the final notification after read failure without a new event', async () => {
+  vi.useFakeTimers();
+  mocks.connect.mockReturnValue(new Promise(() => {}));
+  mocks.reconcile.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+  const stop = watchChatActivity({ wfId: 'scope', chatId: 'chat' });
+  const options = mocks.connect.mock.calls.at(-1)![1];
+  options.onmessage({ event: 'changed' });
+  await vi.advanceTimersByTimeAsync(100);
+  expect(mocks.reconcile).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(mocks.reconcile).toHaveBeenCalledTimes(2);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(mocks.reconcile).toHaveBeenCalledTimes(2);
+  stop();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('cancels a pending failed-read retry when the chat closes', async () => {
+  vi.useFakeTimers();
+  mocks.connect.mockReturnValue(new Promise(() => {}));
+  mocks.reconcile.mockRejectedValueOnce(new Error('offline'));
+  const stop = watchChatActivity({ wfId: 'scope', chatId: 'chat' });
+  mocks.connect.mock.calls.at(-1)![1].onmessage({ event: 'changed' });
+  await vi.advanceTimersByTimeAsync(100);
+  stop();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(mocks.reconcile).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
 });

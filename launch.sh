@@ -206,12 +206,14 @@ start_stack() {
   configure_debug_stack
   # Validate the selected interpreter before stopping services.
   bash "$NATIVE_LAUNCHER" check-runtime
-  stop_stack
+  # Prepare artifacts while the existing stack still serves its runtime copy.
   build_extension
+  bash "$NATIVE_LAUNCHER" prepare-web
   # Dev mode serves web/public directly; preview mode's Vite build copies the
   # same archive into dist. Publishing before up supports both paths.
   publish_extension_archive
-  bash "$NATIVE_LAUNCHER" up
+  stop_stack
+  WEB_REBUILD=0 WEB_INSTALL=0 bash "$NATIVE_LAUNCHER" up
   # A production rebuild replaces dist atomically. Re-publish afterward so a
   # skipped build and a fresh build expose the exact same latest ZIP.
   publish_extension_archive

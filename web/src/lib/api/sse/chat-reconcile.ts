@@ -1,3 +1,4 @@
+import { refreshResourceQuery } from './resource-activity';
 import { queryClient } from '@/app/query-client';
 import { readServerActiveTurns } from './server-active-turn';
 import { readActiveTurnFor } from './active-turn';
@@ -12,10 +13,9 @@ export interface ReconcileChatArgs {
 }
 
 async function refreshActiveProjection(queryKey: readonly unknown[]): Promise<void> {
-  // Invalidation already refetches active observers. A second explicit fetch
-  // doubles every history/list request on focus and periodic reconciliation.
-  // Join an existing read instead of cancelling and restarting it.
-  await queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
+  // Join any older read, then fetch the state invalidated by this event.
+  // A pre-event response cannot acknowledge a newer invalidation.
+  await refreshResourceQuery(queryClient, queryKey, false);
 }
 
 const pendingReconciliations = new Map<string, Promise<void>>();
@@ -29,18 +29,25 @@ const pendingReconciliations = new Map<string, Promise<void>>();
  * and refreshes the server-backed chat projections so a tab that was offline
  * while another tab continued the conversation catches up automatically.
  */
-export function reconcileChatWithServer(args: ReconcileChatArgs): Promise<void> {
+export function reconcileChatWithServer(args: ReconcileChatArgs, options: { throwOnError?: boolean } = {}): Promise<void> {
   if (!args.wfId) return Promise.resolve();
   const key = JSON.stringify([args.wfId, args.chatId ?? null, args.surface ?? 'chat']);
   const pending = pendingReconciliations.get(key);
-  if (pending) return pending;
+  if (pending) {
+    // An activity notification may arrive after a focus reconciliation began.
+    // Drain that older read, then acknowledge the newer invalidation with a
+    // fresh snapshot. Focus callers still share the existing work.
+    return options.throwOnError
+      ? pending.catch(() => {}).then(() => reconcileChatWithServer(args, options))
+      : pending.catch(() => {});
+  }
   // Focus, visibility, reconnect and the timer can all arrive together. Share
   // one reconciliation until it settles; later events still fetch fresh state.
   const next = reconcileChat(args).finally(() => {
     if (pendingReconciliations.get(key) === next) pendingReconciliations.delete(key);
   });
   pendingReconciliations.set(key, next);
-  return next;
+  return options.throwOnError ? next : next.catch(() => {});
 }
 
 async function reconcileChat({
@@ -53,7 +60,7 @@ async function reconcileChat({
   // Discovery removes terminal markers from storage. Keep the replay cursor
   // before that read so a missed terminal frame can still be recovered.
   const localTurn = chatId ? readActiveTurnFor(wfId, chatId) : null;
-  const turns = await readServerActiveTurns(wfId);
+  const turns = await readServerActiveTurns(wfId, { throwOnError: true });
   if (turns) {
     for (const turn of turns) {
       if (chatId && turn.chatId !== chatId) continue;
@@ -78,7 +85,7 @@ async function reconcileChat({
     }
   }
 
-  await Promise.allSettled([
+  const projections = await Promise.allSettled([
     refreshActiveProjection(['chats', wfId, surface]),
     refreshActiveProjection(['chat-projects']),
     refreshActiveProjection(['project-sandboxes']),
@@ -96,6 +103,11 @@ async function reconcileChat({
       ? refreshActiveProjection(['browser-binding', chatId])
       : Promise.resolve(),
   ]);
+
+  const failed = projections.find((result) => result.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
+  // A tolerant discovery implementation must not acknowledge the event.
+  if (turns === null) throw new Error('Active-run discovery unavailable');
 
   // History rows contain the creation-time ToolMessage projection. Existing
   // interactive cards may keep the same React key after refetch, so explicitly

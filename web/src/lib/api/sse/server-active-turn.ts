@@ -38,7 +38,7 @@ interface ActiveRunResponse {
  * is backend-authoritative; localStorage only stores a replay cursor and never
  * decides whether a turn exists.
  */
-export async function readServerActiveTurns(wfId: string): Promise<ActiveTurn[] | null> {
+export async function readServerActiveTurns(wfId: string, options: { throwOnError?: boolean } = {}): Promise<ActiveTurn[] | null> {
   const token = useAuthStore.getState().token;
   const base = getApiBase();
   try {
@@ -53,9 +53,10 @@ export async function readServerActiveTurns(wfId: string): Promise<ActiveTurn[] 
     );
     if (response.status === 401) {
       useAuthStore.getState().handle401();
-      return null;
     }
-    if (!response.ok) return null;
+    if (!response.ok) {
+      throw Object.assign(new Error('Active-run discovery failed'), { status: response.status });
+    }
     const received = await response.json() as ActiveRunResponse[];
     // Discovery can finish after this page already received a terminal SSE
     // event. A completed Turn is immutable: do not recreate its active marker.
@@ -95,7 +96,8 @@ export async function readServerActiveTurns(wfId: string): Promise<ActiveTurn[] 
       rememberActiveTurn(turn);
       return turn;
     });
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) throw error;
     return null;
   }
 }

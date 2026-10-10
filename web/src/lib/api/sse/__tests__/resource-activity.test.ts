@@ -53,3 +53,34 @@ it('drains a read started before the notification then reads fresh data without 
  await Promise.all([original,update]);expect(read).toHaveBeenCalledTimes(2);
  expect(client.getQueryData(key)).toBe('new');stop();client.clear();
 });
+
+it('does not retry a snapshot denied with a terminal HTTP status', async () => {
+ vi.useFakeTimers(); mocks.connect.mockReturnValue(new Promise(() => {}));
+ const refresh = vi.fn().mockRejectedValue(Object.assign(new Error('forbidden'), {status: 403}));
+ const stop = watchResourceActivity('/activity', refresh);
+ const options = mocks.connect.mock.calls[0][1];
+ options.onmessage({event: 'changed'});
+ await vi.advanceTimersByTimeAsync(60_000);
+ expect(refresh).toHaveBeenCalledTimes(1);
+ expect(options.signal.aborted).toBe(true);
+ stop();
+});
+it('does not refetch inactive history pages while draining an active read', async () => {
+ const {QueryClient,QueryObserver}=await import('@tanstack/react-query');
+ const {refreshResourceQuery}=await import('../resource-activity');
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ const oldPage=vi.fn(async()=>['old']);
+ await client.fetchQuery({queryKey:['history','chat','old-page'],queryFn:oldPage});
+ client.setQueryData(['history','chat','current'],['cached']);
+ let finish!: (value:string[])=>void;
+ const current=vi.fn().mockImplementationOnce(()=>new Promise<string[]>(r=>{finish=r;})).mockResolvedValue(['fresh']);
+ const observer=new QueryObserver(client,{queryKey:['history','chat','current'],queryFn:current,staleTime:Infinity});
+ const stop=observer.subscribe(()=>{});
+ const read=client.refetchQueries({queryKey:['history','chat','current']});
+ const refresh=refreshResourceQuery(client,['history','chat'],false);
+ finish(['stale']);await Promise.all([read,refresh]);
+ expect(oldPage).toHaveBeenCalledTimes(1);
+ expect(current).toHaveBeenCalledTimes(2);
+ expect(client.getQueryState(['history','chat','old-page'])?.isInvalidated).toBe(true);
+ stop();client.clear();
+});

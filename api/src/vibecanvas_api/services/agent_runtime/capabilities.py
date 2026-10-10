@@ -76,16 +76,6 @@ _REASONING_EFFORT_DESCRIPTIONS = {
 }
 
 
-def _provider_from_model(model: str) -> str:
-    provider, separator, _ = model.partition(":")
-    return provider if separator else ""
-
-
-def _model_name(model: str) -> str:
-    _provider, separator, name = model.partition(":")
-    return name if separator else model
-
-
 def _normalized_provider(provider: str) -> str:
     return provider.strip().lower().replace("-", "_")
 

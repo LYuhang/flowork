@@ -49,7 +49,7 @@ if (!Element.prototype.scrollIntoView) {
 
 // Minimal xyflow mock (selection unused — editors take `nodeId`).
 vi.mock('@xyflow/react', () => ({
-  useNodes: () => [] as unknown[],
+  useStore: (selector: (state: { nodes: never[] }) => unknown) => selector({ nodes: [] }),
 }));
 
 // CodeMirror (`@uiw/react-codemirror`, used by CodeMirrorField → Prompt &

@@ -652,7 +652,7 @@ EOF
 # 'preview' builds once then serves static dist/ (no file watcher → robust in
 # sandboxes where `vite dev` hits inotify ENOSPC). vite.config's `preview.proxy`
 # forwards /api + /healthz to the api on :8000, same as the dev server.
-start_web() {
+prepare_web() {
   [[ "$WEB" == "1" ]] || { echo "web: skipped (WEB=0)"; return; }
   command -v pnpm >/dev/null || { echo "ERROR: web: pnpm not found" >&2; return 1; }
   ( cd "$WEB_DIR"
@@ -668,11 +668,7 @@ start_web() {
     else
       echo "web: dependencies unchanged; skipping install"
     fi
-    if [[ "$WEB_MODE" == "dev" ]]; then
-      "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
-        --pid-file "$RUNDIR/web.pid" --log-file "$RUNDIR/web.log" -- \
-        pnpm exec vite --strictPort --port "$WEB_PORT" --host "${WEB_HOST:-127.0.0.1}"
-    else
+    if [[ "$WEB_MODE" != "dev" ]]; then
       if web_build_needed; then
         echo "web: building (vite build, ~1-2 min)… log: $WEB_BUILD_LOG"
         ROLLDOWN_WORKER_THREADS="${ROLLDOWN_WORKER_THREADS:-4}" \
@@ -684,6 +680,21 @@ start_web() {
       else
         echo "web: frontend inputs unchanged; reusing dist"
       fi
+    fi
+  )
+}
+
+start_web() {
+  [[ "$WEB" == "1" ]] || { echo "web: skipped (WEB=0)"; return; }
+  prepare_web
+  ( cd "$WEB_DIR"
+    export VITE_APP_BASE_PATH="${WEB_BASE_PATH:-${VITE_APP_BASE_PATH:-}}"
+    export VITE_API_BASE="${WEB_API_BASE:-${VITE_API_BASE:-}}"
+    if [[ "$WEB_MODE" == "dev" ]]; then
+      "$VIBECANVAS_PYTHON" "$DAEMONIZER" \
+        --pid-file "$RUNDIR/web.pid" --log-file "$RUNDIR/web.log" -- \
+        pnpm exec vite --strictPort --port "$WEB_PORT" --host "${WEB_HOST:-127.0.0.1}"
+    else
       # Source trees are commonly mounted from a high-latency network volume.
       # Serving hundreds of lazy-loaded chunks directly from that mount made a
       # fresh page or first route open take tens of seconds even though the API
@@ -819,8 +830,9 @@ cmd_status() {
 
 case "${1:-up}" in
   check-runtime) resolve_backend_python; resolve_codex_runtime; verify_browser_runtime ;;
+  prepare-web) resolve_backend_python; prepare_web ;;
   up)     cmd_up ;;
   down)   cmd_down ;;
   status) cmd_status ;;
-  *) echo "usage: $0 {up|down|status|check-runtime}"; exit 1 ;;
+  *) echo "usage: $0 {up|down|status|check-runtime|prepare-web}"; exit 1 ;;
 esac

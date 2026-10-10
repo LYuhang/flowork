@@ -59,18 +59,41 @@ describe('chat reconciliation request budget', () => {
     expect(mocks.readServerActiveTurns).toHaveBeenCalledTimes(2);
   });
 
-  it('does not restart a history request already in flight', async () => {
+  it('drains an older history read and then fetches the latest snapshot', async () => {
     let finishHistory!: (messages: string[]) => void;
-    const fetchHistory = vi.fn(() => new Promise<string[]>((resolve) => { finishHistory = resolve; }));
+    const fetchHistory = vi.fn().mockImplementationOnce(() => new Promise<string[]>((resolve) => { finishHistory = resolve; })).mockResolvedValue(['latest message']);
     observeHistory(fetchHistory);
     const existingRead = queryClient.refetchQueries({ queryKey: historyKey });
     const reconciliation = reconcileChatWithServer(chat);
     // Let discovery finish and reconciliation join the pending query.
     await vi.waitFor(() => expect(mocks.readServerActiveTurns).toHaveBeenCalledTimes(1));
-    finishHistory(['new message']);
+    finishHistory(['older message']);
     await Promise.all([existingRead, reconciliation]);
 
-    expect(fetchHistory).toHaveBeenCalledTimes(1);
-    expect(queryClient.getQueryData(historyKey)).toEqual(['new message']);
+    expect(fetchHistory).toHaveBeenCalledTimes(2);
+    expect(queryClient.getQueryData(historyKey)).toEqual(['latest message']);
   });
+});
+
+it('surfaces a failed observed history read and preserves its existing data', async () => {
+  mocks.readServerActiveTurns.mockResolvedValue([]);
+  observeHistory(async () => { throw new Error('history offline'); });
+  try {
+    await expect(reconcileChatWithServer(chat, { throwOnError: true })).rejects.toThrow('history offline');
+    expect(queryClient.getQueryData(historyKey)).toEqual(['old message']);
+  } finally {
+    unsubscribe?.();
+    queryClient.clear();
+  }
+});
+
+it('reads again when an activity event arrives during an older focus reconciliation', async () => {
+  let finish!: (turns: []) => void;
+  mocks.readServerActiveTurns.mockReturnValueOnce(new Promise<[]>((resolve) => { finish = resolve; })).mockResolvedValue([]);
+  const focus = reconcileChatWithServer(chat);
+  const activity = reconcileChatWithServer(chat, { throwOnError: true });
+  const initialCalls = mocks.readServerActiveTurns.mock.calls.length;
+  finish([]);
+  await Promise.all([focus, activity]);
+  expect(mocks.readServerActiveTurns.mock.calls.length).toBe(initialCalls + 1);
 });

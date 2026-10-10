@@ -19,7 +19,7 @@
  * `onChange` (config) or the store's `pairNodes` (pairing) — honouring
  * the 0b state-ownership rule (no authoritative local state).
  */
-import { useNodes } from '@xyflow/react';
+import { useStore } from '@xyflow/react';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
 import { useWorkflowSnapshot } from '@/pages/canvas/WorkflowSnapshotContext';
 
@@ -43,8 +43,7 @@ interface RawNode {
 
 /** The currently-selected node id (xyflow selection), or null. */
 export function useSelectedNodeId(): string | null {
-  const nodes = useNodes();
-  return nodes.find((n) => n.selected)?.id ?? null;
+  return useStore((state) => state.nodes.find((node) => node.selected)?.id ?? null);
 }
 
 /** The live draft graph (flat dict keyed by node_id), or null. */

@@ -522,9 +522,14 @@ class KbRepo:
             )
         ).all()
         result: list[tuple[KbChunk, KbFile]] = []
+        materialized_files: set[uuid.UUID] = set()
         for chunk, file in rows:
             await self.materialize_chunk(chunk)
-            await self._materialize_file(file)
+            # SQLAlchemy's identity map shares each file across its chunks.
+            # Decrypt its name once per search, not once per chunk.
+            if file.id not in materialized_files:
+                await self._materialize_file(file)
+                materialized_files.add(file.id)
             result.append((chunk, file))
         return result
 

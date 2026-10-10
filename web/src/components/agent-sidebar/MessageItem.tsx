@@ -12,7 +12,7 @@ import { ContextAttachmentList } from './ContextAttachmentList';
  *
  */
 import { memo } from 'react';
-import { CheckCircle2, ChevronRight } from 'lucide-react';
+import { CheckCircle2, ChevronRight, TextCursorInput } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Markdown } from './Markdown';
@@ -20,6 +20,7 @@ import { MessageActions } from './MessageActions';
 import { useChatRenderIdentity } from './chat-render-context';
 import type { MergedMessage } from './types';
 import { useAuthStore } from '@/stores/auth';
+import { useChatStreamStore } from '@/stores/chat-stream';
 import {
   emphasizeUserText,
 } from './chat-attachments';
@@ -210,6 +211,19 @@ function MessageItemComponent({
           <ContextAttachmentList attachments={attachments} />
         ) : null}
         <div className="flex flex-wrap items-center gap-1">
+        {isUser && hasContent && actionsEnabled && identity?.chatId ? (
+          <button
+            type="button"
+            data-action="message-to-draft"
+            aria-label={t('chat.actions.toDraft')}
+            title={t('chat.actions.toDraftHint')}
+            className="mt-1 inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => useChatStreamStore.getState().setDraft(message.content, identity.chatId)}
+          >
+            <TextCursorInput className="h-3.5 w-3.5" />
+            {t('chat.actions.toDraft')}
+          </button>
+        ) : null}
         {message.role === 'assistant' && hasContent && !streaming && actionsEnabled && identity?.chatId && message.id ? (
           <MessageActions chatId={identity.chatId} messageId={message.id} content={message.content} timestamp={message.ts} />
         ) : null}

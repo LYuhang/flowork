@@ -620,6 +620,7 @@ export function ChatComposer({
       if (!active || useChatStreamStore.getState().draft !== draft) return;
       consumeDraft();
       setValue((prev) => (prev ? `${prev}\n\n${draft.text}` : draft.text));
+      textareaRef.current?.focus();
     });
     return () => { active = false; };
   }, [chatId, draft, consumeDraft, setValue]);

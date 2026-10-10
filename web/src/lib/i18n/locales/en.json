@@ -1,4 +1,6 @@
 {
+  "chat.actions.toDraft": "Copy to editor",
+  "chat.actions.toDraftHint": "Append text to your draft. Attachments are not copied; review before sending.",
   "agent.turn_failed": "This request failed.",
   "notice.authorization_unavailable": "Authorization is temporarily unavailable. Please try again later.",
   "agent.preparing_message": "Preparing message…",

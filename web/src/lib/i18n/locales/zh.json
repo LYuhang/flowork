@@ -1,4 +1,6 @@
 {
+  "chat.actions.toDraft": "复制到编辑框",
+  "chat.actions.toDraftHint": "将文字追加到草稿，不复制附件；请检查后再发送。",
   "agent.turn_failed": "本次请求失败。",
   "notice.authorization_unavailable": "授权服务暂时不可用，请稍后重试。",
   "agent.preparing_message": "正在准备消息…",

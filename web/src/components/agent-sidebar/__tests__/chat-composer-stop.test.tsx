@@ -1,6 +1,8 @@
 import { useComposerPreferences, type SendShortcut } from '@/stores/composer-preferences';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { StrictMode } from 'react';
+import { MessageItem } from '../MessageItem';
+import { ChatRenderProvider } from '../chat-render-context';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
@@ -87,6 +89,26 @@ describe('ChatComposer Stop', () => {
     useChatStreamStore.getState().reset();
     useAgentSettingsStore.getState().reset();
     useChatAgentSettingsStore.setState({ entries: {} });
+  });
+
+  it.each([false, true])('copies history text into the existing draft without sending (embedded=%s)', async (embedded) => {
+    const sent = vi.fn();
+    server.use(http.post('*/api/v1/chat-scopes/wf_x/chats/copy-chat/messages', () => {
+      sent();
+      return new HttpResponse(null, { status: 500 });
+    }));
+    renderComposer('copy-chat', false, undefined, embedded, true);
+    const input = screen.getByRole('textbox');
+    await userEvent.type(input, 'Existing draft');
+    render(<ChatRenderProvider value={{ chatId: 'copy-chat', surface: 'chat' }}>
+      <MessageItem message={{ id: 'original', role: 'user', content: 'Previous request', tool_calls: [] }} actionsEnabled />
+    </ChatRenderProvider>);
+    await userEvent.click(screen.getByRole('button', { name: /Copy to editor|复制到编辑框/ }));
+    await waitFor(() => expect(input).toHaveValue('Existing draft\n\nPrevious request'));
+    expect(input).toHaveFocus();
+    expect(screen.getByText('Previous request')).toBeVisible();
+    expect(useChatStreamStore.getState().draft).toBeNull();
+    expect(sent).not.toHaveBeenCalled();
   });
 
   it.each([

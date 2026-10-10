@@ -418,8 +418,7 @@ async def test_scheduled_worker_requires_matching_active_account(app_engine):
         )
 
     current_sync_tenant_id.set(str(tenant_id))
-    lease = await asyncio.to_thread(
-        _scheduled_execution_lease,
+    lease = await _scheduled_execution_lease(
         task_id=task_id,
         schedule_id=schedule_id,
         workflow_id=workflow_id,
@@ -432,8 +431,7 @@ async def test_scheduled_worker_requires_matching_active_account(app_engine):
         )
     current_sync_tenant_id.set(str(tenant_id))
     with pytest.raises(LookupError, match="service_account_unavailable"):
-        await asyncio.to_thread(
-            _scheduled_execution_lease,
+        await _scheduled_execution_lease(
             task_id=task_id,
             schedule_id=schedule_id,
             workflow_id=workflow_id,

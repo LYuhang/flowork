@@ -47,6 +47,15 @@ def _deployment_image_references() -> set[str]:
     return references
 
 
+@pytest.mark.parametrize("path", ["api/Dockerfile", "scripts/bootstrap_native_linux.sh"])
+def test_browser_runtime_version_checks_match_packaged_runtime(path: str) -> None:
+    package = json.loads((_ROOT / "api/playwright-runtime/package.json").read_text())
+    source = (_ROOT / path).read_text()
+    checked_versions = re.findall(r"flowork-browser-runtime (\d+\.\d+\.\d+) \(playwright-core", source)
+    assert checked_versions, f"{path} must verify the installed browser runtime"
+    assert set(checked_versions) == {package["version"]}
+
+
 def test_every_pinned_deployment_image_is_scanned() -> None:
     scanner = _SCANNER.read_text(encoding="utf-8")
     scanned = set(re.findall(r"'[^'|]+\|(\S+@sha256:[0-9a-f]{64})'", scanner))
@@ -262,6 +271,7 @@ def test_release_compose_uses_a_separate_verified_sandbox_builder_image() -> Non
         "sandbox_prewarm",
         "api",
         "background_worker",
+        "browser_gateway",
     }
     assert set(services) == api_consumers | {"web", "sandboxd", "postgres", "openfga_postgres", "openfga_erasure_bootstrap", "redis"}
     assert services["redis"]["image"].startswith("${VIBECANVAS_VALKEY_IMAGE:?")
@@ -285,6 +295,7 @@ def test_release_compose_uses_a_separate_verified_sandbox_builder_image() -> Non
         "sandbox_prewarm",
         "api",
         "background_worker",
+        "browser_gateway",
     }
     for service_name in openfga_consumers:
         environment = services[service_name]["environment"]

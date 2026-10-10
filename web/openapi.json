@@ -4488,7 +4488,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 1000,
               "minimum": 1,
               "default": 50,
               "title": "Limit"

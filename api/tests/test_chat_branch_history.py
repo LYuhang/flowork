@@ -163,3 +163,70 @@ async def test_branch_snapshot_rolls_back_partial_copy_and_rejects_wrong_owner(c
         assert await db.scalar(text('SELECT count(*) FROM chats WHERE chat_id=:chat'), {'chat': target}) == 0
         assert await db.scalar(text('SELECT count(*) FROM chat_messages WHERE chat_id=:chat'), {'chat': target}) == 0
         assert (await repo.list_message_page(source, limit=20))[1] == 5
+
+
+@pytest.mark.asyncio
+async def test_branch_can_branch_inherited_finished_turns_without_copying_later_context(client):
+    _, me, source = await seed(client)
+    first, second = uuid.uuid4().hex, uuid.uuid4().hex
+    branch, nested, third = [uuid.uuid4().hex for _ in range(3)]
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        repo = ChatRepo(db, me['user_id'])
+        for run, label in [(first, 'first'), (second, 'second')]:
+            await AgentRunsRepo(db).create(run_id=run, tenant_id=me['tenant_id'], chat_id=source,
+                creator_user_id=me['user_id'], client_request_id=run, input_snapshot={})
+            await repo.persist_message(source, {'message_id': label, 'role': 'assistant',
+                'turn_id': run, 'content': {'text': label}})
+            await db.execute(text("UPDATE agent_runs SET status='completed' WHERE run_id=:run"), {'run': run})
+        await repo.create_branch_snapshot(source, through_turn_id=second, chat_id=branch,
+            name='Branch', tool_projections={})
+    # Verify encrypted metadata survives a new database session, without
+    # inventing Agent Runs or relying on message-supplied provenance.
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        repo = ChatRepo(db, me['user_id'])
+        await repo.create_branch_snapshot(branch, through_turn_id=first, chat_id=nested,
+            name='Nested', tool_projections={})
+        rows, _, _ = await repo.list_message_page(nested, limit=30)
+        assert rows[-1]['content']['text'] == 'first'
+        assert not any(row['content'].get('text') == 'second' for row in rows)
+        assert await repo.get_branch_native_boundary(nested) is None
+        assert await db.scalar(text('SELECT count(*) FROM agent_runs WHERE chat_id=:chat'), {'chat': nested}) == 0
+        await repo.create_branch_snapshot(nested, through_turn_id=first, chat_id=third,
+            name='Third', tool_projections={})
+        with pytest.raises(LookupError, match='branch_turn_not_found'):
+            await repo.list_message_page(nested, through_turn_id=second, limit=30)
+        # A copied-looking message does not establish a finished execution.
+        await repo.persist_message(nested, {'message_id': 'forged', 'role': 'assistant',
+            'turn_id': 'not-finished', 'meta': {'branch_source': {'chat_id': source}},
+            'content': {'text': 'Not a verified turn'}})
+        with pytest.raises(LookupError, match='branch_turn_not_found'):
+            await repo.list_message_page(nested, through_turn_id='not-finished', limit=30)
+
+
+@pytest.mark.asyncio
+async def test_early_branch_retains_its_verified_cutoff_without_turn_index(client):
+    from sqlalchemy import select
+    from vibecanvas_api.storage.models import Chat
+
+    _, me, source = await seed(client)
+    run, branch = uuid.uuid4().hex, uuid.uuid4().hex
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        repo = ChatRepo(db, me['user_id'])
+        await AgentRunsRepo(db).create(run_id=run, tenant_id=me['tenant_id'], chat_id=source,
+            creator_user_id=me['user_id'], client_request_id=run, input_snapshot={})
+        await repo.persist_message(source, {'message_id': 'cutoff', 'role': 'assistant',
+            'turn_id': run, 'content': {'text': 'Verified boundary'}})
+        await db.execute(text("UPDATE agent_runs SET status='completed' WHERE run_id=:run"), {'run': run})
+        await repo.create_branch_snapshot(source, through_turn_id=run, chat_id=branch,
+            name='Early branch', tool_projections={})
+        row = await db.scalar(select(Chat).where(Chat.chat_id == branch))
+        await repo.materialize_session_metadata(row)
+        metadata = dict(row.meta)
+        metadata.pop('branch_finished_turn_ids')
+        await repo._store_chat_private(row, name=row.name, meta=metadata)
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        repo = ChatRepo(db, me['user_id'])
+        rows, _, _ = await repo.list_message_page(branch, through_turn_id=run, limit=20)
+        assert rows[-1]['content']['text'] == 'Verified boundary'
+        await repo.create_branch_snapshot(branch, through_turn_id=run, chat_id=uuid.uuid4().hex,
+            name='From early branch', tool_projections={})

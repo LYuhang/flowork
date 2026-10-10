@@ -263,14 +263,26 @@ class ChatRepo:
                 "chat_id": source_chat_id, "turn_id": through_turn_id,
                 "file_policy": "shared_current_project_files",
             }}
-            if source_run.native_boundary:
+            if source_run is not None and source_run.native_boundary:
                 metadata["branch_native_boundary"] = dict(source_run.native_boundary)
             if "workflow_context" in source.meta:
                 metadata["workflow_context"] = source.meta["workflow_context"]
-            await self._store_chat_private(target, name=name, meta=metadata)
+            # Inherited turns have no AgentRun in the new Chat. Preserve only
+            # server-verified terminal turn IDs, intersected with copied history.
+            finished_turns = set(source.meta.get("branch_finished_turn_ids", []))
+            source_cutoff = source.meta.get("branch_source", {}).get("turn_id")
+            if source_cutoff:
+                finished_turns.add(source_cutoff)
+            finished_turns.update((await self._s.scalars(select(AgentRun.run_id).where(
+                AgentRun.chat_id == source_chat_id,
+                AgentRun.creator_user_id == self._user_id,
+                AgentRun.status.in_(["completed", "cancelled", "failed"]),
+            ))).all())
+            copied_turns = set()
             copied = 0
             while rows:
                 for row in rows:
+                    copied_turns.add(row.get("turn_id"))
                     snapshot = branch_message_snapshot(
                         row, source_chat_id=source_chat_id, tool_projections=tool_projections,
                         artifact_definitions=artifact_definitions,
@@ -286,6 +298,8 @@ class ChatRepo:
                     source_chat_id, through_turn_id=through_turn_id,
                     limit=200, offset=copied,
                 )
+            metadata["branch_finished_turn_ids"] = sorted(finished_turns & copied_turns)
+            await self._store_chat_private(target, name=name, meta=metadata)
             await self._s.flush()
         return chat_id
 
@@ -1383,8 +1397,14 @@ class ChatRepo:
                 AgentRun.creator_user_id == self._user_id,
             ))
             if status is None:
-                raise LookupError("branch_turn_not_found")
-            if status not in {"completed", "cancelled", "failed"}:
+                chat = await self._s.scalar(select(Chat).where(Chat.chat_id == chat_id))
+                await self._materialize_chat_private(chat)
+                inherited = chat.meta.get("branch_finished_turn_ids", [])
+                # Early branches saved only their verified selected boundary.
+                source_cutoff = chat.meta.get("branch_source", {}).get("turn_id")
+                if through_turn_id not in inherited and through_turn_id != source_cutoff:
+                    raise LookupError("branch_turn_not_found")
+            elif status not in {"completed", "cancelled", "failed"}:
                 raise ValueError("branch_turn_not_finished")
             boundary_id = await self._s.scalar(select(func.max(ChatMessage.id)).where(
                 ChatMessage.chat_id == chat_id,

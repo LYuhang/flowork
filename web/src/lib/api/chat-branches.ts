@@ -5,7 +5,12 @@ export type ChatBranch = components['schemas']['BranchOut'];
 const branchPath = (chatId: string) => `${getApiBase()}/api/v1/chats/${encodeURIComponent(chatId)}/branches`;
 
 async function readBranch(response: Response): Promise<ChatBranch> {
-  if (!response.ok) throw new Error(`Branch request failed (${response.status})`);
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    const detail = body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string'
+      ? body.detail : response.statusText;
+    throw new Error(`Branch request failed (${response.status})${detail ? `: ${detail}` : ''}`);
+  }
   return response.json() as Promise<ChatBranch>;
 }
 

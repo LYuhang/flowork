@@ -19,7 +19,7 @@ export function ChatBranchDialog({ chatId, turnId, excerpt }: { chatId: string; 
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
-  const [uncertain, setUncertain] = useState(false);
+  const [creationError, setCreationError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const submitting = useRef(false);
   const preview = useQuery({
@@ -44,8 +44,8 @@ export function ChatBranchDialog({ chatId, turnId, excerpt }: { chatId: string; 
     try {
       const result = await createChatBranch(chatId, { chat_id: id, turn_id: turnId, name: name.trim() });
       goToBranch(result.chat_id);
-    } catch {
-      setUncertain(true);
+    } catch (error) {
+      setCreationError(error instanceof Error ? error.message : t('chat.branch.uncertain'));
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -91,8 +91,9 @@ export function ChatBranchDialog({ chatId, turnId, excerpt }: { chatId: string; 
         <label className="space-y-2 text-sm"><span>{t('chat.branch.name')}</span>
           <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} disabled={busy || !!attemptId} />
         </label>
-        {uncertain ? <div className="space-y-2 text-sm" role="alert">
+        {creationError !== null ? <div className="space-y-2 text-sm" role="alert">
           <p>{t('chat.branch.uncertain')}</p>
+          <p className="break-words text-xs text-muted-foreground">{creationError}</p>
           <code className="block break-all text-xs">{attemptId}</code>
           {notFound && <p>{t('chat.branch.notFound')}</p>}
           <Button variant="outline" disabled={busy} onClick={() => void checkCreatedBranch()}>{t('chat.branch.check')}</Button>

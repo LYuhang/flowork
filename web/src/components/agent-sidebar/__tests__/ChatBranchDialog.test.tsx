@@ -46,6 +46,7 @@ it('checks a lost response by the original ID without repeating creation', async
   await screen.findByText('project');
   fireEvent.change(screen.getByRole('textbox', { name: 'New conversation name' }), { target: { value: 'Branch' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create branch' }));
+  await screen.findByText('connection lost');
   fireEvent.click(await screen.findByRole('button', { name: 'Check created conversation' }));
   await screen.findByText('Opened branch');
   expect(mocks.workspace).toHaveBeenCalledWith(mocks.create.mock.calls[0][1].chat_id);

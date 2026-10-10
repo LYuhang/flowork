@@ -23,7 +23,7 @@ export function ChatBranchDialog({ chatId, turnId, excerpt }: { chatId: string; 
   const submitting = useRef(false);
   const preview = useQuery({
     queryKey: ['chat-branch-preview', chatId, turnId],
-    queryFn: () => previewChatBranch(chatId, turnId), enabled: open, retry: false,
+    queryFn: () => previewChatBranch(chatId, turnId), enabled: open, retry: false, staleTime: 0,
   });
   const goToBranch = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ['chats'] });
@@ -77,7 +77,7 @@ export function ChatBranchDialog({ chatId, turnId, excerpt }: { chatId: string; 
         <DialogDescription>{t('chat.branch.description')}</DialogDescription></DialogHeader>
       <blockquote className="line-clamp-3 border-l-2 border-edge-structural pl-3 text-sm text-muted-foreground">{excerpt}</blockquote>
       <p className="text-sm">{t('chat.branch.files')}</p>
-      {preview.isPending ? <p role="status">{t('chat.branch.loading')}</p> : preview.isError ?
+      {preview.isPending || preview.isFetching ? <p role="status">{t('chat.branch.loading')}</p> : preview.isError ?
         <p role="alert" className="text-sm text-destructive">{t('chat.branch.unavailable')}</p> : <>
         <dl className="space-y-2 text-xs text-muted-foreground">
           <div><dt className="font-medium">{t('chat.branch.source')}</dt><dd className="break-all">{chatId}</dd></div>

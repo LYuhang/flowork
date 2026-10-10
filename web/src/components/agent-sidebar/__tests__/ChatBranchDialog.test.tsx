@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({ preview: vi.fn(), create: vi.fn(), workspace: 
 vi.mock('@/lib/api/chat-branches', () => ({ previewChatBranch: mocks.preview, createChatBranch: mocks.create }));
 vi.mock('@/lib/api/queries/chats', () => ({ fetchChatWorkspace: mocks.workspace }));
 function mount() {
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })}>
     <MemoryRouter><Routes>
       <Route path="/" element={<ChatBranchDialog chatId="source" turnId="selected" excerpt="Selected response" />} />
       <Route path="/chat/open/:id" element={<p>Opened branch</p>} />
@@ -78,5 +78,18 @@ it('explains unavailable files without pretending they are restored', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Branch from this turn' }));
   await screen.findByText('missing.pdf');
   expect(screen.getByText(/branching will not restore the files/)).toBeInTheDocument();
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it('rechecks files when reopened within the application cache window', async () => {
+  mocks.preview.mockResolvedValueOnce({ project_id: 'project', unavailable_files: [] })
+    .mockResolvedValueOnce({ project_id: 'project', unavailable_files: ['deleted.txt'] });
+  mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Branch from this turn' }));
+  await screen.findByText('project');
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Branch from this turn' }));
+  await screen.findByText('deleted.txt');
+  expect(mocks.preview).toHaveBeenCalledTimes(2);
   expect(mocks.create).not.toHaveBeenCalled();
 });

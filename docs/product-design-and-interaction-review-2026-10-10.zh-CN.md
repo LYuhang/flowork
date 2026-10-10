@@ -923,3 +923,9 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 通过 `unavailable_files` 返回当前缺失或不可访问的文件名称；确认框明确说明历史引用保留、创建分支不会恢复文件。授权/存储服务故障继续作为请求错误返回，不伪装成缺文件，不自动重试，也不复制文件。非文件的网页/工作流等引用不被此文件检查宣称为可用。
 - 15 项后端/API/OpenAPI 测试通过，5 项确认框组件测试通过，TypeScript、Ruff、ESLint、中英文 4144 键及页面清单审计通过。初次测试遗漏隔离数据库配置而在 initdb 阶段失败；改用已有隔离 PostgreSQL 后复验，未更改生产数据库。隔离数据库已停止。
 - 证据 `/tmp/branch-files-final-tests.log`、`/tmp/branch-files-ui-tests.log`、`/tmp/branch-files-ts.log`、`/tmp/branch-files-locales.log`。尚需真实上传文件、删除文件后创建分支的按钮与模型行为验收；此步尚未部署，不能据此将 F16 全项关闭。
+
+### F16 附件实测发现的预览缓存问题
+
+- `dff81e0` 于 22:36 UTC 完整更新到 POSIX 服务。线上实际上传 kept.txt、removed.txt，Terra 完成准备轮次；两文件存在时分支预览无警告，删除 removed.txt 返回 200。
+- 实测发现确认框使用应用默认 30 秒查询缓存，关闭后立即重新打开没有重新请求预览，可能继续展示删除前状态。测试在等待新响应时超时，证据 `/tmp/chat-branch-files-real.json`；没有重复创建分支，测试沙盒已释放返回 200。
+- 修复为预览 staleTime=0，每次打开重新读；读取期间显示检查状态，不提供基于旧预览的创建按钮。6 项确认框测试和 ESLint 通过，包含以应用默认 30 秒缓存配置运行的关闭/立即重开回归。证据 `/tmp/branch-preview-refresh-tests.log`。待部署修复后接续同一测试数据完成真实文件缺失与模型验证。

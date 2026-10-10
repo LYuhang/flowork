@@ -10,6 +10,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { workflowDictToNodesEdges } from '@/pages/canvas/Canvas';
+import { saveCompactLayout } from '@/pages/canvas/layout-routes';
 import { useWorkflowEditStore } from '@/stores/workflow-edit';
 
 function api() {
@@ -172,4 +173,20 @@ describe('edge labels for Condition / ParallelStart sources', () => {
     });
     expect(workflowDictToNodesEdges(api().draft).edges[0].label).toBeUndefined();
   });
+});
+
+
+it('re-projects saved routes and drops them after changing the graph', () => {
+  api().setDraft({ node_1: { node_type: 'StartNode', children: ['node_2'] }, node_2: { node_type: 'EndNode', children: [] } });
+  const graph = workflowDictToNodesEdges(api().draft);
+  api().applyEdit(wf => saveCompactLayout(wf, graph.nodes, graph.edges, {
+    width: 524, height: 140,
+    positions: { node_1: { x: 0, y: 0 }, node_2: { x: 300, y: 0 } },
+    routes: { 'node_1->node_2': [{ x: 224, y: 70 }, { x: 300, y: 70 }] },
+  }));
+  expect(workflowDictToNodesEdges(api().draft).edges[0]).toMatchObject({ type: 'routed', data: { layoutPoints: [{ x: 224, y: 70 }, { x: 300, y: 70 }] } });
+  api().disconnectNodes('node_1', 'node_2');
+  expect(workflowDictToNodesEdges(api().draft).edges).toHaveLength(0);
+  api().undo();
+  expect(workflowDictToNodesEdges(api().draft).edges[0].type).toBe('routed');
 });

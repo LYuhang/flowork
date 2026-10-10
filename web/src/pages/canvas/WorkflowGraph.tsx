@@ -9,10 +9,17 @@ import {
   type NodePayload,
 } from './nodes/CustomNode';
 import { nodeWarnings } from './nodeWarnings';
+import { layoutGeometryMatches, readLayoutRoutes, type LayoutGeometry } from './layout-routes';
+import { RoutedEdge } from './RoutedEdge';
 
 const nodeTypes = { custom: CustomNode };
+const edgeTypes = { routed: RoutedEdge };
 
 export function WorkflowGraph({ showMiniMap = true, showControls = true, showInteractiveControls = true, children, ...props }: ComponentProps<typeof ReactFlow> & { showMiniMap?: boolean; showControls?: boolean; showInteractiveControls?: boolean }) {
+  const geometry = props.edges?.find(edge => edge.type === 'routed')?.data?.layoutGeometry as LayoutGeometry | undefined;
+  const displayedEdges = geometry && !layoutGeometryMatches(geometry, props.nodes ?? [], true)
+    ? props.edges?.map(edge => edge.type === 'routed' ? { ...edge, type: edge.data?.__pairing__ ? 'smoothstep' : 'default' } : edge)
+    : props.edges;
   return (
     <ReactFlow
       className="workflow-canvas [&_.react-flow__edge-text]:pointer-events-none [&_.react-flow__edge-textbg]:pointer-events-none"
@@ -22,6 +29,8 @@ export function WorkflowGraph({ showMiniMap = true, showControls = true, showInt
       minZoom={0.1}
       zoomOnDoubleClick={false}
       {...props}
+      edgeTypes={{ ...edgeTypes, ...props.edgeTypes }}
+      edges={displayedEdges}
     >
       {children}
       <Background gap={20} />
@@ -87,6 +96,14 @@ export function workflowDictToNodesEdges(
     if (pairing) edges.push(pairing);
   }
 
+  const layout = readLayoutRoutes(wf, nodes, edges);
+  if (layout) {
+    const routes = new Map(layout.edges.map(edge => [edge.id, edge.points]));
+    for (const edge of edges) {
+      edge.type = 'routed';
+      edge.data = { ...edge.data, layoutPoints: routes.get(edge.id), layoutGeometry: layout.nodes };
+    }
+  }
   return { nodes, edges };
 }
 

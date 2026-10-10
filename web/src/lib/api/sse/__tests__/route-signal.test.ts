@@ -546,6 +546,7 @@ describe('routeAgentSignalWith', () => {
     routeAgentSignalWith(client, 'error', {}, ctx);
 
     expect(useChatStreamStore.getState().state).toBe('failed');
+    expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['chats', 'wf_x'] });
   });
 
   it('cancelled terminal is explicit and not a disconnected stream', () => {
@@ -771,5 +772,14 @@ describe('routeAgentSignalWith — island phase relay (§14.1)', () => {
     );
     expect(islandCalls).toHaveLength(0);
     spy.mockRestore();
+  });
+});
+
+
+describe('conversation list status refresh', () => {
+  it.each(['HITL_REQUIRED', 'HITL_RESOLVED', 'INTERACTION_REQUIRED', 'INTERACTION_RESOLVED'])('refreshes the list for %s', signal => {
+    const client = makeClient();
+    routeAgentSignalWith(client, signal, {}, ctx);
+    expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['chats', 'wf_x'] });
   });
 });

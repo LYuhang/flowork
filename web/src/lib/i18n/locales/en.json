@@ -4096,5 +4096,11 @@
   "chat.share.createResponse": "Create response link",
   "chat.toolbar.files": "Files",
   "nav.projects.actions": "Actions for project {{name}}",
-  "nav.chatHistory.actions": "Actions for conversation {{name}}"
+  "nav.chatHistory.actions": "Actions for conversation {{name}}",
+  "chat.runStatus.running": "Running",
+  "chat.runStatus.waiting_approval": "Needs your response",
+  "chat.runStatus.cancel_requested": "Stopping",
+  "chat.runStatus.completed": "Completed",
+  "chat.runStatus.cancelled": "Stopped",
+  "chat.runStatus.failed": "Failed"
 }

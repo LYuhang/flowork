@@ -632,16 +632,19 @@ export function routeAgentSignalWith(
       // Keeping this explicit prevents a misleading "unknown event" warning
       // without applying the same approval state twice.
       store.setWaitingForUser(true, ctx.chatId);
+      client.invalidateQueries({ queryKey: ['chats', ctx.wfId] });
       return;
     }
     case 'INTERACTION_REQUIRED': {
       // Same lifecycle as an approval, with a richer input artifact. Runtime
       // adapters may differ, but the frontend waiting state is portable.
       store.setWaitingForUser(true, ctx.chatId);
+      client.invalidateQueries({ queryKey: ['chats', ctx.wfId] });
       return;
     }
     case 'INTERACTION_RESOLVED': {
       store.setWaitingForUser(false, ctx.chatId);
+      client.invalidateQueries({ queryKey: ['chats', ctx.wfId] });
       client.invalidateQueries({
         queryKey: ['chat-history', ctx.wfId, ctx.chatId],
       });
@@ -673,6 +676,7 @@ export function routeAgentSignalWith(
       // mid-phase — drop back to ready (the island's visibility is gated by the
       // debugger lifecycle, not by this, so this only clears the content).
       emitIslandPhase('ready');
+      client.invalidateQueries({ queryKey: ['chats', ctx.wfId] });
       if (code === 'cancelled') {
         client.invalidateQueries({
           queryKey: ['chat-history', ctx.wfId, ctx.chatId],
@@ -680,7 +684,6 @@ export function routeAgentSignalWith(
         client.invalidateQueries({
           queryKey: ['chat-state', ctx.wfId, ctx.chatId],
         });
-        client.invalidateQueries({ queryKey: ['chats', ctx.wfId] });
       }
       handoffToDurableHistory(client, ctx, turnId, presentation);
       return;

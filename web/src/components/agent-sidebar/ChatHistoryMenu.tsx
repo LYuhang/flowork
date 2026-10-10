@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useChatSessions } from '@/lib/api/queries/chats';
 import { useFormatDateTime } from '@/lib/timezone';
+import { ChatRunStatus } from './ChatRunStatus';
 
 export interface ChatHistoryMenuProps {
   wfId: string;
@@ -109,6 +110,7 @@ export function ChatHistoryMenu({
                     </span>
                   )}
                 </span>
+                <ChatRunStatus chatId={s.chat_id} run={s.latest_run} />
               </DropdownMenuItem>
             );
           })

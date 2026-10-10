@@ -33,7 +33,8 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui';
-import { useChatStreamStore } from '@/stores/chat-stream';
+import { ChatRunStatus } from '@/components/agent-sidebar/ChatRunStatus';
+import type { ChatListItem } from '@/lib/api/queries/chats';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SidebarRowMenu, type SidebarRowAction } from './SidebarRowMenu';
@@ -82,6 +83,7 @@ type SidebarChatItem = {
   project_id?: string | null;
   chat_context: string;
   surface?: 'chat' | 'browser';
+  latest_run?: ChatListItem['latest_run'];
 };
 
 interface NavItem {
@@ -264,7 +266,6 @@ export function AppSidebar({
   const sandboxStatusByProject = new Map((sandboxStatuses.data?.items ?? []).map((item) => [item.project_id, item]));
   const sandboxAction = useProjectSandboxAction();
   const [releaseProject, setReleaseProject] = useState<{ project_id: string; name: string } | null>(null);
-  const chatRuntimes = useChatStreamStore((state) => state.runtimes);
   const changeSandbox = async (projectId: string, action: 'start' | 'release') => {
     try {
       await sandboxAction.mutateAsync({ projectId, action });
@@ -628,9 +629,7 @@ export function AppSidebar({
                               >
                                 <ResourceIcon kind="chat" size="sm" className="size-5 rounded" />
                                 <span className="min-w-0 flex-1 truncate">{label}</span>
-                                {chatRuntimes[item.chat_id]?.state === 'streaming' && (
-                                  <StatusDot status="running" pulse title={t('chat.status.running', 'Running')} />
-                                )}
+                                <ChatRunStatus chatId={item.chat_id} run={item.latest_run} />
                               </button>
                             </div>
                           );

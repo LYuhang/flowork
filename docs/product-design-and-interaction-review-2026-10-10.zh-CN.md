@@ -1046,3 +1046,11 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 真实路由成功/前序变化、有效/撤销身份共 4 项通过（`/tmp/chat-queue-predecessor-tests.log`），不自动重试。
 - 重新生成 OpenAPI 与 TypeScript schema；队列客户端直接复用生成类型，避免手写状态接口偏离后端。
 - 尚未部署和真实 Terra 验收。
+
+### F15 已部署，Terra 验收发现磁盘耗尽（未推送）
+
+- 线上已更新至 `8527820`，原 POSIX/资源启动配置保留；migration 179，前端构建与路径检查通过，应用/授权服务健康检查 200。回滚 `/tmp/flowork-before-queue-8527820.tar.gz`，清单 `/tmp/queue-8527820-deploy.json`。
+- 真实 Terra 对话 `8e119733-dd73-483f-92f7-43d141a3ebb1`：排队 POST 201；两个独立浏览器上下文看到同一队列，刷新观察窗口后仍恢复。证据 `/tmp/chat-queue-real.json`。
+- 成功路径未通过：第一轮在 23:43 左右中断，随后标记 worker_lost。PostgreSQL 23:43:03、23:43:05 明确报 `could not extend file ... No space left on device`；当时根分区可用空间为 0。队列显示 blocked/previous_turn_not_successful，没有创建下一轮，没有自动重试。
+- 已删除可再生成的 Node 编译缓存、停止的隔离测试 PostgreSQL、过期前端临时包，释放本次 QA 项目沙盒（200）。应用和 OpenFGA 健康恢复 200。未删除项目数据或当前回滚包。
+- 需在磁盘有足够余量后重新显式发起一次成功路径验收；本轮不得标成排队成功。远端之前的 main CI `38094234483`、安全 `38094234581` 均成功，`8527820` 尚未推送。

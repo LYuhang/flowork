@@ -33,6 +33,20 @@ describe('ChoicesCard', () => {
   });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+  it.each(['pending', 'submitted'])('keeps a %s branch snapshot read-only without contacting the original approval', async (snapshotStatus) => {
+    sessionStorage.setItem('flowork:choice-draft:choice-test', '["b"]');
+    render(<ChoicesCard artifact={{ ...artifact, read_only: true,
+      interaction_state: { status: snapshotStatus, result: { selected_ids: ['a'] } },
+    }} />);
+    expect(screen.getByRole('radio', { name: /Report A/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Report B' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Confirm selection' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('flowork:choice-draft:choice-test')).toBe('["b"]');
+    if (snapshotStatus === 'pending') expect(screen.getByText('Historical interaction (read-only)')).toBeInTheDocument();
+  });
+
   it('requires selection, submits once, freezes the selected labels', async () => {
     render(<ChoicesCard artifact={artifact} />);
     const confirm = screen.getByRole('button', { name: 'Confirm selection' });

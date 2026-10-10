@@ -38,17 +38,17 @@ export function ChoicesCard({ artifact }: { artifact: InteractiveArtifact }) {
   const draftWrites = useRef(Promise.resolve());
   const hitlId = artifact.hitl_request_id;
   const endpoint = `${getApiBase()}/api/v1/hitl-requests/${encodeURIComponent(hitlId || '')}`;
-  const frozen = Boolean(decision && decision.status !== 'pending');
+  const frozen = Boolean(artifact.read_only || decision && decision.status !== 'pending');
   const selected = frozen ? decision?.interaction_result_json?.selected_ids || [] : draft;
 
   const accept = useCallback((value: Decision) => {
     if (terminal.current && value.status === 'pending') return;
     if (value.status !== 'pending') {
       terminal.current = true;
-      try { sessionStorage.removeItem(storageKey); } catch { /* Optional local draft. */ }
+      try { if (!artifact.read_only) sessionStorage.removeItem(storageKey); } catch { /* Optional local draft. */ }
     }
     setDecision(value);
-  }, [storageKey]);
+  }, [storageKey, artifact.read_only]);
 
   useEffect(() => {
     if (artifact.interaction_state?.status && artifact.interaction_state.status !== 'pending') {
@@ -58,7 +58,7 @@ export function ChoicesCard({ artifact }: { artifact: InteractiveArtifact }) {
   }, [artifact.interaction_state, accept]);
 
   useEffect(() => {
-    if (!hitlId) return;
+    if (!hitlId || artifact.read_only) return;
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
@@ -70,7 +70,7 @@ export function ChoicesCard({ artifact }: { artifact: InteractiveArtifact }) {
     };
     void refresh();
     return () => { abort.abort(); clearTimeout(timer); };
-  }, [endpoint, hitlId, accept]);
+  }, [endpoint, hitlId, accept, artifact.read_only]);
 
   const choose = (id: string) => {
     if (busy || frozen) return;
@@ -137,7 +137,8 @@ export function ChoicesCard({ artifact }: { artifact: InteractiveArtifact }) {
         ))}
       </fieldset>
       <div className="flex flex-wrap items-center gap-2 border-t border-edge-subtle p-3" aria-live="polite">
-        {frozen ? <span className="text-xs text-muted-foreground">{decision?.status === 'submitted'
+        {frozen ? <span className="text-xs text-muted-foreground">{artifact.read_only && (!decision || decision.status === 'pending')
+          ? t('tool.interactive.read_only', 'Historical interaction (read-only)') : decision?.status === 'submitted'
           ? t('tool.choices.confirmed', 'Selection confirmed') : expired
             ? t('tool.choices.expired', 'This tool call ended. Selection is no longer available.')
             : t('tool.choices.cancelled', 'Selection cancelled')}</span> : <>

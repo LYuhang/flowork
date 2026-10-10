@@ -399,6 +399,7 @@ function isPositiveHitlStatus(status: string): boolean {
 }
 
 function SubmitControls({
+  readOnly = false,
   completionMode,
   schema,
   hitlRequestId,
@@ -413,6 +414,7 @@ function SubmitControls({
   onResolved,
   onSubmitAsNewMessage,
 }: {
+  readOnly?: boolean;
   completionMode: CompletionMode;
   schema: Record<string, unknown>;
   hitlRequestId?: string | null;
@@ -584,6 +586,7 @@ function SubmitControls({
       </div>
     );
   }
+  if (readOnly) return <div className="border-t px-4 py-2.5 text-xs text-muted-foreground">{t('tool.interactive.read_only', 'Historical interaction (read-only)')}</div>;
   const submitLabel = stringFrom(schema.submit_label, t('tool.interactive.submit', 'Submit'));
   const cancelLabel = stringFrom(schema.cancel_label, t('tool.interactive.cancel', 'Cancel'));
   return (
@@ -854,6 +857,10 @@ function HtmlPreviewRenderer({
             error,
           }, '*');
         };
+        if (frozen) {
+          reply(false, 409, undefined, 'Historical interaction is read-only.');
+          return;
+        }
         void writeInteractiveVfsFile(artifactId, {
           path: event.data.path,
           content: event.data.content,
@@ -875,14 +882,14 @@ function HtmlPreviewRenderer({
             );
           },
         );
-      } else if (event.data.type === 'draft' && event.data.state) {
+      } else if (!frozen && event.data.type === 'draft' && event.data.state) {
         if (event.data.flush) saveDraftNow(event.data.state);
         else persistDraft(event.data.state);
       }
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [artifactId, loadSandboxDocument, onOpenFilePreview, onWidgetStateChange, persistDraft, saveDraftNow]);
+  }, [artifactId, frozen, loadSandboxDocument, onOpenFilePreview, onWidgetStateChange, persistDraft, saveDraftNow]);
 
   // Changing between the live and durable frozen document remounts the loader
   // iframe and therefore creates a new opaque-origin sandbox session. Reset
@@ -1282,7 +1289,7 @@ export function InteractiveArtifactPreview({
   const artifactId = artifact.artifact_id ?? '';
   const reconcileEpoch = useServerReconcileEpoch();
   useEffect(() => {
-    if (!artifactId) return;
+    if (!artifactId || artifact.read_only) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -1310,9 +1317,9 @@ export function InteractiveArtifactPreview({
     return () => {
       cancelled = true;
     };
-  }, [artifactId, reconcileEpoch]);
+  }, [artifactId, reconcileEpoch, artifact.read_only]);
   const hydratedArtifact = hydration?.artifactId === artifactId ? hydration.artifact : null;
-  const effectiveArtifact = hydratedArtifact ?? artifact;
+  const effectiveArtifact = artifact.read_only ? artifact : hydratedArtifact ?? artifact;
   const widgetState = widgetSnapshot.artifactId === artifactId
     ? widgetSnapshot.state
     : effectiveArtifact.widget_state ?? {};
@@ -1326,7 +1333,7 @@ export function InteractiveArtifactPreview({
     }, null, 2),
   };
   const frozen = Boolean(
-    effectiveArtifact.interaction_state?.status &&
+    effectiveArtifact.read_only || effectiveArtifact.interaction_state?.status &&
       effectiveArtifact.interaction_state.status !== 'pending' &&
       effectiveArtifact.interaction_state.status !== 'none',
   );
@@ -1360,6 +1367,7 @@ export function InteractiveArtifactPreview({
       {!renderError ? (
         <div className="shrink-0">
         <SubmitControls
+          readOnly={effectiveArtifact.read_only}
           completionMode={effectiveArtifact.completion_mode ?? 'render_only'}
           schema={effectiveArtifact.interaction_schema ?? {}}
           hitlRequestId={effectiveArtifact.hitl_request_id}
@@ -1461,7 +1469,7 @@ export function InteractiveArtifactBlock({
   // 30-second chat reconciliation tick. Interactive/HITL cards still refresh.
   const artifactRefreshEpoch = isStableRenderOnly ? 0 : reconcileEpoch;
   useEffect(() => {
-    if (!artifactIdForHydration) return;
+    if (!artifactIdForHydration || parsed.artifact?.read_only) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -1488,11 +1496,11 @@ export function InteractiveArtifactBlock({
     return () => {
       cancelled = true;
     };
-  }, [artifactIdForHydration, artifactRefreshEpoch]);
+  }, [artifactIdForHydration, artifactRefreshEpoch, parsed.artifact?.read_only]);
   const hydratedArtifact = hydration?.artifactId === artifactIdForHydration
     ? hydration.artifact
     : null;
-  const artifact = hydratedArtifact ?? parsed.artifact;
+  const artifact = parsed.artifact?.read_only ? parsed.artifact : hydratedArtifact ?? parsed.artifact;
   const previewOnly = Boolean(parsed.previewOnly && !hydratedArtifact);
   const renderError = interactiveArtifactRenderError(artifact, previewOnly);
   const height = Math.max(120, Math.min(numberFrom(artifact?.height, 320), 360));
@@ -1538,7 +1546,7 @@ export function InteractiveArtifactBlock({
       ),
   );
   const frozen = Boolean(
-    interactionStatus &&
+    artifact?.read_only || interactionStatus &&
     interactionStatus !== 'pending' &&
     interactionStatus !== 'none',
   );
@@ -1561,7 +1569,7 @@ export function InteractiveArtifactBlock({
   }, [artifact]);
 
   useEffect(() => {
-    if (!hitlRequestId) return;
+    if (!hitlRequestId || artifact?.read_only) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -1589,7 +1597,7 @@ export function InteractiveArtifactBlock({
     return () => {
       cancelled = true;
     };
-  }, [hitlRequestId, reconcileEpoch]);
+  }, [hitlRequestId, reconcileEpoch, artifact?.read_only]);
 
   if (artifact?.component_type === 'user_input' && artifact.props?.mode === 'choices' && !renderError) {
     return <div data-hitl-request-id={hitlRequestId ?? undefined}><ChoicesCard key={artifact.artifact_id} artifact={artifact} /></div>;
@@ -1749,6 +1757,7 @@ export function InteractiveArtifactBlock({
           ) : null}
           {artifact && !renderError && !isFilePreviewSummary && (
             <SubmitControls
+              readOnly={artifact.read_only}
               completionMode={artifact.completion_mode ?? 'render_only'}
               schema={
                 isPreToolApproval

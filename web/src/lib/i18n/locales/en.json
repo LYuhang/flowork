@@ -1,4 +1,5 @@
 {
+  "tool.interactive.read_only": "Historical interaction (read-only)",
   "commandPalette.resources.progress_one": "“{{query}}”: {{count}} match · {{scanned}} records checked",
   "commandPalette.resources.progress_other": "“{{query}}”: {{count}} matches · {{scanned}} records checked",
   "commandPalette.searchType": "Search type",

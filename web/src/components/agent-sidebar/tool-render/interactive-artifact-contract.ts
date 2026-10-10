@@ -15,6 +15,7 @@ export type CompletionMode = 'render_only' | 'wait_for_submit';
 export interface InteractiveArtifact {
   kind: 'interactive_artifact';
   schema_version?: number;
+  read_only?: boolean;
   artifact_id?: string;
   title?: string;
   component_type?: ComponentType;

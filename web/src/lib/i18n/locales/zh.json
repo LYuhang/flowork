@@ -1,4 +1,5 @@
 {
+  "tool.interactive.read_only": "历史交互（只读）",
   "commandPalette.resources.progress_one": "“{{query}}”：{{count}} 个匹配 · 已检查 {{scanned}} 条记录",
   "commandPalette.resources.progress_other": "“{{query}}”：{{count}} 个匹配 · 已检查 {{scanned}} 条记录",
   "commandPalette.searchType": "搜索类型",

@@ -132,6 +132,7 @@ _SCIM_ENDPOINTS = frozenset({
 })
 
 _EXPLICIT_ACTIONS = {
+    "submit_chat_input": Action.EXECUTE,
     "query_results": Action.VIEW,
     "start_evaluation": Action.EXECUTE,
     "create_share": Action.EXPORT,

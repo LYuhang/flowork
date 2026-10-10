@@ -62,6 +62,37 @@ class ChatInputsRepo:
             raise ChatInputConflict('input_id_already_used')
         return await self._materialize(row)
 
+    async def claim_pending(self, chat_id: str, run_id: str) -> dict | None:
+        """Reserve one dispatch, durably, before touching the runtime transport.
+
+        A disconnect or process restart must never make the same input eligible
+        again. The caller commits this transaction before sending anything.
+        """
+        await self._lock_chat(chat_id)
+        row = (await self.session.execute(text("""
+            SELECT * FROM chat_user_inputs WHERE chat_id=:chat AND run_id=:run
+                AND creator_user_id=:owner AND status='submitting'
+                AND dispatch_started_at IS NULL ORDER BY created_at LIMIT 1 FOR UPDATE
+        """), {'chat': chat_id, 'run': run_id, 'owner': self.user_id})).mappings().first()
+        if row is None:
+            return None
+        run = (await self.session.execute(text("""
+            SELECT status, cancel_requested_at FROM agent_runs WHERE run_id=:run FOR UPDATE
+        """), {'run': run_id})).mappings().one()
+        error = None
+        if run['status'] != 'running' or run['cancel_requested_at'] is not None:
+            error = 'turn_not_running'
+        elif await self.session.scalar(text("""
+            SELECT EXISTS(SELECT 1 FROM hitl_requests WHERE run_id=:run AND status='pending')
+        """), {'run': run_id}):
+            error = 'turn_waiting_for_input'
+        if error:
+            return await self.resolve(chat_id, run_id, row['input_id'], 'rejected', error)
+        await self.session.execute(text("""
+            UPDATE chat_user_inputs SET dispatch_started_at=now() WHERE input_id=:id
+        """), {'id': row['input_id']})
+        return await self._materialize(row)
+
     async def _materialize(self, row) -> dict:
         content = await content_encryption_service().decrypt_json(
             self.session, key_id=row['content_key_id'], tenant_id=row['tenant_id'],

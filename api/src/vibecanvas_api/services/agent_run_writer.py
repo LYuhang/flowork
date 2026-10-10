@@ -60,6 +60,11 @@ class AgentRunWriter:
             if self._transcript is not None:
                 await self._transcript.consume(event_type, safe_payload)
             await self._append(seq, event_type, safe_payload)
+            if event_type == "USER_INPUT_STATUS" and isinstance(payload, dict):
+                # The in-memory SSE buffer publishes this same dictionary only
+                # after emit returns. Match the durable acknowledgment exactly.
+                payload.clear()
+                payload.update(safe_payload)
 
     async def heartbeat(self) -> None:
         async with session_scope(tenant_id=self.tenant_id) as session:

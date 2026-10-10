@@ -161,7 +161,11 @@ async def test_live_input_keeps_assistant_position_and_complete_text_after_reloa
         assert rows[0]['meta']['status'] == 'streaming'
     await writer.emit(3, 'CHAT_EVENT', {'type': 'message_delta', 'message_id': 'assistant-live', 'delta': ' and after'})
     await writer.emit(4, 'CHAT_EVENT', {'type': 'message_end', 'message_id': 'assistant-live'})
-    await writer.emit(5, 'USER_INPUT_STATUS', {'input_id': input_id, 'status': 'unknown', 'error': 'late_disconnect'})
+    late_ack = {'input_id': input_id, 'status': 'unknown', 'error': 'late_disconnect'}
+    await writer.emit(5, 'USER_INPUT_STATUS', late_ack)
+    assert late_ack['status'] == 'accepted'
+    assert late_ack['text'] == 'New direction'
+    assert late_ack['error'] is None
     await writer.close()
     async with session(me) as db:
         rows, _, _ = await ChatRepo(db, me['user_id']).list_message_page(chat, limit=100)
@@ -198,3 +202,56 @@ async def test_interrupted_snapshot_retains_text_and_input_order(client):
         rows = rows[-2:]
         assert rows[0]['content']['text'] == 'First second'
         assert rows[0]['meta']['status'] == 'interrupted'
+
+
+@pytest.mark.asyncio
+async def test_dispatch_claim_cannot_be_replayed_after_transport_loss(client):
+    me, chat, run = await fixture(client)
+    input_id = uuid.uuid4().hex
+    async with session(me) as db:
+        await ChatInputsRepo(db, me['user_id']).create(chat, run, input_id, 'One attempt')
+    async def claim():
+        async with session(me) as db:
+            return await ChatInputsRepo(db, me['user_id']).claim_pending(chat, run)
+    results = await asyncio.gather(claim(), claim())
+    assert sum(result is not None for result in results) == 1
+    assert await claim() is None
+    async with session(me) as db:
+        await ChatInputsRepo(db, me['user_id']).resolve(chat, run, input_id, 'unknown', 'steer_transport_failed')
+    assert await claim() is None
+
+
+@pytest.mark.asyncio
+async def test_stop_before_dispatch_rejects_without_sending(client):
+    me, chat, run = await fixture(client)
+    input_id = uuid.uuid4().hex
+    async with session(me) as db:
+        await ChatInputsRepo(db, me['user_id']).create(chat, run, input_id, 'Do not send after stop')
+        await db.execute(text("UPDATE agent_runs SET status='cancel_requested' WHERE run_id=:run"), {'run': run})
+    async with session(me) as db:
+        receipt = await ChatInputsRepo(db, me['user_id']).claim_pending(chat, run)
+        assert receipt['status'] == 'rejected'
+        assert receipt['error_code'] == 'turn_not_running'
+        assert await db.scalar(text('SELECT dispatch_started_at FROM chat_user_inputs WHERE input_id=:id'), {'id': input_id}) is None
+        assert await db.scalar(text('SELECT count(*) FROM chat_messages WHERE message_id=:id'), {'id': input_id}) == 0
+
+
+@pytest.mark.asyncio
+async def test_transport_failure_is_unknown_and_is_never_resent(client):
+    from types import SimpleNamespace
+    from vibecanvas_api.services.agent_runtime.steering_delivery import deliver_pending_input
+    me, chat, run = await fixture(client)
+    input_id = uuid.uuid4().hex
+    async with session(me) as db:
+        await ChatInputsRepo(db, me['user_id']).create(chat, run, input_id, 'No replay')
+    calls = []
+    class Runtime:
+        async def respond(self, control):
+            calls.append(control)
+            raise ConnectionError('lost acknowledgment')
+    request = SimpleNamespace(tenant_id=me['tenant_id'], user_id=me['user_id'], chat_id=chat, turn_id=run)
+    result = await deliver_pending_input(Runtime(), request)
+    assert result == {'input_id': input_id, 'status': 'unknown', 'error': 'steer_transport_failed'}
+    assert await deliver_pending_input(Runtime(), request) is None
+    assert len(calls) == 1
+    assert calls[0].text == 'No replay'

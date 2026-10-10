@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
@@ -751,13 +752,28 @@ class AgentRuntimeOrchestrator:
         first_product_event = True
         first_model_text_delta = True
         runtime_ready_at: float | None = None
+        command_stack = AsyncExitStack()
+        command_task = None
+        command_changed = None
+        next_event = None
         try:
             while True:
                 next_event = asyncio.create_task(anext(runtime_events))
-                done, _ = await asyncio.wait(
-                    {next_event, stop_task},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
+                while True:
+                    waiters = {next_event, stop_task}
+                    if command_task is not None:
+                        waiters.add(command_task)
+                    done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+                    # Process runtime completion/approval before accepting more input.
+                    if next_event in done or stop_task in done:
+                        break
+                    if command_task in done:
+                        command_changed.clear()
+                        from .steering_delivery import deliver_pending_input
+                        outcome = await deliver_pending_input(runtime, turn_request)
+                        if outcome is not None:
+                            yield ("USER_INPUT_STATUS", outcome)
+                        command_task = asyncio.create_task(command_changed.wait())
                 if stop_task in done:
                     # A Runtime may be suspended inside an SDK-native approval
                     # request and consequently produce no more events.  Do not
@@ -827,6 +843,11 @@ class AgentRuntimeOrchestrator:
                             turn_request.chat_id, event.payload.get("payload", {}).get("goal"),
                         )
                 if event.type == "runtime.started":
+                    controls = event.payload.get("supported_controls")
+                    if isinstance(controls, list) and "steer" in controls and command_task is None:
+                        from vibecanvas_api.services.state_notifications import agent_commands
+                        command_changed = await command_stack.enter_async_context(agent_commands(turn_request.turn_id))
+                        command_task = asyncio.create_task(command_changed.wait())
                     runtime_ready_at = perf_counter()
                     yield (
                         "RUNTIME_STATUS",
@@ -1018,13 +1039,30 @@ class AgentRuntimeOrchestrator:
                                 first_turn=first_turn,
                             ),
                         )
+                # A busy token stream must not indefinitely win over a ready
+                # user command. Handle it after the current runtime event so
+                # completion and newly persisted approvals still take priority.
+                if command_task is not None and command_task.done() and not completed and not stop_event.is_set():
+                    command_changed.clear()
+                    from .steering_delivery import deliver_pending_input
+                    outcome = await deliver_pending_input(runtime, turn_request)
+                    if outcome is not None:
+                        yield ("USER_INPUT_STATUS", outcome)
+                    command_task = asyncio.create_task(command_changed.wait())
             if not completed and not stop_event.is_set():
                 raise RuntimeError("agent runtime stream ended without runtime.completed")
         finally:
             from .cli_calls import cancel_turn_calls
             await cancel_turn_calls(turn_request.tenant_id, turn_request.chat_id, turn_request.turn_id)
             stop_task.cancel()
+            if command_task is not None:
+                command_task.cancel()
+                await asyncio.gather(command_task, return_exceptions=True)
+            await command_stack.aclose()
             await asyncio.gather(stop_task, return_exceptions=True)
+            if next_event is not None and not next_event.done():
+                next_event.cancel()
+                await asyncio.gather(next_event, return_exceptions=True)
             await runtime_events.aclose()
             for task in approval_tasks:
                 task.cancel()

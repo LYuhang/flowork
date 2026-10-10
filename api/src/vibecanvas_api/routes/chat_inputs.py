@@ -1,14 +1,17 @@
 """Owner-only state for explicit input into an existing Agent turn."""
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.deps import AuthContext, current_user, tenant_db
 from ..authorization.dependencies import get_authz_service
 from ..authorization.service import AuthzService
+from ..authorization.types import Action, ConsistencyPreference
 from ..storage.agent_runs_repo import AgentRunsRepo
-from ..storage.chat_inputs_repo import ChatInputsRepo
+from ..storage.chat_inputs_repo import ChatInputConflict, ChatInputsRepo
 from .chat_engagement import owned_chat
+from .chats import _authorize_chat
 
 router = APIRouter(prefix='/api/v1/chats', tags=['chat-inputs'])
 
@@ -51,4 +54,47 @@ async def get_chat_input_receipt(
     receipt = await ChatInputsRepo(session, str(auth.user_id)).get(chat_id, input_id)
     if receipt is None:
         raise HTTPException(404, 'input_not_found')
+    return receipt
+
+
+class SteerInputBody(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    input_id: str = Field(min_length=1, max_length=160)
+    run_id: str = Field(min_length=1, max_length=256)
+    text: str = Field(min_length=1, max_length=32768)
+
+    @field_validator('text')
+    @classmethod
+    def require_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError('input text must not be blank')
+        return value
+
+
+@router.post('/{chat_id}/inputs', status_code=202)
+async def submit_chat_input(
+    chat_id: str, body: SteerInputBody, request: Request,
+    auth: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_chat(request=request, auth=auth, service=service, chat_id=chat_id,
+                          action=Action.EXECUTE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
+    await owned_chat(request, auth, service, session, chat_id)
+    runs = AgentRunsRepo(session)
+    run = await runs.get_for_chat(chat_id, body.run_id, creator_user_id=auth.user_id)
+    if run is None:
+        raise HTTPException(404, 'run_not_found')
+    if 'steer' not in await runs.supported_controls(body.run_id):
+        raise HTTPException(409, 'steer_not_supported')
+    try:
+        receipt = await ChatInputsRepo(session, str(auth.user_id)).create(chat_id, body.run_id, body.input_id, body.text)
+    except ChatInputConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    # PostgreSQL delivers this wake-up only after the input transaction commits.
+    # Its payload is an ID, never user content; the owner process reads the row.
+    await session.execute(text("SELECT pg_notify('flowork_agent_command', :run)"), {'run': body.run_id})
+    await session.commit()
     return receipt

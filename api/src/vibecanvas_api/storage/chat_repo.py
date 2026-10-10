@@ -24,6 +24,7 @@ from vibecanvas_api.storage.models import (
 from vibecanvas_api.security.content_encryption import content_encryption_service
 from vibecanvas_api.services.chat_workspace import chat_working_directory, project_workspace_scope_id
 from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
+from vibecanvas_api.storage.models_agent_runs import AgentRun
 from vibecanvas_api.storage.vfs_store import VfsRepo
 from vibecanvas_api.services.object_store import get_object_store
 
@@ -1265,6 +1266,7 @@ class ChatRepo:
         offset: int = 0,
         tail: bool = False,
         before_turn_id: str | None = None,
+        through_turn_id: str | None = None,
         after_message_id: int | None = None,
     ) -> tuple[list[dict], int, int]:
         """Read and decrypt only one requested transcript window."""
@@ -1277,7 +1279,28 @@ class ChatRepo:
         )).scalar_one_or_none()
         if owned is None:
             return [], 0, 0
+        if before_turn_id and through_turn_id:
+            raise ValueError("history_boundaries_are_mutually_exclusive")
         criteria = [ChatMessage.chat_id == chat_id]
+        if through_turn_id:
+            # A branch includes its selected, finished turn. Never fall back
+            # to the full transcript if the requested boundary is unavailable.
+            status = await self._s.scalar(select(AgentRun.status).where(
+                AgentRun.run_id == through_turn_id,
+                AgentRun.chat_id == chat_id,
+                AgentRun.creator_user_id == self._user_id,
+            ))
+            if status is None:
+                raise LookupError("branch_turn_not_found")
+            if status not in {"completed", "cancelled", "failed"}:
+                raise ValueError("branch_turn_not_finished")
+            boundary_id = await self._s.scalar(select(func.max(ChatMessage.id)).where(
+                ChatMessage.chat_id == chat_id,
+                ChatMessage.turn_id == through_turn_id,
+            ))
+            if boundary_id is None:
+                raise LookupError("branch_turn_history_missing")
+            criteria.append(ChatMessage.id <= boundary_id)
         if after_message_id is not None:
             criteria.append(ChatMessage.id > after_message_id)
         if before_turn_id:

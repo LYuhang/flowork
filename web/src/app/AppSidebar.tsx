@@ -35,13 +35,7 @@ import { useUIStore } from '@/stores/ui';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
+import { SidebarRowMenu, type SidebarRowAction } from './SidebarRowMenu';
 import {
   Dialog,
   DialogContent,
@@ -574,59 +568,27 @@ export function AppSidebar({
                         </span>
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      className="absolute right-1 top-1 grid size-7 [@media(pointer:coarse)]:size-9 place-items-center rounded-md text-muted-foreground opacity-0 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-surface-raised hover:text-foreground focus-visible:opacity-100 group-hover/project:opacity-100"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        newChat(project.project_id);
-                      }}
-                      aria-label={t('nav.projects.newChat', 'New chat in {{name}}', { name: project.name })}
-                      disabled={!carrierScopeId}
-                      title={t('nav.projects.newChat', 'New chat in {{name}}', { name: project.name })}
-                    >
-                      <Plus className="size-3.5" />
-                    </button>
                   </div>
                 );
                 return (
                   <div key={project.project_id}>
-                    <ContextMenu>
-                      <ContextMenuTrigger asChild>{projectRow}</ContextMenuTrigger>
-                      <ContextMenuContent className="w-48">
-                        <ContextMenuItem disabled={!carrierScopeId} onSelect={() => newChat(project.project_id)}>
-                          <Plus className="mr-2 size-4" />
-                          {t('new_chat', 'New Chat')}
-                        </ContextMenuItem>
-                        <ContextMenuItem disabled={sandboxBusy} onSelect={() => {
+                    <SidebarRowMenu label={t('nav.projects.actions', 'Actions for project {{name}}', { name: project.name })} actions={[
+                      { label: t('new_chat', 'New Chat'), icon: Plus, disabled: !carrierScopeId, onSelect: () => newChat(project.project_id) },
+                      { label: sandboxState === 'idle' || sandboxState === 'closed'
+                          ? t('chat.sandbox.start_hint', 'Start sandbox') : t('chat.sandbox.close_hint', 'Release sandbox'),
+                        icon: Power, disabled: sandboxBusy, onSelect: () => {
                           if (sandboxState === 'idle' || sandboxState === 'closed') void changeSandbox(project.project_id, 'start');
                           else setReleaseProject(project);
-                        }}>
-                          <Power aria-hidden="true" className="mr-2 size-4" />
-                          {sandboxState === 'idle' || sandboxState === 'closed'
-                            ? t('chat.sandbox.start_hint', 'Start sandbox')
-                            : t('chat.sandbox.close_hint', 'Release sandbox')}
-                        </ContextMenuItem>
-                        <ContextMenuItem onSelect={() => {
+                        } },
+                      { label: t('nav.projects.rename', 'Rename project'), icon: Pencil, onSelect: () => {
                           setRenameProjectTarget({ project_id: project.project_id, label: project.name });
                           setRenameProjectDraft(project.name);
-                        }}>
-                          <Pencil className="mr-2 size-4" />
-                          {t('nav.projects.rename', 'Rename project')}
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onSelect={() => setDeleteProjectTarget({
-                            project_id: project.project_id,
-                            label: project.name,
-                          })}
-                        >
-                          <Trash2 className="mr-2 size-4" />
-                          {t('nav.projects.delete', 'Delete project')}
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
+                        } },
+                      { label: t('nav.projects.delete', 'Delete project'), icon: Trash2, destructive: true,
+                        onSelect: () => setDeleteProjectTarget({ project_id: project.project_id, label: project.name }) },
+                    ] satisfies SidebarRowAction[]}>
+                      {projectRow}
+                    </SidebarRowMenu>
                     {expanded && projectChats.length > 0 ? (
                       <div className="ml-[15px] border-l border-edge-subtle pl-2">
                         {projectChats.map((item) => {
@@ -641,7 +603,7 @@ export function AppSidebar({
                                 onFocus={() => preloadChat(item.chat_id)}
                                 onClick={() => selectChat(item.chat_id, project.project_id)}
                                 className={cn(
-                                  'flex h-8 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:pr-11 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
+                                  'flex h-8 pr-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:pr-11 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
                                   item.chat_id === activeChatId
                                     ? 'bg-primary/[0.07] font-semibold text-foreground'
                                     : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
@@ -653,38 +615,17 @@ export function AppSidebar({
                                   <StatusDot status="running" pulse title={t('chat.status.running', 'Running')} />
                                 )}
                               </button>
-                                <button
-                                  type="button"
-                                  className="absolute right-1 grid size-6 [@media(pointer:coarse)]:size-9 place-items-center rounded text-muted-foreground opacity-0 [@media(hover:none)]:opacity-100 hover:bg-surface-raised hover:text-destructive focus-visible:opacity-100 group-hover/chat-history:opacity-100"
-                                  aria-label={t('nav.chatHistory.delete', 'Delete')}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setDeleteChatFiles(false);
-                                    setDeleteTarget({ chat_id: item.chat_id, label });
-                                  }}
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
                             </div>
                           );
                           return (
-                            <ContextMenu key={item.chat_id}>
-                              <ContextMenuTrigger asChild>{chatRow}</ContextMenuTrigger>
-                              <ContextMenuContent className="w-44">
-                                <ContextMenuItem onSelect={() => openRenameChat(item.chat_id, label)}>
-                                  <Pencil className="mr-2 size-4" />
-                                  {t('nav.chatHistory.rename', 'Rename')}
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={() => { setDeleteChatFiles(false); setDeleteTarget({ chat_id: item.chat_id, label }); }}
-                                >
-                                  <Trash2 className="mr-2 size-4" />
-                                  {t('nav.chatHistory.delete', 'Delete')}
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
+                            <SidebarRowMenu key={item.chat_id} label={t('nav.chatHistory.actions', 'Actions for conversation {{name}}', { name: label })} actions={[
+                              { label: t('nav.chatHistory.rename', 'Rename'), icon: Pencil,
+                                onSelect: () => openRenameChat(item.chat_id, label) },
+                              { label: t('nav.chatHistory.delete', 'Delete'), icon: Trash2, destructive: true,
+                                onSelect: () => { setDeleteChatFiles(false); setDeleteTarget({ chat_id: item.chat_id, label }); } },
+                            ]}>
+                              {chatRow}
+                            </SidebarRowMenu>
                           );
                         })}
                       </div>

@@ -4049,5 +4049,7 @@
   "chat.share.existingSnapshot": "当前展示已有链接的快照。撤销后可创建新快照。",
   "chat.share.previewNotice": "预览已完成的消息文本。点击创建链接时生成快照。",
   "chat.share.createResponse": "创建回复链接",
-  "chat.toolbar.files": "文件"
+  "chat.toolbar.files": "文件",
+  "nav.projects.actions": "项目 {{name}} 的操作",
+  "nav.chatHistory.actions": "对话 {{name}} 的操作"
 }

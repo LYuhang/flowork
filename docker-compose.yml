@@ -84,7 +84,10 @@ services:
       - authorization_data
 
   openfga_migrate:
-    image: openfga/openfga:v1.20.0@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38
+    build:
+      context: .
+      dockerfile: docker/openfga.Dockerfile
+    image: ${FLOWORK_OPENFGA_IMAGE:-flowork-openfga:local}
     command: ["migrate"]
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
@@ -114,7 +117,10 @@ services:
       - authorization_data
 
   openfga:
-    image: openfga/openfga:v1.20.0@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38
+    build:
+      context: .
+      dockerfile: docker/openfga.Dockerfile
+    image: ${FLOWORK_OPENFGA_IMAGE:-flowork-openfga:local}
     command: ["run"]
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres

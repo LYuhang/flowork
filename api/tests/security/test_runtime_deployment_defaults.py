@@ -73,7 +73,7 @@ def test_rendered_release_preserves_runtime_selection(explicit):
         'OPENFGA_API_TOKEN': 'test-only', 'OPENFGA_STORE_ID': 'test-store',
         'OPENFGA_AUTHORIZATION_MODEL_ID': 'test-model', 'OPENFGA_MODEL_SHA256': '0' * 64,
     })
-    for name in ('API', 'SANDBOX', 'WEB', 'POSTGRES', 'OPENFGA_POSTGRES', 'VALKEY'):
+    for name in ('API', 'SANDBOX', 'WEB', 'POSTGRES', 'OPENFGA_POSTGRES', 'OPENFGA', 'VALKEY'):
         env[f'VIBECANVAS_{name}_IMAGE'] = 'example.invalid/flowork-' + name.lower() + '@sha256:' + '0' * 64
     if explicit:
         env.update(SANDBOX_RUNTIME='gvisor', SANDBOX_TYPE='rootful-snapshot')
@@ -85,6 +85,8 @@ def test_rendered_release_preserves_runtime_selection(explicit):
         return json.loads(result.stdout)['services']
     base = render(command)
     release = render(command + ['-f', str(ROOT / 'docker-compose.release.yml')])
+    assert release['openfga']['image'] == env['VIBECANVAS_OPENFGA_IMAGE']
+    assert release['openfga_migrate']['image'] == env['VIBECANVAS_OPENFGA_IMAGE']
     assert release['openfga_postgres']['image'] == env['VIBECANVAS_OPENFGA_POSTGRES_IMAGE']
     assert release['openfga_postgres']['volumes'] == base['openfga_postgres']['volumes']
     sandbox = release['sandboxd']['environment']

@@ -39,6 +39,9 @@ jobs:
           - label: engine
             dockerfile: engine/Dockerfile
             context: .
+          - label: openfga
+            dockerfile: docker/openfga.Dockerfile
+            context: .
           - label: openfga-postgres
             dockerfile: postgres/openfga.Dockerfile
             context: .
@@ -90,6 +93,9 @@ jobs:
             --tag "$image_ref" "${build_args[@]}" "$BUILD_CONTEXT"
           if [[ "$IMAGE_LABEL" == sandboxd ]]; then
             docker run --rm --entrypoint python "$image_ref" -m pip --version
+          fi
+          if [[ "$IMAGE_LABEL" == openfga ]]; then
+            bash scripts/security/verify_openfga_image.sh "$image_ref"
           fi
           if [[ "$IMAGE_LABEL" == postgres ]]; then
             bash scripts/security/verify_postgres_image.sh "$image_ref"

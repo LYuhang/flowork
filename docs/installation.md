@@ -20,7 +20,7 @@ The Compose stack builds separate application PostgreSQL 15 and OpenFGA
 PostgreSQL 17 images. Valkey and the optional ClamAV overlay also build patched images.
 These images apply distribution security updates during the build;
 their existing data volumes and major versions remain independent. Attested
-production deployments also require `VIBECANVAS_OPENFGA_POSTGRES_IMAGE` and `VIBECANVAS_VALKEY_IMAGE`; see
+production deployments also require `VIBECANVAS_OPENFGA_IMAGE`, `VIBECANVAS_OPENFGA_POSTGRES_IMAGE` and `VIBECANVAS_VALKEY_IMAGE`; see
 [the production release procedure](../DEPLOY.md).
 
 ## Docker Compose

@@ -41,7 +41,7 @@ expected_prefix="ghcr.io/${repository_lower}-"
 image_name="${image%@*}"
 digest="${image##*@}"
 case "$image_name" in
-  "${expected_prefix}api"|"${expected_prefix}sandboxd"|"${expected_prefix}web"|"${expected_prefix}engine"|"${expected_prefix}valkey"|"${expected_prefix}postgres"|"${expected_prefix}openfga-postgres") ;;
+  "${expected_prefix}api"|"${expected_prefix}sandboxd"|"${expected_prefix}web"|"${expected_prefix}engine"|"${expected_prefix}valkey"|"${expected_prefix}postgres"|"${expected_prefix}openfga-postgres"|"${expected_prefix}openfga") ;;
   *)
     printf 'Image is outside the admitted Flowork release repositories.\n' >&2
     exit 2

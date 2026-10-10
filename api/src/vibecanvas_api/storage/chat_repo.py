@@ -1190,8 +1190,8 @@ class ChatRepo:
     # Message API: one row per completed message.
     # ===================================================================
 
-    async def persist_message(self, chat_id: str, msg: dict) -> None:
-        """Persist one completed product message, idempotent by message_id."""
+    async def persist_message(self, chat_id: str, msg: dict, *, replace_content: bool = False) -> None:
+        """Persist a message; only the streaming writer may update its own snapshot."""
         chat = (await self._s.execute(
             select(Chat).where(
                 Chat.chat_id == chat_id,
@@ -1218,21 +1218,28 @@ class ChatRepo:
             record_id=message_id,
             value={"content": content, "meta": meta},
         )
-        await self._s.execute(
-            pg_insert(ChatMessage)
-            .values(
-                message_id=message_id,
-                chat_id=chat_id,
-                turn_id=msg.get("turn_id"),
-                role=msg["role"],
-                content_ciphertext=encrypted.ciphertext,
-                content_nonce=encrypted.nonce,
-                content_key_id=encrypted.key_id,
-            )
-            .on_conflict_do_nothing(
-                index_elements=["chat_id", "message_id"],
-            )
+        insert = pg_insert(ChatMessage).values(
+            message_id=message_id,
+            chat_id=chat_id,
+            turn_id=msg.get("turn_id"),
+            role=msg["role"],
+            content_ciphertext=encrypted.ciphertext,
+            content_nonce=encrypted.nonce,
+            content_key_id=encrypted.key_id,
         )
+        if replace_content:
+            statement = insert.on_conflict_do_update(
+                index_elements=["chat_id", "message_id"],
+                set_={
+                    "content_ciphertext": encrypted.ciphertext,
+                    "content_nonce": encrypted.nonce,
+                    "content_key_id": encrypted.key_id,
+                },
+                where=(ChatMessage.turn_id == msg.get("turn_id")) & (ChatMessage.role == msg["role"]),
+            )
+        else:
+            statement = insert.on_conflict_do_nothing(index_elements=["chat_id", "message_id"])
+        await self._s.execute(statement)
         await self._s.execute(
             update(Chat).where(
                 Chat.chat_id == chat_id,

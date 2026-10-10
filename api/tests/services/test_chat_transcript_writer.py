@@ -15,7 +15,7 @@ async def test_tool_carrier_is_persisted_before_its_result(monkeypatch):
         def __init__(self, _session, _user_id):
             pass
 
-        async def persist_message(self, _chat_id: str, message: dict) -> None:
+        async def persist_message(self, _chat_id: str, message: dict, *, replace_content: bool = False) -> None:
             writes.append(message)
 
         async def commit(self) -> None:

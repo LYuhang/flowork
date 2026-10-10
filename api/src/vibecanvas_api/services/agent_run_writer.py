@@ -56,9 +56,9 @@ class AgentRunWriter:
         # SSE already stringifies uncommon values. Mirror that tolerance before
         # binding JSONB so a Path/datetime in an artifact cannot kill the Turn.
         safe_payload = json.loads(json.dumps(raw_payload, default=str))
-        if self._transcript is not None:
-            await self._transcript.consume(event_type, safe_payload)
         async with self._lock:
+            if self._transcript is not None:
+                await self._transcript.consume(event_type, safe_payload)
             await self._append(seq, event_type, safe_payload)
 
     async def heartbeat(self) -> None:

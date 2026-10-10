@@ -139,3 +139,62 @@ async def test_input_rows_are_hidden_by_tenant_rls(client):
     async with session(outsider) as db:
         assert await db.scalar(text('SELECT count(*) FROM chat_user_inputs WHERE chat_id=:id'), {'id': chat}) == 0
         assert await ChatInputsRepo(db, me['user_id']).get(chat, 'opaque-input-id') is None
+
+
+@pytest.mark.asyncio
+async def test_live_input_keeps_assistant_position_and_complete_text_after_reload(client):
+    from vibecanvas_api.services.agent_run_writer import AgentRunWriter
+
+    me, chat, run = await fixture(client)
+    input_id = str(uuid.uuid4())
+    async with session(me) as db:
+        await ChatInputsRepo(db, me['user_id']).create(chat, run, input_id, 'New direction')
+    writer = AgentRunWriter(run_id=run, tenant_id=me['tenant_id'], chat_id=chat, user_id=me['user_id'])
+    await writer.emit(1, 'CHAT_EVENT', {'type': 'message_start', 'message_id': 'assistant-live', 'content': 'Before'})
+    await writer.emit(2, 'USER_INPUT_STATUS', {'input_id': input_id, 'status': 'accepted', 'error': None})
+    async with session(me) as db:
+        rows, _, _ = await ChatRepo(db, me['user_id']).list_message_page(chat, limit=100)
+        assert [r['message_id'] for r in rows] == ['question', 'answer', 'tool', 'hidden', 'assistant-live', input_id]
+        rows = rows[-2:]
+        original_id = rows[0]['id']
+        assert rows[0]['content']['text'] == 'Before'
+        assert rows[0]['meta']['status'] == 'streaming'
+    await writer.emit(3, 'CHAT_EVENT', {'type': 'message_delta', 'message_id': 'assistant-live', 'delta': ' and after'})
+    await writer.emit(4, 'CHAT_EVENT', {'type': 'message_end', 'message_id': 'assistant-live'})
+    await writer.emit(5, 'USER_INPUT_STATUS', {'input_id': input_id, 'status': 'unknown', 'error': 'late_disconnect'})
+    await writer.close()
+    async with session(me) as db:
+        rows, _, _ = await ChatRepo(db, me['user_id']).list_message_page(chat, limit=100)
+        assert [r['message_id'] for r in rows] == ['question', 'answer', 'tool', 'hidden', 'assistant-live', input_id]
+        rows = rows[-2:]
+        assert rows[0]['id'] == original_id
+        assert rows[0]['content']['text'] == 'Before and after'
+        assert rows[0]['meta']['status'] == 'completed'
+        assert (await ChatInputsRepo(db, me['user_id']).get(chat, input_id))['status'] == 'accepted'
+        events = await AgentRunsRepo(db).list_events(run, after_seq=0)
+        assert events[-1].payload['status'] == 'accepted'
+        assert events[-1].payload['text'] == 'New direction'
+        assert events[-1].payload['error'] is None
+
+
+@pytest.mark.asyncio
+async def test_interrupted_snapshot_retains_text_and_input_order(client):
+    from vibecanvas_api.services.chat_transcript_writer import ChatTranscriptWriter
+
+    me, chat, run = await fixture(client)
+    input_id = str(uuid.uuid4())
+    async with session(me) as db:
+        await ChatInputsRepo(db, me['user_id']).create(chat, run, input_id, 'Keep this')
+    writer = ChatTranscriptWriter(tenant_id=me['tenant_id'], user_id=me['user_id'], chat_id=chat, turn_id=run)
+    await writer.consume('CHAT_EVENT', {'type': 'message_delta', 'message_id': 'partial', 'delta': 'First'})
+    ack = {'input_id': input_id, 'status': 'accepted', 'error': None}
+    await writer.consume('USER_INPUT_STATUS', ack)
+    assert ack['text'] == 'Keep this'
+    await writer.consume('CHAT_EVENT', {'type': 'message_delta', 'message_id': 'partial', 'delta': ' second'})
+    await writer.close()
+    async with session(me) as db:
+        rows, _, _ = await ChatRepo(db, me['user_id']).list_message_page(chat, limit=100)
+        assert [r['message_id'] for r in rows] == ['question', 'answer', 'tool', 'hidden', 'partial', input_id]
+        rows = rows[-2:]
+        assert rows[0]['content']['text'] == 'First second'
+        assert rows[0]['meta']['status'] == 'interrupted'

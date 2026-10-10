@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from vibecanvas_api.storage.chat_repo import ChatRepo
+from vibecanvas_api.storage.chat_inputs_repo import ChatInputsRepo
 from vibecanvas_api.storage.db import session_scope
 
 
@@ -23,6 +24,7 @@ class ChatTranscriptWriter:
         self.chat_id = chat_id
         self.turn_id = turn_id
         self._messages: dict[str, dict[str, Any]] = {}
+        self._snapshots: set[str] = set()
 
     async def _persist(self, message_id: str, state: dict, *, status: str) -> None:
         role = str(state.get("role") or "assistant")
@@ -45,10 +47,40 @@ class ChatTranscriptWriter:
                     "content": content,
                     "meta": {"status": status},
                 },
+                replace_content=message_id in self._snapshots,
             )
             await repo.commit()
 
+    async def flush_before_input(self) -> None:
+        """Reserve displayed messages' order without ending their live assembly.
+
+        A confirmed user input must follow the assistant content already shown.
+        Subsequent fragments update the same row, preserving its history cursor.
+        """
+        for message_id, state in self._messages.items():
+            if state.get("text") or state.get("tool_calls"):
+                await self._persist(message_id, state, status="streaming")
+                self._snapshots.add(message_id)
+
     async def consume(self, event_type: str, payload: dict) -> None:
+        if event_type == "USER_INPUT_STATUS":
+            if payload.get("status") == "accepted":
+                await self.flush_before_input()
+            async with session_scope(tenant_id=self.tenant_id) as session:
+                receipt = await ChatInputsRepo(session, self.user_id).resolve(
+                    self.chat_id, self.turn_id, str(payload.get("input_id") or ""),
+                    str(payload.get("status") or ""), payload.get("error"),
+                )
+                if receipt is None:
+                    raise LookupError("steer_receipt_not_found")
+                # Publish the persisted outcome and original input, not runtime
+                # text or an out-of-order duplicate's stale status.
+                payload.update(
+                    input_id=receipt["input_id"], status=receipt["status"],
+                    error=receipt["error_code"], text=receipt["text"],
+                    chat_id=self.chat_id, turn_id=self.turn_id,
+                )
+            return
         if event_type != "CHAT_EVENT":
             return
         kind = str(payload.get("type") or "")

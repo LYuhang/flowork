@@ -2243,6 +2243,7 @@ async def run_codex_turn(
                 # Turn.  The backend-owned command snapshot is therefore the
                 # authoritative product first/subsequent-Turn classification.
                 "first_turn": bool(request.command_context.is_first),
+                "supported_controls": ["steer"] if turn_id and not control_only else [],
                 "mcp_server_count": (
                     len(request.mcp_desired_state.servers)
                 ),

@@ -499,6 +499,20 @@ class AgentRunsRepo:
 
         await self.session.flush()
 
+    async def supported_controls(self, run_id: str) -> list[str]:
+        """Read the live adapter's declaration; callers must authorize the Run."""
+        event = (await self.session.execute(
+            select(AgentRunEvent).where(
+                AgentRunEvent.run_id == run_id,
+                AgentRunEvent.event_type == "RUNTIME_CAPABILITIES",
+            ).order_by(AgentRunEvent.seq.desc()).limit(1)
+        )).scalar_one_or_none()
+        if event is None:
+            return []
+        await self._materialize_event(event)
+        controls = event.payload.get("supported_controls")
+        return ["steer"] if isinstance(controls, list) and "steer" in controls else []
+
     async def list_events(self, run_id: str, after_seq: int, *, limit: int = 256) -> list[AgentRunEvent]:
         rows = list((
             await self.session.execute(

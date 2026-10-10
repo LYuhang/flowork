@@ -70,7 +70,15 @@ def private_runtime_root(runtime_type: RuntimeType) -> str:
 
 def _product_events(event: RuntimeEvent) -> list[tuple[str, dict]]:
     """Project one SDK-neutral RuntimeEvent into durable product events."""
-    if event.type in {"runtime.started", "runtime.completed", "runtime.input"}:
+    if event.type == "runtime.started":
+        # An older resident adapter does not support a new control merely
+        # because the API serving the browser was upgraded.
+        controls = event.payload.get("supported_controls")
+        return [("RUNTIME_CAPABILITIES", {
+            "turn_id": event.turn_id,
+            "supported_controls": ["steer"] if isinstance(controls, list) and "steer" in controls else [],
+        })]
+    if event.type in {"runtime.completed", "runtime.input"}:
         return []
     if event.type == "runtime.failed":
         raise RuntimeError(str(event.payload.get("message") or "agent runtime failed"))

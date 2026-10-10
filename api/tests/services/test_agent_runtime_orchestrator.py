@@ -193,3 +193,11 @@ async def test_runtime_input_is_persisted_privately_before_public_events(monkeyp
     )
     assert "private command context" not in str(events)
     assert events[-1][0] == "CHAT_EVENT"
+
+
+@pytest.mark.parametrize('declaration, expected', [(None, []), ([], []), (['steer'], ['steer']), ('steer', []), (['unsupported'], [])])
+def test_capabilities_come_from_actual_resident_adapter(declaration, expected):
+    event = RuntimeEvent(event_id='ready', seq=1, chat_id='chat', turn_id='turn',
+                         runtime_type='codex', runtime_session_id='runtime', type='runtime.started',
+                         payload={} if declaration is None else {'supported_controls': declaration})
+    assert _product_events(event) == [('RUNTIME_CAPABILITIES', {'turn_id': 'turn', 'supported_controls': expected})]

@@ -373,6 +373,7 @@ def build_app() -> FastAPI:
     from .routes import browser as _browser_routes
     from .routes import chats as _chat_routes
     from .routes import chat_engagement as _chat_engagement_routes
+    from .routes import chat_inputs as _chat_input_routes
     from .routes import title_search as _title_search_routes
     from .routes import deployment_invoke as _deployment_invoke_routes
     from .routes import deployments as _deployment_routes
@@ -417,6 +418,7 @@ def build_app() -> FastAPI:
     app.include_router(_workflow_history_routes.router)
     app.include_router(_chat_routes.router)
     app.include_router(_chat_engagement_routes.router)
+    app.include_router(_chat_input_routes.router)
     app.include_router(_title_search_routes.router)
     app.include_router(_task_routes.router)
     app.include_router(_deployment_routes.router)

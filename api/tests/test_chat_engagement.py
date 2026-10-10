@@ -149,3 +149,35 @@ def test_public_messages_do_not_publish_attachment_context():
     assert public_messages(rows, None) == [
         {'id': 'user-message', 'role': 'user', 'content': 'Please review the references'},
     ]
+
+
+@pytest.mark.asyncio
+async def test_message_search_covers_unloaded_history_without_exposing_hidden_text(client):
+    headers, me, chat = await seed(client)
+    endpoint = f'/api/v1/chats/{chat}/messages/search'
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+        repo = ChatRepo(session, me['user_id'])
+        for index in range(101):
+            await repo.persist_message(chat, {
+                'message_id': f'search-{index}', 'role': 'assistant',
+                'content': {'text': f'Entry {index}' if index != 100 else '中文 literal [needle] END'},
+            })
+    first = await client.post(endpoint, headers=headers, json={'query': '[NEEDLE]'})
+    assert first.status_code == 200, first.text
+    assert first.json()['items'] == []
+    assert first.json()['scanned'] == 100
+    cursor = first.json()['next_cursor']
+    assert cursor is not None
+    second = await client.post(endpoint, headers=headers, json={'query': '[NEEDLE]', 'after_id': cursor})
+    assert second.status_code == 200, second.text
+    assert second.json()['next_cursor'] is None
+    item = second.json()['items'][0]
+    assert item['id'] == 'search-100'
+    assert item['excerpt'][item['match_start']:item['match_end']] == '[needle]'
+    hidden = await client.post(endpoint, headers=headers, json={'query': 'secret'})
+    assert hidden.json()['items'] == []
+    empty = await client.post(endpoint, headers=headers, json={'query': '  '})
+    assert empty.status_code == 422
+    other, _, _ = await seed(client)
+    denied = await client.post(endpoint, headers=other, json={'query': 'Entry'})
+    assert denied.status_code in (403, 404)

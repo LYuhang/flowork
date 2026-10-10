@@ -124,6 +124,59 @@ def public_messages(rows: list[dict], message_id: str | None) -> list[dict]:
     return result
 
 
+class MessageSearchBody(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+    after_id: int = Field(default=0, ge=0)
+
+
+class MessageSearchMatch(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    excerpt: str
+    match_start: int
+    match_end: int
+
+
+class MessageSearchPage(BaseModel):
+    items: list[MessageSearchMatch]
+    next_cursor: int | None
+    scanned: int
+
+
+@router.post("/chats/{chat_id}/messages/search", response_model=MessageSearchPage)
+async def search_messages(
+    chat_id: str, body: MessageSearchBody, request: Request,
+    auth: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    """Search bounded encrypted history pages without storing a plaintext index."""
+    await owned_chat(request, auth, service, session, chat_id)
+    query = body.query.strip()
+    if not query:
+        raise HTTPException(422, "search_query_empty")
+    rows, total, _ = await ChatRepo(session, auth.user_id).list_message_page(
+        chat_id, limit=100, after_message_id=body.after_id,
+    )
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    items = []
+    for message in public_messages(rows, None):
+        match = pattern.search(message["content"])
+        if match is None:
+            continue
+        start = max(0, match.start() - 80)
+        end = min(len(message["content"]), match.end() + 120)
+        items.append(MessageSearchMatch(
+            id=message["id"], role=message["role"],
+            excerpt=message["content"][start:end],
+            match_start=match.start() - start, match_end=match.end() - start,
+        ))
+    return MessageSearchPage(
+        items=items, scanned=len(rows),
+        next_cursor=rows[-1]["id"] if len(rows) < total else None,
+    )
+
+
 async def decrypt_share(session, row):
     return await content_encryption_service().decrypt_json(
         session, tenant_id=row["tenant_id"], resource_type="chat",

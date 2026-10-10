@@ -2282,6 +2282,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/{chat_id}/messages/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search Messages
+         * @description Search bounded encrypted history pages without storing a plaintext index.
+         */
+        post: operations["search_messages_api_v1_chats__chat_id__messages_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chats/{chat_id}/shares": {
         parameters: {
             query?: never;
@@ -7170,6 +7190,41 @@ export interface components {
             project_id?: string | null;
             /** Timezone */
             timezone?: string | null;
+        };
+        /** MessageSearchBody */
+        MessageSearchBody: {
+            /** Query */
+            query: string;
+            /**
+             * After Id
+             * @default 0
+             */
+            after_id: number;
+        };
+        /** MessageSearchMatch */
+        MessageSearchMatch: {
+            /** Id */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Excerpt */
+            excerpt: string;
+            /** Match Start */
+            match_start: number;
+            /** Match End */
+            match_end: number;
+        };
+        /** MessageSearchPage */
+        MessageSearchPage: {
+            /** Items */
+            items: components["schemas"]["MessageSearchMatch"][];
+            /** Next Cursor */
+            next_cursor: number | null;
+            /** Scanned */
+            scanned: number;
         };
         /** MessageSource */
         MessageSource: {
@@ -13741,6 +13796,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_messages_api_v1_chats__chat_id__messages_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageSearchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageSearchPage"];
                 };
             };
             /** @description Validation Error */

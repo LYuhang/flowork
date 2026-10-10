@@ -1269,6 +1269,7 @@ def _session_to_list_item(
         ),
         updated_at=session.get("updated_at"),
         last_message_at=session.get("last_message_at"),
+        latest_run=session.get("latest_run") if can_view_content else None,
         workflow_context=session.get("workflow_context") if can_view_content else None,
         browser_control_status=session.get("browser_control_status", "inactive"),
         runtime_type=session.get("runtime_type") if can_view_content else None,

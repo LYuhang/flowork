@@ -706,3 +706,60 @@ async def test_chat_event_cursor_orders_concurrent_jobs(pg_session):
         if pending:
             pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["running", "waiting_approval", "cancel_requested", "completed", "cancelled", "failed"])
+async def test_history_projects_latest_run_without_decrypting_private_input(pg_session, monkeypatch, status):
+    from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
+
+    await _seed_and_bind(pg_session)
+    chats = ChatRepo(pg_session, str(USER))
+    first = await chats.register_session('__chat_summary', project_id=PROJECT, name='First')
+    second = await chats.register_session('__chat_summary', project_id=PROJECT, name='Second')
+    for chat_id in (first, second):
+        chat = await pg_session.get(Chat, chat_id)
+        chat.last_message_at = datetime.now(timezone.utc)
+    runs = AgentRunsRepo(pg_session)
+    old = await runs.create(run_id='summary-old', tenant_id=TENANT, chat_id=first,
+                            creator_user_id=USER, client_request_id='old', input_snapshot={'text': 'private'})
+    old.status = 'completed'
+    old.created_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    await pg_session.flush()
+    latest = await runs.create(run_id='summary-new', tenant_id=TENANT, chat_id=first,
+                               creator_user_id=USER, client_request_id='new', input_snapshot={'text': 'private'})
+    latest.status = status
+    # An older run's late update must not make it the latest turn.
+    old.updated_at = datetime.now(timezone.utc) + timedelta(minutes=1)
+    await pg_session.flush()
+    materialize = AsyncMock(side_effect=AssertionError('list must not decrypt run input'))
+    monkeypatch.setattr(AgentRunsRepo, '_materialize_run', materialize)
+    summaries = await runs.latest_summaries([first, second])
+    assert set(summaries) == {first}
+    assert summaries[first]['run_id'] == latest.run_id
+    assert summaries[first]['status'] == status
+    assert set(summaries[first]) == {'run_id', 'status', 'created_at', 'updated_at', 'ended_at'}
+    assert await runs.latest_summaries([]) == {}
+    assert await runs.latest_summaries([second]) == {}
+    listed = await chats.list_authorized_sessions('__chat_summary', [first, second])
+    assert {row['chat_id']: row['latest_run'] for row in listed} == {first: summaries[first], second: None}
+    assert len(await chats.list_authorized_sessions('__chat_summary', [second])) == 1
+    materialize.assert_not_called()
+
+
+def test_chat_list_run_summary_requires_content_access():
+    from vibecanvas_api.authorization.types import Action, Decision
+    from vibecanvas_api.routes.chats import _session_to_list_item
+
+    now = datetime.now(timezone.utc)
+    record = {"chat_id": "summary-chat", "latest_run": {
+        "run_id": "summary-turn", "status": "failed", "created_at": now,
+        "updated_at": now, "ended_at": now,
+    }}
+    metadata = Decision(allowed=True, capabilities=frozenset({Action.VIEW_METADATA}))
+    content = Decision(allowed=True, capabilities=frozenset({Action.VIEW}))
+    assert _session_to_list_item(record, "scope", metadata).latest_run is None
+    assert _session_to_list_item(record, "scope").latest_run is None
+    item = _session_to_list_item(record, "scope", content)
+    assert item.latest_run.run_id == "summary-turn"
+    assert item.model_dump(mode="json")["latest_run"]["ended_at"] == now.isoformat().replace("+00:00", "Z")

@@ -22,6 +22,7 @@ from vibecanvas_api.storage.models import (
 )
 from vibecanvas_api.security.content_encryption import content_encryption_service
 from vibecanvas_api.services.chat_workspace import chat_working_directory, project_workspace_scope_id
+from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
 from vibecanvas_api.storage.vfs_store import VfsRepo
 from vibecanvas_api.services.object_store import get_object_store
 
@@ -354,9 +355,11 @@ class ChatRepo:
         rows = (await self._s.execute(query)).scalars().all()
         for chat in rows:
             await self._materialize_chat_private(chat)
+        runs = await AgentRunsRepo(self._s).latest_summaries([chat.chat_id for chat in rows])
         return [
             {
                 "chat_id": chat.chat_id,
+                "latest_run": runs.get(chat.chat_id),
                 "project_id": chat.project_id,
                 "workflow_id": chat.project.workflow_id if chat.project is not None else None,
                 "name": chat.name,

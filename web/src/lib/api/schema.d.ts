@@ -5740,6 +5740,7 @@ export interface components {
         ChatListItem: {
             /** Chat Id */
             chat_id: string;
+            latest_run?: components["schemas"]["ChatRunSummary"] | null;
             /** Project Id */
             project_id?: string | null;
             /** Scope Id */
@@ -5816,6 +5817,28 @@ export interface components {
         ChatRenameBody: {
             /** Name */
             name: string;
+        };
+        /** ChatRunSummary */
+        ChatRunSummary: {
+            /** Run Id */
+            run_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "waiting_approval" | "cancel_requested" | "completed" | "cancelled" | "failed";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Ended At */
+            ended_at?: string | null;
         };
         /** ChatRuntimeBindingOut */
         ChatRuntimeBindingOut: {

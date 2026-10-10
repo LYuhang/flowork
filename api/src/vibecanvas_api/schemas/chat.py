@@ -13,8 +13,17 @@ from vibecanvas_api.schemas.access import ResourceAccessOut
 from vibecanvas_api.services.workflow_chat_context import WorkflowChatBinding
 
 
+class ChatRunSummary(BaseModel):
+    run_id: str
+    status: Literal["running", "waiting_approval", "cancel_requested", "completed", "cancelled", "failed"]
+    created_at: datetime
+    updated_at: datetime
+    ended_at: datetime | None = None
+
+
 class ChatListItem(BaseModel):
     chat_id: str
+    latest_run: ChatRunSummary | None = None
     project_id: str | None = None
     scope_id: str
     surface: Literal["chat", "browser"] = "chat"

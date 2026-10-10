@@ -292,6 +292,27 @@ class AgentRunsRepo:
         ).scalar_one_or_none()
         return await self._materialize_run(row)
 
+    async def latest_summaries(self, chat_ids: list[str]) -> dict[str, dict]:
+        """Read list-page status without decrypting prompts or opening streams.
+
+        Callers must supply only authorized chats. Tenant RLS still applies;
+        the latest run is selected by creation time, not last activity, so a
+        late update to an older run cannot replace the current conversation.
+        """
+        if not chat_ids:
+            return {}
+        rows = (await self.session.execute(
+            select(AgentRun.chat_id, AgentRun.run_id, AgentRun.status,
+                   AgentRun.created_at, AgentRun.updated_at, AgentRun.ended_at)
+            .where(AgentRun.chat_id.in_(chat_ids))
+            .distinct(AgentRun.chat_id)
+            .order_by(AgentRun.chat_id, AgentRun.created_at.desc(), AgentRun.run_id.desc())
+        )).mappings().all()
+        return {
+            row["chat_id"]: {key: value for key, value in row.items() if key != "chat_id"}
+            for row in rows
+        }
+
     async def get_active_for_chat(self, chat_id: str) -> AgentRun | None:
         row = (
             await self.session.execute(

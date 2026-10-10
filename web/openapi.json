@@ -19512,6 +19512,16 @@
             "type": "string",
             "title": "Chat Id"
           },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatRunSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "project_id": {
             "anyOf": [
               {
@@ -19737,6 +19747,56 @@
           "name"
         ],
         "title": "ChatRenameBody"
+      },
+      "ChatRunSummary": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "waiting_approval",
+              "cancel_requested",
+              "completed",
+              "cancelled",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ChatRunSummary"
       },
       "ChatRuntimeBindingOut": {
         "properties": {

@@ -212,6 +212,26 @@ class ChatProjectRepo:
             "mcp_config_revision": current_revision,
         }
 
+    async def search_titles(self, query: str, after_id: str, *, limit: int = 100) -> dict:
+        """Scan a bounded page of the same private projects exposed by list()."""
+        rows = list((await self._session.execute(
+            select(ChatProject).where(
+                ChatProject.creator_user_id == self._user_id,
+                ChatProject.surface == "chat",
+                ChatProject.workflow_id.is_(None),
+                ChatProject.deleted_at.is_(None),
+                ChatProject.project_id > after_id,
+            ).order_by(ChatProject.project_id).limit(limit + 1)
+        )).scalars().all())
+        page = rows[:limit]
+        items = []
+        for project in page:
+            await self._materialize(project)
+            if query.casefold() in project.name.casefold():
+                items.append({"id": project.project_id, "title": project.name})
+        return {"items": items, "scanned": len(page),
+                "next_cursor": page[-1].project_id if len(rows) > limit else None}
+
     async def list(self, *, surface: str = "chat") -> list[dict]:
         projects = list((await self._session.execute(
             select(ChatProject).where(

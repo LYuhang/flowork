@@ -2371,6 +2371,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search Project Titles */
+        post: operations["search_project_titles_api_v1_search_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/chats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search Chat Titles */
+        post: operations["search_chat_titles_api_v1_search_chats_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks": {
         parameters: {
             query?: never;
@@ -8821,6 +8855,40 @@ export interface components {
             /** End Seconds */
             end_seconds?: number | null;
         };
+        /** TitleSearchBody */
+        TitleSearchBody: {
+            /** Query */
+            query: string;
+            /**
+             * After Id
+             * @default
+             */
+            after_id: string;
+        };
+        /** TitleSearchItem */
+        TitleSearchItem: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Project Id */
+            project_id?: string | null;
+            /** Scope Id */
+            scope_id?: string | null;
+            /** Surface */
+            surface?: string | null;
+            /** Workflow Id */
+            workflow_id?: string | null;
+        };
+        /** TitleSearchPage */
+        TitleSearchPage: {
+            /** Items */
+            items: components["schemas"]["TitleSearchItem"][];
+            /** Scanned */
+            scanned: number;
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** TodoItem */
         TodoItem: {
             /** Id */
@@ -13993,6 +14061,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_project_titles_api_v1_search_projects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TitleSearchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleSearchPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_chat_titles_api_v1_search_chats_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TitleSearchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleSearchPage"];
                 };
             };
             /** @description Validation Error */

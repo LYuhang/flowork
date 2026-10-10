@@ -290,6 +290,32 @@ class ChatRepo:
                  "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
                  "workflow_context": (c.meta or {}).get("workflow_context")} for c in rows]
 
+    async def search_titles(
+        self, query: str, after_id: str, authorized_ids: tuple[str, ...],
+        *, limit: int = 100,
+    ) -> dict:
+        """Search private titles only after content-view authorization."""
+        rows = list((await self._s.execute(
+            select(Chat).join(ChatProject, Chat.project_id == ChatProject.project_id).where(
+                Chat.creator_user_id == self._user_id,
+                Chat.chat_id.in_(authorized_ids),
+                Chat.deleted_at.is_(None),
+                ChatProject.deleted_at.is_(None),
+                Chat.last_message_at.is_not(None),
+                Chat.chat_id > after_id,
+            ).order_by(Chat.chat_id).limit(limit + 1)
+        )).scalars().all())
+        page = rows[:limit]
+        items = []
+        for chat in page:
+            await self._materialize_chat_private(chat)
+            if query.casefold() in chat.name.casefold():
+                items.append({"id": chat.chat_id, "title": chat.name,
+                              "project_id": chat.project_id, "scope_id": chat.scope_id,
+                              "surface": chat.surface, "workflow_id": chat.project.workflow_id})
+        return {"items": items, "scanned": len(page),
+                "next_cursor": page[-1].chat_id if len(rows) > limit else None}
+
     async def list_authorized_sessions(
         self,
         scope_id: str,

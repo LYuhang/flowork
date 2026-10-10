@@ -7817,6 +7817,98 @@
         }
       }
     },
+    "/api/v1/search/projects": {
+      "post": {
+        "tags": [
+          "title-search"
+        ],
+        "summary": "Search Project Titles",
+        "operationId": "search_project_titles_api_v1_search_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TitleSearchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TitleSearchPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/search/chats": {
+      "post": {
+        "tags": [
+          "title-search"
+        ],
+        "summary": "Search Chat Titles",
+        "operationId": "search_chat_titles_api_v1_search_chats_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TitleSearchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TitleSearchPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks": {
       "get": {
         "tags": [
@@ -27939,6 +28031,122 @@
           "start_seconds"
         ],
         "title": "TimeSelection"
+      },
+      "TitleSearchBody": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Query"
+          },
+          "after_id": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "After Id",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "TitleSearchBody"
+      },
+      "TitleSearchItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "scope_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Id"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "TitleSearchItem"
+      },
+      "TitleSearchPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TitleSearchItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "scanned": {
+            "type": "integer",
+            "title": "Scanned"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "scanned",
+          "next_cursor"
+        ],
+        "title": "TitleSearchPage"
       },
       "TodoItem": {
         "properties": {

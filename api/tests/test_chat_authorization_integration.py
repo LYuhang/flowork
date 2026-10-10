@@ -372,6 +372,22 @@ async def test_chat_and_children_are_creator_private(
             access["capabilities"]
         )
 
+        # A metadata-visible Chat must not become discoverable by its private title.
+        async with session_scope(tenant_id=owner["tenant_id"], user_id=owner["user_id"]) as session:
+            await ChatRepo(session, owner["user_id"]).rename_session(scope_id, chat_id, "Private title search")
+        for kind, query, identifier in (
+            ("chats", "Private title", chat_id),
+            ("projects", "Private project", project_id),
+        ):
+            found = await client.post(f"/api/v1/search/{kind}", headers=_headers(owner_token), json={"query": query})
+            assert found.status_code == 200, found.text
+            assert [item["id"] for item in found.json()["items"]] == [identifier]
+            for token in (outsider_token, auditor_token, admin_token, another_org_token):
+                hidden = await client.post(f"/api/v1/search/{kind}", headers=_headers(token), json={"query": query})
+                assert hidden.status_code == 200, hidden.text
+                assert hidden.json()["items"] == []
+                assert hidden.json()["scanned"] == 0
+
         await _seed_chat_children(
             app_engine,
             organization_id=owner["tenant_id"],

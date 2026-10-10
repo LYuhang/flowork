@@ -744,6 +744,23 @@ def permission_for_route(
             parent_resolver="file_ref_to_chat_run_or_storage",
         )
 
+    if path == "/api/v1/search/projects" and method == "POST":
+        return _spec(
+            admission=AdmissionKind.ORGANIZATION,
+            resource_type=ResourceType.ORGANIZATION,
+            action=Action.VIEW,
+            selector="session:active_organization_id",
+            parent_resolver="organization_membership",
+        )
+    if path == "/api/v1/search/chats" and method == "POST":
+        return _spec(
+            admission=AdmissionKind.RESOURCE,
+            resource_type=ResourceType.CHAT,
+            action=Action.VIEW,
+            selector="session:active_organization_id",
+            parent_resolver="direct_or_collection",
+        )
+
     if path.startswith("/api/v1/projects"):
         return _spec(
             admission=AdmissionKind.ORGANIZATION,

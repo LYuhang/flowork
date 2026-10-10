@@ -584,6 +584,8 @@ def test_codex_app_server_loads_dynamic_catalog_at_process_start(monkeypatch) ->
     })
 
     client = create_codex_app_server(broker)
+    assert client._experimental is True
+    assert create_codex_app_server(account)._experimental is True
 
     assert client._config_overrides == (
         f'model_catalog_json="{_broker_model_config(broker)[1]["model_catalog_json"]}"',
@@ -1676,6 +1678,7 @@ async def test_codex_forks_loaded_thread_when_turn_config_changes(monkeypatch):
                 return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/fork":
+                assert params["excludeTurns"] is True
                 assert params["threadId"] == "codex-thread-old"
                 assert (
                     params["config"]["model_provider"]
@@ -1770,6 +1773,7 @@ async def test_codex_replaces_only_an_explicitly_missing_native_rollout(monkeypa
                 return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/fork":
+                assert params["excludeTurns"] is True
                 raise CodexAppServerError(
                     "codex_app_server_request_failed",
                     "no rollout found for thread id codex-thread-missing",
@@ -1986,6 +1990,7 @@ async def test_codex_matching_history_watermark_keeps_native_transcript(monkeypa
                 return {"goal": None}
             self.requests.append((method, params))
             if method == "thread/fork":
+                assert params["excludeTurns"] is True
                 return {"thread": {"id": "native-fork"}}
             if method == "turn/start":
                 assert "durable-conversation-history" not in params["input"][0]["text"]

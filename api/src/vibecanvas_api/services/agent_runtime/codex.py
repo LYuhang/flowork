@@ -1648,6 +1648,8 @@ def create_codex_app_server(request: RuntimeTurnRequest) -> CodexAppServer:
         env=_codex_env(request.runtime_root, request.chat_id),
         cwd="/data" if os.path.isdir("/data") else "/mount",
         outer_sandboxed=True,
+        # Metadata-only forks avoid deprecated full-history hydration.
+        experimental=True,
         config_overrides=config_overrides,
     )
 
@@ -2101,7 +2103,7 @@ async def run_codex_turn(
             # applying the current Turn's exact, least-privilege MCP config.
             opened = await client.request(
                 "thread/fork",
-                {"threadId": request.runtime_state_ref, **common},
+                {"threadId": request.runtime_state_ref, **common, "excludeTurns": True},
                 timeout_s=45.0,
             )
             thread = opened.get("thread")
@@ -2122,7 +2124,7 @@ async def run_codex_turn(
                         # the old model/MCP configuration, while forking keeps
                         # the completed transcript under the new configuration.
                         "thread/fork",
-                        {"threadId": request.runtime_state_ref, **common},
+                        {"threadId": request.runtime_state_ref, **common, "excludeTurns": True},
                         timeout_s=45.0,
                     )
                 except CodexAppServerError as exc:

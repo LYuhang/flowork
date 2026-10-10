@@ -219,6 +219,7 @@ class ChatRepo:
     async def create_branch_snapshot(
         self, source_chat_id: str, *, through_turn_id: str, chat_id: str,
         name: str, tool_projections: dict[str, dict],
+        artifact_definitions: dict[str, dict] | None = None,
     ) -> str:
         """Create a bounded encrypted history in the caller's transaction.
 
@@ -272,6 +273,7 @@ class ChatRepo:
                 for row in rows:
                     snapshot = branch_message_snapshot(
                         row, source_chat_id=source_chat_id, tool_projections=tool_projections,
+                        artifact_definitions=artifact_definitions,
                     )
                     await self.persist_message(
                         chat_id, snapshot,

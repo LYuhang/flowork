@@ -8068,6 +8068,119 @@
         }
       }
     },
+    "/api/v1/chats/{chat_id}/branches/preview": {
+      "get": {
+        "tags": [
+          "chat-branches"
+        ],
+        "summary": "Preview Branch",
+        "operationId": "preview_branch_api_v1_chats__chat_id__branches_preview_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          },
+          {
+            "name": "turn_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Turn Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/branches": {
+      "post": {
+        "tags": [
+          "chat-branches"
+        ],
+        "summary": "Create Branch",
+        "operationId": "create_branch_api_v1_chats__chat_id__branches_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chats/{chat_id}/runs/{run_id}/input-controls": {
       "get": {
         "tags": [
@@ -19735,6 +19848,83 @@
           "file"
         ],
         "title": "Body_upload_storage_file_api_v1_storage_upload_post"
+      },
+      "BranchBody": {
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Chat Id"
+          },
+          "turn_id": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Turn Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "chat_id",
+          "turn_id",
+          "name"
+        ],
+        "title": "BranchBody"
+      },
+      "BranchOut": {
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "title": "Chat Id"
+          },
+          "source_chat_id": {
+            "type": "string",
+            "title": "Source Chat Id"
+          },
+          "through_turn_id": {
+            "type": "string",
+            "title": "Through Turn Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "scope_id": {
+            "type": "string",
+            "title": "Scope Id"
+          },
+          "message_count": {
+            "type": "integer",
+            "title": "Message Count"
+          },
+          "file_policy": {
+            "type": "string",
+            "title": "File Policy",
+            "default": "shared_current_project_files"
+          },
+          "starts_agent": {
+            "type": "boolean",
+            "title": "Starts Agent",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "chat_id",
+          "source_chat_id",
+          "through_turn_id",
+          "project_id",
+          "scope_id",
+          "message_count"
+        ],
+        "title": "BranchOut"
       },
       "BrowserBindingOut": {
         "properties": {

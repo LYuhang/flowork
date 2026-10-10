@@ -33,3 +33,26 @@ def test_branch_marks_direct_tool_artifacts_read_only_without_inventing_a_decisi
     assert snapshot['content']['artifact']['read_only'] is True
     assert snapshot['content']['artifact']['interaction_state']['status'] == 'pending'
     assert 'read_only' not in row['content']['artifact']
+
+
+def test_offloaded_artifact_uses_authorized_definition_and_freezes_it():
+    row = {'message_id': 'preview', 'content': {'tool_calls': [{'id': 'render', 'artifact': {
+        'payload': {'artifact_preview': {'artifact_id': 'ia-old', 'preview': 'Stub'}, 'artifact_ref': '/data/old.json'},
+    }}]}}
+    definition = {'kind': 'interactive_artifact', 'artifact_id': 'ia-old',
+                  'component_type': 'html_preview', 'props': {'html': '<p>Full document</p>'}}
+    copied = branch_message_snapshot(row, source_chat_id='source', tool_projections={},
+                                     artifact_definitions={'ia-old': definition})
+    result = copied['content']['tool_calls'][0]['artifact']['payload']['artifact']
+    assert result['props'] == definition['props']
+    assert result['read_only'] is True
+    assert 'read_only' not in definition
+
+
+def test_missing_offloaded_artifact_is_an_error_not_a_live_history_stub():
+    import pytest
+    row = {'message_id': 'preview', 'content': {'tool_calls': [{'id': 'render', 'artifact': {
+        'payload': {'artifact_preview': {'artifact_id': 'missing', 'preview': 'Stub'}},
+    }}]}}
+    with pytest.raises(LookupError, match='branch_artifact_unavailable'):
+        branch_message_snapshot(row, source_chat_id='source', tool_projections={})

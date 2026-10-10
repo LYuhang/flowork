@@ -2439,6 +2439,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/{chat_id}/branches/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview Branch */
+        get: operations["preview_branch_api_v1_chats__chat_id__branches_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Branch */
+        post: operations["create_branch_api_v1_chats__chat_id__branches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chats/{chat_id}/runs/{run_id}/input-controls": {
         parameters: {
             query?: never;
@@ -5769,6 +5803,43 @@ export interface components {
         Body_upload_storage_file_api_v1_storage_upload_post: {
             /** File */
             file: string;
+        };
+        /** BranchBody */
+        BranchBody: {
+            /**
+             * Chat Id
+             * Format: uuid
+             */
+            chat_id: string;
+            /** Turn Id */
+            turn_id: string;
+            /** Name */
+            name: string;
+        };
+        /** BranchOut */
+        BranchOut: {
+            /** Chat Id */
+            chat_id: string;
+            /** Source Chat Id */
+            source_chat_id: string;
+            /** Through Turn Id */
+            through_turn_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Scope Id */
+            scope_id: string;
+            /** Message Count */
+            message_count: number;
+            /**
+             * File Policy
+             * @default shared_current_project_files
+             */
+            file_policy: string;
+            /**
+             * Starts Agent
+             * @default false
+             */
+            starts_agent: boolean;
         };
         /** BrowserBindingOut */
         BrowserBindingOut: {
@@ -14437,6 +14508,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_branch_api_v1_chats__chat_id__branches_preview_get: {
+        parameters: {
+            query: {
+                turn_id: string;
+            };
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_branch_api_v1_chats__chat_id__branches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BranchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchOut"];
                 };
             };
             /** @description Validation Error */

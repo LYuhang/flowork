@@ -13,7 +13,12 @@ import { SharedChatPage } from '@/pages/chat/SharedChatPage';
 import i18n from '@/lib/i18n';
 import { getTimezone, setTimezone } from '@/lib/timezone';
 
-beforeEach(async () => { await i18n.changeLanguage('en'); });
+beforeEach(async () => {
+  await i18n.changeLanguage('en');
+  server.use(http.post('*/api/v1/chats/engagement-chat/shares/preview', () => HttpResponse.json({
+    messages: [{id: 'answer', role: 'assistant', content: 'Useful answer'}], existing: false,
+  })));
+});
 
 function actions(timestamp?: number) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -100,13 +105,16 @@ describe('message engagement', () => {
     expect(down).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('copies a response and a single-message share link, with transient success feedback', async () => {
+  it('previews a response before creating a link and allows explicit copying', async () => {
+    let items: ChatShare[] = [];
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     server.use(
       http.get('*/api/v1/chats/engagement-chat/feedback', () => HttpResponse.json({ ratings: {} })),
+      http.get('*/api/v1/chats/engagement-chat/shares', () => HttpResponse.json({items})),
       http.post('*/api/v1/chats/engagement-chat/shares', async ({ request }) => {
         expect(await request.json()).toEqual({ message_id: 'answer' });
+        items = [{id: 's1', message_id: 'answer', path: '/share/token', url: 'https://example.org/prefix/share/token', created_at: '2026-01-01', message_count: 1, expires_at: null}];
         return HttpResponse.json({ id: 's1', path: '/share/token', url: 'https://example.org/prefix/share/token' });
       }),
     );
@@ -115,9 +123,13 @@ describe('message engagement', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('Useful answer'));
     const share = screen.getByRole('button', { name: /Share this response/ });
     fireEvent.click(share);
+    expect(await screen.findByRole('region', {name: 'Share preview'})).toHaveTextContent('Useful answer');
+    expect(items).toEqual([]);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', {name: 'Create response link'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Copy link'}));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://example.org/prefix/share/token'));
-    await waitFor(() => expect(share).toHaveClass('text-state-success'));
-    await waitFor(() => expect(share).not.toHaveClass('text-state-success'), { timeout: 3500 });
+    expect(screen.getByRole('button', {name: 'Revoke link'})).toBeInTheDocument();
   });
 
   it('does not load images or private file links in a public snapshot', () => {

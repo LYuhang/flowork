@@ -5,17 +5,24 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Markdown } from './Markdown';
 import { Input } from '@/components/ui/input';
-import { copyText, createChatShare, fetchChatShares, revokeChatShare, sharesKey, shareUrl } from '@/lib/api/chat-engagement';
+import { copyText, createChatShare, previewChatShare, fetchChatShares, revokeChatShare, sharesKey, shareUrl } from '@/lib/api/chat-engagement';
 
-export function ChatShareDialog({ chatId, disabled = false }: { chatId: string; disabled?: boolean }) {
+export function ChatShareDialog({ chatId, messageId, disabled = false }: { chatId: string; messageId?: string; disabled?: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const shares = useQuery({ queryKey: sharesKey(chatId), queryFn: () => fetchChatShares(chatId), enabled: open && !disabled });
-  const conversationShare = shares.data?.items.find((item) => item.message_id === null);
+  const selectedShares = shares.data?.items.filter((item) => !messageId || item.message_id === messageId);
+  const existingShare = shares.data?.items.find((item) => item.message_id === (messageId ?? null));
+  const preview = useQuery({
+    queryKey: [...sharesKey(chatId), 'preview', messageId ?? null],
+    queryFn: () => previewChatShare(chatId, messageId), enabled: open && !disabled,
+    staleTime: 0,
+  });
   const perform = async (key: string, action: () => Promise<unknown>) => {
     setBusy(key);
     try {
@@ -28,26 +35,32 @@ export function ChatShareDialog({ chatId, disabled = false }: { chatId: string; 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" disabled={disabled} data-action="chat-share"
-          aria-label={t('chat.share.title', 'Share conversation')}>
-          <Share2 className="h-4 w-4" /><span className="hidden sm:inline">{t('chat.share.button', 'Share')}</span>
+        <Button variant={messageId ? "ghost" : "outline"} size={messageId ? "icon" : "sm"} className={messageId ? "h-8 w-8" : undefined} disabled={disabled} data-action={messageId ? "message-share" : "chat-share"}
+          aria-label={messageId ? t('chat.actions.share', 'Share this response — anyone with the link can view') : t('chat.share.title', 'Share conversation')}>
+          <Share2 className="h-4 w-4" />{!messageId && <span className="hidden sm:inline">{t('chat.share.button', 'Share')}</span>}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t('chat.share.title', 'Share conversation')}</DialogTitle>
+          <DialogTitle>{messageId ? t('chat.share.response', 'Single response') : t('chat.share.title', 'Share conversation')}</DialogTitle>
           <DialogDescription>{t('chat.share.description', 'Anyone with the link can read this snapshot. Later messages are not added. Links stay available until you revoke them.')}</DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">{t('chat.share.exclusions', 'Includes completed message text only. Private files, attachments and tool logs are not shared.')}</p>
-        {shares.isPending ? <p role="status">{t('common.loading', 'Loading')}</p> : shares.isError ? (
-          <Button variant="outline" onClick={() => void shares.refetch()}>{t('common.retry', 'Retry')}</Button>
+        {shares.isPending || preview.isPending ? <p role="status">{t('common.loading', 'Loading')}</p> : shares.isError || preview.isError ? (
+          <Button variant="outline" onClick={() => void Promise.all([shares.refetch(), preview.refetch()])}>{t('common.retry', 'Retry')}</Button>
         ) : (
           <div className="max-h-[50vh] space-y-4 overflow-y-auto">
-            {!conversationShare && <Button disabled={busy !== null} onClick={() => void perform('create', () => createChatShare(chatId))}>
+            <section className="space-y-2 rounded-md border border-edge-subtle bg-muted/30 p-3" aria-label={t('chat.share.preview', 'Share preview')}>
+              <p className="text-xs text-muted-foreground">{preview.data?.existing ? t('chat.share.existingSnapshot', 'Preview of the existing link. Revoke it to create a new snapshot.') : t('chat.share.previewNotice', 'Preview of completed text. The snapshot is captured when you create the link.')}</p>
+              {preview.data?.messages.map((message) => <div key={message.id} className="border-b border-edge-subtle pb-2 last:border-0">
+                <Markdown publicView>{message.content}</Markdown>
+              </div>)}
+            </section>
+            {!existingShare && <Button disabled={busy !== null} onClick={() => void perform('create', () => createChatShare(chatId, messageId))}>
               {busy === 'create' ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Share2 className="h-4 w-4" />}
-              {t('chat.share.create', 'Create conversation link')}
+              {messageId ? t('chat.share.createResponse', 'Create response link') : t('chat.share.create', 'Create conversation link')}
             </Button>}
-            {shares.data?.items.map((share) => (
+            {selectedShares?.map((share) => (
               <div key={share.id} className="space-y-2 border-t border-edge-subtle pt-3">
                 <div className="flex items-center justify-between gap-2 text-sm">
                   <span>{share.message_id ? t('chat.share.response', 'Single response') : t('chat.share.conversation', 'Conversation')} · {share.message_count} {t('chat.share.messages', 'messages')}</span>

@@ -4044,5 +4044,9 @@
   "resources.sort.asc": "Oldest first",
   "resources.sort.desc": "Newest first",
   "resources.sort.name_asc": "A–Z",
-  "resources.sort.name_desc": "Z–A"
+  "resources.sort.name_desc": "Z–A",
+  "chat.share.preview": "Share preview",
+  "chat.share.existingSnapshot": "Preview of the existing link. Revoke it to create a new snapshot.",
+  "chat.share.previewNotice": "Preview of completed text. The snapshot is captured when you create the link.",
+  "chat.share.createResponse": "Create response link"
 }

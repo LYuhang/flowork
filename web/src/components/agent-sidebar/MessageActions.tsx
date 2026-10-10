@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Loader2, Share2, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Check, Copy, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  copyText, createChatShare, feedbackKey, fetchFeedback, putFeedback,
-  sharesKey, shareUrl, type MessageRating,
+  copyText, feedbackKey, fetchFeedback, putFeedback,
+  type MessageRating,
 } from '@/lib/api/chat-engagement';
+import { ChatShareDialog } from './ChatShareDialog';
 import { cn } from '@/lib/utils';
 import { useFormatDateTime } from '@/lib/timezone';
 
@@ -23,7 +24,6 @@ export function MessageActions({ chatId, messageId, content, timestamp }: {
   });
   const rating = feedback.data?.ratings[messageId] ?? null;
   const [voting, setVoting] = useState(false);
-  const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState<{ kind: 'text' | 'share' } | null>(null);
   useEffect(() => {
     if (!copied) return;
@@ -52,20 +52,6 @@ export function MessageActions({ chatId, messageId, content, timestamp }: {
       setVoting(false);
     }
   };
-  const share = async () => {
-    if (sharing) return;
-    setSharing(true);
-    try {
-      const value = await createChatShare(chatId, messageId);
-      void qc.invalidateQueries({ queryKey: sharesKey(chatId) });
-      await copyText(shareUrl(value));
-      copiedFeedback('share');
-    } catch {
-      toast.error(t('chat.actions.shareFailed', 'Could not copy the share link. Open Share to copy it manually.'));
-    } finally {
-      setSharing(false);
-    }
-  };
   const actions = [
     { key: 'copy', label: t('chat.actions.copy', 'Copy response'),
       icon: copied?.kind === 'text' ? Check : Copy, success: copied?.kind === 'text',
@@ -78,9 +64,6 @@ export function MessageActions({ chatId, messageId, content, timestamp }: {
     { key: 'down', label: t('chat.actions.down', 'Not helpful'), icon: ThumbsDown,
       selected: rating === 'down', disabled: voting || feedback.isPending || feedback.isError,
       onClick: () => void vote('down') },
-    { key: 'share', label: t('chat.actions.share', 'Share this response — anyone with the link can view'),
-      icon: sharing ? Loader2 : copied?.kind === 'share' ? Check : Share2,
-      success: copied?.kind === 'share', disabled: sharing, onClick: () => void share() },
   ];
   return (
     <div className="mt-1 flex flex-wrap items-center gap-0.5 text-muted-foreground" data-role="message-actions">
@@ -91,12 +74,13 @@ export function MessageActions({ chatId, messageId, content, timestamp }: {
               disabled={disabled} onClick={onClick} data-action={`message-${key}`}
               className={cn('inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40',
                 selected && 'bg-primary/10 text-primary', success && 'text-state-success')}>
-              <Icon className={cn('h-3.5 w-3.5', key === 'share' && sharing && 'animate-spin motion-reduce:animate-none')} />
+              <Icon className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent>{label}</TooltipContent>
         </Tooltip>
       ))}
+      <ChatShareDialog chatId={chatId} messageId={messageId} />
       {timeLabel && timestamp !== undefined && <time
         dateTime={new Date(timestamp * 1000).toISOString()}
         title={formatTime(timestamp, { dateStyle: 'long', timeStyle: 'long' })}

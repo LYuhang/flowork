@@ -155,25 +155,11 @@ async def list_shares(
     return {"items": [await share_out(session, row) for row in rows]}
 
 
-@router.post("/chats/{chat_id}/shares")
-async def create_share(
-    chat_id: str, body: ShareBody, request: Request,
-    auth: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
-    service: AuthzService = Depends(get_authz_service),
-):
-    chat = await owned_chat(request, auth, service, session, chat_id, export=True)
-    await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"),
-                          {"key": f"public-share:{auth.user_id}:{chat_id}:{body.message_id or ''}"})
-    existing = (await session.execute(text("""
-        SELECT * FROM chat_public_shares WHERE chat_id=:chat AND user_id=:user
-        AND message_id IS NOT DISTINCT FROM CAST(:message AS text) AND revoked_at IS NULL
-    """), {"chat": chat_id, "user": uuid.UUID(auth.user_id), "message": body.message_id})).mappings().first()
-    if existing:
-        return await share_out(session, existing)
+async def share_messages(session, auth, chat_id, message_id):
     repo = ChatRepo(session, auth.user_id)
-    if body.message_id:
+    if message_id:
         message = (await session.execute(select(ChatMessage).where(
-            ChatMessage.chat_id == chat_id, ChatMessage.message_id == body.message_id,
+            ChatMessage.chat_id == chat_id, ChatMessage.message_id == message_id,
             ChatMessage.role == "assistant",
         ))).scalar_one_or_none()
         if message is None:
@@ -190,10 +176,46 @@ async def create_share(
         rows, total, _ = await repo.list_message_page(chat_id, limit=10001)
     if total > 10000:
         raise HTTPException(413, "share_too_large")
-    messages = public_messages(rows, body.message_id)
+    messages = public_messages(rows, message_id)
     if not messages:
         raise HTTPException(409, "no_completed_messages_to_share")
-    await repo.materialize_session_metadata(chat)
+    return messages
+
+
+@router.post("/chats/{chat_id}/shares/preview")
+async def preview_share(
+    chat_id: str, body: ShareBody, request: Request,
+    auth: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await owned_chat(request, auth, service, session, chat_id, export=True)
+    existing = (await session.execute(text("""
+        SELECT * FROM chat_public_shares WHERE chat_id=:chat AND user_id=:user
+        AND message_id IS NOT DISTINCT FROM CAST(:message AS text) AND revoked_at IS NULL
+    """), {"chat": chat_id, "user": uuid.UUID(auth.user_id), "message": body.message_id})).mappings().first()
+    messages = (await decrypt_share(session, existing))["messages"] if existing else await share_messages(
+        session, auth, chat_id, body.message_id,
+    )
+    return {"messages": messages, "existing": existing is not None}
+
+
+@router.post("/chats/{chat_id}/shares")
+async def create_share(
+    chat_id: str, body: ShareBody, request: Request,
+    auth: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    chat = await owned_chat(request, auth, service, session, chat_id, export=True)
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"),
+                          {"key": f"public-share:{auth.user_id}:{chat_id}:{body.message_id or ''}"})
+    existing = (await session.execute(text("""
+        SELECT * FROM chat_public_shares WHERE chat_id=:chat AND user_id=:user
+        AND message_id IS NOT DISTINCT FROM CAST(:message AS text) AND revoked_at IS NULL
+    """), {"chat": chat_id, "user": uuid.UUID(auth.user_id), "message": body.message_id})).mappings().first()
+    if existing:
+        return await share_out(session, existing)
+    messages = await share_messages(session, auth, chat_id, body.message_id)
+    await ChatRepo(session, auth.user_id).materialize_session_metadata(chat)
     share_id = uuid.uuid4()
     token = secrets.token_urlsafe(32)
     snapshot = {"token": token, "title": "Shared response" if body.message_id else chat.name,

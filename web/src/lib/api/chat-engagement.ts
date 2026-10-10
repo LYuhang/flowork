@@ -40,6 +40,12 @@ export const putFeedback = (chatId: string, messageId: string, rating: MessageRa
 export const fetchChatShares = (chatId: string) =>
   request<{ items: ChatShare[] }>(`${chatPath(chatId)}/shares`);
 
+export const previewChatShare = (chatId: string, messageId?: string) =>
+  request<{ messages: SharedTranscript['messages']; existing: boolean }>(`${chatPath(chatId)}/shares/preview`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message_id: messageId ?? null }),
+  });
+
 export const createChatShare = (chatId: string, messageId?: string) =>
   request<ChatShare>(`${chatPath(chatId)}/shares`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

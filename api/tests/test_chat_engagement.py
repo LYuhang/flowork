@@ -60,6 +60,11 @@ async def test_share_snapshot_public_read_revoke_and_prefix(client, monkeypatch)
     monkeypatch.setenv('VIBECANVAS_PUBLIC_URL', 'https://example.org/deployment/')
     monkeypatch.setattr(config, 'public_urls', PublicUrlsConfig({}))
     endpoint = f'/api/v1/chats/{chat}/shares'
+    preview = await client.post(endpoint + '/preview', headers=headers, json={})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['existing'] is False
+    assert len(preview.json()['messages']) == 2
+    assert (await client.get(endpoint, headers=headers)).json()['items'] == []
     response = await client.post(endpoint, headers=headers, json={})
     assert response.status_code == 200, response.text
     share = response.json()
@@ -82,9 +87,13 @@ async def test_share_snapshot_public_read_revoke_and_prefix(client, monkeypatch)
             'message_id': 'later', 'role': 'assistant', 'content': {'text': 'Later private answer'}, 'turn_id': 'turn-two',
         })
     assert len((await client.get(public_path)).json()['messages']) == 2
+    preview = await client.post(endpoint + '/preview', headers=headers, json={})
+    assert preview.json()['existing'] is True
+    assert preview.json()['messages'] == public.json()['messages']
     other, _, _ = await seed(client)
     assert (await client.get(endpoint, headers=other)).status_code == 404
     assert (await client.post(endpoint, headers=other, json={})).status_code == 404
+    assert (await client.post(endpoint + '/preview', headers=other, json={})).status_code == 404
     assert (await client.delete(endpoint + '/' + share['id'], headers=other)).status_code == 404
     assert (await client.delete(endpoint + '/' + share['id'], headers=headers)).status_code == 204
     assert (await client.get(public_path)).status_code == 404
@@ -96,6 +105,9 @@ async def test_share_snapshot_public_read_revoke_and_prefix(client, monkeypatch)
 async def test_single_response_share_expiry_deletion_and_rls(client, app_engine):
     headers, me, chat = await seed(client)
     endpoint = f'/api/v1/chats/{chat}/shares'
+    preview = await client.post(endpoint + '/preview', headers=headers, json={'message_id': 'answer'})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['messages'] == [{'id': 'answer', 'role': 'assistant', 'content': 'Visible answer'}]
     response = await client.post(endpoint, headers=headers, json={'message_id': 'answer'})
     assert response.status_code == 200, response.text
     share = response.json()

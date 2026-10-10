@@ -1,7 +1,7 @@
 /**
  * Agent-turn orchestrator — wraps {@link streamAgentTurn} with the
  * abort-controller / lastInput / state lifecycle that both the
- * {@link ChatComposer} Send/Retry buttons and the
+ * {@link ChatComposer} Send button and the
  * {@link SSEStatusBanner} Retry button need.
  *
  * Extracted from `ChatComposer.doSend` so the banner doesn't need to

@@ -846,25 +846,26 @@ describe('ChatComposer Stop', () => {
     expect(screen.getByRole('button', { name: /send|发送/i })).toBeEnabled();
   });
 
-  it('lets a new draft take priority over retry after cancellation', async () => {
+  it('keeps Send as the action while writing after cancellation', async () => {
     useChatStreamStore.getState().beginTurn('chat_new_draft', 'turn_old');
     useChatStreamStore.getState().setLastInput({ content: 'old request' }, 'chat_new_draft');
     useChatStreamStore.getState().setState('cancelled', 'chat_new_draft');
     renderComposer('chat_new_draft');
-    expect(screen.getByRole('button', { name: /retry|重试/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /send|发送/i })).toBeDisabled();
     await userEvent.type(screen.getByRole('textbox'), 'different request');
     expect(screen.getByRole('button', { name: /send|发送/i })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /retry|重试/i })).not.toBeInTheDocument();
   });
 
-  it('offers Retry after the backend confirms a cancelled turn', () => {
+  it.each(['cancelled', 'failed', 'interrupted'] as const)('keeps the composer in Send mode after %s', (state) => {
     useChatStreamStore.getState().beginTurn('chat_cancelled', 'turn_cancelled');
     useChatStreamStore.getState().setLastInput({ content: 'run it again' }, 'chat_cancelled');
-    useChatStreamStore.getState().setState('cancelled', 'chat_cancelled');
+    useChatStreamStore.getState().setState(state, 'chat_cancelled');
 
     renderComposer('chat_cancelled');
 
-    expect(screen.getByRole('button', { name: /retry|重试/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /send|发送/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /retry|重试/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /stop|停止/i })).toBeNull();
   });
 

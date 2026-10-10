@@ -1,33 +1,9 @@
-/**
- * SSE reconnect banner for the agent chat sidebar.
- *
- * Rendered inline at the top of {@link AgentChatSidebar} and visible
- * when the chat-stream store is in `'interrupted'` (the browser lost its
- * resumable SSE transport) or `'failed'` (the backend Runtime/model ended the
- * Turn with an error). Those states deliberately use different copy: a model
- * provider failure is not a browser reconnection failure. User-requested Stop
- * has its own explicit `'cancelled'` state and composer Retry action.
- *
- * Three affordances appear when a stream disconnects:
- *   - **Retry** — re-fires the same turn via `runAgentTurn` using the
- *     `lastInput` stashed before the previous send. Disabled when no
- *     `lastInput` is captured (e.g. banner re-rendered after a reset).
- *   - **Cancel turn** — clears the disconnected state and resets the
- *     in-flight controller, returning to `idle` so the next Send
- *     starts a clean turn. Also fires `abortController.abort()` if a
- *     controller is somehow still held (defensive — should be null
- *     by the time the banner is visible, but cheap insurance).
- *   - **Dismiss** is folded into Cancel turn because a dismiss-only banner
- *     could hide a still-running server task.
- *
- * Why a banner rather than a toast: a toast is ephemeral and easy to
- * miss, but a disconnected SSE stream is sticky state the user needs
- * to see while deciding whether to retry. Matches how Linear / Cursor
- * surface "Reconnecting…" inline above their chat panes.
- */
+/** Explicit actions for failed/interrupted turns. Retrying starts a new turn;
+ * cancellation always uses the backend stop protocol. */
 import { useTranslation } from 'react-i18next';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { Button } from '@/components/ui/button';
+import { cancelActiveTurn } from '@/lib/api/cancel-turn';
 import { runAgentTurn } from '@/lib/api/sse/run-agent-turn';
 
 export interface SSEStatusBannerProps {
@@ -76,7 +52,7 @@ export function SSEStatusBanner({
         'The agent run failed before completion.',
       );
 
-  const canRetry = (!!lastInput?.content || !!lastInput?.control) && !!chatId;
+  const canRetry = (!!lastInput?.content || !!lastInput?.attachments?.length || !!lastInput?.control) && !!chatId;
 
   const handleRetry = () => {
     if (!canRetry || !chatId || !lastInput) return;
@@ -96,38 +72,37 @@ export function SSEStatusBanner({
   };
 
   const handleCancel = () => {
-    const s = useChatStreamStore.getState();
-    if (!chatId) return;
-    s.runtimes[chatId]?.abortController?.abort();
-    s.setAbort(null, chatId);
-    s.setState('idle', chatId);
+    if (chatId) void cancelActiveTurn(chatId);
   };
 
   return (
     <div
       role="status"
-      className="flex items-center gap-2 border-b border-destructive/40 bg-destructive/10 p-2 text-xs"
+      className="flex flex-wrap items-center gap-2 border-b border-destructive/40 bg-destructive/10 p-2 text-xs"
     >
       <span className="flex-1">
         {statusText}
+        <span className="mt-1 block text-xs">
+          {t('sse_retry_request_hint', 'Retry starts a new execution of your previous request; it does not resume the connection.')}
+        </span>
       </span>
       <Button
         size="sm"
         variant="ghost"
         onClick={handleRetry}
         disabled={!canRetry}
-        aria-label={t('sse_retry', 'Retry')}
+        aria-label={t('sse_retry_request', 'Retry last request')}
       >
-        {t('sse_retry', 'Retry')}
+        {t('sse_retry_request', 'Retry last request')}
       </Button>
-      <Button
+      {state === 'interrupted' && <Button
         size="sm"
         variant="ghost"
         onClick={handleCancel}
         aria-label={t('sse_cancel_turn', 'Cancel turn')}
       >
         {t('sse_cancel_turn', 'Cancel turn')}
-      </Button>
+      </Button>}
     </div>
   );
 }

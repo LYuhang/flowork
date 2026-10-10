@@ -962,7 +962,7 @@ export function ChatMessageList({
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {t(
                         'agent.turn_cancelled_hint',
-                        'The active operation was stopped. Retry to run the same request again.',
+                        'The active operation was stopped. You can write a new message; changes already made are not undone.',
                       )}
                     </p>
                   </div>

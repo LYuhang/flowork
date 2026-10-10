@@ -16,21 +16,10 @@ import { ContextAttachmentCard } from './ContextAttachmentCard';
  * dispatcher push every frame into `useChatStreamStore` and invalidate the
  * relevant TanStack Query caches on `done`.
  *
- * Lifecycle UX (T11):
- *   - `idle` / `complete`               → Send button (disabled until input)
- *   - `streaming`                       → Stop button (asks backend to cancel)
- *   - `cancelled` / `failed`            → Retry button (resends last input)
- *
- * Stop is a backend semantic operation, not a local transport abort. The button
- * calls the turn cancel endpoint and keeps the SSE connection open so the
- * backend can close any partial assistant/tool messages and persist the
- * checkpoint state consistently.
- *
- * Retry source-of-truth: we stash `{content, attachments}` in
- * `useChatStreamStore.lastInput` at send-time. Retry reads from there and
- * fires `handleSend` again with that content; we explicitly do *not*
- * snapshot `lastInput` to component state because a sidebar re-mount
- * (collapsed → expanded) should preserve the option to retry.
+ * The composer sends new drafts or stops the active turn. Explicit retries
+ * belong to the failure banner; stopping never turns Send into Retry.
+ * Stop requests backend cancellation and retains the stream for its final
+ * persisted state.
  *
  * Keys: ⌘/Ctrl+Enter sends by default; users can opt into Enter to send.
  * Shift+Enter always inserts a newline. An
@@ -47,7 +36,7 @@ import { flushSync } from 'react-dom';
 import { acceptProjectChatDraft } from '@/lib/chat/project-draft';
 import { fetchProjectMcpSelection } from '@/lib/api/queries/chats';
 import { errorMessage } from '@/lib/api/mutations/error-message';
-import { Blocks, BrainCircuit, FileText, Image, Loader2, Maximize2, Minimize2, Paperclip, RotateCcw, Send, SlidersHorizontal, Square, Video } from 'lucide-react';
+import { Blocks, BrainCircuit, FileText, Image, Loader2, Maximize2, Minimize2, Paperclip, Send, SlidersHorizontal, Square, Video } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -649,12 +638,6 @@ export function ChatComposer({
     : null;
   const effectiveDisabledReason = disabledReason ?? runtimeUnavailableReason;
   const externallyDisabled = !!effectiveDisabledReason;
-  const canRetry =
-    streamBelongsToThisChat &&
-    (streamState === 'cancelled' || streamState === 'failed' || streamState === 'interrupted') &&
-    (!!lastInput?.content || !!lastInput?.attachments?.length || !!lastInput?.control) &&
-    !readOnly &&
-    !externallyDisabled;
   const canSend =
     !!chatId &&
     !draftPreparing &&
@@ -888,19 +871,6 @@ export function ChatComposer({
     }
   };
 
-  const handleRetry = async () => {
-    if (!canRetry || !lastInput) return;
-    await doSend(
-      lastInput.content,
-      lastInput.attachments,
-      lastInput.mode,
-      lastInput.approvalMode ?? useAgentSettingsStore.getState().approvalMode,
-      lastInput.control,
-      undefined,
-      lastInput.skillUse,
-    );
-  };
-
   const handleStop = () => {
     if (chatId) {
       void cancelActiveTurn(chatId);
@@ -1041,11 +1011,8 @@ export function ChatComposer({
     }
   };
 
-  // Pick exactly one action button so Retry / Send / Stop never collide.
-  // Order of precedence reflects user intent: a streaming turn must be
-  // stoppable; a stopped/failed turn should be retryable; otherwise send.
   const hasNewDraft = value.trim().length > 0 || pendingAttachments.length > 0;
-  const action = isStreaming ? 'stop' : canRetry && !hasNewDraft ? 'retry' : 'send';
+  const action = isStreaming ? 'stop' : 'send';
 
   const compactButtonClass = embedded ? 'h-8 w-8 rounded-full p-0' : undefined;
   const inputTypographyClass = embedded
@@ -1391,21 +1358,6 @@ export function ChatComposer({
               >
                 <Square className="h-3.5 w-3.5" />
                 {!embedded && t('stop', 'Stop')}
-              </Button>
-            )}
-            {action === 'retry' && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void handleRetry()}
-                aria-label={t('retry', 'Retry')}
-                title={t('retry', 'Retry')}
-                className={compactButtonClass}
-                data-action="agent-composer-retry"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                {!embedded && t('retry', 'Retry')}
               </Button>
             )}
             {action === 'send' && (

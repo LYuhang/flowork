@@ -1,9 +1,9 @@
+import { applicationGridTheme } from '@/lib/presentation/grid-theme';
 import { PreviewToolbar } from './PreviewToolbar';
 import { useEffect, useMemo, useState } from 'react';
 import {
   AllCommunityModule,
   ModuleRegistry,
-  themeQuartz,
   type ColDef,
 } from 'ag-grid-community';
 import { AgGridReact } from 'ag-grid-react';
@@ -140,7 +140,7 @@ export function StructuredTablePreview({ descriptor, loadAllowed }: PreviewRende
       </PreviewToolbar>
       <div className="min-h-0 flex-1">
         <AgGridReact<GridRow>
-          theme={themeQuartz}
+          theme={applicationGridTheme}
           rowData={table.rows}
           columnDefs={columnDefs}
           defaultColDef={{ flex: 1 }}

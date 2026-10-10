@@ -2,9 +2,11 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef, type IDatasource, type ICellRendererParams } from 'ag-grid-community';
+import { AllCommunityModule, ModuleRegistry, type ColDef, type IDatasource, type ICellRendererParams } from 'ag-grid-community';
 import { AgGridReact } from 'ag-grid-react';
 import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/components/ui/status';
+import { applicationGridTheme } from '@/lib/presentation/grid-theme';
 import { Input } from '@/components/ui/input';
 import { getTask, taskResultRequest, type ResultPage } from '@/lib/api/tasks';
 
@@ -31,7 +33,7 @@ export function TaskResultsPage() {
     filterParams: { filterOptions: ['contains'], maxNumConditions: 1, debounceMs: 400 },
     valueFormatter: params => display(params.value),
     tooltipValueGetter: params => display(params.value),
-    ...(field === 'status' ? { cellRenderer: (params: ICellRendererParams<Record<string, unknown>>) => <span className={`rounded-full px-2 py-1 text-xs ${params.value === 'success' ? 'bg-emerald-50 text-emerald-700' : params.value === 'error' ? 'bg-red-50 text-red-700' : 'bg-muted text-muted-foreground'}`}>{t(`evaluation.${String(params.value)}`, String(params.value ?? ''))}</span> } : {}),
+    ...(field === 'status' ? { cellRenderer: (params: ICellRendererParams<Record<string, unknown>>) => <StatusBadge status={params.value === 'success' ? 'success' : params.value === 'error' ? 'danger' : 'neutral'}>{t(`evaluation.${String(params.value)}`, String(params.value ?? ''))}</StatusBadge> } : {}),
     ...(field === 'execution_id' ? { cellRenderer: (params: ICellRendererParams<Record<string, unknown>>) => typeof params.value === 'string'
       ? <Link className="font-mono text-primary underline underline-offset-2" to={`/workflow-executions/${encodeURIComponent(params.value)}`}>{params.value}</Link> : '—' } : {}),
   })), [hidden, t]);
@@ -63,7 +65,7 @@ export function TaskResultsPage() {
         <h1 className="mt-2 text-xl font-semibold">{t('evaluation.results', 'Inference results')}</h1><p className="text-sm text-muted-foreground">{payload?.name || payload?.workflow_snapshot?.name || task.data?.workflow_id}</p><p className="font-mono text-xs text-muted-foreground">{taskId}</p></div>
       <div className="flex items-center gap-2">{task.data?.access.capabilities.includes('export') && <Button variant="outline" asChild><a href={`/api/v1/tasks/${taskId}/download?format=jsonl`}>{t('evaluation.downloadJsonl')}</a></Button>}<Button variant="outline" asChild><Link to={`/tasks/${taskId}?tab=evaluation`}>{t('evaluation.title', 'Evaluation')}</Link></Button></div>
     </div>
-    {summary && <div className="flex flex-wrap gap-4 text-sm"><span>{t('evaluation.total', 'Total')}: <strong>{summary.total}</strong></span><span>{t('evaluation.success', 'Success')}: <strong>{summary.counts.success}</strong></span><span>{t('evaluation.errors', 'Errors')}: <strong>{summary.counts.error}</strong></span><span>{t('evaluation.filtered', 'Matching')}: <strong>{summary.filtered}</strong></span>{summary.partial && <span className="text-amber-600">{t('evaluation.partial', 'Partial results')}</span>}</div>}
+    {summary && <div className="flex flex-wrap gap-4 text-sm"><span>{t('evaluation.total', 'Total')}: <strong>{summary.total}</strong></span><span>{t('evaluation.success', 'Success')}: <strong>{summary.counts.success}</strong></span><span>{t('evaluation.errors', 'Errors')}: <strong>{summary.counts.error}</strong></span><span>{t('evaluation.filtered', 'Matching')}: <strong>{summary.filtered}</strong></span>{summary.partial && <span className="text-state-warning">{t('evaluation.partial', 'Partial results')}</span>}</div>}
     <div className="flex flex-wrap items-center gap-3">
       <form className="flex min-w-64 flex-1 gap-2" onSubmit={e => { e.preventDefault(); setQuery(search); }}>
         <Input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('evaluation.searchPlaceholder', 'Search all result fields…')} aria-label={t('evaluation.search', 'Search results')} />
@@ -77,7 +79,7 @@ export function TaskResultsPage() {
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <p className="text-xs text-muted-foreground">{t('evaluation.rowHint', 'Double-click a row to inspect its full input and output. Trace ID opens the execution canvas.')}</p>
     <div className="min-h-[420px] flex-1 overflow-hidden rounded-lg border">
-      <AgGridReact key={i18n.language} theme={themeQuartz} columnDefs={columns} rowModelType="infinite" datasource={datasource}
+      <AgGridReact key={i18n.language} theme={applicationGridTheme} columnDefs={columns} rowModelType="infinite" datasource={datasource}
         cacheBlockSize={100} maxBlocksInCache={5} rowHeight={44} suppressMultiSort
         onRowDoubleClicked={event => event.data && setDetail(event.data)}
         localeText={i18n.language.startsWith('zh') ? { loadingOoo: '加载中…', noRowsToShow: '暂无结果', filterOoo: '筛选…', contains: '包含', pinColumn: '固定列', pinLeft: '固定到左侧', pinRight: '固定到右侧', noPin: '取消固定' } : undefined} />

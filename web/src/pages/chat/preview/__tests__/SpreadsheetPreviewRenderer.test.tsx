@@ -22,7 +22,7 @@ vi.mock('next-themes', () => ({
 vi.mock('ag-grid-community', () => ({
   AllCommunityModule: {},
   ModuleRegistry: { registerModules: vi.fn() },
-  themeQuartz: {},
+  themeQuartz: { withParams: vi.fn(() => ({})) },
 }));
 vi.mock('ag-grid-react', () => ({
   AgGridReact: () => <div data-testid="structured-data-grid" />,

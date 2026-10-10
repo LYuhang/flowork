@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTheme } from 'next-themes';
+import type { Terminal as XtermTerminal } from '@xterm/xterm';
+import { terminalThemes } from '@/lib/presentation/terminal-theme';
 import { useTranslation } from 'react-i18next';
 import { TerminalSquare, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +14,9 @@ type ConnectionState = 'idle' | 'connecting' | 'connected' | 'closed' | 'changed
 /** One explicitly opened PTY per mounted tab; never auto-replay shell input. */
 export function DeploymentTerminal({ dep }: { dep: Deployment }) {
   const { t } = useTranslation();
+  const { resolvedTheme } = useTheme();
+  const palette = terminalThemes[resolvedTheme === 'dark' ? 'dark' : 'light'];
+  const terminal = useRef<XtermTerminal | null>(null);
   const container = useRef<HTMLDivElement>(null);
   const cleanup = useRef<() => void>(() => {});
   const generation = useRef(0);
@@ -19,6 +25,10 @@ export function DeploymentTerminal({ dep }: { dep: Deployment }) {
   const available = dep.enabled && !!dep.active_revision_id;
 
   useEffect(() => () => { generation.current++; cleanup.current(); }, [dep.id]);
+
+  useEffect(() => {
+    if (terminal.current) terminal.current.options.theme = palette;
+  }, [palette]);
 
   const connect = async () => {
     cleanup.current();
@@ -33,16 +43,13 @@ export function DeploymentTerminal({ dep }: { dep: Deployment }) {
       const term = new Terminal({
         cursorBlink: true, fontSize: 13, scrollback: 2000,
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        theme: {
-          background: getComputedStyle(container.current).backgroundColor,
-          foreground: getComputedStyle(container.current).color,
-          cursor: getComputedStyle(container.current).color,
-        },
+        theme: terminalThemes[document.documentElement.classList.contains('dark') ? 'dark' : 'light'],
         allowProposedApi: false,
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(container.current);
+      terminal.current = term;
       const url = new URL(resolveApiUrl(`/api/v1/deployments/${encodeURIComponent(dep.id)}/terminal`), window.location.href);
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = new WebSocket(url);
@@ -113,6 +120,7 @@ export function DeploymentTerminal({ dep }: { dep: Deployment }) {
         input.dispose();
         socket.onmessage = socket.onerror = socket.onclose = null;
         socket.close();
+        terminal.current = null;
         term.dispose();
       };
     } catch {
@@ -140,7 +148,7 @@ export function DeploymentTerminal({ dep }: { dep: Deployment }) {
         {revision && <><span className="font-mono">{revision.slice(0, 8)}</span><CopyButton value={revision} /></>}
       </div>
       {!available && <p className="text-sm text-content-secondary">{t('deployments.terminal.unavailable')}</p>}
-      <div ref={container} className={`${state === 'idle' ? 'hidden' : ''} h-[min(60vh,36rem)] min-h-72 min-w-0 overflow-hidden rounded-xl border border-edge-subtle bg-[#111827] p-3`} />
+      <div ref={container} className={`${state === 'idle' ? 'hidden' : ''} h-[min(60vh,36rem)] min-h-72 min-w-0 overflow-hidden rounded-xl border border-edge-subtle p-3`} style={{ backgroundColor: palette.background, color: palette.foreground }} />
       <p className="text-xs leading-5 text-content-tertiary">{t('deployments.terminal.hint')}</p>
     </section>
   );

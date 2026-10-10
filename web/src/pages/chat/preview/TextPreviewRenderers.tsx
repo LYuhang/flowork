@@ -527,7 +527,7 @@ function TextDocumentRenderer({
         <div className="flex-1" />
 
         {descriptor.text?.mixedNewlines ? (
-          <span className="text-xs text-amber-600">{t('preview.text.mixedNewlines', 'Mixed newlines will be normalized')}</span>
+          <span className="text-xs text-state-warning">{t('preview.text.mixedNewlines', 'Mixed newlines will be normalized')}</span>
         ) : null}
         {descriptor.capabilities.edit && !editing ? (
           <Button size="icon-sm" variant="ghost" title={t('preview.action.edit', 'Edit')} aria-label={t('preview.action.edit', 'Edit')} onClick={() => {
@@ -551,7 +551,7 @@ function TextDocumentRenderer({
         ) : null}
       </PreviewToolbar>
       {conflict ? (
-        <div role="alert" className="flex items-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+        <div role="alert" className="flex items-center gap-2 border-b border-state-warning/30 bg-state-warning/10 px-3 py-2 text-xs text-state-warning">
           <span className="min-w-0 flex-1">
             {t(
               'preview.conflict.description',

@@ -1,9 +1,11 @@
 """Exercise the scanner's admission boundary without Docker or network access."""
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import subprocess
 import sys
+from threading import Thread
 
 import pytest
 
@@ -18,6 +20,7 @@ if name == 'docker':
     elif 'SELECT count(*)' in command: print(2)
     elif 'SHOW server_version_num' in command: print(150019)
     elif 'image inspect' in command: print('sha256:' + 'a' * 64)
+    elif args[0] == 'port': print(os.environ['FAKE_OPENFGA_ADDRESS'])
     sys.exit(0)
 outputs = [a.split('=', 1)[1] for a in args if '=' in a]
 label = pathlib.Path(outputs[0]).name.split('.')[0]
@@ -27,7 +30,7 @@ if name == 'syft':
     sys.exit(0)
 # All original upstream layers have a fixed High finding. Only an explicitly
 # selected runtime label has one, allowing us to test both sides of admission.
-bad = label in {'rust-build', 'python-base', 'node-runtime', 'node-build',
+bad = label in {'golang-build', 'rust-build', 'python-base', 'node-runtime', 'node-build',
                'nginx-runtime', 'openfga-postgres-base', 'clamav-base', 'valkey-base', os.environ.get('FAIL_RUNTIME')}
 report = {'matches': [{'vulnerability': {'id': 'CVE-2099-0001', 'severity': 'High',
     'fix': {'state': 'fixed', 'versions': ['2']}},
@@ -37,11 +40,45 @@ sys.exit(2 if bad else 0)
 '''
 
 
+@pytest.fixture
+def fake_openfga_address():
+    """Local transport for the image smoke script; no real image or service."""
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if self.headers.get('Authorization') != 'Bearer image-smoke-test':
+                self.send_response(401)
+                self.end_headers()
+                return
+            responses = {
+                '/stores': {'id': 'test-store'},
+                '/stores/test-store/authorization-models': {'authorization_model_id': 'test-model'},
+                '/stores/test-store/write': {},
+                '/stores/test-store/check': {'allowed': body.get('tuple_key', {}).get('user') == 'user:alice'},
+            }
+            self.send_response(200 if self.path in responses else 404)
+            self.end_headers()
+            self.wfile.write(json.dumps(responses.get(self.path, {})).encode())
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f'127.0.0.1:{server.server_port}'
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
 @pytest.mark.parametrize('runtime,sbom,expected', [
     ('', '', 0), ('api', '', 2), ('openfga-postgres', '', 2),
     ('valkey', '', 2), ('node-build-patched', '', 2), ('clamav', '', 2), ('', 'python-base', 2),
 ])
-def test_scan_blocks_actual_components_and_cannot_ignore_failed_sboms(tmp_path, runtime, sbom, expected):
+def test_scan_blocks_actual_components_and_cannot_ignore_failed_sboms(tmp_path, runtime, sbom, expected, fake_openfga_address):
     for name in ('docker', 'syft', 'grype'):
         tool = tmp_path / name
         tool.write_text(f'#!{sys.executable}\n' + FAKE_TOOL)
@@ -52,11 +89,12 @@ def test_scan_blocks_actual_components_and_cannot_ignore_failed_sboms(tmp_path, 
         env={**os.environ, 'PATH': f'{tmp_path}:{os.environ["PATH"]}',
              'DOCKER_BIN': str(tmp_path / 'docker'), 'SYFT_BIN': str(tmp_path / 'syft'),
              'GRYPE_BIN': str(tmp_path / 'grype'), 'PYTHON_BIN': sys.executable,
-             'FAIL_RUNTIME': runtime, 'FAIL_SBOM': sbom},
+             'FAIL_RUNTIME': runtime, 'FAIL_SBOM': sbom,
+             'FAKE_OPENFGA_ADDRESS': fake_openfga_address},
         text=True, capture_output=True, timeout=30,
     )
     assert result.returncode == expected, result.stdout + result.stderr
     if not sbom:
         upstream = json.loads((output / 'vulnerabilities/python-base.json').read_text())
         assert upstream['matches'][0]['vulnerability']['severity'] == 'High'
-        assert len(list((output / 'vulnerabilities').glob('*.json'))) == 19
+        assert len(list((output / 'vulnerabilities').glob('*.json'))) == 21

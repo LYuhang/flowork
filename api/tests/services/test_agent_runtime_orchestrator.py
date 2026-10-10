@@ -200,4 +200,7 @@ def test_capabilities_come_from_actual_resident_adapter(declaration, expected):
     event = RuntimeEvent(event_id='ready', seq=1, chat_id='chat', turn_id='turn',
                          runtime_type='codex', runtime_session_id='runtime', type='runtime.started',
                          payload={} if declaration is None else {'supported_controls': declaration})
-    assert _product_events(event) == [('RUNTIME_CAPABILITIES', {'turn_id': 'turn', 'supported_controls': expected})]
+    if isinstance(declaration, list):
+        assert _product_events(event) == [('RUNTIME_CAPABILITIES', {'turn_id': 'turn', 'supported_controls': expected})]
+    else:
+        assert _product_events(event) == []

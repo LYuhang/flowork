@@ -75,9 +75,11 @@ def _product_events(event: RuntimeEvent) -> list[tuple[str, dict]]:
         # An older resident adapter does not support a new control merely
         # because the API serving the browser was upgraded.
         controls = event.payload.get("supported_controls")
+        if not isinstance(controls, list):
+            return []
         return [("RUNTIME_CAPABILITIES", {
             "turn_id": event.turn_id,
-            "supported_controls": ["steer"] if isinstance(controls, list) and "steer" in controls else [],
+            "supported_controls": ["steer"] if "steer" in controls else [],
         })]
     if event.type in {"runtime.completed", "runtime.input"}:
         return []

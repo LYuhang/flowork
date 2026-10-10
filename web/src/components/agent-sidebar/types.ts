@@ -119,6 +119,7 @@ export interface MergedToolCall {
 }
 
 export interface MergedMessage {
+  turn_id?: string | null;
   turnError?: { code: string; message: string };
   id?: string | null;
   role: 'user' | 'assistant' | 'system';
@@ -252,6 +253,7 @@ export function mergeChunks(chunks: ReadonlyArray<RawChunk>): MergedMessage[] {
       role === 'assistant' &&
       toolCalls.length === 0 &&
       previous?.role === 'assistant' &&
+      previous.turn_id === chunk.turn_id &&
       previous.tool_calls.length === 0
     ) {
       if (visibleContent === previous.content) {
@@ -271,6 +273,7 @@ export function mergeChunks(chunks: ReadonlyArray<RawChunk>): MergedMessage[] {
       role === 'assistant' &&
       toolCalls.length > 0 &&
       previous?.role === 'assistant' &&
+      previous.turn_id === chunk.turn_id &&
       previous.tool_calls.length > 0 &&
       toolCalls.every((call) =>
         previous.tool_calls.some((existing) => existing.id === call.id),
@@ -308,6 +311,7 @@ export function mergeChunks(chunks: ReadonlyArray<RawChunk>): MergedMessage[] {
           }
         : undefined,
       id: chunk.id,
+      turn_id: chunk.turn_id,
       role,
       content: visibleContent,
       attachments: Array.isArray(chunk.attachments) ? chunk.attachments : [],

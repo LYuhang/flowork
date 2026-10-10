@@ -288,3 +288,11 @@ describe('mergeChunks', () => {
     });
   });
 });
+
+it('preserves distinct turns when adjacent assistant text is identical', () => {
+  const rows = mergeChunks([
+    { id: 'first', turn_id: 'turn-a', role: 'assistant', content: 'Done' },
+    { id: 'second', turn_id: 'turn-b', role: 'assistant', content: 'Done' },
+  ]);
+  expect(rows.map((row) => [row.id, row.turn_id])).toEqual([['first', 'turn-a'], ['second', 'turn-b']]);
+});

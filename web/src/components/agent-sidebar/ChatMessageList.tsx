@@ -484,11 +484,13 @@ export function ChatMessageList({
     activeChatId ? s.runtimes[activeChatId]?.turnId : null,
   );
   const streamMessages = useMemo(
-    () =>
-      runtimeMessages?.length
-        ? runtimeMessages
-        : mergeChunks(streamBuffer),
-    [runtimeMessages, streamBuffer],
+    () => {
+      const messages: MergedMessage[] = runtimeMessages?.length ? runtimeMessages : mergeChunks(streamBuffer);
+      return runtimeTurnId
+        ? messages.map((message) => message.turn_id ? message : { ...message, turn_id: runtimeTurnId })
+        : messages;
+    },
+    [runtimeMessages, streamBuffer, runtimeTurnId],
   );
   const bufferBelongsToChat = !!activeChatId && runtimeChatId === activeChatId;
   const isStreaming = bufferBelongsToChat && streamState === 'streaming';

@@ -985,6 +985,21 @@
       "requiresFixture": true,
       "evidence": "visible-browser",
       "note": "Acceptance surface inventory; requires browser fixture, not a claim of a completed test."
+    },
+    {
+      "id": "chat-branch",
+      "routeIds": [
+        "chat",
+        "workflow",
+        "workflow-version"
+      ],
+      "source": "src/components/agent-sidebar/ChatBranchDialog.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "branch-confirmation"
+      ],
+      "requiresFixture": true,
+      "evidence": "focused-component"
     }
   ],
   "modalPrimitives": [

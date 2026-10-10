@@ -225,7 +225,7 @@ function MessageItemComponent({
           </button>
         ) : null}
         {message.role === 'assistant' && hasContent && !streaming && actionsEnabled && identity?.chatId && message.id ? (
-          <MessageActions chatId={identity.chatId} messageId={message.id} content={message.content} timestamp={message.ts} />
+          <MessageActions chatId={identity.chatId} turnId={identity.surface === 'chat' ? message.turn_id : undefined} messageId={message.id} content={message.content} timestamp={message.ts} />
         ) : null}
         </div>
       </div>
@@ -247,6 +247,7 @@ function sameVisibleMessage(previous: MessageItemProps, next: MessageItemProps):
   const b = next.message;
   if (
     a.id !== b.id
+    || a.turn_id !== b.turn_id
     || a.role !== b.role
     || a.content !== b.content
     || a.turnError?.code !== b.turnError?.code

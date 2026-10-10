@@ -8,12 +8,13 @@ import {
   copyText, feedbackKey, fetchFeedback, putFeedback,
   type MessageRating,
 } from '@/lib/api/chat-engagement';
+import { ChatBranchDialog } from './ChatBranchDialog';
 import { ChatShareDialog } from './ChatShareDialog';
 import { cn } from '@/lib/utils';
 import { useFormatDateTime } from '@/lib/timezone';
 
-export function MessageActions({ chatId, messageId, content, timestamp }: {
-  chatId: string; messageId: string; content: string; timestamp?: number;
+export function MessageActions({ chatId, messageId, content, timestamp, turnId }: {
+  chatId: string; messageId: string; content: string; timestamp?: number; turnId?: string | null;
 }) {
   const { t } = useTranslation();
   const formatTime = useFormatDateTime();
@@ -81,6 +82,7 @@ export function MessageActions({ chatId, messageId, content, timestamp }: {
         </Tooltip>
       ))}
       <ChatShareDialog chatId={chatId} messageId={messageId} />
+      {turnId && <ChatBranchDialog chatId={chatId} turnId={turnId} excerpt={content} />}
       {timeLabel && timestamp !== undefined && <time
         dateTime={new Date(timestamp * 1000).toISOString()}
         title={formatTime(timestamp, { dateStyle: 'long', timeStyle: 'long' })}

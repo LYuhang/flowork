@@ -795,3 +795,10 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 旧 adapter 未声明 supported_controls 时不生成新的能力事件，保持冻结的 v2 投影契约；实际声明能力的新版继续启用补充输入。未修改历史协议样例以迎合新输出。
 - 扫描测试新增本地 OpenFGA HTTP 模拟端点，覆盖镜像验证脚本新增的认证/模型/关系检查请求；更新镜像报告数量为 21，并将 Go 构建层纳入模拟来源层漏洞。生产扫描和安全门槛保持不变。
 - 独立测试 PostgreSQL 下，容器扫描、v2 协议、运行时及补充输入 API 共 31 项通过；Ruff/diff 检查通过。测试数据库已关闭。上一轮 GitHub Security 成功，API 失败已在本地复现并修复，仍需新提交的全量 CI 结果。
+
+### F15 已安装侧边栏：真实补充、断网和停止验收
+
+- 使用已安装扩展 `mkfldhmlgdbpmhplaphhcfcdcoaakcik` 的真实 sidepanel.html 和生产 iframe，新建 GPT-5.6-Terra 对话 `89fb551e-d4c1-4d66-a8b5-e2f649849c86`。模型输出后通过实际按钮补充文本，生产 POST 返回 202，随后显示 accepted；全程没有 API/SSE 模拟或拦截。
+- Chromium 网络离线 12 秒后恢复，保留原消息与单条补充消息；实际点击停止后运行按钮退出，消息仍在。刷新、关闭后重开扩展页面，Terra 模型选择与 accepted 状态恢复，历史未重复。补充 POST 总计 1 次，没有自动重发。
+- 截图检查 460px 窄侧栏：按钮、回执、输入框及快捷键没有溢出。证据 `/tmp/steer-extension-real.json`、`/tmp/steer-extension-reopened.png`，脚本 `/tmp/steer-extension-real.cjs`、`/tmp/steer-extension-reopen.cjs`。测试项目沙盒已释放，保留历史。
+- 验收边界：这是已安装扩展页面的测试，不冒充操作用户电脑原生侧栏开关；断网发生在 accepted 后，尚不能证明提交响应丢失时的真实链路恢复。后者以及自然结束瞬间提交、权限变化仍需补齐实机证据；相关模拟/数据库测试与实机证据分别记账。F15 排队、F16 及其余文档项继续保留。

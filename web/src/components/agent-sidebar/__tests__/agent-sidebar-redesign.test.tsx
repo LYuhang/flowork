@@ -114,6 +114,41 @@ describe('ChatMessageList', () => {
     );
   });
 
+  it('locates search results in unloaded history while preserving current messages', async () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    server.use(http.post('*/api/v1/chats/search-chat/messages/search', () => HttpResponse.json({
+      items: [{ id: 'old-hit', role: 'user', excerpt: 'older needle', match_start: 6, match_end: 12 }],
+      scanned: 101, next_cursor: null,
+    })));
+    let rows = [{ id: 'recent', role: 'user', content: 'Recent request stays visible' }];
+    let older = true;
+    const load = vi.fn(async () => {
+      rows = [{ id: 'old-hit', role: 'user', content: 'older needle' }, ...rows];
+      older = false;
+      update();
+    });
+    const props = { wfId: 'wf', activeChatId: 'search-chat', onLoadOlderHistory: load };
+    const view = render(<ChatMessageList {...props} historyItems={rows} hasOlderHistory olderHistoryLoading />);
+    const log = screen.getByRole('log', { name: 'Conversation' });
+    Object.defineProperties(log, { scrollHeight: { configurable: true, value: 2000 }, clientHeight: { configurable: true, value: 500 } });
+    const update = () => view.rerender(<ChatMessageList {...props} historyItems={rows} hasOlderHistory={older} />);
+    update();
+    act(() => {
+      useChatStreamStore.getState().beginTurn('search-chat', '');
+      useChatStreamStore.getState().appendChunk({ role: 'assistant', content: 'Live output stays visible' }, 'search-chat');
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Search conversation' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search saved messages' }), 'needle');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await screen.findByText('Matching messages: 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Locate matching message' }));
+    await waitFor(() => expect(view.container.querySelector('[data-reference-highlight]')).toHaveAttribute('data-quotable-message', 'old-hit'));
+    expect(load).toHaveBeenCalledOnce();
+    expect(screen.getByText('Recent request stays visible')).toBeVisible();
+    expect(screen.getByText('Live output stays visible')).toBeVisible();
+    expect(useChatStreamStore.getState().runtimes['search-chat'].state).toBe('streaming');
+  });
+
   it('renders only the selected chat preparation and hands off without a duplicate bubble', () => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: true });
     useChatStreamStore.setState({ preparingMessages: {

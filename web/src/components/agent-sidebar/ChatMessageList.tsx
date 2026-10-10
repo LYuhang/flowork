@@ -28,6 +28,7 @@ import { useUIStore } from '@/stores/ui';
 import { useAuthStore } from '@/stores/auth';
 import { cn } from '@/lib/utils';
 import { chatClientStateKey } from '@/lib/chat/state-key';
+import { ChatMessageSearch } from './ChatMessageSearch';
 import { ChatRenderProvider } from './chat-render-context';
 
 const EMPTY_STREAM_BUFFER: RawChunk[] = [];
@@ -404,7 +405,7 @@ export function ChatMessageList({
   compact = false,
   workflowViewerId,
   onOpenWorkflowPreview,
-  focusMessageId,
+  focusMessageId: referenceMessageId,
   historyItems: historyItemsProp,
   historyLoading: historyLoadingProp,
   hasOlderHistory = false,
@@ -769,7 +770,10 @@ export function ChatMessageList({
     requestAnimationFrame(() => scrollToBottom('auto'));
   }, [isStreaming, streamBuffer.length, merged.length, scrollToBottom]);
 
-  const focusKey = `${activeChatId ?? ''}:${focusMessageId ?? ''}`;
+  const [searchFocus, setSearchFocus] = useState<{ chatId: string; id: string | null; revision: number } | null>(null);
+  const searchMessageId = searchFocus?.chatId === activeChatId ? searchFocus.id : null;
+  const focusMessageId = searchMessageId ?? referenceMessageId;
+  const focusKey = `${activeChatId ?? ''}:${focusMessageId ?? ''}:${searchMessageId ? searchFocus?.revision : ''}`;
   const focusedKey = useRef('');
   const focusLoading = useRef(false);
   const [focusErrorKey, setFocusErrorKey] = useState('');
@@ -804,6 +808,10 @@ export function ChatMessageList({
   return (
     <ChatRenderProvider value={{ chatId: activeChatId, surface }}>
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {activeChatId && historyItems.length > 0 && <ChatMessageSearch key={activeChatId} chatId={activeChatId} onLocate={id => {
+        setSearchFocus(previous => ({ chatId: activeChatId, id, revision: (previous?.revision ?? 0) + 1 }));
+        if (!id) scrollRef.current?.querySelectorAll('[data-reference-highlight]').forEach(element => element.removeAttribute('data-reference-highlight'));
+      }} />}
       {focusMessageId && focusErrorKey === focusKey && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{t('composer.context.sourceMissing', 'The referenced message could not be located. Your saved excerpt is unchanged.')}</div>}
       <div
         className="sr-only"

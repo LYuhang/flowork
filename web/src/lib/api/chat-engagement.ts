@@ -1,3 +1,4 @@
+import type { components } from './schema';
 import { getApiBase, getBasePath } from '@/lib/base-path';
 import { useAuthStore } from '@/stores/auth';
 
@@ -83,3 +84,11 @@ export async function copyText(text: string): Promise<void> {
   input.remove();
   if (!copied) throw new Error('clipboard_unavailable');
 }
+
+
+export type MessageSearchMatch = components['schemas']['MessageSearchMatch'];
+export const searchChatMessages = (chatId: string, query: string, afterId: number, signal: AbortSignal) =>
+  request<components['schemas']['MessageSearchPage']>(`${chatPath(chatId)}/messages/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, after_id: afterId }), signal,
+  });

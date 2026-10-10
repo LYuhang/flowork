@@ -6,7 +6,7 @@ import type { ChatListItem } from '@/lib/api/queries/chats';
 
 type Summary = NonNullable<ChatListItem['latest_run']>;
 const summary = (status: Summary['status'], run_id = 'turn'): Summary => ({
-  run_id, status, created_at: '2026-10-10T00:00:00Z', updated_at: '2026-10-10T00:00:00Z',
+  run_id, status, unread: false, created_at: '2026-10-10T00:00:00Z', updated_at: '2026-10-10T00:00:00Z',
 });
 beforeEach(() => useChatStreamStore.setState({ runtimes: {} }));
 afterEach(cleanup);
@@ -19,6 +19,12 @@ describe('ChatRunStatus', () => {
   ] as const)('restores %s without a locally opened stream', (status, label) => {
     render(<ChatRunStatus chatId="chat" run={summary(status)} />);
     expect(screen.getByRole('img', { name: label })).toHaveAttribute('data-chat-run-status', status);
+  });
+  it('distinguishes unread completion from an ordinary completed turn', () => {
+    const view = render(<ChatRunStatus chatId="chat" run={{ ...summary('completed'), unread: true }} />);
+    expect(screen.getByRole('img', { name: 'Completed · unread' })).toHaveAttribute('data-chat-unread', 'true');
+    view.rerender(<ChatRunStatus chatId="chat" run={{ ...summary('completed'), unread: false }} />);
+    expect(screen.getByRole('img', { name: 'Completed' })).not.toHaveAttribute('data-chat-unread');
   });
   it('does not invent status for an empty conversation', () => {
     render(<ChatRunStatus chatId="chat" />);

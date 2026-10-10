@@ -29,6 +29,7 @@ import { useAuthStore } from '@/stores/auth';
 import { cn } from '@/lib/utils';
 import { chatClientStateKey } from '@/lib/chat/state-key';
 import { ChatMessageSearch } from './ChatMessageSearch';
+import { CompletedTurnReadMarker } from './CompletedTurnReadMarker';
 import { ChatRenderProvider } from './chat-render-context';
 
 const EMPTY_STREAM_BUFFER: RawChunk[] = [];
@@ -149,6 +150,7 @@ const AgentRunningIndicator = memo(function AgentRunningIndicator({
 });
 
 export interface ChatMessageListProps {
+  readingActive?: boolean;
   wfId: string;
   vfsScopeId?: string;
   activeChatId: string | null;
@@ -404,6 +406,7 @@ export function ChatMessageList({
   surface = 'chat',
   compact = false,
   workflowViewerId,
+  readingActive = true,
   onOpenWorkflowPreview,
   focusMessageId: referenceMessageId,
   historyItems: historyItemsProp,
@@ -535,6 +538,11 @@ export function ChatMessageList({
     [history.data?.items, historyItemsProp],
   );
   const historyIsLoading = historyLoadingProp ?? history.isLoading;
+  const latestRun = sessions.data?.items.find(item => item.chat_id === activeChatId)?.latest_run;
+  const canAcknowledgeCompletion = readingActive && !historyIsLoading && !isStreaming
+    && latestRun?.status === 'completed' && latestRun.unread
+    && latestRun.result_message_id
+    && historyItems.some(item => item.id === latestRun.result_message_id && item.turn_id === latestRun.run_id && item.role === 'assistant');
 
   const preparingMessage = useChatStreamStore(state => activeChatId ? state.preparingMessages[activeChatId] : undefined);
   const preparingMessages = useMemo(() => preparingMessage ? mergeChunks([{ ...preparingMessage, id: `preparing:${activeChatId}` }]) : [], [preparingMessage, activeChatId]);
@@ -944,6 +952,8 @@ export function ChatMessageList({
                   </div>
                 );
               })}
+              {canAcknowledgeCompletion && activeChatId && latestRun && <CompletedTurnReadMarker
+                key={`${activeChatId}:${latestRun.run_id}`} scopeId={wfId} chatId={activeChatId} runId={latestRun.run_id} /> }
               {preparingMessage ? (
                 <div role="status" data-role="agent-message-preparing" className="flex items-center gap-2 px-1 py-2 text-xs text-muted-foreground">
                   <Loader2 className="size-3 animate-spin" aria-hidden />

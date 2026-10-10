@@ -6,6 +6,7 @@ import json
 import re
 import secrets
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -25,6 +26,7 @@ from ..security.content_encryption import content_encryption_service
 from ..storage.chat_repo import ChatRepo
 from ..storage.db import get_db
 from ..storage.models import Chat, ChatMessage, User
+from ..storage.models_agent_runs import AgentRun
 from .chats import _authorize_chat
 
 router = APIRouter(prefix="/api/v1", tags=["chat-engagement"])
@@ -53,6 +55,47 @@ async def owned_chat(request, auth, service, session, chat_id, *, export=False):
     if row is None:
         raise HTTPException(404, "chat_not_found")
     return row
+
+
+class ReadTurnBody(BaseModel):
+    run_id: str = Field(min_length=1, max_length=256)
+
+
+class ChatReadState(BaseModel):
+    read_run_id: str
+    read_created_at: datetime
+
+
+@router.put("/chats/{chat_id}/read-state", response_model=ChatReadState)
+async def mark_completed_turn_read(
+    chat_id: str, body: ReadTurnBody, request: Request,
+    auth: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await owned_chat(request, auth, service, session, chat_id)
+    run = (await session.execute(select(AgentRun.run_id, AgentRun.created_at).where(
+        AgentRun.chat_id == chat_id, AgentRun.run_id == body.run_id,
+        AgentRun.status == "completed",
+    ))).one_or_none()
+    if run is None:
+        raise HTTPException(404, "completed_turn_not_found")
+    # An old tab cannot move the read position backwards. Repeating the same
+    # acknowledgment does not write or emit another activity notification.
+    await session.execute(text("""
+        INSERT INTO chat_read_states (tenant_id, user_id, chat_id, run_id, run_created_at)
+        VALUES (:tenant, :user, :chat, :run, :created)
+        ON CONFLICT (user_id, chat_id) DO UPDATE
+        SET run_id=EXCLUDED.run_id, run_created_at=EXCLUDED.run_created_at, updated_at=now()
+        WHERE (chat_read_states.run_created_at, chat_read_states.run_id)
+            < (EXCLUDED.run_created_at, EXCLUDED.run_id)
+    """), {"tenant": uuid.UUID(auth.tenant_id), "user": uuid.UUID(auth.user_id),
+           "chat": chat_id, "run": run.run_id, "created": run.created_at})
+    read = (await session.execute(text("""
+        SELECT run_id AS read_run_id, run_created_at AS read_created_at
+        FROM chat_read_states WHERE chat_id=:chat AND user_id=:user
+    """), {"chat": chat_id, "user": uuid.UUID(auth.user_id)})).mappings().one()
+    return dict(read)
 
 
 @router.get("/chats/{chat_id}/feedback")

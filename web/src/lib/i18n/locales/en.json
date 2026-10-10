@@ -4102,5 +4102,7 @@
   "chat.runStatus.cancel_requested": "Stopping",
   "chat.runStatus.completed": "Completed",
   "chat.runStatus.cancelled": "Stopped",
-  "chat.runStatus.failed": "Failed"
+  "chat.runStatus.failed": "Failed",
+  "chat.runStatus.unread": "Completed · unread",
+  "chat.read.retry": "Could not update read status. Retry"
 }

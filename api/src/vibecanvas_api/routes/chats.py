@@ -2048,6 +2048,7 @@ async def get_chat_history(
         if item.get("role") == "assistant":
             content = _sanitize_visible_content(content)
         message = HistoryMessage(
+            turn_id=item.get("turn_id"),
             history_position=stored_offset + row_index,
             id=str(item.get("message_id") or item.get("id") or ""),
             role=item.get("role", "assistant"),
@@ -2090,10 +2091,9 @@ async def get_chat_history(
                         if isinstance(item.get("meta"), dict)
                         else {}
                     ),
-                    # Debug consumers need a durable boundary for projecting
-                    # messages emitted after a model-input snapshot. Keep this
-                    # out of the ordinary transcript response so it remains an
-                    # observability detail rather than frontend message state.
+                    # Keep the debug metadata alias for existing diagnostics.
+                    # Ordinary history also carries turn_id at the top level
+                    # for completed-result read acknowledgments.
                     "turn_id": item.get("turn_id"),
                 }
                 if debug

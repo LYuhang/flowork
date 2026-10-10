@@ -114,6 +114,30 @@ describe('ChatMessageList', () => {
     );
   });
 
+  it('exposes the read marker only for a loaded completed turn in an active panel', () => {
+    sessionsMock.mockReturnValue({ data: { items: [{ chat_id: 'c1', latest_run: {
+      run_id: 'latest', status: 'completed', unread: true, result_message_id: 'answer',
+    } }] }, isLoading: false });
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    // Visibility/acknowledgment behavior itself is covered by the marker suite.
+    const observer = vi.fn();
+    vi.stubGlobal('IntersectionObserver', class { observe = observer; disconnect() {} });
+    const rows = [{ id: 'answer', role: 'assistant', content: 'Answer', turn_id: 'old' }];
+    const props = { wfId: 'wf', activeChatId: 'c1', historyItems: rows };
+    const view = render(<ChatMessageList {...props} />, { wrapper: ChatQueryWrapper });
+    expect(view.container.querySelector('[data-chat-read-marker]')).toBeNull();
+    view.rerender(<ChatMessageList {...props} historyItems={[{ ...rows[0], id: 'partial', turn_id: 'latest' }]} />);
+    expect(view.container.querySelector('[data-chat-read-marker]')).toBeNull();
+    const latestRows = [{ ...rows[0], turn_id: 'latest' }];
+    view.rerender(<ChatMessageList {...props} historyItems={latestRows} readingActive={false} />);
+    expect(view.container.querySelector('[data-chat-read-marker]')).toBeNull();
+    view.rerender(<ChatMessageList {...props} historyItems={latestRows} />);
+    expect(view.container.querySelector('[data-chat-read-marker="latest"]')).toBeInTheDocument();
+    expect(observer).toHaveBeenCalled();
+    view.unmount();
+    vi.unstubAllGlobals();
+  });
+
   it('locates search results in unloaded history while preserving current messages', async () => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     server.use(http.post('*/api/v1/chats/search-chat/messages/search', () => HttpResponse.json({

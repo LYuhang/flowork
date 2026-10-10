@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.security.content_encryption import content_encryption_service
 
-from .models import Chat
+from .models import Chat, ChatMessage
 from .models_agent_runs import (
     ACTIVE_AGENT_RUN_STATUSES,
     AgentRun,
@@ -308,10 +308,36 @@ class AgentRunsRepo:
             .distinct(AgentRun.chat_id)
             .order_by(AgentRun.chat_id, AgentRun.created_at.desc(), AgentRun.run_id.desc())
         )).mappings().all()
-        return {
-            row["chat_id"]: {key: value for key, value in row.items() if key != "chat_id"}
-            for row in rows
-        }
+        if not rows:
+            return {}
+        receipts = (await self.session.execute(text("""
+            SELECT chat_id, run_id, run_created_at FROM chat_read_states
+            WHERE chat_id = ANY(:chats)
+                AND user_id = NULLIF(current_setting('app.user_id', true), '')::uuid
+        """), {"chats": chat_ids})).mappings().all()
+        read_positions = {row["chat_id"]: (row["run_created_at"], row["run_id"]) for row in receipts}
+        completed = [row["run_id"] for row in rows if row["status"] == "completed"]
+        results = {}
+        if completed:
+            messages = (await self.session.execute(
+                select(ChatMessage.turn_id, ChatMessage.message_id)
+                .where(ChatMessage.chat_id.in_(chat_ids), ChatMessage.turn_id.in_(completed),
+                       ChatMessage.role == "assistant")
+                .distinct(ChatMessage.turn_id)
+                .order_by(ChatMessage.turn_id, ChatMessage.id.desc())
+            )).all()
+            results = dict(messages)
+        summaries = {}
+        for row in rows:
+            read = read_positions.get(row["chat_id"])
+            summaries[row["chat_id"]] = {
+                **{key: value for key, value in row.items() if key != "chat_id"},
+                "result_message_id": results.get(row["run_id"]),
+                "unread": row["status"] == "completed" and row["run_id"] in results and (
+                    read is None or (row["created_at"], row["run_id"]) > read
+                ),
+            }
+        return summaries
 
     async def get_active_for_chat(self, chat_id: str) -> AgentRun | None:
         row = (

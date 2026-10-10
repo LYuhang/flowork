@@ -14,6 +14,8 @@ from vibecanvas_api.services.workflow_chat_context import WorkflowChatBinding
 
 
 class ChatRunSummary(BaseModel):
+    result_message_id: str | None = None
+    unread: bool = False
     run_id: str
     status: Literal["running", "waiting_approval", "cancel_requested", "completed", "cancelled", "failed"]
     created_at: datetime
@@ -391,6 +393,7 @@ class MessagePostBody(BaseModel):
 
 
 class HistoryMessage(BaseModel):
+    turn_id: str | None = None
     # Absolute position in the durable row sequence; projections have no slot.
     history_position: int | None = None
     id: str | None = None

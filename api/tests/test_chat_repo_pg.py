@@ -738,7 +738,7 @@ async def test_history_projects_latest_run_without_decrypting_private_input(pg_s
     assert set(summaries) == {first}
     assert summaries[first]['run_id'] == latest.run_id
     assert summaries[first]['status'] == status
-    assert set(summaries[first]) == {'run_id', 'status', 'created_at', 'updated_at', 'ended_at'}
+    assert set(summaries[first]) == {'run_id', 'status', 'created_at', 'updated_at', 'ended_at', 'unread', 'result_message_id'}
     assert await runs.latest_summaries([]) == {}
     assert await runs.latest_summaries([second]) == {}
     listed = await chats.list_authorized_sessions('__chat_summary', [first, second])

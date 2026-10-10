@@ -33,8 +33,9 @@ export function ChatRunStatus({ chatId, run }: { chatId: string; run?: ChatListI
   });
   if (!status) return null;
   const { Icon, className, label } = appearance[status];
-  const title = t(`chat.runStatus.${status}`, label);
-  return <span className="inline-flex shrink-0" title={title} role="img" aria-label={title} data-chat-run-status={status}>
-    <Icon className={`size-3.5 ${className}`} aria-hidden="true" />
+  const unread = status === 'completed' && run?.status === 'completed' && run.unread;
+  const title = unread ? t('chat.runStatus.unread', 'Completed · unread') : t(`chat.runStatus.${status}`, label);
+  return <span className="inline-flex shrink-0" title={title} role="img" aria-label={title} data-chat-run-status={status} data-chat-unread={unread || undefined}>
+    <Icon className={`size-3.5 ${unread ? 'text-state-info' : className}`} aria-hidden="true" />
   </span>;
 }

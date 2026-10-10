@@ -25,7 +25,7 @@ async def seed(client):
         project = await ChatProjectRepo(session, me['user_id']).create(name='Engagement')
         await repo.register_session(f'__chat_{me["user_id"]}', project_id=project['project_id'], name='Private title', chat_id=chat_id, surface='chat')
         for message_id, role, content in [
-            ('question', 'user', {'text': 'Visible question', 'attachments': [{'path': '/private/file'}]}),
+            ('question', 'user', {'text': 'Visible question', 'attachments': [{'type': 'file', 'name': 'file', 'path': '/data/private/file'}]}),
             ('answer', 'assistant', {'text': 'Visible answer', 'tool_calls': [{'secret': 'tool secret'}]}),
             ('tool', 'tool', {'text': 'tool secret'}),
             ('hidden', 'user', {'text': 'hidden secret', 'visibility': 'hidden'}),
@@ -181,3 +181,86 @@ async def test_message_search_covers_unloaded_history_without_exposing_hidden_te
     other, _, _ = await seed(client)
     denied = await client.post(endpoint, headers=other, json={'query': 'Entry'})
     assert denied.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_completed_turn_read_position_is_monotonic_private_and_idempotent(client, pg_url):
+    from datetime import datetime, timedelta, timezone
+    from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
+
+    headers, me, chat = await seed(client)
+    endpoint = f'/api/v1/chats/{chat}/read-state'
+    history = await client.get(f'/api/v1/chat-scopes/__chat_{me["user_id"]}/chats/{chat}/messages', headers=headers)
+    assert history.status_code == 200, history.text
+    assert next(item for item in history.json()['items'] if item['id'] == 'answer')['turn_id'] == 'turn-one'
+    created = datetime.now(timezone.utc)
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+        runs = AgentRunsRepo(session)
+        for i in range(2):
+            run = await runs.create(run_id=f'read-{i}', tenant_id=me['tenant_id'], chat_id=chat,
+                                   creator_user_id=me['user_id'], client_request_id=f'read-{i}', input_snapshot={})
+            run.status = 'completed'
+            run.created_at = created + timedelta(seconds=i)
+            await session.flush()
+            await ChatRepo(session, me['user_id']).persist_message(chat, {
+                'message_id': f'read-answer-{i}', 'turn_id': f'read-{i}',
+                'role': 'assistant', 'content': {'text': 'Final result'},
+            })
+        summary = (await runs.latest_summaries([chat]))[chat]
+        assert summary['unread'] is True
+        assert summary['result_message_id'] == 'read-answer-1'
+    from contextlib import aclosing
+    import psycopg
+
+    async with await psycopg.AsyncConnection.connect(pg_url.replace('+asyncpg', ''), autocommit=True) as listener:
+        await listener.execute('LISTEN flowork_chat_activity')
+        async with aclosing(listener.notifies(timeout=3, stop_after=1)) as notifications:
+            response = await client.put(endpoint, headers=headers, json={'run_id': 'read-1'})
+            assert response.status_code == 200, response.text
+            assert (await anext(notifications)).payload == chat
+    assert response.status_code == 200, response.text
+    assert response.json()['read_run_id'] == 'read-1'
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+        first_update = (await session.execute(text('SELECT updated_at FROM chat_read_states WHERE chat_id=:chat'), {'chat': chat})).scalar_one()
+        assert (await AgentRunsRepo(session).latest_summaries([chat]))[chat]['unread'] is False
+    # A duplicate or delayed older browser must not change state or notify again.
+    for run_id in ('read-1', 'read-0'):
+        response = await client.put(endpoint, headers=headers, json={'run_id': run_id})
+        assert response.status_code == 200, response.text
+        assert response.json()['read_run_id'] == 'read-1'
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+        assert (await session.execute(text('SELECT updated_at FROM chat_read_states WHERE chat_id=:chat'), {'chat': chat})).scalar_one() == first_update
+        run = await AgentRunsRepo(session).create(run_id='read-next', tenant_id=me['tenant_id'], chat_id=chat,
+                     creator_user_id=me['user_id'], client_request_id='read-next', input_snapshot={})
+        run.created_at = created + timedelta(seconds=2)
+        await session.flush()
+        assert (await AgentRunsRepo(session).latest_summaries([chat]))[chat]['unread'] is False
+    assert (await client.put(endpoint, headers=headers, json={'run_id': 'read-next'})).status_code == 404
+    assert (await client.put(endpoint, headers=headers, json={'run_id': 'missing'})).status_code == 404
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+        await session.execute(text("UPDATE agent_runs SET status='completed' WHERE run_id='read-next'"))
+        assert (await AgentRunsRepo(session).latest_summaries([chat]))[chat]['unread'] is False
+        await ChatRepo(session, me['user_id']).persist_message(chat, {
+            'message_id': 'next-answer', 'turn_id': 'read-next',
+            'role': 'assistant', 'content': {'text': 'Next result'},
+        })
+        assert (await AgentRunsRepo(session).latest_summaries([chat]))[chat]['unread'] is True
+    other, _, _ = await seed(client)
+    assert (await client.put(endpoint, headers=other, json={'run_id': 'read-next'})).status_code == 404
+    # FORCE RLS isolates receipts even when someone already knows the Chat ID.
+    async with session_scope(tenant_id=me['tenant_id'], user_id=str(uuid.uuid4())) as session:
+        assert (await session.execute(text('SELECT run_id FROM chat_read_states WHERE chat_id=:chat'), {'chat': chat})).all() == []
+
+
+@pytest.mark.asyncio
+async def test_read_acknowledgement_cannot_use_another_chat_turn(client):
+    from vibecanvas_api.storage.agent_runs_repo import AgentRunsRepo
+
+    headers, me, chat = await seed(client)
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as session:
+        original = await ChatRepo(session, me['user_id']).get_authorized_inventory(chat)
+        other_chat = await ChatRepo(session, me['user_id']).register_session(original['scope_id'], project_id=original['project_id'], name='Other')
+        run = await AgentRunsRepo(session).create(run_id='read-other', tenant_id=me['tenant_id'], chat_id=other_chat,
+                  creator_user_id=me['user_id'], client_request_id='read-other', input_snapshot={})
+        run.status = 'completed'
+    assert (await client.put(f'/api/v1/chats/{chat}/read-state', headers=headers, json={'run_id': 'read-other'})).status_code == 404

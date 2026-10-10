@@ -502,6 +502,7 @@ export function AgentChatSidebar({
 
       <div className="flex min-h-0 flex-1 flex-col">
         <ChatMessageList
+          readingActive={active}
           wfId={lastWfId}
           vfsScopeId={workspaceScopeId || undefined}
           activeChatId={activeChatId}

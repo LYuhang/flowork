@@ -140,6 +140,7 @@ export interface MergedMessage {
 
 /** Input chunk shape — the intersection of HistoryMessage + StreamChunk. */
 export interface RawChunk {
+  turn_id?: string | null;
   history_position?: number | null;
   id?: string | null;
   role: string;

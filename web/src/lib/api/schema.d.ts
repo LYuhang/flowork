@@ -2248,6 +2248,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/{chat_id}/read-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Mark Completed Turn Read */
+        put: operations["mark_completed_turn_read_api_v1_chats__chat_id__read_state_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chats/{chat_id}/feedback": {
         parameters: {
             query?: never;
@@ -5813,6 +5830,16 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** ChatReadState */
+        ChatReadState: {
+            /** Read Run Id */
+            read_run_id: string;
+            /**
+             * Read Created At
+             * Format: date-time
+             */
+            read_created_at: string;
+        };
         /** ChatRenameBody */
         ChatRenameBody: {
             /** Name */
@@ -5820,6 +5847,13 @@ export interface components {
         };
         /** ChatRunSummary */
         ChatRunSummary: {
+            /** Result Message Id */
+            result_message_id?: string | null;
+            /**
+             * Unread
+             * @default false
+             */
+            unread: boolean;
             /** Run Id */
             run_id: string;
             /**
@@ -6717,6 +6751,8 @@ export interface components {
         };
         /** HistoryMessage */
         HistoryMessage: {
+            /** Turn Id */
+            turn_id?: string | null;
             /** History Position */
             history_position?: number | null;
             /** Id */
@@ -7982,6 +8018,11 @@ export interface components {
         QuoteSnapshot: {
             /** Text */
             text: string;
+        };
+        /** ReadTurnBody */
+        ReadTurnBody: {
+            /** Run Id */
+            run_id: string;
         };
         /** RegisterIn */
         RegisterIn: {
@@ -13820,6 +13861,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ActiveAgentRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_completed_turn_read_api_v1_chats__chat_id__read_state_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadTurnBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatReadState"];
                 };
             };
             /** @description Validation Error */

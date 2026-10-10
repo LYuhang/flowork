@@ -92,3 +92,9 @@ export const searchChatMessages = (chatId: string, query: string, afterId: numbe
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, after_id: afterId }), signal,
   });
+
+export const markChatTurnRead = (chatId: string, runId: string) =>
+  request<{ read_run_id: string; read_created_at: string }>(`${chatPath(chatId)}/read-state`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ run_id: runId }),
+  });

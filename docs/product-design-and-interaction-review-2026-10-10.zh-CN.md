@@ -462,3 +462,12 @@ F03 组件交互已实现，真实运行任务的端到端附件链路仍需补�
 - 官方核对来源：[OpenFGA releases](https://github.com/openfga/openfga/releases)、[Go GO-2026-6612](https://pkg.go.dev/vuln/GO-2026-6612)、[gosu 1.19](https://github.com/tianon/gosu/releases/tag/1.19)。扫描门禁输出是按包/位置的匹配数，不等同于不同漏洞数量。
 - 本机磁盘剩余约 1GB，未在运行应用的主机上强行构建整套镜像。镜像漏洞修复仍未完成。
 - 改善诊断：扫描器将每个最终镜像的政策判定保存到 `policy/*.txt`，纳入校验和；失败项写入 GitHub job summary，便于直接看到镜像、漏洞和包位置。阻断规则及失败退出行为保持原样。43 项供应链/政策回归及 Bash 语法检查通过；尚未宣称 CI 恢复绿色。
+
+### OpenFGA Postgres 的 gosu 修补（2026-10-10）
+
+- `postgres/openfga.Dockerfile` 保留 gosu 1.19 源码与官方 Postgres 17 入口，增加独立 Go 1.26.9 构建阶段。Go 镜像固定 digest，源码归档固定 SHA-256；静态编译后只复制最终 gosu，生产镜像不携带 Go 编译器。
+- 新构建基础镜像加入供应链扫描清单，作为构建来源保留全量报告；最终 openfga-postgres 镜像继续执行同一漏洞门禁，未增加漏洞豁免。
+- 本机真实 Docker 构建通过：`flowork-openfga-postgres:security-fix`。构建阶段二进制 `go version -m` 确认 Go 1.26.9；gosu 降权为 nobody（UID 65534）及 postgres（UID 999）通过。
+- 临时容器通过官方入口初始化 PostgreSQL，pg_isready 就绪，建表、插入及读取 42 成功；使用独立 tmpfs 数据目录、无宿主机端口映射，完成后已停止并移除容器。未读写现有数据库。
+- 43 项供应链/政策回归通过。测试完成后释放本次构建缓存及构建阶段镜像，保留最终测试镜像。证据 `/tmp/gosu-security-build.log`、`/tmp/gosu-postgres-build.log`、`/tmp/gosu-security-tests.log`。
+- 此项是 gosu 的源码级工具链修补及运行验证，最终新镜像漏洞扫描仍待 CI 证明；OpenFGA 服务和 grpc_health_probe 的 Go/x/net 修补仍未完成，不能宣称整体安全门禁已恢复。

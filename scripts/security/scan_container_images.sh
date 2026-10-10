@@ -123,6 +123,7 @@ build_image engine engine/Dockerfile .
 # this list synchronized through test_supply_chain_scripts.py so a newly added
 # deployment image cannot silently bypass SBOM/vulnerability scanning.
 readonly pinned_images=(
+  'golang-build|golang:1.26.9-alpine3.24@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade'
   'rust-build|debian:bookworm-20260918-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251'
   'python-base|python:3.11.17-slim-trixie@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5'
   'node-runtime|node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6'
@@ -140,7 +141,7 @@ for entry in "${pinned_images[@]}"; do
   "$docker_bin" pull "$source"
   case "$label" in
     openfga) role=runtime ;;
-    rust-build|python-base|node-runtime|node-build|nginx-runtime|openfga-postgres-base|clamav-base|valkey-base)
+    golang-build|rust-build|python-base|node-runtime|node-build|nginx-runtime|openfga-postgres-base|clamav-base|valkey-base)
       role=provenance ;;
     *) printf 'Unclassified image: %s\n' "$label" >&2; exit 2 ;;
   esac

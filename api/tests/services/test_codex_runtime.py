@@ -1136,7 +1136,7 @@ async def test_codex_resident_thread_suppresses_repeated_mcp_startup(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_codex_retries_one_empty_provider_completion(monkeypatch):
+async def test_codex_reports_empty_provider_completion_without_retry(monkeypatch):
     class FakeAppServer:
         def __init__(self):
             self.requests: list[tuple[str, dict]] = []
@@ -1198,45 +1198,30 @@ async def test_codex_retries_one_empty_provider_completion(monkeypatch):
 
     client = FakeAppServer()
     channel = _Channel()
-    await run_codex_turn(
-        channel,
-        RuntimeTurnRequest(
-            tenant_id="tenant",
-            user_id="user",
-            chat_id="chat",
-            turn_id="platform-turn",
-            runtime_type="codex",
-            runtime_session_id="runtime-session",
-            runtime_root="/runtime/.codex",
-            message={"role": "user", "content": "hello"},
-            model=_BROKER_MODEL,
-        ),
-        client=client,
-        close_client=False,
-        resident_threads={},
-    )
+    with pytest.raises(RuntimeError, match="codex_empty_completion"):
+        await run_codex_turn(
+            channel,
+            RuntimeTurnRequest(
+                tenant_id="tenant",
+                user_id="user",
+                chat_id="chat",
+                turn_id="platform-turn",
+                runtime_type="codex",
+                runtime_session_id="runtime-session",
+                runtime_root="/runtime/.codex",
+                message={"role": "user", "content": "hello"},
+                model=_BROKER_MODEL,
+            ),
+            client=client,
+            close_client=False,
+            resident_threads={},
+        )
 
-    assert [method for method, _params in client.requests] == [
-        "thread/start",
-        "turn/start",
-        "turn/start",
-    ]
-    audit = [message["event"]["payload"] for message in channel.sent
-             if message.get("event", {}).get("type") == "runtime.input"]
-    assert [item["reason"] for item in audit] == ["user_turn", "empty_completion_retry"]
-    assert [item["input"] for item in audit] == [
-        params["input"] for method, params in client.requests if method == "turn/start"
-    ]
-    assert any(
-        message.get("event", {}).get("payload", {}).get("payload", {}).get("code")
-        == "codex_empty_completion_retry"
-        for message in channel.sent
-    )
-    assert any(
-        message.get("event", {}).get("payload", {}).get("delta")
-        == "Recovered answer"
-        for message in channel.sent
-    )
+    assert [method for method, _params in client.requests] == ['thread/start', 'turn/start']
+    audit = [message['event']['payload'] for message in channel.sent
+             if message.get('event', {}).get('type') == 'runtime.input']
+    assert [item['reason'] for item in audit] == ['user_turn']
+    assert not any(message.get('event', {}).get('type') == 'runtime.completed' for message in channel.sent)
 
 
 @pytest.mark.asyncio
@@ -2346,7 +2331,6 @@ async def test_codex_request_user_input_resumes_the_same_native_turn(monkeypatch
         "tool.end",
         "interaction.resolved",
         "projection",
-        "projection",
         "usage",
         "runtime.completed",
     ]
@@ -2359,7 +2343,7 @@ async def test_codex_request_user_input_resumes_the_same_native_turn(monkeypatch
         "codex_request_unknown"
     )
     assert "private" not in json.dumps(events[8])
-    assert events[10]["payload"] == {
+    assert events[9]["payload"] == {
         "model": "gpt-codex-current",
         "prompt_tokens": 120,
         "completion_tokens": 30,
@@ -2372,6 +2356,9 @@ async def test_codex_request_user_input_resumes_the_same_native_turn(monkeypatch
     assert instances[0].responses == [
         (73, {"answers": {"scope": {"answers": ["Workspace"]}}})
     ]
+
+    assert [m["event"]["payload"]["reason"] for m in channel.sent
+            if m.get("event", {}).get("type") == "runtime.input"] == ["user_turn"]
 
 
 @pytest.mark.asyncio
@@ -3335,3 +3322,68 @@ async def test_user_steering_control_never_restarts_or_fails_original_turn(monke
     assert updates[0]['status'] == ('rejected' if outcome == 'invalid' else outcome)
     assert any(entry['type'] == 'runtime.completed' for entry in events)
     assert not any(entry['type'] == 'runtime.failed' for entry in events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', [None, 'missing', 'denied', 'clear'])
+async def test_branch_first_turn_forks_selected_boundary_without_source_goal(monkeypatch, failure):
+    class BranchClient:
+        def __init__(self):
+            self.requests = []
+
+        async def start(self):
+            pass
+
+        async def request(self, method, params, **kwargs):
+            self.requests.append((method, params))
+            if method == 'thread/fork':
+                assert params['threadId'] == 'source-native'
+                assert params['lastTurnId'] == 'selected-native'
+                assert params['deferGoalContinuation'] is True
+                if failure in {'missing', 'denied'}:
+                    raise CodexAppServerError('codex_app_server_request_failed',
+                        'no rollout found for thread id source-native' if failure == 'missing' else 'permission denied')
+                return {'thread': {'id': 'branch-native'}}
+            if method == 'thread/goal/clear':
+                assert params['threadId'] == 'branch-native'
+                if failure == 'clear':
+                    raise CodexAppServerError('codex_app_server_request_failed', 'no rollout found for thread id branch-native')
+                return {}
+            if method == 'thread/start':
+                assert failure == 'missing'
+                return {'thread': {'id': 'branch-recovered'}}
+            if method == 'thread/goal/get':
+                return {'goal': None}
+            if method == 'turn/start':
+                assert params['threadId'] == ('branch-recovered' if failure == 'missing' else 'branch-native')
+                if failure == 'missing':
+                    assert 'ONLY-SELECTED-HISTORY' in str(params['input'])
+                return {'turn': {'id': 'branch-turn'}}
+            raise AssertionError(method)
+
+        async def messages(self):
+            yield {'method': 'item/completed', 'params': {'item': {'id': 'answer', 'type': 'agentMessage', 'text': 'Branch answer'}}}
+            yield {'method': 'turn/completed', 'params': {'turn': {'id': 'branch-turn', 'status': 'completed'}}}
+
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.path.isdir', lambda path: path in {'/runtime', '/data'})
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex.os.makedirs', lambda *args, **kwargs: None)
+    monkeypatch.setattr('vibecanvas_api.services.agent_runtime.codex._read_history_coverage', lambda root: {})
+    client = BranchClient()
+    request = RuntimeTurnRequest(
+        tenant_id='tenant', user_id='user', chat_id='branch', turn_id='platform-turn',
+        runtime_type='codex', runtime_session_id='session', runtime_root='/runtime/.codex',
+        branch_source={'state_ref': 'source-native', 'native_turn_id': 'selected-native'},
+        durable_history={'last_turn_id': 'selected-platform', 'messages': [
+            {'message_id': 'selected', 'role': 'user', 'text': 'ONLY-SELECTED-HISTORY'},
+        ]}, message={'role': 'user', 'content': 'Continue this branch'}, model=_BROKER_MODEL,
+    )
+    if failure in {'denied', 'clear'}:
+        with pytest.raises(RuntimeError, match='permission denied|native_branch_goal_clear_failed'):
+            await run_codex_turn(_Channel(), request, client=client, close_client=False)
+    else:
+        await run_codex_turn(_Channel(), request, client=client, close_client=False)
+    methods = [method for method, _ in client.requests]
+    assert methods.count('thread/fork') == 1
+    assert methods.count('thread/start') == (1 if failure == 'missing' else 0)
+    assert methods.count('turn/start') == (0 if failure in {'denied', 'clear'} else 1)
+    assert methods.count('thread/goal/clear') == (1 if failure in {None, 'clear'} else 0)

@@ -75,7 +75,6 @@ _MAX_TRACKED_NATIVE_THREADS = 64
 # subsequently publishing ``turn/completed``. Reconcile only after a generous
 # quiet period, a completed visible answer, and no active projected tool.
 _BROKER_TERMINAL_RECONCILIATION_IDLE_S = 120.0
-_MAX_EMPTY_COMPLETION_ATTEMPTS = 1
 
 # Codex-native items that are user-observable work.  They are projected through
 # the same portable message/tool lifecycle as every other Runtime while keeping
@@ -2086,7 +2085,26 @@ async def run_codex_turn(
             prior_turn_id and covered_turn_id != prior_turn_id
         )
         recovered_native_history = False
-        if recover_durable_history:
+        if request.branch_source is not None and not request.runtime_state_ref:
+            from .codex_branch import fork_native_thread
+
+            try:
+                thread_id = await fork_native_thread(
+                    client,
+                    source_thread_id=request.branch_source.state_ref,
+                    last_turn_id=request.branch_source.native_turn_id,
+                    overrides=common,
+                )
+                thread = {"id": thread_id}
+            except CodexAppServerError as exc:
+                if not _missing_rollout_error(exc):
+                    raise
+                opened = await client.request("thread/start", common, timeout_s=45.0)
+                thread = opened.get("thread")
+                thread_id = str(thread.get("id") if isinstance(thread, dict) else "")
+                recovered_native_history = True
+            reused_resident_thread = False
+        elif recover_durable_history:
             # A native rollout may still exist while covering only the newest
             # fragment after a sandbox loss. Never fork that partial state:
             # start clean and reconstruct it from the backend transcript.
@@ -2269,7 +2287,6 @@ async def run_codex_turn(
         await emit("checkpoint", checkpoint_payload)
 
         completed_agent_message = False
-        empty_completion_attempts = 0
         native_turn_had_product_output = False
         message_stream = client.messages()
         while not control_only:
@@ -2344,12 +2361,12 @@ async def run_codex_turn(
                     current["turn_id"] = turn_id
                     completed_agent_message = False
                     native_turn_had_product_output = False
-                    empty_completion_attempts = 0
                     if stop_event.is_set():
                         await client.request("turn/interrupt", {"threadId": thread_id, "turnId": turn_id}, timeout_s=10.0)
                 continue
 
             if "id" in message and method in _CODEX_INTERACTIVE_SERVER_REQUESTS:
+                native_turn_had_product_output = True
                 native_request_id = message["id"]
                 native_item_id = str(
                     params.get("itemId") or f"request-input:{native_request_id}"
@@ -2821,6 +2838,8 @@ async def run_codex_turn(
                 # one-based ids from snapshot order and never consumes the
                 # experimental item/plan/delta stream.
                 normalized = _normalize_codex_plan(params.get("plan"))
+                if normalized:
+                    native_turn_had_product_output = True
                 await emit(
                     "projection",
                     {
@@ -2990,65 +3009,10 @@ async def run_codex_turn(
                         # and the subscription alive; never inject a second loop.
                         continue
                 if status == "completed" and not native_turn_had_product_output:
-                    if empty_completion_attempts >= _MAX_EMPTY_COMPLETION_ATTEMPTS:
-                        raise RuntimeError(
-                            "codex_empty_completion: the model returned no assistant "
-                            "content or tool activity"
-                        )
-                    empty_completion_attempts += 1
-                    await emit(
-                        "projection",
-                        {
-                            "event_type": "NOTICE",
-                            "payload": {
-                                "level": "warning",
-                                "code": "codex_empty_completion_retry",
-                                "message": (
-                                    "The model returned an empty response. The Agent is "
-                                    "retrying the same request once."
-                                ),
-                                "runtime_type": "codex",
-                                "turn_disposition": "continue",
-                            },
-                        },
+                    raise RuntimeError(
+                        "codex_empty_completion: the model returned no assistant "
+                        "content or tool activity; no automatic retry was performed"
                     )
-                    retry_params: dict[str, Any] = {
-                        "threadId": thread_id,
-                        "input": [{
-                            "type": "text",
-                            "text": (
-                                "The previous provider response completed without any "
-                                "assistant content or tool activity. Continue the original "
-                                "user request now and return a complete result."
-                            ),
-                        }],
-                        "clientUserMessageId": (
-                            f"{client_user_message_id}:empty-completion-retry:"
-                            f"{empty_completion_attempts}"
-                        ),
-                        "approvalPolicy": _approval_policy(request.approval_mode),
-                    }
-                    if isinstance(selected_model, str) and selected_model:
-                        retry_params["model"] = selected_model
-                    if request.reasoning_effort:
-                        retry_params["effort"] = request.reasoning_effort
-                    retried = await submit_turn(
-                        retry_params, reason="empty_completion_retry",
-                    )
-                    retry_turn = retried.get("turn")
-                    turn_id = str(
-                        retry_turn.get("id")
-                        if isinstance(retry_turn, dict)
-                        else ""
-                    )
-                    if not turn_id:
-                        raise RuntimeError(
-                            "codex_empty_completion_retry_invalid_response"
-                        )
-                    current["turn_id"] = turn_id
-                    completed_agent_message = False
-                    native_turn_had_product_output = False
-                    continue
                 break
 
             if method in _CODEX_RECOGNIZED_NOTIFICATIONS:

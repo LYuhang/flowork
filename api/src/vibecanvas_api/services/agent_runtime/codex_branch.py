@@ -1,7 +1,7 @@
 """Native history branching, without starting a model turn or inheriting a Goal."""
 from __future__ import annotations
 
-from .codex_app_server import CodexAppServer
+from .codex_app_server import CodexAppServer, CodexAppServerError
 
 
 async def fork_native_thread(
@@ -22,5 +22,10 @@ async def fork_native_thread(
         raise RuntimeError('native_branch_invalid_thread')
     # deferGoalContinuation prevents automatic work during the fork itself.
     # Clear the inherited Goal before a later explicit user turn can resume it.
-    await client.request('thread/goal/clear', {'threadId': target}, timeout_s=10.0)
+    try:
+        await client.request('thread/goal/clear', {'threadId': target}, timeout_s=10.0)
+    except CodexAppServerError as exc:
+        # Only a missing source rollout may use durable-history recovery.
+        # A failure after creating the target must not start another thread.
+        raise RuntimeError(f'native_branch_goal_clear_failed: {exc}') from exc
     return target

@@ -223,9 +223,9 @@ class ChatRepo:
         """Create a bounded encrypted history in the caller's transaction.
 
         The caller authorizes project creation and resolves source artifact
-        projections before invoking this method. Native thread initialization
-        and authorization projection must complete before the transaction is
-        exposed as a usable branch. This method never starts a model turn.
+        projections before invoking this method. It must publish authorization
+        before exposing the branch. The saved native boundary is resolved on
+        the first explicit user message; creation never starts a model turn.
         """
         from vibecanvas_api.services.chat_branch_history import branch_message_snapshot
 
@@ -255,10 +255,15 @@ class ChatRepo:
             target = await self._s.scalar(select(Chat).where(Chat.chat_id == chat_id))
             target.runtime_model_id = source.runtime_model_id
             target.runtime_agent_settings = dict(source.runtime_agent_settings or {})
+            source_run = await AgentRunsRepo(self._s).get_for_chat(
+                source_chat_id, through_turn_id, creator_user_id=self._user_id,
+            )
             metadata = {"branch_source": {
                 "chat_id": source_chat_id, "turn_id": through_turn_id,
                 "file_policy": "shared_current_project_files",
             }}
+            if source_run.native_boundary:
+                metadata["branch_native_boundary"] = dict(source_run.native_boundary)
             if "workflow_context" in source.meta:
                 metadata["workflow_context"] = source.meta["workflow_context"]
             await self._store_chat_private(target, name=name, meta=metadata)
@@ -281,6 +286,20 @@ class ChatRepo:
                 )
             await self._s.flush()
         return chat_id
+
+    async def get_branch_native_boundary(self, chat_id: str) -> dict | None:
+        """Return a private fork boundary only before the branch owns a thread."""
+        chat = await self._s.scalar(select(Chat).where(
+            Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
+            Chat.deleted_at.is_(None),
+        ))
+        if chat is None or chat.runtime_state_ref:
+            return None
+        await self._materialize_chat_private(chat)
+        boundary = chat.meta.get("branch_native_boundary")
+        if not isinstance(boundary, dict) or boundary.get("runtime_type") != "codex":
+            return None
+        return {"state_ref": boundary["state_ref"], "native_turn_id": boundary["native_turn_id"]}
 
     async def get_workflow_context(self, chat_id: str) -> dict | None:
         chat = (await self._s.execute(select(Chat).where(

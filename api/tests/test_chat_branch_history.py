@@ -100,8 +100,15 @@ async def test_branch_snapshot_copies_only_boundary_with_new_encryption_and_orig
         original, _, _ = await repo.list_message_page(source, limit=300)
         await repo.persist_message(source, {'message_id': 'later', 'role': 'user',
             'turn_id': 'later', 'content': {'text': 'Excluded'}})
+        await AgentRunsRepo(db).record_native_boundary(run_id, chat_id=source,
+            creator_user_id=me['user_id'], runtime_type='codex',
+            state_ref='source-private-thread', native_turn_id='selected-native-turn')
         await repo.create_branch_snapshot(source, through_turn_id=run_id, chat_id=target,
             name='Branch', tool_projections={})
+        assert await repo.get_branch_native_boundary(target) == {
+            'state_ref': 'source-private-thread', 'native_turn_id': 'selected-native-turn',
+        }
+        assert await ChatRepo(db, str(uuid.uuid4())).get_branch_native_boundary(target) is None
         copied, total, _ = await repo.list_message_page(target, limit=300)
         assert total == len(original)
         for before, after in zip(original, copied, strict=True):
@@ -122,6 +129,9 @@ async def test_branch_snapshot_copies_only_boundary_with_new_encryption_and_orig
             await repo.create_branch_snapshot(source, through_turn_id=run_id, chat_id=target,
                 name='Duplicate', tool_projections={})
         assert (await repo.list_message_page(target, limit=20))[1] == total
+        await db.execute(text("UPDATE chats SET runtime_state_ref='own-thread' WHERE chat_id=:chat"), {'chat': target})
+        db.expire_all()
+        assert await repo.get_branch_native_boundary(target) is None
 
 
 @pytest.mark.asyncio

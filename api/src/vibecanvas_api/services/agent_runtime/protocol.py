@@ -317,6 +317,13 @@ class RuntimeDurableHistorySnapshot(BaseModel):
         return self
 
 
+class RuntimeBranchSource(BaseModel):
+    """Private native boundary selected by the host, never by a message body."""
+
+    state_ref: str = Field(min_length=1)
+    native_turn_id: str = Field(min_length=1)
+
+
 class RuntimeTurnRequest(BaseModel):
     goal_command: GoalCommand | None = None
     goal_pause_requested: bool = False
@@ -334,6 +341,7 @@ class RuntimeTurnRequest(BaseModel):
     # is never included in frontend projections.
     runtime_root: str
     runtime_state_ref: str | None = None
+    branch_source: RuntimeBranchSource | None = None
     # Host-only bounded continuation index within one durable product Turn.
     # Zero is the user's native Runtime turn; positive values are deterministic
     # protocol continuations and must never be projected as new user messages.

@@ -3465,6 +3465,10 @@ async def post_message(
         runtime_version=runtime_binding["runtime_version"],
     )
     turn_request = RuntimeTurnRequest(
+        branch_source=(
+            await chat_repo.get_branch_native_boundary(chat_id)
+            if not runtime_binding["runtime_state_ref"] else None
+        ),
         goal_command=goal_command,
         goal_pause_requested=await chat_repo.get_goal_pause_requested(chat_id),
         goal_snapshot=await chat_repo.get_goal(chat_id),

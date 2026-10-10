@@ -3551,9 +3551,10 @@ async def post_message(
         action=Action.EXECUTE,
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
-    from ..storage.agent_runs_repo import AgentRunActiveError
+    from ..storage.agent_runs_repo import AgentRunActiveError, AgentRunPredecessorChangedError
     try:
         reserved_run, run_created = await agent_runs_repo.create_exclusive(
+            expected_previous_run_id=getattr(http_request.state, 'queued_after_run_id', None),
             run_id=turn_id,
             tenant_id=auth.tenant_id,
             chat_id=chat_id,
@@ -3626,6 +3627,8 @@ async def post_message(
                 },
             },
         )
+    except AgentRunPredecessorChangedError as exc:
+        raise HTTPException(409, 'chat_has_newer_run') from exc
     except AgentRunActiveError as exc:
         raise HTTPException(
             status_code=409,
@@ -3782,7 +3785,7 @@ async def post_message(
 
     if body.control is None:
         await ChatDraftRepo(session, auth.user_id).mutate(chat_id, {
-            'kind': 'consume', 'operation_id': reserved_run.run_id,
+            'kind': 'consume', 'operation_id': body.client_request_id or reserved_run.run_id,
             'text': body.content,
             'attachment_keys': [attachment_key(a.model_dump(mode='json', exclude_none=True))
                                 for a in body.attachments],
@@ -3815,8 +3818,15 @@ async def post_message(
         user_id=auth.user_id,
     )
 
+    from ..services.chat_queue_submission import finish_chat_queue
+
+    async def finish_queued_input():
+        await finish_chat_queue(tenant_id=auth.tenant_id, user_id=auth.user_id,
+                                chat_id=chat_id, finished_run_id=turn_id, app=http_request.app)
+
     TURN_TASKS[turn_id] = asyncio.create_task(
-        run_turn(turn_id, buf, stop, producer, durable_writer=durable_writer)
+        run_turn(turn_id, buf, stop, producer, durable_writer=durable_writer,
+                 on_finished=finish_queued_input)
     )
     # Mark this chat busy so the bg-task watcher defers callback turns until the
     # current turn finishes (cleared in run_turn's finally).

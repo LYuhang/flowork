@@ -2541,6 +2541,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/{chat_id}/queued-input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest Queued Input */
+        get: operations["latest_queued_input_api_v1_chats__chat_id__queued_input_get"];
+        put?: never;
+        /** Queue Input */
+        post: operations["queue_input_api_v1_chats__chat_id__queued_input_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/queued-input/{input_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Cancel Queued Input */
+        delete: operations["cancel_queued_input_api_v1_chats__chat_id__queued_input__input_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search/projects": {
         parameters: {
             query?: never;
@@ -8230,6 +8265,47 @@ export interface components {
             prompts: string[];
             /** Current */
             current: string;
+        };
+        /** QueueInputBody */
+        QueueInputBody: {
+            /** Input Id */
+            input_id: string;
+            /** After Run Id */
+            after_run_id: string;
+            message: components["schemas"]["MessagePostBody"];
+        };
+        /** QueuedInputOut */
+        QueuedInputOut: {
+            /** Input Id */
+            input_id: string;
+            /** Chat Id */
+            chat_id: string;
+            /** After Run Id */
+            after_run_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "claimed" | "started" | "cancelled" | "blocked" | "failed" | "unknown";
+            /** Error Code */
+            error_code: string | null;
+            /** Started Run Id */
+            started_run_id: string | null;
+            message: components["schemas"]["MessagePostBody"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** QueuedInputState */
+        QueuedInputState: {
+            input: components["schemas"]["QueuedInputOut"] | null;
         };
         /** QuoteContextAttachment */
         QuoteContextAttachment: {
@@ -14710,6 +14786,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latest_queued_input_api_v1_chats__chat_id__queued_input_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedInputState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    queue_input_api_v1_chats__chat_id__queued_input_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueInputBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedInputOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_queued_input_api_v1_chats__chat_id__queued_input__input_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: string;
+                input_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedInputOut"];
                 };
             };
             /** @description Validation Error */

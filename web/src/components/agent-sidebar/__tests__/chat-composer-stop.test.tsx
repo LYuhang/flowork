@@ -62,6 +62,7 @@ describe('ChatComposer Stop', () => {
     cancelled = [];
     useComposerPreferences.setState({ sendShortcut: 'modifier-enter' });
     server.use(
+      http.get('*/api/v1/chats/:chatId/queued-input', () => HttpResponse.json({ input: null })),
       http.get('*/api/v1/chats/:chatId/input-controls', () => HttpResponse.json({ supported_controls: [], available_controls: [], latest_input: null })),
       http.get('*/api/v1/chats/:chatId/runs/:runId/input-controls', () => HttpResponse.json({ supported_controls: [], available_controls: [], latest_input: null })),
       http.get('*/api/v1/chat-scopes/:scopeId/chats/:chatId/state', () => HttpResponse.json({})),
@@ -92,6 +93,33 @@ describe('ChatComposer Stop', () => {
     useChatStreamStore.getState().reset();
     useAgentSettingsStore.getState().reset();
     useChatAgentSettingsStore.setState({ entries: {} });
+  });
+
+  it('queues the next complete message without replacing the active turn', async () => {
+    const chatId = 'queue-composer';
+    const key = composerKey(chatId);
+    let submitted: Record<string, unknown> | null = null;
+    let posts = 0;
+    server.use(http.post('*/api/v1/chats/:chatId/queued-input', async ({ request }) => {
+      posts++;
+      submitted = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ ...submitted, chat_id: chatId, status: 'queued',
+        error_code: null, started_run_id: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, { status: 201 });
+    }));
+    useChatStreamStore.getState().beginTurn(chatId, 'running-original');
+    useChatStreamStore.getState().setComposerInput(key, 'Next instruction');
+    useChatStreamStore.getState().addAttachment(key, { type: 'file', name: 'notes.txt', path: '/data/notes.txt', content_type: 'text/plain', size_bytes: 12 });
+    renderComposer(chatId);
+    const queue = await screen.findByRole('button', { name: 'Queue next message' });
+    await waitFor(() => expect(queue).toBeEnabled());
+    await userEvent.click(queue);
+    await waitFor(() => expect(posts).toBe(1));
+    expect(submitted).toMatchObject({ after_run_id: 'running-original', message: {
+      content: 'Next instruction', attachments: [{ path: '/data/notes.txt' }], surface: 'main', agent_surface: 'chat',
+    } });
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(''));
+    expect(useChatStreamStore.getState().runtimes[chatId]?.turnId).toBe('running-original');
+    expect(useChatStreamStore.getState().pendingAttachments[key] ?? []).toEqual([]);
   });
 
   it('waits for the local send acknowledgement before issuing Stop once', async () => {

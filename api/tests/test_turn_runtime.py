@@ -253,3 +253,22 @@ async def test_gc_sweep_removes_expired_buffers(monkeypatch):
     removed = await rt.gc_sweep_once()
     assert removed == 1
     assert turn_id not in rt.TURN_BUFFERS
+
+
+@pytest.mark.parametrize('fails', [False, True])
+async def test_finish_callback_runs_once_after_terminal_stream_and_chat_release(fails):
+    calls = []
+    async def producer(stop):
+        yield 'CHAT_UPDATE', {'i': 1}
+        if fails:
+            raise RuntimeError('failure')
+    turn = rt.new_turn_id()
+    buffer, stop = rt.register_turn(turn)
+    rt.mark_chat_active('queued-chat', turn)
+    async def finished():
+        assert not rt.is_chat_busy('queued-chat')
+        events = [event async for event in buffer.subscribe()]
+        assert events[-1][0] == ('error' if fails else 'done')
+        calls.append(turn)
+    await rt.run_turn(turn, buffer, stop, producer, on_finished=finished)
+    assert calls == [turn]

@@ -28,6 +28,8 @@ class AgentRunWriter:
     ):
         self.run_id = run_id
         self.tenant_id = tenant_id
+        self.chat_id = chat_id
+        self.user_id = user_id
         self._lock = asyncio.Lock()
         self._transcript = None
         if chat_id and user_id:
@@ -43,6 +45,9 @@ class AgentRunWriter:
 
     async def _append(self, seq: int, event_type: str, payload: dict) -> None:
         async with session_scope(tenant_id=self.tenant_id) as session:
+            if event_type == "HITL_REQUIRED" and self.chat_id and self.user_id:
+                from vibecanvas_api.storage.chat_queue_repo import ChatQueueRepo
+                await ChatQueueRepo(session, self.user_id).block_for_interaction(self.chat_id, self.run_id)
             await AgentRunsRepo(session).append_event(
                 run_id=self.run_id,
                 seq=seq,

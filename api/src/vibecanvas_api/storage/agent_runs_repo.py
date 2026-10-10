@@ -18,6 +18,10 @@ from .models_agent_runs import (
 )
 
 
+class AgentRunPredecessorChangedError(RuntimeError):
+    """A queued input no longer immediately follows its selected turn."""
+
+
 class AgentRunActiveError(RuntimeError):
     """A different non-terminal Run already owns this Chat."""
 
@@ -198,6 +202,7 @@ class AgentRunsRepo:
         client_request_id: str,
         input_snapshot: dict,
         input_message_id: str | None = None,
+        expected_previous_run_id: str | None = None,
     ) -> tuple[AgentRun, bool]:
         """Atomically reserve the sole live Run for a Chat.
 
@@ -221,6 +226,12 @@ class AgentRunsRepo:
         )
         if existing is not None:
             return existing, False
+        if expected_previous_run_id is not None:
+            latest = await self.session.scalar(select(AgentRun.run_id)
+                .where(AgentRun.chat_id == chat_id)
+                .order_by(AgentRun.created_at.desc(), AgentRun.run_id.desc()).limit(1))
+            if latest != expected_previous_run_id:
+                raise AgentRunPredecessorChangedError('chat_has_newer_run')
         active = await self.get_active_for_chat(chat_id)
         if active is not None:
             raise AgentRunActiveError(active.run_id)

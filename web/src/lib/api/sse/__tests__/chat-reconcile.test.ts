@@ -106,3 +106,13 @@ it('reports discovery failure to the activity refresher without clearing history
   await expect(reconcileChatWithServer({ wfId: 'scope', chatId: 'chat' }, { throwOnError: true }))
     .rejects.toThrow('discovery unavailable');
 });
+
+
+it('refreshes the queued input after reconnect even when no turn is active', async () => {
+  mocks.readServerActiveTurns.mockResolvedValue([]);
+  mocks.readActiveTurnFor.mockReturnValue(null);
+  await reconcileChatWithServer({ wfId: 'queue-scope', chatId: 'queue-chat' }, { throwOnError: true });
+  expect(mocks.invalidateQueries).toHaveBeenCalledWith(expect.objectContaining({
+    queryKey: ['chat-queued-input', 'queue-chat'],
+  }), { cancelRefetch: false, throwOnError: true });
+});

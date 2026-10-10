@@ -100,6 +100,9 @@ async function reconcileChat({
       ? refreshActiveProjection(['chat-workspace', chatId])
       : Promise.resolve(),
     chatId
+      ? refreshActiveProjection(['chat-queued-input', chatId])
+      : Promise.resolve(),
+    chatId
       ? refreshActiveProjection(['browser-binding', chatId])
       : Promise.resolve(),
   ]);

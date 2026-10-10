@@ -8412,6 +8412,164 @@
         }
       }
     },
+    "/api/v1/chats/{chat_id}/queued-input": {
+      "get": {
+        "tags": [
+          "chat-queue"
+        ],
+        "summary": "Latest Queued Input",
+        "operationId": "latest_queued_input_api_v1_chats__chat_id__queued_input_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedInputState"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "chat-queue"
+        ],
+        "summary": "Queue Input",
+        "operationId": "queue_input_api_v1_chats__chat_id__queued_input_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueInputBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedInputOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/queued-input/{input_id}": {
+      "delete": {
+        "tags": [
+          "chat-queue"
+        ],
+        "summary": "Cancel Queued Input",
+        "operationId": "cancel_queued_input_api_v1_chats__chat_id__queued_input__input_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chat Id"
+            }
+          },
+          {
+            "name": "input_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Input Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedInputOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/search/projects": {
       "post": {
         "tags": [
@@ -26416,6 +26574,129 @@
           "current"
         ],
         "title": "PromptHistoryOut"
+      },
+      "QueueInputBody": {
+        "properties": {
+          "input_id": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Input Id"
+          },
+          "after_run_id": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "After Run Id"
+          },
+          "message": {
+            "$ref": "#/components/schemas/MessagePostBody"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "input_id",
+          "after_run_id",
+          "message"
+        ],
+        "title": "QueueInputBody"
+      },
+      "QueuedInputOut": {
+        "properties": {
+          "input_id": {
+            "type": "string",
+            "title": "Input Id"
+          },
+          "chat_id": {
+            "type": "string",
+            "title": "Chat Id"
+          },
+          "after_run_id": {
+            "type": "string",
+            "title": "After Run Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "claimed",
+              "started",
+              "cancelled",
+              "blocked",
+              "failed",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "started_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started Run Id"
+          },
+          "message": {
+            "$ref": "#/components/schemas/MessagePostBody"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "input_id",
+          "chat_id",
+          "after_run_id",
+          "status",
+          "error_code",
+          "started_run_id",
+          "message",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "QueuedInputOut"
+      },
+      "QueuedInputState": {
+        "properties": {
+          "input": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueuedInputOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "title": "QueuedInputState"
       },
       "QuoteContextAttachment": {
         "properties": {

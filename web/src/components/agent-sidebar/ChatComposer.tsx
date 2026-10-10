@@ -1,3 +1,7 @@
+import { QueuedInputControl } from './QueuedInputControl';
+import { queueChatInput } from '@/lib/api/chat-queue';
+import { buildAgentSettings } from '@/lib/api/sse/agent-stream';
+import { getTimezone } from '@/lib/timezone';
 import { SteerInputControl } from './SteerInputControl';
 import { SendShortcutPreference } from './SendShortcutPreference';
 import { useComposerPreferences } from '@/stores/composer-preferences';
@@ -644,17 +648,19 @@ export function ChatComposer({
     : null;
   const effectiveDisabledReason = disabledReason ?? runtimeUnavailableReason;
   const externallyDisabled = !!effectiveDisabledReason;
-  const canSend =
+  const draftCanSubmit =
     !!chatId &&
     !draftPreparing &&
     !contextDraft?.conflict &&
     !updateProjectMcp.isPending &&
     (value.trim().length > 0 || pendingAttachments.length > 0 || activeUploads.some(item => item.status === 'staged')) &&
     activeUploads.every(item => item.status === 'staged') &&
-    !isStreaming &&
     !readOnly &&
     historyReady &&
     !externallyDisabled;
+  const canSend = draftCanSubmit && !isStreaming;
+  const canQueue = draftCanSubmit && isStreaming && !!runtime?.turnId
+    && !runtime?.waitingForUser && stoppingChatId !== chatId;
 
   /**
    * Send one turn. Thin wrapper around `runAgentTurn` — kept here as a
@@ -703,8 +709,9 @@ export function ChatComposer({
     });
   };
 
-  const handleSend = async () => {
-    if (!canSend || preparationRef.current) return;
+  const handleSend = async (queueInputId?: string) => {
+    if (!(queueInputId ? canQueue : canSend) || preparationRef.current) return;
+    const queueAfterRunId = runtime?.turnId;
     // The backend's atomic Chat claim is the sole authority for concurrent
     // Turns. A preflight active-turn GET used to block the optimistic bubble
     // and textarea clear on every send, while still being inherently racy.
@@ -751,7 +758,7 @@ export function ChatComposer({
       delete preparingMessages[preparingChatId];
       return { preparingMessages };
     });
-    useChatStreamStore.setState(state => ({ preparingMessages: {
+    if (!queueInputId) useChatStreamStore.setState(state => ({ preparingMessages: {
       ...state.preparingMessages,
       [preparingChatId]: { role: 'user', content,
         attachments: composerStateKey ? state.pendingAttachments[composerStateKey] : undefined },
@@ -793,6 +800,48 @@ export function ChatComposer({
       preparationRef.current = false;
       setDraftPreparing(false);
       clearPreparation();
+    }
+    if (queueInputId && queueAfterRunId) {
+      const attachments = composerStateKey
+        ? useChatStreamStore.getState().pendingAttachments[composerStateKey] ?? [] : [];
+      preparationRef.current = true;
+      setDraftPreparing(true);
+      contextDraft?.beginSend();
+      try {
+        const receipt = await queueChatInput(chatId!, {
+          input_id: queueInputId, after_run_id: queueAfterRunId,
+          message: {
+            role: 'user', content, attachments, mode: mode ?? 'chat',
+            approval_mode: useAgentSettingsStore.getState().approvalMode,
+            agent_settings: buildAgentSettings(getChatAgentSettings(chatId!)),
+            skill_use: content.startsWith('/skill-use:') ? skillUse : undefined,
+            surface: embedded ? 'sidepanel' : 'main', agent_surface: agentSurface,
+            project_id: preparedConversation.current?.chatId === chatId
+              ? preparedConversation.current.projectId : projectId,
+            timezone: getTimezone(),
+          },
+        });
+        // Clear only the accepted snapshot; another view may have appended
+        // references or edited the next draft while this request was pending.
+        setValue(current => current.trim() === content ? '' : current);
+        if (composerStateKey) {
+          const keys = new Set(attachments.map(contextAttachmentKey));
+          const current = useChatStreamStore.getState().pendingAttachments[composerStateKey] ?? [];
+          useChatStreamStore.getState().setAttachments(composerStateKey,
+            current.filter(item => !keys.has(contextAttachmentKey(item))));
+        }
+        await contextDraft?.finishSend(true).catch(() => undefined);
+        return receipt;
+      } catch (error) {
+        // No optimistic draft removal occurred. Read the server draft to
+        // settle lost acceptance; do not prepend or resubmit its snapshot.
+        contextDraft?.discardSubmission();
+        void contextDraft?.refresh().catch(() => undefined);
+        throw error;
+      } finally {
+        preparationRef.current = false;
+        setDraftPreparing(false);
+      }
     }
     contextDraft?.beginSend();
 
@@ -1278,6 +1327,10 @@ export function ChatComposer({
           disabled={readOnly || externallyDisabled || !!runtime?.waitingForUser || !!contextDraft?.conflict || pendingAttachments.length > 0
             || activeUploads.length > 0 || !!selectedSkill || value.trimStart().startsWith('/') || stoppingChatId === chatId}
           onSubmitted={submitted => setValue(current => current === submitted ? '' : current)} />
+      )}
+      {chatId && (chatPersisted || runtime?.turnId) && historyReady && (
+        <QueuedInputControl key={`queue:${chatId}`} chatId={chatId} active={isStreaming}
+          disabled={!canQueue} onQueue={async inputId => (await handleSend(inputId)) ?? null} />
       )}
       {isStreaming && (hasNewDraft || activeUploads.length > 0) && (
         <p className="text-xs text-content-secondary" role="status" data-role="composer-next-draft">

@@ -15,7 +15,7 @@ import asyncio
 from contextlib import aclosing
 import time
 import uuid
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 import structlog
 
@@ -106,6 +106,7 @@ async def run_turn(
     stop: asyncio.Event,
     producer: Callable[[asyncio.Event], AsyncIterator[tuple[str, Any]]],
     durable_writer: Any | None = None,
+    on_finished: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Drain ``producer`` events into ``buffer`` until completion / cancel /
     error. ``producer`` yields ``(event_name, payload)`` pairs.
@@ -200,6 +201,11 @@ async def run_turn(
         for _cid, _tid in list(ACTIVE_TURN_BY_CHAT.items()):
             if _tid == turn_id:
                 ACTIVE_TURN_BY_CHAT.pop(_cid, None)
+        if on_finished is not None:
+            try:
+                await on_finished()
+            except Exception:
+                logger.exception("queued_input_finalize_failed", turn_id=turn_id)
         # Every Turn finalize is a low-latency drain trigger. PostgreSQL still
         # owns the pending set, so a missed process-local wake is harmless.
         try:

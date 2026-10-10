@@ -944,3 +944,9 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 同一源会话继续验收创建响应丢失：真实 POST 在服务端返回 201 后，由 Playwright 仅丢弃该响应。页面显示原目标 UUID 和“检查已创建的对话”；实际点击检查后打开已创建分支 `057b4f33-b07e-48e3-a243-8c839cf6bdd9`，选择结果保留、Agent 未启动，创建 POST 总计一次。没有重复创建来掩盖不确定结果。
 - 此项明确包含网络响应故障注入，API 创建本身为真实调用。证据 `/tmp/chat-branch-lost-response.json`、`/tmp/chat-branch-lost-response-pending.png`、`/tmp/chat-branch-lost-response-recovered.png`；已目视检查历史卡片与不确定结果提示。
 - 当前远端 CI `38090943782` 的 Web/插件已通过，API 的 Run API tests 步骤仍在运行，尚未取消或另起检查。后续提交仍需推送并验证，不用旧提交结果替代当前提交检查。
+
+### F16 双窗口创建与推送状态
+
+- 两个独立浏览器上下文打开同一源 Chat，在两个确认框分别填写名称并同时点击创建。两个 POST 均返回 201，目标 UUID 不同；两个窗口均进入各自分支，保留 Alpha 已确认选择、Beta 禁用、没有运行中停止按钮。创建前后源历史响应逐字一致。
+- 证据 `/tmp/chat-branch-two-windows.json`、`/tmp/chat-branch-window-0.png`、`/tmp/chat-branch-window-1.png`。分支为 `b954d836-c335-467d-ae56-f1c4cb04e820` 和 `e8a9cdb8-a81b-4d2f-9e07-3378193beb06`；测试没有启动模型或新的沙盒执行。此测试验证同账号并发创建，不替代跨账号授权隔离验收。
+- 前一轮 CI `38090943782` 已全部成功，安全门禁 `38090943723` 成功。已将累计修复和记录推送 GitHub main 至 `9b8f116`；新检查为 CI `38092733194`、安全门禁 `38092733229`，仍需等待本批结果。线上代码为已验收的 `b3d639c`（其后仅验收文档提交）。

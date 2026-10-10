@@ -5992,6 +5992,83 @@
         }
       }
     },
+    "/api/v1/chat-scopes/{scope_id}/attention": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "List Pending Chat Actions",
+        "operationId": "list_pending_chat_actions_api_v1_chat_scopes__scope_id__attention_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scope_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scope Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingChatActionsPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chats/{chat_id}/hitl-requests": {
       "get": {
         "tags": [
@@ -24947,6 +25024,88 @@
         "type": "object",
         "title": "PatchDeploymentBody",
         "description": "Partial update of a deployment. ``extra='ignore'`` so a client\ncannot patch ``tenant_id`` / ``user_id`` / ``api_key_hash`` /\n``hmac_secret`` / ``wf_id`` / ``trigger_type`` / ``slug`` /\n``deleted_at`` — those are either immutable or owned by a dedicated\npath (rotate-key for secrets, soft_delete for ``deleted_at``)."
+      },
+      "PendingChatAction": {
+        "properties": {
+          "hitl_request_id": {
+            "type": "string",
+            "title": "Hitl Request Id"
+          },
+          "chat_id": {
+            "type": "string",
+            "title": "Chat Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Id"
+          },
+          "hitl_type": {
+            "type": "string",
+            "enum": [
+              "pre_tool_approval",
+              "post_tool_review",
+              "elicitation"
+            ],
+            "title": "Hitl Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hitl_request_id",
+          "chat_id",
+          "run_id",
+          "hitl_type",
+          "title",
+          "created_at"
+        ],
+        "title": "PendingChatAction"
+      },
+      "PendingChatActionsPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PendingChatAction"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "PendingChatActionsPage"
       },
       "PlatformEligibilityIn": {
         "properties": {

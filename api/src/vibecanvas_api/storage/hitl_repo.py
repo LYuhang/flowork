@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vibecanvas_api.security.content_encryption import content_encryption_service
@@ -508,6 +509,42 @@ class HitlRepo:
         for row in rows:
             await self._materialize_request(row)
         return [row for row in rows if row.status == "pending"]
+
+    async def list_pending_page(
+        self, *, scope_id: str, user_id: str | uuid.UUID,
+        authorized_chat_ids: Sequence[str], limit: int, after_id: str | None = None,
+    ) -> tuple[list[HitlRequest], str | None]:
+        """Page authorized requests before decrypting their bounded summaries.
+
+        The cursor follows scanned rows, including requests whose expired tool
+        lease is reconciled during materialization. Resolved cursors remain
+        usable, so another window's decision cannot skip the following request.
+        """
+        filters = (
+            Chat.scope_id == scope_id,
+            Chat.creator_user_id == _uuid(user_id),
+            Chat.deleted_at.is_(None),
+            HitlRequest.chat_id.in_(authorized_chat_ids),
+        )
+        query = select(HitlRequest).join(Chat, Chat.chat_id == HitlRequest.chat_id).where(*filters)
+        if after_id:
+            cursor = (await self.session.execute(
+                select(HitlRequest.created_at, HitlRequest.hitl_request_id)
+                .join(Chat, Chat.chat_id == HitlRequest.chat_id)
+                .where(*filters, HitlRequest.hitl_request_id == after_id)
+            )).one_or_none()
+            if cursor is None:
+                raise ValueError("invalid_attention_cursor")
+            query = query.where(tuple_(HitlRequest.created_at, HitlRequest.hitl_request_id) < tuple_(*cursor))
+        rows = list((await self.session.execute(
+            query.where(HitlRequest.status == "pending")
+            .order_by(HitlRequest.created_at.desc(), HitlRequest.hitl_request_id.desc()).limit(limit + 1)
+        )).scalars().all())
+        next_cursor = rows[limit - 1].hitl_request_id if len(rows) > limit else None
+        rows = rows[:limit]
+        for row in rows:
+            await self._materialize_request(row)
+        return [row for row in rows if row.status == "pending"], next_cursor
 
     async def list_pending_for_run(self, run_id: str) -> list[HitlRequest]:
         rows = list((

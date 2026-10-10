@@ -169,3 +169,10 @@ def test_subresource_manifest_matches_runtime_authorization_semantics():
     )
     assert by_endpoint["history"].resource_type is not None
     assert by_endpoint["history"].resource_type.value == "deployment"
+
+
+def test_chat_attention_and_read_state_manifest_match_content_authorization():
+    by_endpoint = {item.endpoint: item.permission for item in route_permission_manifest(build_app())}
+    for endpoint in ("list_pending_chat_actions", "mark_completed_turn_read"):
+        assert by_endpoint[endpoint].admission is AdmissionKind.RESOURCE
+        assert by_endpoint[endpoint].action is Action.VIEW

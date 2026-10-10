@@ -469,6 +469,21 @@ class HitlRequestOut(BaseModel):
     decision_applied: bool | None = None
 
 
+class PendingChatAction(BaseModel):
+    hitl_request_id: str
+    chat_id: str
+    run_id: str
+    artifact_id: str | None = None
+    hitl_type: Literal["pre_tool_approval", "post_tool_review", "elicitation"]
+    title: str
+    created_at: datetime
+
+
+class PendingChatActionsPage(BaseModel):
+    items: list[PendingChatAction]
+    next_cursor: str | None = None
+
+
 class HitlDecisionBody(BaseModel):
     decision: Literal[
         "approve", "approved", "deny", "denied",

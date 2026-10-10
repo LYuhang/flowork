@@ -1815,6 +1815,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat-scopes/{scope_id}/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Pending Chat Actions */
+        get: operations["list_pending_chat_actions_api_v1_chat_scopes__scope_id__attention_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chats/{chat_id}/hitl-requests": {
         parameters: {
             query?: never;
@@ -7741,6 +7758,36 @@ export interface components {
             /** Worker Concurrency */
             worker_concurrency?: -1 | number | null;
         };
+        /** PendingChatAction */
+        PendingChatAction: {
+            /** Hitl Request Id */
+            hitl_request_id: string;
+            /** Chat Id */
+            chat_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Artifact Id */
+            artifact_id?: string | null;
+            /**
+             * Hitl Type
+             * @enum {string}
+             */
+            hitl_type: "pre_tool_approval" | "post_tool_review" | "elicitation";
+            /** Title */
+            title: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** PendingChatActionsPage */
+        PendingChatActionsPage: {
+            /** Items */
+            items: components["schemas"]["PendingChatAction"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** PlatformEligibilityIn */
         PlatformEligibilityIn: {
             /** Role */
@@ -13093,6 +13140,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BrowserBindingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pending_chat_actions_api_v1_chat_scopes__scope_id__attention_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                after_id?: string | null;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingChatActionsPage"];
                 };
             };
             /** @description Validation Error */

@@ -73,7 +73,7 @@ from ..schemas.chat import (
     BrowserBindingOut, ChatCreateBody, ChatInventoryItem, ChatListItem, ChatRenameBody,
     ChatProjectCreateBody, ChatProjectOut, ChatProjectRenameBody, ProjectMcpSelection,
     ChatRuntimeBindingOut, ChatStateOut, HistoryMessage,
-    HitlContinueControl, HitlDecisionBody, HitlRequestOut,
+    HitlContinueControl, HitlDecisionBody, HitlRequestOut, PendingChatAction, PendingChatActionsPage,
     InteractiveArtifactResultFileBody,
     InteractiveArtifactStateBody, MessagePostBody, AgentSettings,
 )
@@ -1466,6 +1466,41 @@ def _hitl_out(row, *, decision_applied: bool | None = None) -> HitlRequestOut:
         resolved_at=row.resolved_at,
         decision_applied=decision_applied,
     )
+
+
+@router.get("/chat-scopes/{scope_id}/attention", response_model=PendingChatActionsPage)
+async def list_pending_chat_actions(
+    scope_id: str, request: Request,
+    limit: int = Query(default=30, ge=1, le=50),
+    after_id: str | None = Query(default=None, min_length=1, max_length=256),
+    hitl_repo=Depends(get_hitl_repo),
+    workflow_repo: WorkflowRepo = Depends(get_workflow_repo),
+    auth: AuthContext = Depends(current_user),
+    service: AuthzService = Depends(get_authz_service),
+):
+    await _authorize_chat_carrier(request=request, auth=auth, service=service,
+                                  workflow_repo=workflow_repo, scope_id=scope_id, action=Action.VIEW)
+    authorized_ids = await service.list_authorized_ids(
+        principal_for_auth(auth), Action.VIEW, ResourceType.CHAT,
+        context_for_auth(auth, request, consistency=ConsistencyPreference.HIGHER_CONSISTENCY),
+    )
+    try:
+        rows, next_cursor = await hitl_repo.list_pending_page(
+            scope_id=scope_id, user_id=auth.user_id, authorized_chat_ids=authorized_ids,
+            limit=limit, after_id=after_id,
+        )
+    except ValueError as exc:
+        if str(exc) != "invalid_attention_cursor":
+            raise
+        raise HTTPException(400, "invalid_attention_cursor") from exc
+    # Materialization can expire an abandoned CLI interaction. Commit that
+    # existing reconciliation before returning the remaining pending requests.
+    await hitl_repo.commit()
+    return PendingChatActionsPage(items=[PendingChatAction(
+        hitl_request_id=row.hitl_request_id, chat_id=row.chat_id, run_id=row.run_id,
+        artifact_id=row.artifact_id, hitl_type=row.hitl_type, title=row.title,
+        created_at=row.created_at,
+    ) for row in rows], next_cursor=next_cursor)
 
 
 @router.get(

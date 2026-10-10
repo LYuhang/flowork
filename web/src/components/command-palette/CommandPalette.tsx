@@ -16,6 +16,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -25,6 +26,8 @@ import {
   CommandShortcut,
 } from '@/components/ui/command';
 import { useUIStore } from '@/stores/ui';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ResourceSearch } from './ResourceSearch';
 import { ACTIONS, type Action, type ActionCtx } from './actions';
 
 const GROUP_LABEL_KEYS: Record<Action['group'], string> = {
@@ -74,6 +77,13 @@ export function CommandPalette() {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t('commandPalette.open')}>
+      <Tabs defaultValue="actions">
+        <TabsList className="mx-3 mt-3" aria-label={t('commandPalette.searchType')}>
+          <TabsTrigger value="actions">{t('commandPalette.actions')}</TabsTrigger>
+          <TabsTrigger value="resources">{t('commandPalette.resources.label')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="resources"><ResourceSearch onClose={() => setOpen(false)} /></TabsContent>
+        <TabsContent value="actions" className="mt-0"><Command>
       <CommandInput aria-label={t('commandPalette.placeholder')} placeholder={t('commandPalette.placeholder')} />
       <CommandList>
         <CommandEmpty>{t('commandPalette.empty')}</CommandEmpty>
@@ -101,6 +111,8 @@ export function CommandPalette() {
           );
         })}
       </CommandList>
+        </Command></TabsContent>
+      </Tabs>
     </CommandDialog>
   );
 }

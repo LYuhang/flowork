@@ -463,6 +463,18 @@
       "requiresFixture": true,
       "evidence": "visible-browser",
       "note": "Acceptance surface inventory; requires browser fixture, not a claim of a completed test."
+    },
+    {
+      "id": "command-palette-search",
+      "routeId": "chat",
+      "source": "src/components/command-palette/CommandPalette.tsx",
+      "tabs": [
+        "actions",
+        "resources"
+      ],
+      "requiresFixture": true,
+      "evidence": "focused-component",
+      "note": "Action and resource search share a dialog; resource tests cover paging, cancellation and navigation."
     }
   ],
   "modals": [

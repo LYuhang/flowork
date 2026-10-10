@@ -284,8 +284,9 @@ function buildListQuery(p: ListTasksParams): string {
 
 export async function listTasks(
   params: ListTasksParams = {},
+  signal?: AbortSignal,
 ): Promise<TaskListResponse> {
-  const resp = await authedFetch(`/api/v1/tasks${buildListQuery(params)}`);
+  const resp = await authedFetch(`/api/v1/tasks${buildListQuery(params)}`, { signal });
   if (!resp.ok) {
     throw new Error(`listTasks failed: ${resp.status} ${resp.statusText}`);
   }

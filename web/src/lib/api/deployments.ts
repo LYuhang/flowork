@@ -92,7 +92,7 @@ export interface DeploymentListResponse {
   items: Deployment[];
   limit: number;
   offset: number;
-  total?: number;
+  total: number;
   summary?: {
     active: number;
     disabled: number;
@@ -287,9 +287,10 @@ async function jsonOrThrow<T>(
 
 export async function listDeployments(
   params: ListDeploymentsParams = {},
+  signal?: AbortSignal,
 ): Promise<DeploymentListResponse> {
   const resp = await authedFetch(
-    `/api/v1/deployments${buildListQuery(params)}`,
+    `/api/v1/deployments${buildListQuery(params)}`, { signal },
   );
   return jsonOrThrow<DeploymentListResponse>(resp, 'listDeployments');
 }

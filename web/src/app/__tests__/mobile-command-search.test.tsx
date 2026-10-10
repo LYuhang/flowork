@@ -7,7 +7,7 @@ import { CommandPalette } from '@/components/command-palette/CommandPalette';
 import { useUIStore } from '@/stores/ui';
 import i18n from '@/lib/i18n';
 
-vi.mock('../AppSidebar', () => ({ AppSidebar: ({ onSearchActions }: { onSearchActions: () => void }) => <button onClick={onSearchActions}>Search actions</button> }));
+vi.mock('../AppSidebar', () => ({ AppSidebar: ({ onSearchActions }: { onSearchActions: () => void }) => <button onClick={onSearchActions}>Search Flowork</button> }));
 
 describe('mobile command search', () => {
   it('closes the drawer before opening search and restores the navigation trigger', async () => {
@@ -16,8 +16,8 @@ describe('mobile command search', () => {
     render(<MemoryRouter><MobileAppHeader /><CommandPalette /></MemoryRouter>);
     const navigation = screen.getByRole('button', { name: 'Open navigation' });
     await userEvent.click(navigation);
-    await userEvent.click(screen.getByRole('button', { name: 'Search actions' }));
-    await screen.findByRole('dialog', { name: 'Search actions' });
+    await userEvent.click(screen.getByRole('button', { name: 'Search Flowork' }));
+    await screen.findByRole('dialog', { name: 'Search Flowork' });
     expect(screen.queryByTestId('mobile-nav-drawer')).toBeNull();
     expect(screen.getByRole('combobox')).toHaveFocus();
     await userEvent.keyboard('{Escape}');

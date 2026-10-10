@@ -31,7 +31,7 @@ describe('CommandPalette localization', () => {
     render(<MemoryRouter><button onClick={() => useUIStore.getState().setCommandPaletteOpen(true)}>Open palette</button><CommandPalette /></MemoryRouter>);
     const launcher = screen.getByRole('button', { name: 'Open palette' });
     await userEvent.click(launcher);
-    expect(screen.getByRole('dialog', { name: 'Search actions' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Search Flowork' })).toBeVisible();
     await userEvent.keyboard('{Escape}');
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(launcher).toHaveFocus();

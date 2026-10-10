@@ -94,3 +94,56 @@ it('restores an uncertain receipt after reopening a completed chat without an ac
   expect(await screen.findByText(/Receipt is uncertain/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Add to current response' })).toBeNull();
 });
+
+it('does not downgrade an acknowledgment that arrives before the POST response', async () => {
+  const test = setup();
+  let receipt: ChatInputReceipt | null = null;
+  let release!: () => void;
+  const responseGate = new Promise<void>(resolve => { release = resolve; });
+  server.use(
+    http.get(`*${key}`, () => HttpResponse.json({ chat_id: 'chat', run_id: 'run',
+      supported_controls: ['steer'], available_controls: ['steer'], latest_input: receipt })),
+    http.post('*/api/v1/chats/chat/inputs', async ({ request }) => {
+      const body = await request.json() as { input_id: string; text: string };
+      receipt = { ...body, chat_id: 'chat', run_id: 'run', status: 'accepted', error_code: null };
+      await responseGate;
+      return HttpResponse.json({ ...receipt, status: 'submitting' }, { status: 202 });
+    }),
+  );
+  render(test.element);
+  fireEvent.click(await screen.findByRole('button', { name: 'Add to current response' }));
+  await waitFor(() => expect(receipt).not.toBeNull());
+  await test.client.invalidateQueries({ queryKey: ['chat-input-controls', 'chat', 'run'] });
+  expect(await screen.findByText('Agent received the additional input')).toBeTruthy();
+  const observed: string[] = [];
+  const unsubscribe = test.client.getQueryCache().subscribe(event => {
+    const data = event.query.state.data as { latest_input?: ChatInputReceipt } | undefined;
+    if (data?.latest_input) observed.push(data.latest_input.status);
+  });
+  release();
+  await waitFor(() => expect(test.submitted).toHaveBeenCalledOnce());
+  await waitFor(() => expect(test.client.isFetching()).toBe(0));
+  unsubscribe();
+  expect(observed).not.toContain('submitting');
+  expect(screen.getByText('Agent received the additional input')).toBeTruthy();
+});
+
+it('shows a query failure after durable submission without sending the input again', async () => {
+  const test = setup();
+  let readsFail = false;
+  server.use(
+    http.get(`*${key}`, () => readsFail ? new HttpResponse(null, { status: 503 }) : HttpResponse.json({
+      chat_id: 'chat', run_id: 'run', supported_controls: ['steer'], available_controls: ['steer'], latest_input: null,
+    })),
+    http.post('*/api/v1/chats/chat/inputs', async ({ request }) => {
+      readsFail = true;
+      return HttpResponse.json({ ...await request.json() as object, status: 'submitting' }, { status: 202 });
+    }),
+  );
+  render(test.element);
+  fireEvent.click(await screen.findByRole('button', { name: 'Add to current response' }));
+  expect(await screen.findByText(/receipt status is temporarily unavailable/)).toBeTruthy();
+  expect(test.submitted).toHaveBeenCalledOnce();
+  expect(screen.getByRole('button', { name: 'Add to current response' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Check input status' })).toBeTruthy();
+});

@@ -4132,5 +4132,6 @@
   "composer.steer.status.submitting": "已提交，等待 Agent 确认",
   "composer.steer.status.accepted": "Agent 已接收补充输入",
   "composer.steer.status.rejected": "补充输入未被接收",
-  "composer.steer.status.unknown": "尚不能确认是否收到，请查询状态后再决定"
+  "composer.steer.status.unknown": "尚不能确认是否收到，请查询状态后再决定",
+  "composer.steer.statusUnavailable": "已提交，接收状态暂时不可用，请稍后查询。"
 }

@@ -3100,7 +3100,10 @@ async def run_codex_turn(
             turn_id=request.turn_id,
         )
         mark_guidance_loaded(request.runtime_root, thread_id)
-        await emit("runtime.completed", {"state_ref": thread_id})
+        await emit("runtime.completed", {
+            "state_ref": thread_id,
+            "native_turn_id": turn_id,
+        })
         result_ready = True
     except CodexAppServerError as exc:
         raise RuntimeError(f"{exc.code}: {exc}") from exc

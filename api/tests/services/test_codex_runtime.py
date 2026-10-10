@@ -3107,6 +3107,8 @@ async def test_native_goal_continues_across_turn_ids_without_a_second_start(tmp_
     ), client=client)
     assert [name for name, _ in client.requests].count('turn/start') == 1
     assert client.goal['status'] == 'complete'
+    completed = [item['event'] for item in channel.sent if item.get('event', {}).get('type') == 'runtime.completed']
+    assert completed[-1]['payload'] == {'state_ref': 'goal-thread', 'native_turn_id': 'second'}
     serialized = json.dumps(channel.sent)
     assert 'second-message' in serialized
     assert channel.sent[-1]['type'] == MSG_RUNTIME_RESULT

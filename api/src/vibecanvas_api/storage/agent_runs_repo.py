@@ -58,6 +58,7 @@ class AgentRunsRepo:
             value={
                 "input_snapshot": dict(input_snapshot or {}),
                 "error_message": error_message,
+                "native_boundary": run.native_boundary,
             },
         )
         run.private_ciphertext = encrypted.ciphertext
@@ -84,7 +85,29 @@ class AgentRunsRepo:
             raise ValueError("Agent Run ciphertext must contain an object")
         run.input_snapshot = value.get("input_snapshot") or {}
         run.error_message = value.get("error_message")
+        run.native_boundary = value.get("native_boundary")
         return run
+
+    async def record_native_boundary(
+        self, run_id: str, *, chat_id: str, creator_user_id: str,
+        runtime_type: str, state_ref: str, native_turn_id: str,
+    ) -> None:
+        """Keep the final native turn private, for an explicit later branch."""
+        row = (await self.session.execute(select(AgentRun).where(
+            AgentRun.run_id == run_id, AgentRun.chat_id == chat_id,
+            AgentRun.creator_user_id == _uuid(creator_user_id),
+        ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+        run = await self._materialize_run(row)
+        if run is None:
+            raise LookupError("native boundary Run not found")
+        run.native_boundary = {
+            "runtime_type": runtime_type, "state_ref": state_ref,
+            "native_turn_id": native_turn_id,
+        }
+        await self._store_run_private(
+            run, input_snapshot=run.input_snapshot, error_message=run.error_message,
+        )
+        await self.session.flush()
 
     async def _new_event(
         self,

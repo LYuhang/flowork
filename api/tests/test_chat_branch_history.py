@@ -52,3 +52,30 @@ async def test_branch_boundary_rejects_live_or_missing_history_and_checks_owner(
             await repo.list_message_page(chat, through_turn_id=run, before_turn_id=run, limit=20)
         other = ChatRepo(db, str(uuid.uuid4()))
         assert await other.list_message_page(chat, through_turn_id=run, limit=20) == ([], 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_native_branch_boundary_is_private_and_survives_later_run_updates(client):
+    _, me, chat = await seed(client)
+    run_id = uuid.uuid4().hex
+    boundary = {'runtime_type': 'codex', 'state_ref': 'private-native-thread', 'native_turn_id': 'last-native-turn'}
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        repo = AgentRunsRepo(db)
+        await repo.create(run_id=run_id, tenant_id=me['tenant_id'], chat_id=chat,
+            creator_user_id=me['user_id'], client_request_id=run_id, input_snapshot={'content': 'original'})
+        await repo.record_native_boundary(run_id, chat_id=chat, creator_user_id=me['user_id'], **boundary)
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        repo = AgentRunsRepo(db)
+        run = await repo.get_for_chat(chat, run_id, creator_user_id=me['user_id'])
+        assert run.native_boundary == boundary
+        raw = (await db.execute(text('SELECT * FROM agent_runs WHERE run_id=:run'), {'run': run_id})).mappings().one()
+        assert 'private-native-thread' not in str(dict(raw))
+        await repo.record_runtime_input(run_id, chat_id=chat, creator_user_id=me['user_id'], event_id='audit', payload={'input': []})
+        await repo.append_event(run_id=run_id, seq=1, event_type='error', payload={'code': 'cancelled', 'message': 'Stopped'}, tenant_id=me['tenant_id'])
+        with pytest.raises(LookupError):
+            await repo.record_native_boundary(run_id, chat_id=chat, creator_user_id=str(uuid.uuid4()), **boundary)
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        run = await AgentRunsRepo(db).get_for_chat(chat, run_id, creator_user_id=me['user_id'])
+        assert run.native_boundary == boundary
+        assert run.input_snapshot['content'] == 'original'
+        assert run.error_message == 'Stopped'

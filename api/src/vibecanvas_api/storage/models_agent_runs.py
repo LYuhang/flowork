@@ -90,6 +90,15 @@ class AgentRun(Base):
     def error_message(self, value: str | None) -> None:
         self._private_error_message = value
 
+    @property
+    def native_boundary(self) -> dict | None:
+        value = getattr(self, "_private_native_boundary", None)
+        return dict(value) if value is not None else None
+
+    @native_boundary.setter
+    def native_boundary(self, value: dict | None) -> None:
+        self._private_native_boundary = dict(value) if value is not None else None
+
 
 class AgentRunEvent(Base):
     __tablename__ = "agent_run_events"

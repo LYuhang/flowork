@@ -875,6 +875,18 @@ class AgentRuntimeOrchestrator:
                             },
                         )
                 if event.type == "runtime.completed":
+                    state_ref = event.payload.get("state_ref")
+                    native_turn_id = event.payload.get("native_turn_id")
+                    if isinstance(state_ref, str) and state_ref and isinstance(native_turn_id, str) and native_turn_id:
+                        async with session_scope(
+                            tenant_id=turn_request.tenant_id, user_id=turn_request.user_id,
+                        ) as session:
+                            await AgentRunsRepo(session).record_native_boundary(
+                                turn_request.turn_id, chat_id=turn_request.chat_id,
+                                creator_user_id=turn_request.user_id,
+                                runtime_type=event.runtime_type.value,
+                                state_ref=state_ref, native_turn_id=native_turn_id,
+                            )
                     completed = True
                 if event.type == "checkpoint":
                     state_ref = str(event.payload.get("state_ref") or "")

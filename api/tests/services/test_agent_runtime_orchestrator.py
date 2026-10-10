@@ -204,3 +204,46 @@ def test_capabilities_come_from_actual_resident_adapter(declaration, expected):
         assert _product_events(event) == [('RUNTIME_CAPABILITIES', {'turn_id': 'turn', 'supported_controls': expected})]
     else:
         assert _product_events(event) == []
+
+
+@pytest.mark.asyncio
+async def test_final_native_boundary_is_private_not_a_product_event(monkeypatch):
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+    from vibecanvas_api.services.agent_runtime import orchestrator as module
+
+    record = AsyncMock()
+
+    @asynccontextmanager
+    async def scope(**identity):
+        assert identity == {'tenant_id': 'tenant', 'user_id': 'user'}
+        yield None
+
+    class Repo:
+        def __init__(self, _session):
+            pass
+        record_native_boundary = staticmethod(record)
+
+    class Sandbox(_Sandbox):
+        async def run_agent_runtime_stream(self, request):
+            async for event in super().run_agent_runtime_stream(request):
+                if event['type'] == 'runtime.completed':
+                    event['payload'] = {'state_ref': 'native-thread', 'native_turn_id': 'final-native-turn'}
+                yield event
+
+    monkeypatch.setattr(module, 'session_scope', scope)
+    monkeypatch.setattr(module, 'AgentRunsRepo', Repo)
+    manager = _Manager()
+    manager.session = Sandbox()
+    common = dict(tenant_id='tenant', user_id='user', chat_id='chat', runtime_type='codex',
+                  runtime_session_id='runtime', runtime_root='/runtime/.codex')
+    events = [event async for event in AgentRuntimeOrchestrator(manager).stream_turn(
+        open_request=RuntimeOpenRequest(**common),
+        turn_request=RuntimeTurnRequest(**common, turn_id='turn', message={'role': 'user', 'content': 'hello'},
+            model={'id': 'gpt-test', 'connection_type': 'chatgpt_account'}),
+        workspace_scope_id='workspace', stop_event=asyncio.Event(),
+    )]
+    record.assert_awaited_once_with('turn', chat_id='chat', creator_user_id='user', runtime_type='codex',
+                                  state_ref='native-thread', native_turn_id='final-native-turn')
+    assert 'native-thread' not in str(events)
+    assert 'final-native-turn' not in str(events)

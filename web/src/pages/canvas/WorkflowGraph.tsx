@@ -25,8 +25,8 @@ export function WorkflowGraph({ showMiniMap = true, showControls = true, showInt
       className="workflow-canvas [&_.react-flow__edge-text]:pointer-events-none [&_.react-flow__edge-textbg]:pointer-events-none"
       nodeTypes={nodeTypes}
       fitView
-      fitViewOptions={{ padding: 0.16, minZoom: 0.1, maxZoom: 1 }}
-      minZoom={0.1}
+      fitViewOptions={{ padding: 0.16, minZoom: 0.02, maxZoom: 1 }}
+      minZoom={0.02}
       zoomOnDoubleClick={false}
       {...props}
       edgeTypes={{ ...edgeTypes, ...props.edgeTypes }}
@@ -39,7 +39,7 @@ export function WorkflowGraph({ showMiniMap = true, showControls = true, showInt
         position="bottom-left"
         className="!overflow-hidden !rounded-md !border !border-edge-structural !bg-surface-raised !shadow-none"
       />}
-      {showMiniMap && <MiniMap position="bottom-right" pannable zoomable
+      {showMiniMap && <MiniMap data-layout-overlay position="bottom-right" pannable zoomable
         className="!hidden !rounded-md !border !border-edge-structural !bg-surface-sunken !shadow-none lg:!block" />}
     </ReactFlow>
   );

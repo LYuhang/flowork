@@ -30,7 +30,11 @@ export function compactLayoutGraph(nodes: LayoutNode[], edges: LayoutEdge[], asp
       layoutOptions: { 'elk.portConstraints': 'FIXED_POS' },
       ports: node.ports.map(port => ({
         id: portId(node.id, port.id), x: port.x, y: port.y, width: 0, height: 0,
-        layoutOptions: { 'elk.port.side': port.side },
+        layoutOptions: {
+          'elk.port.side': port.side,
+          // FIXED_POS alone snaps a port to the node border; handles extend beyond it.
+          'elk.port.borderOffset': String(port.side === 'WEST' ? -port.x : port.side === 'EAST' ? port.x - node.width : port.y - node.height),
+        },
       })),
     })),
     edges: edges.map(edge => ({

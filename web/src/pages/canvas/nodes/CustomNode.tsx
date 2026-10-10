@@ -210,7 +210,7 @@ function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
   const resolvedWarnings = warnings.map((w) => t(w));
 
   return (
-    <div className="w-56">
+    <div className="relative w-56">
     <NodeHoverCard
       title={title}
       typeLabel={label}
@@ -352,29 +352,6 @@ function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
         {!isEnd && (
           <Handle type="source" position={Position.Right} className={HANDLE_CLASS} isConnectable={!snapshot && isConnectable} />
         )}
-
-        {/* Loop-back bottom handles — dedicated, user-inert (isConnectable
-            false) attach points for the config-derived loop-back edge that runs
-            LoopEnd-bottom → LoopBegin-bottom (see pairingEdgeFor). Rendered ONLY
-            on Loop boundaries to avoid clutter elsewhere. */}
-        {isLoopEnd && (
-          <Handle
-            type="source"
-            id={LOOP_BACK_SOURCE_HANDLE_ID}
-            position={Position.Bottom}
-            isConnectable={false}
-            className={LOOP_BACK_HANDLE_CLASS}
-          />
-        )}
-        {isLoopBegin && (
-          <Handle
-            type="target"
-            id={LOOP_BACK_TARGET_HANDLE_ID}
-            position={Position.Bottom}
-            isConnectable={false}
-            className={LOOP_BACK_HANDLE_CLASS}
-          />
-        )}
       </div>
     </NodeHoverCard>
       {nodeType === 'HumanApprovalNode' && <HumanApprovalPanel nodeId={id} instruction={String(payload.node_config?.instruction ?? '')} />}
@@ -388,6 +365,28 @@ function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
         nodeType={nodeType}
         format={typeof payload.node_config?.output_format === 'string' ? payload.node_config.output_format : undefined}
       />}
+      {/* Loop-back bottom handles — dedicated, user-inert (isConnectable
+          false) attach points for the config-derived loop-back edge that runs
+          LoopEnd-bottom → LoopBegin-bottom (see pairingEdgeFor). Rendered ONLY
+          on Loop boundaries to avoid clutter elsewhere. */}
+      {isLoopEnd && (
+        <Handle
+          type="source"
+          id={LOOP_BACK_SOURCE_HANDLE_ID}
+          position={Position.Bottom}
+          isConnectable={false}
+          className={LOOP_BACK_HANDLE_CLASS}
+        />
+      )}
+      {isLoopBegin && (
+        <Handle
+          type="target"
+          id={LOOP_BACK_TARGET_HANDLE_ID}
+          position={Position.Bottom}
+          isConnectable={false}
+          className={LOOP_BACK_HANDLE_CLASS}
+        />
+      )}
     </div>
   );
 }

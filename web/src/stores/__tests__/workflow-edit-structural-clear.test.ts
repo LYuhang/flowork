@@ -91,6 +91,14 @@ describe('applyEdit clear-on-structural-edit', () => {
     expect(useExecStreamStore.getState().perNode).toEqual({});
   });
 
+  it('layout metadata keeps execution results, but execution settings still invalidate them', () => {
+    seedExecResults();
+    useWorkflowEditStore.getState().applyEdit(wf => ({ ...wf, __meta__: { canvas_layout: { version: 1, nodes: [], edges: [] } } }));
+    expect(useExecStreamStore.getState().status).toBe('completed');
+    useWorkflowEditStore.getState().applyEdit(wf => ({ ...wf, __meta__: { settings: { timeout: 60 } } }));
+    expect(useExecStreamStore.getState().status).toBe('idle');
+  });
+
   it('a POSITION drag does NOT clear exec results', () => {
     seedExecResults();
     // The Canvas position-lift mutates only __attributes__ on the dragged node.

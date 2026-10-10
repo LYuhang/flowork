@@ -422,8 +422,8 @@ export function wouldCreateCycle(
 
 /**
  * Project a workflow draft to its STRUCTURAL shape: every node's UI-only
- * `__attributes__` (x/y position, etc.) is dropped. Two drafts that differ
- * ONLY in node positions project to the same value.
+ * `__attributes__` and the saved `__meta__.canvas_layout` paths are dropped.
+ * Other metadata, including execution settings, remains part of the comparison.
  *
  * Used by `isStructuralDiff` so a pure position-drag (which mutates only
  * `__attributes__`) is NOT treated as a structural edit. Anything else — a
@@ -437,6 +437,10 @@ function stripAttributes(wf: WorkflowDraft): unknown {
       const { __attributes__: _ignored, ...rest } = val as Record<string, unknown>;
       void _ignored;
       out[key] = rest;
+    } else if (key === '__meta__' && val && typeof val === 'object') {
+      const { canvas_layout: _layout, ...meta } = val as Record<string, unknown>;
+      void _layout;
+      if (Object.keys(meta).length > 0) out[key] = meta;
     } else {
       out[key] = val;
     }

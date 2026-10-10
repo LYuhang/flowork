@@ -95,7 +95,7 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
       {children}
       <Popover open={!readOnly && open} onOpenChange={(value) => { setOpen(value); if (!value) setQuery(''); }}>
         {point && <PopoverAnchor className="pointer-events-none fixed h-px w-px" style={{ left: point.x, top: point.y }} />}
-        <div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center">
+        <div data-layout-overlay className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center">
           <div role="toolbar" aria-label={t('canvas.tools.label', 'Canvas tools')} data-canvas-toolbar
             className="pointer-events-auto flex max-w-[calc(100%-16px)] flex-wrap justify-center items-center gap-1 rounded-full border border-edge-structural bg-popover/95 p-1.5 shadow-lg backdrop-blur-sm">
           <Controls orientation="horizontal" showInteractive={!readOnly}

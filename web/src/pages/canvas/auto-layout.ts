@@ -67,6 +67,7 @@ export function layoutWorkflowDict(
   wf: Record<string, unknown>,
   opts: { onlyPositionless?: boolean; measuredNodes?: Node[] } = {},
 ): Record<string, unknown> {
+  if (!opts.onlyPositionless && wf.__meta__) delete (wf.__meta__ as Record<string, unknown>).canvas_layout;
   const { nodes, edges } = workflowDictToNodesEdges(wf);
   const measured = new Map(opts.measuredNodes?.map((node) => [node.id, node.measured]));
   const laid = autoLayout(nodes.map((node) => ({ ...node, measured: measured.get(node.id) })), edges);

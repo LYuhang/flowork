@@ -23,7 +23,7 @@
  *     run form and its lifecycle are controlled from one place.
  */
 import { useActiveHistoryExecution } from './ExecutionHistoryContext';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Download,
@@ -40,7 +40,7 @@ import {
   Undo,
   Upload,
 } from 'lucide-react';
-import { useReactFlow } from '@xyflow/react';
+import { getViewportForBounds, useReactFlow, useStoreApi } from '@xyflow/react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -51,6 +51,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -63,6 +66,7 @@ import {
 } from '@/components/ui/dialog';
 import { WorkflowSettingsModal } from '@/pages/canvas/WorkflowSettingsModal';
 import { layoutWorkflowDict } from '@/pages/canvas/auto-layout';
+import { layoutGeometryMatches, saveCompactLayout } from './layout-routes';
 import { errorMessage } from '@/lib/api/mutations/error-message';
 import { useCommitWorkflow, useNewMajorVersion } from '@/lib/api/mutations/workflow-ops';
 import { useWorkflow } from '@/lib/api/queries/workflow';
@@ -156,7 +160,11 @@ export function CanvasToolbar({
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
   const toggleInspector = useUIStore((s) => s.toggleInspector);
   const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
-  const { setNodes, getNodes } = useReactFlow();
+  const { setNodes, getNodes, getEdges, getInternalNode, setViewport } = useReactFlow();
+  const flowStore = useStoreApi();
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const layoutController = useRef<AbortController | null>(null);
+  useEffect(() => () => { layoutController.current?.abort(); }, [wfId, readOnly]);
 
   const navigate = useNavigate();
   // UX-5: Save commits under the pinned historical major when one is active
@@ -359,12 +367,50 @@ export function CanvasToolbar({
 
   // Stream 8 (N1): "Tidy up" — re-arrange every node via dagre, one undo step.
   const onAutoLayout = () => {
-    if (!draft) return;
+    if (!draft || readOnly || layoutBusy) return;
     applyEdit((wf) => layoutWorkflowDict(wf, { measuredNodes: getNodes() }));
+  };
+
+  const onCompactLayout = async () => {
+    if (!draft || readOnly || layoutController.current) return;
+    const nodes = getNodes();
+    if (nodes.length === 0) return;
+    const geometry = nodes.map(node => ({ id: node.id, ...node.position, width: node.measured?.width ?? 0, height: node.measured?.height ?? 0 }));
+    const controller = new AbortController();
+    layoutController.current = controller;
+    setLayoutBusy(true);
+    const snapshot = draft;
+    const edges = getEdges();
+    const { width, height, domNode } = flowStore.getState();
+    const canvasTop = domNode?.getBoundingClientRect().top ?? 0;
+    const overlayRoot = domNode?.closest('[data-node-picker-surface]') ?? domNode;
+    const overlays = Array.from(overlayRoot?.querySelectorAll('[data-layout-overlay]') ?? []).map(element => element.getBoundingClientRect()).filter(rect => rect.height > 0);
+    const availableHeight = Math.min(height, ...overlays.map(rect => Math.max(1, rect.top - canvasTop - 16)));
+    try {
+      const { runCompactLayout } = await import('./run-compact-layout');
+      controller.signal.throwIfAborted();
+      const internal = nodes.map(node => getInternalNode(node.id)).filter(node => node !== undefined);
+      const layout = await runCompactLayout(internal, edges, { width, height: availableHeight }, controller.signal);
+      controller.signal.throwIfAborted();
+      if (useWorkflowEditStore.getState().draft !== snapshot || !layoutGeometryMatches(geometry, getNodes(), true)) {
+        toast.error(t('canvas.layoutChanged', 'The workflow changed while arranging it. Run layout again.'));
+        return;
+      }
+      applyEdit(wf => saveCompactLayout(wf, internal, edges, layout));
+      void setViewport(getViewportForBounds({ x: 0, y: 0, width: layout.width, height: layout.height }, width, availableHeight, 0.02, 1, 0.08), { duration: 250 });
+    } catch (error) {
+      if (!controller.signal.aborted) toast.error(t('canvas.layoutFailed', 'Could not arrange this workflow.'), { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      if (layoutController.current === controller) {
+        layoutController.current = null;
+        setLayoutBusy(false);
+      }
+    }
   };
 
   return (
     <div className="surface-topbar app-scrollbar flex h-12 items-center gap-1.5 overflow-x-auto px-3">
+      {layoutBusy && <span role="status" className="shrink-0 text-xs text-content-secondary">{t('canvas.layoutWorking', 'Arranging…')}</span>}
       <div className="flex shrink-0 items-center rounded-md bg-surface-sunken p-0.5">
       <Button
         variant="ghost"
@@ -524,14 +570,20 @@ export function CanvasToolbar({
             {t('io.upload', 'Upload JSON')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            data-action="canvas-auto-layout"
-            disabled={readOnly}
-            onSelect={onAutoLayout}
-          >
-            <LayoutGrid className="mr-2 h-4 w-4" />
-            {t('canvas.autoLayout', 'Tidy up')}
-          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-action="canvas-auto-layout" disabled={readOnly || layoutBusy}>
+              <LayoutGrid className="mr-2 h-4 w-4" />
+              {layoutBusy ? t('canvas.layoutWorking', 'Arranging…') : t('canvas.autoLayout', 'Tidy up')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem data-action="canvas-layout-horizontal" onSelect={onAutoLayout}>
+                {t('canvas.layoutHorizontal', 'Left to right')}
+              </DropdownMenuItem>
+              <DropdownMenuItem data-action="canvas-layout-compact" onSelect={() => { void onCompactLayout(); }}>
+                {t('canvas.layoutCompact', 'Fit canvas')}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         </DropdownMenuContent>
       </DropdownMenu>
       <input

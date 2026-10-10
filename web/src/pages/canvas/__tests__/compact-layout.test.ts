@@ -15,7 +15,7 @@ function chain(count: number) {
 describe('compact layout using the production ELK engine', () => {
   it('keeps a small graph in one row when it fits without shrinking', async () => {
     const { nodes, edges } = chain(3);
-    const result = await calculateCompactLayout(new ELK(), nodes, edges, { width: 1100, height: 700 });
+    const result = await calculateCompactLayout(new ELK(), nodes, edges, { width: 900, height: 700 });
     expect(new Set(Object.values(result.positions).map(p => p.y)).size).toBe(1);
     expect(result.positions.n2.x).toBeGreaterThan(result.positions.n1.x);
   });
@@ -33,6 +33,17 @@ describe('compact layout using the production ELK engine', () => {
       expect(points.at(-1)).toEqual({ x: result.positions[edge.target].x, y: result.positions[edge.target].y + 50 });
     }
     expect(nodes).toEqual(before);
+  });
+
+  it('preserves handle endpoints extending beyond the node border', async () => {
+    const { nodes, edges } = chain(2);
+    for (const node of nodes) {
+      node.ports[0].x = -3;
+      node.ports[1].x = 227;
+    }
+    const result = await calculateCompactLayout(new ELK(), nodes, edges, { width: 1000, height: 600 });
+    expect(result.routes.e0[0].x).toBe(result.positions.n0.x + 227);
+    expect(result.routes.e0.at(-1)!.x).toBe(result.positions.n1.x - 3);
   });
 
   it('does not collide port names between nodes or lose pairing edges', () => {

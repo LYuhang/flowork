@@ -18,11 +18,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nextProvider, initReactI18next } from 'react-i18next';
-import { ReactFlowProvider } from '@xyflow/react';
+import { ReactFlowProvider, type Node } from '@xyflow/react';
 import i18n from 'i18next';
 
-const { toastSpy, useWorkflowMock, commitMock, commitTargetMajorSpy, newMajorMock, navigateSpy } =
+const { runLayoutMock, toastSpy, useWorkflowMock, commitMock, commitTargetMajorSpy, newMajorMock, navigateSpy } =
   vi.hoisted(() => ({
+    runLayoutMock: vi.fn(),
     toastSpy: { success: vi.fn(), error: vi.fn() },
     useWorkflowMock: vi.fn((..._a: unknown[]) => ({
       data: { meta: { workflow_name: 'My Flow', active_v: 2, active_sv: 1 } },
@@ -36,6 +37,7 @@ const { toastSpy, useWorkflowMock, commitMock, commitTargetMajorSpy, newMajorMoc
     navigateSpy: vi.fn(),
   }));
 
+vi.mock('../run-compact-layout', () => ({ runCompactLayout: runLayoutMock }));
 vi.mock('sonner', () => ({ toast: toastSpy }));
 vi.mock('react-router', () => ({ useNavigate: () => navigateSpy }));
 vi.mock('@/lib/api/queries/workflow', () => ({
@@ -80,11 +82,11 @@ void testI18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 });
 
-function renderToolbar(readOnly = false, pinnedMajor: number | null = null, history: ExecutionHistoryValue | null = null) {
-  render(
+function renderToolbar(readOnly = false, pinnedMajor: number | null = null, history: ExecutionHistoryValue | null = null, initialNodes: Node[] = []) {
+  return render(
     <I18nextProvider i18n={testI18n}>
       <ExecutionHistoryContext.Provider value={history}>
-      <ReactFlowProvider>
+      <ReactFlowProvider initialNodes={initialNodes}>
         <CanvasToolbar
           wfId="wf-1"
           readOnly={readOnly}
@@ -123,6 +125,7 @@ async function openMore() {
 }
 
 beforeEach(() => {
+  runLayoutMock.mockReset();
   toastSpy.success.mockClear();
   toastSpy.error.mockClear();
   commitMock.mutate.mockClear();
@@ -306,7 +309,9 @@ describe('Auto-layout (Stream 8 / N1)', () => {
     });
     renderToolbar();
     await openMore();
-    fireEvent.click(byAction('canvas-auto-layout'));
+    fireEvent.keyDown(byAction('canvas-auto-layout'), { key: 'ArrowRight' });
+    await waitFor(() => expect(byAction('canvas-layout-horizontal')).toBeInTheDocument());
+    fireEvent.click(byAction('canvas-layout-horizontal'));
 
     const state = useWorkflowEditStore.getState();
     expect(state.undoStack.length).toBe(1);
@@ -486,4 +491,39 @@ it('disables Execute for a restored approval with no local stream', () => {
     latestNodeEvents: {},
   } as ExecutionHistoryValue);
   expect(byAction('execute')).toBeDisabled();
+});
+
+
+describe('compact layout asynchronous edits', () => {
+  const initialNodes: Node[] = [{ id: 'node_1', data: {}, position: { x: 0, y: 0 }, measured: { width: 224, height: 140 } }];
+  async function startCompact() {
+    await openMore();
+    fireEvent.keyDown(byAction('canvas-auto-layout'), { key: 'ArrowRight' });
+    await waitFor(() => expect(byAction('canvas-layout-compact')).toBeInTheDocument());
+    fireEvent.click(byAction('canvas-layout-compact'));
+    await waitFor(() => expect(runLayoutMock).toHaveBeenCalledTimes(1));
+  }
+  it('does not replace edits made while layout is running', async () => {
+    let resolve!: (value: unknown) => void;
+    runLayoutMock.mockReturnValue(new Promise(r => { resolve = r; }));
+    useWorkflowEditStore.getState().setDraft({ node_1: startNode() });
+    renderToolbar(false, null, null, initialNodes);
+    await startCompact();
+    act(() => useWorkflowEditStore.getState().applyEdit(wf => ({ ...wf, __meta__: { name: 'New title' } })));
+    await act(async () => { resolve({ width: 224, height: 140, positions: { node_1: { x: 20, y: 20 } }, routes: {} }); });
+    expect(toastSpy.error).toHaveBeenCalledWith('The workflow changed while arranging it. Run layout again.');
+    expect(useWorkflowEditStore.getState().draft?.__meta__).toEqual({ name: 'New title' });
+    expect(useWorkflowEditStore.getState().undoStack).toHaveLength(1);
+  });
+  it('aborts the pending worker request when the toolbar unmounts', async () => {
+    runLayoutMock.mockImplementation((_nodes, _edges, _viewport, signal: AbortSignal) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason))));
+    useWorkflowEditStore.getState().setDraft({ node_1: startNode() });
+    const view = renderToolbar(false, null, null, initialNodes);
+    await startCompact();
+    const signal = runLayoutMock.mock.calls[0][3] as AbortSignal;
+    await act(async () => { view.unmount(); });
+    expect(signal.aborted).toBe(true);
+    expect(toastSpy.error).not.toHaveBeenCalled();
+    expect(useWorkflowEditStore.getState().undoStack).toHaveLength(0);
+  });
 });

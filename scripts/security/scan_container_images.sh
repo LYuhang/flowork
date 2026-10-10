@@ -27,7 +27,7 @@ if [[ -z "$python_bin" || ! -x "$python_bin" ]]; then
   exit 2
 fi
 
-mkdir -p "$output_dir/sbom" "$output_dir/vulnerabilities" "$output_dir/build"
+mkdir -p "$output_dir/sbom" "$output_dir/vulnerabilities" "$output_dir/policy" "$output_dir/build"
 manifest="$output_dir/image-manifest.tsv"
 printf 'label\tsource\timage_id\trepo_digests\trole\n' > "$manifest"
 
@@ -89,7 +89,14 @@ scan_image() {
   fi
   if ! "$python_bin" "$policy_evaluator" \
       --label "$label" \
-      --report "$output_dir/vulnerabilities/$label.json"; then
+      --report "$output_dir/vulnerabilities/$label.json" 2>&1 | tee "$output_dir/policy/$label.txt"; then
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+      {
+        printf '### Container vulnerability gate: %s\n\n```text\n' "$label"
+        cat "$output_dir/policy/$label.txt"
+        printf '\n```\n'
+      } >> "$GITHUB_STEP_SUMMARY"
+    fi
     printf 'Container vulnerability gate failed for %s.\n' "$label" >&2
     cat "$output_dir/vulnerabilities/$label.txt" >&2
     return 2
@@ -160,7 +167,7 @@ for entry in \
   fi
 done
 
-sha256sum "$output_dir"/sbom/*.json "$output_dir"/vulnerabilities/*.json \
+sha256sum "$output_dir"/sbom/*.json "$output_dir"/vulnerabilities/*.json "$output_dir"/policy/*.txt \
   > "$output_dir/report-checksums.sha256"
 if [[ "$gate_failed" -ne 0 ]]; then
   printf 'container_supply_chain_gate=fail images=%s output=%s\n' "$((${#pinned_images[@]} + 10))" "$output_dir" >&2

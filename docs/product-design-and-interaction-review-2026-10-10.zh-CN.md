@@ -451,3 +451,14 @@ F03 组件交互已实现，真实运行任务的端到端附件链路仍需补�
 - 浏览器证据 `/tmp/row-menu-result.json`、`/tmp/row-menu-project-{390,1100}-{light,dark}.png`、`/tmp/row-menu-delete-{390,1100}-{light,dark}.png`。修改文件 ESLint、完整国际化和视觉检查通过；本批未部署线上。
 - 完整 TypeScript 检查通过。本批实现和上述交互验证完成，线上发布仍待统一验收。
 - CI 跟踪：`cbc2400`、`bbc74f0` 的 Security gates 在 Production image SBOM and vulnerability gate 失败，公开注释仅显示扫描脚本退出码 2；普通 CI 被后续提交取消。当前环境下载 Actions 完整日志返回 403，尚未定位具体镜像/漏洞或构建错误，不能宣称 CI 全绿。需继续取得日志或在资源允许时复现镜像扫描。
+
+## CI 镜像门禁根因补充（2026-10-10）
+
+已通过公开构建产物获取 Security run `38065454934`、artifact `11674138445` 的完整扫描报告，在当前政策评估器中复现失败。本地报告 `/tmp/current-container-security.zip`，提取的 Grype JSON 在 `/tmp/current-security-reports/`。
+
+- 构建成功，不是前端类型或容器构建失败。运行镜像中 `openfga-postgres` 有 10 个阻断匹配，均在 `/usr/local/bin/gosu` 的 Go 1.24.6 标准库；`openfga` 有 29 个阻断匹配，位于服务程序和 grpc_health_probe 的 Go 1.26.8 / x/net。
+- 具体新增报告包括 GO-2026-6603 至 GO-2026-6613 中的 10 项。报告给出的修复版本涉及 Go 1.26.9 / 1.27.2 和 x/net 0.60.0。其余已评估的最终运行镜像及修补构建阶段通过当前门禁。
+- 上游 OpenFGA 最新发布 v1.22.0 为 2026-10-06，早于 10 月 8 日这批补丁；不能仅替换版本号就宣布修好。gosu 最新 1.19 仍由 Go 1.24.6 构建。需核对修补二进制，或以固定源码和修复工具链构建，重新扫描并验证权限服务/数据库启动兼容性；不扩大漏洞豁免来掩盖失败。
+- 官方核对来源：[OpenFGA releases](https://github.com/openfga/openfga/releases)、[Go GO-2026-6612](https://pkg.go.dev/vuln/GO-2026-6612)、[gosu 1.19](https://github.com/tianon/gosu/releases/tag/1.19)。扫描门禁输出是按包/位置的匹配数，不等同于不同漏洞数量。
+- 本机磁盘剩余约 1GB，未在运行应用的主机上强行构建整套镜像。镜像漏洞修复仍未完成。
+- 改善诊断：扫描器将每个最终镜像的政策判定保存到 `policy/*.txt`，纳入校验和；失败项写入 GitHub job summary，便于直接看到镜像、漏洞和包位置。阻断规则及失败退出行为保持原样。43 项供应链/政策回归及 Bash 语法检查通过；尚未宣称 CI 恢复绿色。

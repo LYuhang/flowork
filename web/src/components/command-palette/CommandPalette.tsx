@@ -73,8 +73,8 @@ export function CommandPalette() {
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder={t('commandPalette.placeholder')} />
+    <CommandDialog open={open} onOpenChange={setOpen} title={t('commandPalette.open')}>
+      <CommandInput aria-label={t('commandPalette.placeholder')} placeholder={t('commandPalette.placeholder')} />
       <CommandList>
         <CommandEmpty>{t('commandPalette.empty')}</CommandEmpty>
         {GROUP_ORDER.map((group) => {

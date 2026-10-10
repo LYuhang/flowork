@@ -1,4 +1,5 @@
 {
+  "commandPalette.open": "Search actions",
   "chat.stopping": "Stopping…",
   "chat.stopFailed": "Could not stop this turn. Check the connection and try Stop again.",
   "chat.search.open": "Search conversation",

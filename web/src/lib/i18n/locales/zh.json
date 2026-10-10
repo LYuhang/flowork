@@ -1,4 +1,5 @@
 {
+  "commandPalette.open": "搜索操作",
   "chat.stopping": "正在停止…",
   "chat.stopFailed": "未能停止本轮执行，请检查连接后再次点击停止。",
   "chat.search.open": "搜索对话",

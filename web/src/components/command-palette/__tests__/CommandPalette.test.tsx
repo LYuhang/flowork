@@ -1,5 +1,6 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { CommandPalette } from '@/components/command-palette/CommandPalette';
@@ -24,6 +25,18 @@ afterEach(() => {
 
 
 describe('CommandPalette localization', () => {
+  it('names the dialog and restores focus to an external launcher after Escape', async () => {
+    await i18n.changeLanguage('en');
+    useUIStore.setState({ commandPaletteOpen: false });
+    render(<MemoryRouter><button onClick={() => useUIStore.getState().setCommandPaletteOpen(true)}>Open palette</button><CommandPalette /></MemoryRouter>);
+    const launcher = screen.getByRole('button', { name: 'Open palette' });
+    await userEvent.click(launcher);
+    expect(screen.getByRole('dialog', { name: 'Search actions' })).toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(launcher).toHaveFocus();
+  });
+
   it('renders the English navigation vocabulary', async () => {
     await i18n.changeLanguage('en');
     const palette = renderOpenPalette();

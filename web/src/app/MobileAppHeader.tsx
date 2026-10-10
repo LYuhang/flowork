@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
 
+import { useUIStore } from '@/stores/ui';
 import { AppSidebar } from '@/app/AppSidebar';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,6 +32,8 @@ export function MobileAppHeader() {
   const { t } = useTranslation();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const navigationButton = useRef<HTMLButtonElement>(null);
+  const searchAfterClose = useRef(false);
   const section = location.pathname.split('/').filter(Boolean)[0] ?? 'chat';
   const label = SECTION_LABELS[section] ?? { key: 'ws_title', fallback: 'Flowork' };
 
@@ -55,6 +58,7 @@ export function MobileAppHeader() {
       >
         <SheetTrigger asChild>
           <Button
+            ref={navigationButton}
             type="button"
             variant="ghost"
             size="icon"
@@ -73,6 +77,13 @@ export function MobileAppHeader() {
         side="left"
         className="w-[min(88vw,320px)] max-w-none supports-[height:100dvh]:h-dvh overflow-hidden p-0 sm:max-w-none"
         data-testid="mobile-nav-drawer"
+        onCloseAutoFocus={event => {
+          if (!searchAfterClose.current) return;
+          event.preventDefault();
+          searchAfterClose.current = false;
+          navigationButton.current?.focus();
+          useUIStore.getState().setCommandPaletteOpen(true);
+        }}
       >
         <SheetHeader className="sr-only">
           <SheetTitle>{t('nav.primary', 'Navigation')}</SheetTitle>
@@ -80,7 +91,7 @@ export function MobileAppHeader() {
             {t('nav.mobileDescription', 'Navigate Flowork and manage your workspace.')}
           </SheetDescription>
         </SheetHeader>
-        <AppSidebar mobile onNavigate={() => setOpen(false)} />
+        <AppSidebar mobile onNavigate={() => setOpen(false)} onSearchActions={() => { searchAfterClose.current = true; setOpen(false); }} />
       </SheetContent>
     </Sheet>
   );

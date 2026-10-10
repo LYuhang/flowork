@@ -27,6 +27,7 @@ import {
   Plus,
   Pencil,
   Power,
+  Search,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -129,15 +130,18 @@ const NAV_GROUPS: NavGroup[] = [
 export function AppSidebar({
   mobile = false,
   onNavigate,
+  onSearchActions,
 }: {
   mobile?: boolean;
   onNavigate?: () => void;
+  onSearchActions?: () => void;
 } = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const collapsed = useUIStore((s) => s.navSidebarCollapsed);
   const toggle = useUIStore((s) => s.toggleNavSidebar);
+  const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen);
   const activeChatId = useUIStore((s) => s.activeChatIds.chat);
   const activeProjectId = useUIStore((s) => s.activeProjectId);
   const setActiveChatId = useUIStore((s) => s.setActiveChatId);
@@ -456,6 +460,19 @@ export function AppSidebar({
         ) : (
           <AppLogo />
         )}
+      </div>
+      <div className="shrink-0 px-2 py-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" className={cn('h-9 w-full gap-2 text-muted-foreground', !effectiveCollapsed && 'justify-start px-3')}
+              aria-label={t('commandPalette.open')} data-action="open-command-palette"
+              onClick={() => onSearchActions ? onSearchActions() : setCommandPaletteOpen(true)}>
+              <Search className="size-4 shrink-0" />
+              {!effectiveCollapsed && <span>{t('commandPalette.open')}</span>}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t('commandPalette.open')}</TooltipContent>
+        </Tooltip>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="shrink-0 px-2 py-2">

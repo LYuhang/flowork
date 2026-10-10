@@ -64,3 +64,36 @@ async def test_branch_rejects_live_turn_and_other_owner(client):
     response = await client.post(endpoint, json=body, headers=headers)
     assert response.status_code == 409, response.text
     assert 'branch_turn_not_finished' in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('after_commit', [False, True])
+async def test_branch_authorization_outage_reports_unavailable_without_repeating_creation(
+    client, monkeypatch, after_commit,
+):
+    from vibecanvas_api.authorization.openfga_client import OpenFgaUnavailableError
+    from vibecanvas_api.routes import chat_branches, chats
+
+    headers, me, source, run = await completed_source(client)
+    target = str(uuid.uuid4())
+    calls = 0
+
+    async def unavailable(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise OpenFgaUnavailableError()
+
+    if after_commit:
+        monkeypatch.setattr(chats, 'apply_committed_structural_mutations', unavailable)
+    else:
+        monkeypatch.setattr(chat_branches, 'authorize_resource', unavailable)
+    response = await client.post(f'/api/v1/chats/{source}/branches', headers=headers,
+        json={'chat_id': target, 'turn_id': run, 'name': 'Outage branch'})
+    assert response.status_code == 503, response.text
+    assert response.json()['detail']['code'] == 'authorization_unavailable'
+    assert calls == 1
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        assert await db.scalar(text('SELECT count(*) FROM chats WHERE chat_id=:chat'),
+                               {'chat': target}) == int(after_commit)
+        assert await db.scalar(text('SELECT count(*) FROM agent_runs WHERE chat_id=:chat'),
+                               {'chat': target}) == 0

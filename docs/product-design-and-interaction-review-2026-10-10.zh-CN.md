@@ -384,3 +384,18 @@ F15、F16 单独设计。先验证需求价值及状态模型，再考虑排队�
 - 修改文件 ESLint、完整 TypeScript、视觉规范和完整国际化检查通过。浏览器证据：`/tmp/composer-review-result.json` 和 `/tmp/composer-review-{main,sidebar}-{light,dark}.png`。临时测试页面已移除。
 
 F01 功能实现及上述组件/浏览器验证完成；Mac 原生输入法与线上完整页面验收仍待补充。F02–F17 和剩余视觉统一条目继续推进，不将本批视为完整目标完成。
+
+
+### F01 发送习惯补充
+
+用户强调 Enter 直接发送的误触风险。默认继续保留 Enter 换行、Ctrl/Cmd+Enter 发送；Enter 发送只由用户主动选择。参考 [Slack 可配置 Enter 行为](https://slack.com/help/articles/115005523006-Set-your-Enter-key-preference-Set-your-Enter-key-preference)、[Claude Code 多行输入](https://code.claude.com/docs/en/interactive-mode)、[Cursor 快捷键](https://cursor.com/docs/reference/keyboard-shortcuts)。不同产品还区分队列和立即发送，因此不将竞品快捷键机械套用到本应用的执行逻辑。手机软键盘与真实输入法行为需要专项验证，当前不以合成键盘事件代替。
+
+## 实施记录：F02 原地展开编辑（2026-10-10）
+
+- 共用编辑框增加展开/收起按钮；展开时输入区为 `min(45dvh, 28rem)`，保留工具栏和附件入口，不默认占满整页。
+- 原地改变同一个 textarea 高度，不创建第二份草稿、不重挂载编辑器；切换后焦点回到输入框，保留选区。
+- 主编辑框与嵌入侧栏，亮/暗四组真实 Chromium 验证：输入 20 行正文、保留选区、展开实际增高、收起后正文保留；原快捷键、命令补全和受控失败草稿恢复仍正常。
+- 浏览器证据：`/tmp/composer-expand.cjs`、`/tmp/composer-expand-result.json`、`/tmp/composer-expanded-{false,true}-{light,dark}.png`。使用真实共用组件和受控 API，不代表线上完整布局、手机软键盘遮挡等情况均已完成验收；临时页面已清理。
+- 34 项编辑框回归、完整 TypeScript、修改文件 ESLint、视觉规范及完整国际化检查通过。回归覆盖展开/收起时正文、选区及附件保留；主/嵌入模式使用各自对话状态键，避免测试把两个界面的草稿归属混用。
+
+后续继续验证完整页面布局中的高度与滚动位置，以及手机软键盘场景。F03–F17 和其余视觉条目仍待推进。

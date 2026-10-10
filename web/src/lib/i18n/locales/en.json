@@ -294,6 +294,8 @@
   "chat.toolbar.more": "More chat actions",
   "chat.toolbar.closeDebug": "Close debug",
   "chat.toolbar.closeSandbox": "Close sandbox",
+  "composer.expandEditor": "Expand editor",
+  "composer.collapseEditor": "Collapse editor",
   "composer.shortcut.choose": "Keyboard shortcuts",
   "composer.shortcut.modifier": "{{modifier}}+Enter to send",
   "composer.shortcut.enter": "Enter to send",

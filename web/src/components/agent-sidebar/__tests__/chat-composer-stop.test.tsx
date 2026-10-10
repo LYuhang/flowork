@@ -131,6 +131,26 @@ describe('ChatComposer Stop', () => {
     expect(sent).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])('expands the same editor without losing its draft, selection, or attachments (embedded=%s)', async (embedded) => {
+    const key = chatClientStateKey({ account: useAuthStore.getState().user, scopeId: 'wf_x', surface: embedded ? 'browser' : 'chat', chatId: 'expanded-editor' });
+    const { container } = renderComposer('expanded-editor', false, undefined, embedded);
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+    await userEvent.type(input, 'A long draft to edit');
+    act(() => useChatStreamStore.getState().addAttachment(key, { type: 'file', name: 'notes.txt', path: '/data/notes.txt', content_type: 'text/plain', size_bytes: 12 }));
+    input.focus(); input.setSelectionRange(2, 6);
+    await userEvent.click(screen.getByRole('button', { name: /expand editor|展开编辑/i }));
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(screen.getByRole('textbox')).toBe(input);
+    expect(input).toHaveValue('A long draft to edit');
+    expect([input.selectionStart, input.selectionEnd]).toEqual([2, 6]);
+    expect(container.querySelector('[data-role="agent-composer-attachments"]')).toHaveTextContent('notes.txt');
+    await userEvent.click(screen.getByRole('button', { name: /collapse editor|收起编辑/i }));
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(screen.getByRole('textbox')).toBe(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([2, 6]);
+    expect(container.querySelector('[data-role="agent-composer-attachments"]')).toHaveTextContent('notes.txt');
+  });
+
   it('renders a restored goal above and outside the embedded composer frame', async () => {
     server.use(http.get('*/api/v1/chat-scopes/wf_x/chats/sidebar-goal/state', () => HttpResponse.json({
       goal: { objective: 'Verify browser workflow', status: 'paused', timeUsedSeconds: 90, tokensUsed: 100, updatedAt: 1000 },

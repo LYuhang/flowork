@@ -47,7 +47,7 @@ import { flushSync } from 'react-dom';
 import { acceptProjectChatDraft } from '@/lib/chat/project-draft';
 import { fetchProjectMcpSelection } from '@/lib/api/queries/chats';
 import { errorMessage } from '@/lib/api/mutations/error-message';
-import { Blocks, BrainCircuit, FileText, Image, Loader2, Paperclip, RotateCcw, Send, SlidersHorizontal, Square, Video } from 'lucide-react';
+import { Blocks, BrainCircuit, FileText, Image, Loader2, Maximize2, Minimize2, Paperclip, RotateCcw, Send, SlidersHorizontal, Square, Video } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -290,6 +290,7 @@ export function ChatComposer({
     ? selectedMcpIds.filter((id) => installedMcpIds.has(id))
     : selectedMcpIds;
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [editorExpanded, setEditorExpanded] = useState(false);
   const [compactOptions, setCompactOptions] = useState(false);
   const setSelectedMcpIds = (ids: string[]) => {
     if (prepareConversation && !projectId) {
@@ -1278,6 +1279,7 @@ export function ChatComposer({
               inputTypographyClass,
               embedded && 'min-h-[72px]',
               quietFrame && 'min-h-[64px] max-h-[138px] px-0',
+              editorExpanded && 'h-[min(45dvh,28rem)] max-h-none',
             )}
             aria-autocomplete="list"
             data-role="agent-composer-input"
@@ -1445,7 +1447,20 @@ export function ChatComposer({
           </div>
         ) : null}
       </div>
-      <SendShortcutPreference />
+      <div className="flex items-center justify-between gap-2">
+        <SendShortcutPreference />
+        <Button type="button" variant="ghost" size="icon"
+          className="h-7 w-7 shrink-0 text-content-tertiary"
+          aria-label={t(editorExpanded ? 'composer.collapseEditor' : 'composer.expandEditor')}
+          title={t(editorExpanded ? 'composer.collapseEditor' : 'composer.expandEditor')}
+          aria-expanded={editorExpanded}
+          onClick={() => {
+            setEditorExpanded((expanded) => !expanded);
+            requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+          }}>
+          {editorExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        </Button>
+      </div>
       {showModelSelector ? (
         <Sheet
           open={optionsOpen && compactOptions}

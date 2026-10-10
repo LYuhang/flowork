@@ -799,6 +799,11 @@ export function ChatMessageList({
         container.querySelectorAll('[data-reference-highlight]').forEach(element => element.removeAttribute('data-reference-highlight'));
         target.setAttribute('data-reference-highlight', 'true');
         container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 32;
+        // The located message becomes the reading position immediately. A late
+        // resize or history page must not restore the pre-navigation anchor.
+        const anchor = captureViewport();
+        readingAnchorRef.current = anchor;
+        if (anchor && paginationRef.current) paginationRef.current.anchor = anchor;
       });
       return () => cancelAnimationFrame(frame);
     }
@@ -811,7 +816,7 @@ export function ChatMessageList({
       const frame = requestAnimationFrame(() => setFocusErrorKey(focusKey));
       return () => cancelAnimationFrame(frame);
     }
-  }, [focusMessageId, focusKey, focusErrorKey, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems]);
+  }, [focusMessageId, focusKey, focusErrorKey, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems, captureViewport]);
 
   return (
     <ChatRenderProvider value={{ chatId: activeChatId, surface }}>

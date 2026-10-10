@@ -173,6 +173,39 @@ describe('ChatMessageList', () => {
     expect(useChatStreamStore.getState().runtimes['search-chat'].state).toBe('streaming');
   });
 
+  it('keeps a located message anchored when later content resizes', async () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    let resize = () => {};
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resize = callback; }
+      observe() {} disconnect() {}
+    });
+    const rows = [
+      { id: 'old', role: 'user', content: 'Old target' },
+      { id: 'recent', role: 'user', content: 'Recent target' },
+    ];
+    const props = { wfId: 'wf', activeChatId: 'anchor-chat', historyItems: rows };
+    const view = render(<ChatMessageList {...props} />);
+    const log = screen.getByRole('log', { name: 'Conversation' });
+    Object.defineProperties(log, { scrollHeight: { configurable: true, value: 2000 }, clientHeight: { configurable: true, value: 500 } });
+    for (const [id, position] of [['old', 100], ['recent', 900]] as const) {
+      const target = view.container.querySelector<HTMLElement>(`[data-quotable-message="${id}"]`)!;
+      const wrapper = target.closest<HTMLElement>('[data-chat-render-key]')!;
+      const rect = () => ({ top: position - log.scrollTop, bottom: position + 200 - log.scrollTop }) as DOMRect;
+      vi.spyOn(target, 'getBoundingClientRect').mockImplementation(rect);
+      vi.spyOn(wrapper, 'getBoundingClientRect').mockImplementation(rect);
+    }
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+    log.scrollTop = 900;
+    fireEvent.scroll(log);
+    view.rerender(<ChatMessageList {...props} focusMessageId="old" />);
+    await waitFor(() => expect(log.scrollTop).toBe(68));
+    act(() => resize());
+    expect(log.scrollTop).toBe(68);
+    view.unmount();
+    vi.unstubAllGlobals();
+  });
+
   it('renders only the selected chat preparation and hands off without a duplicate bubble', () => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: true });
     useChatStreamStore.setState({ preparingMessages: {

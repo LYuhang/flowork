@@ -936,3 +936,11 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 两文件存在时预览返回空缺失列表；删除后立即重新打开，确认框重新请求并只列出 removed.txt。实际点击创建返回 201，并保留两个历史附件引用；分支 `7c728466-da99-465f-8fef-bbacfb96d662` 中 Terra 使用 shell 检查，读出 kept.txt 的 `BRANCH-FILE-CONTENT-1010`，确认 removed.txt 不存在。没有新建/恢复被删除文件。
 - 已目视检查确认框和最终对话截图，缺失说明、文件名、模型结果均与实际状态一致。测试结束释放项目沙盒返回 200；证据 `/tmp/chat-branch-files-followup.json`、`/tmp/chat-branch-files-warning.png`、`/tmp/chat-branch-files-real.png`。该实测使用真实线上页面/API和模型，没有拦截 API 响应。
 - 此结果完成普通文件存在/删除后的分支链路验收，不覆盖所有外部引用、HTML 资源会话和侧边栏项目约束；首次 500 仍未定位，F15/F16 及整个需求清单仍未全部完成。
+
+### F16 历史交互只读与创建响应丢失实机验收
+
+- 真实 Terra 调用 render_choices 显示 Alpha/Beta，浏览器选择 Alpha 并点击确认，Agent 完成本轮后创建分支。新分支以及刷新后均保留 Alpha、两个选项禁用、没有提交/取消按钮；监测分支浏览器请求，没有访问旧 `/hitl-requests/`。持久历史读取另行确认 artifact `read_only=true`、提交结果 `selected_ids=[alpha]`。测试沙盒已释放，未复制为待审批执行。
+- 项目 `prj_8ad3f3f7af974d258caf2701cbf55c12`，源 Chat `0fc6ecfa-1f67-4d55-93c1-7d2e00f586df`，只读分支 `3aef712d-7edf-45d1-aba8-f703e0e0dcc9`；证据 `/tmp/chat-branch-choices-real.json` 与 `.png`。覆盖的是已处理选择卡，不等于所有 HTML/Workflow 审批交互已完成实机验收。
+- 同一源会话继续验收创建响应丢失：真实 POST 在服务端返回 201 后，由 Playwright 仅丢弃该响应。页面显示原目标 UUID 和“检查已创建的对话”；实际点击检查后打开已创建分支 `057b4f33-b07e-48e3-a243-8c839cf6bdd9`，选择结果保留、Agent 未启动，创建 POST 总计一次。没有重复创建来掩盖不确定结果。
+- 此项明确包含网络响应故障注入，API 创建本身为真实调用。证据 `/tmp/chat-branch-lost-response.json`、`/tmp/chat-branch-lost-response-pending.png`、`/tmp/chat-branch-lost-response-recovered.png`；已目视检查历史卡片与不确定结果提示。
+- 当前远端 CI `38090943782` 的 Web/插件已通过，API 的 Run API tests 步骤仍在运行，尚未取消或另起检查。后续提交仍需推送并验证，不用旧提交结果替代当前提交检查。

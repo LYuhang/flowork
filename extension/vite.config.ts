@@ -50,6 +50,28 @@ function chromeOriginMatch(base: string): string {
   return `${url.protocol}//${url.host}/*`;
 }
 
+/** The tiny extension shell uses the app palette without shipping Tailwind. */
+function shellThemeCss(): string {
+  const css = readFileSync(resolve(root, "../web/src/index.css"), "utf8");
+  const tokens = {
+    surface: "surface-work", raised: "surface-raised", text: "text-primary",
+    muted: "text-secondary", edge: "edge-structural", brand: "focus",
+    "brand-text": "primary-foreground",
+  };
+  const palette = (selector: string) => {
+    const block = css.slice(css.indexOf(`${selector} {`)).split("}", 1)[0];
+    return Object.entries(tokens).map(([name, token]) => {
+      const value = block.match(new RegExp(`--${token}:\\s*([^;]+);`))?.[1];
+      if (!value) throw new Error(`Missing shell theme token ${token} in ${selector}`);
+      return `  --${name}: oklch(${value});`;
+    }).join("\n");
+  };
+  const dark = `color-scheme: dark;\n${palette(".dark")}`;
+  return `/* Generated from web/src/index.css. */\n:root { color-scheme: light;\n${palette(":root")}\n}\n`
+    + `:root[data-theme="dark"] { ${dark}\n}\n`
+    + `@media (prefers-color-scheme: dark) { :root:not([data-theme]) { ${dark}\n} }\n`;
+}
+
 function copyStaticAssets(allowedWebBases: string[]): Plugin {
   return {
     name: "copy-mv3-static-assets",
@@ -59,6 +81,7 @@ function copyStaticAssets(allowedWebBases: string[]): Plugin {
       for (const f of ["offscreen.html", "sidepanel.html"]) {
         copyFileSync(resolve(root, f), resolve(out, f));
       }
+      writeFileSync(resolve(out, "shell-theme.css"), shellThemeCss());
       const iconsOut = resolve(out, "icons");
       mkdirSync(iconsOut, { recursive: true });
       for (const icon of ["icon-light.png", "icon-dark.png"]) {

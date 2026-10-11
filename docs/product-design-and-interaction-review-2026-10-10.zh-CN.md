@@ -1179,3 +1179,12 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 证据 `/tmp/codex-branch-missing-live-result.json`。外围 MCP/CLI 使用隔离测试夹具，模型响应为本地固定 Responses 服务；原生错误及分支恢复代码均真实执行。没有外部模型请求，也没有删除线上原生记录。首次夹具使用 /tmp 作为 runtime_root，被路径校验拒绝；改用独立 /runtime 临时目录后通过，未修改生产校验。
 - 将“按第二轮截断并清除继承 Goal”的真实原生测试保存到 `api/tests/services/test_codex_fork_history.py`，覆盖 paused/active 源目标；允许原 active Goal 自身继续，但新增模型请求必须保留源第三轮标记，不能属于新分支。该文件四项真实原生协议测试通过，Ruff 通过。
 - 本地测试命令使用 `--confcutdir=api/tests/services`，本文件不依赖数据库，隔离了 API 根 conftest 的自动 PostgreSQL 初始化；完整 CI 仍使用正常仓库测试入口。证据 `/tmp/codex-branch-native-isolated-tests.log`。
+
+
+### U06 插件外壳配色复用主应用（2026-10-11）
+
+- 删除 sidepanel.html 中三份独立亮暗色值。构建时从 web/src/index.css 的语义变量生成 shell-theme.css，仅包含外壳需要的 7 个颜色；沿用现有 SET_THEME 与 Chrome 存储，不增加主题服务或运行时请求。外壳底色、浮层、文字、弱文字、边框、主按钮及按钮文字随主应用统一。
+- 插件生产构建、TypeScript 检查通过。实际 Chromium 加载新构建，检查明确亮色（系统暗色）、明确暗色、跟随系统暗色三种设置：全部 7 个变量与在线主应用一致；刷新通过。证据 `/tmp/extension-shared-theme-browser-verified.json`、`/tmp/extension-shell-dark.png`（已查看）。首次测试仅因线上 CSS 压缩省略小数前导零产生字符串比较失败，规范化数值写法后通过，未更改产品颜色。
+- 本次验证的是已安装扩展的外壳页面与真实存储，不宣称已覆盖原生侧边栏全部跨窗口主题交互。后续仍需补系统运行中变化、主应用连续交互及所有页面族矩阵。
+- 构建出的 manifest、sidepanel.js、service-worker.js、offscreen.js 与线上逐字节一致。更新线上外壳及完整插件下载包，公网下载 200，ZIP 包含 shell-theme.css 且 HTML 引用正确。已有浏览器需要更新/重载插件才会使用新外壳；后端无须重启。
+- 清理本轮已结束的原生测试临时目录及可再生成 Node 缓存，磁盘恢复约 160MB，未删除业务数据。整体验收继续进行。

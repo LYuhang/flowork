@@ -6,39 +6,8 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <link rel="icon" href="icons/icon.png" />
     <title>Flowork</title>
+    <link rel="stylesheet" href="shell-theme.css" />
     <style>
-      :root {
-        color-scheme: light;
-        --surface: oklch(95.5% 0.01 255);
-        --raised: oklch(99.8% 0.002 250);
-        --text: oklch(24% 0.018 255);
-        --muted: oklch(47% 0.018 255);
-        --edge: oklch(86% 0.014 250);
-        --brand: oklch(24% 0.018 255);
-        --brand-text: oklch(98.5% 0.004 250);
-      }
-      :root[data-theme="dark"] {
-          color-scheme: dark;
-          --surface: oklch(16.5% 0.012 255);
-          --raised: oklch(23.5% 0.012 250);
-          --text: oklch(93% 0.008 250);
-          --muted: oklch(73% 0.014 250);
-          --edge: oklch(34% 0.016 250);
-          --brand: oklch(93% 0.008 250);
-          --brand-text: oklch(18% 0.012 255);
-      }
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme]) {
-          color-scheme: dark;
-          --surface: oklch(16.5% 0.012 255);
-          --raised: oklch(23.5% 0.012 250);
-          --text: oklch(93% 0.008 250);
-          --muted: oklch(73% 0.014 250);
-          --edge: oklch(34% 0.016 250);
-          --brand: oklch(93% 0.008 250);
-          --brand-text: oklch(18% 0.012 255);
-        }
-      }
       * { box-sizing: border-box; }
       html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
       body {

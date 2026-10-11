@@ -4160,5 +4160,9 @@
   "composer.steer.status.accepted": "Agent 已接收补充输入",
   "composer.steer.status.rejected": "补充输入未被接收",
   "composer.steer.status.unknown": "尚不能确认是否收到，请查询状态后再决定",
-  "composer.steer.statusUnavailable": "已提交，接收状态暂时不可用，请稍后查询。"
+  "composer.steer.statusUnavailable": "已提交，接收状态暂时不可用，请稍后查询。",
+  "canvasChat.resumeDraft": "继续工作流草稿",
+  "canvasChat.discardDraftTitle": "丢弃未发送草稿？",
+  "canvasChat.discardDraftDescription": "切换对话将丢弃当前未发送的文字和本地暂存附件。",
+  "canvasChat.discardDraftConfirm": "丢弃并继续"
 }

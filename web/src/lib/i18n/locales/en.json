@@ -4160,5 +4160,9 @@
   "composer.steer.status.accepted": "Agent received the additional input",
   "composer.steer.status.rejected": "Additional input was not accepted",
   "composer.steer.status.unknown": "Receipt is uncertain. Check its status before deciding what to do next.",
-  "composer.steer.statusUnavailable": "Submitted. The receipt status is temporarily unavailable; check again later."
+  "composer.steer.statusUnavailable": "Submitted. The receipt status is temporarily unavailable; check again later.",
+  "canvasChat.resumeDraft": "Resume workflow draft",
+  "canvasChat.discardDraftTitle": "Discard unsent draft?",
+  "canvasChat.discardDraftDescription": "Switching conversations will discard this unsent text and locally staged attachments.",
+  "canvasChat.discardDraftConfirm": "Discard and continue"
 }

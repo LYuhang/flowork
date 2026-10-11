@@ -26,9 +26,9 @@ vi.mock('@/lib/chat/use-conversation-history', () => ({ useConversationHistory: 
 } }));
 vi.mock('@/lib/api/sse/chat-reconcile', () => ({ reconcileChatWithServer: mocks.reconcile }));
 vi.mock('@/components/agent-sidebar/ChatComposer', () => ({ ChatComposer: (props: ChatComposerProps) =>
-  <button disabled={!!props.disabledReason} onClick={async () => {
+  <><button onClick={() => props.onDraftPresenceChange?.(true)}>Prepare draft</button><button data-chat-id={props.chatId} disabled={!!props.disabledReason} onClick={async () => {
     try { await props.prepareConversation?.(); props.onSendAccepted?.(); } catch { /* Error retained for retry. */ }
-  }}>Send contextual message</button> }));
+  }}>Send contextual message</button></> }));
 vi.mock('@/components/agent-sidebar/ChatMessageList', () => ({ ChatMessageList: () => {
   const openBranch = useContext(ChatBranchNavigationContext);
   return <div>Transcript<button onClick={() => openBranch?.('branch')}>Open created branch</button></div>;
@@ -168,6 +168,25 @@ describe('Workflow contextual conversation lifecycle', () => {
     expect(mocks.reconcile).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('canvas'));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('preserves an unsent draft when dismissed and protects it when changing context', () => {
+    mount();
+    fireEvent.click(screen.getByText('Node context'));
+    const chatId=screen.getByText('Send contextual message').getAttribute('data-chat-id');
+    fireEvent.click(screen.getByText('Prepare draft'));
+    fireEvent.click(screen.getByTestId('canvas'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume workflow draft' }));
+    expect(screen.getByText('Send contextual message')).toHaveAttribute('data-chat-id', chatId);
+    fireEvent.click(screen.getByText('Edge context'));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByText('Send contextual message')).toHaveAttribute('data-chat-id', chatId);
+    fireEvent.click(screen.getByText('Edge context'));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and continue' }));
+    expect(screen.getByText('Send contextual message').getAttribute('data-chat-id')).not.toBe(chatId);
     expect(mocks.create).not.toHaveBeenCalled();
   });
 

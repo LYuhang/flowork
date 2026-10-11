@@ -4,6 +4,7 @@ import { CanvasChatContext, CanvasChatControlsContext, CanvasChatReferenceContex
 import { MessageSquare, WandSparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ChatComposer } from '@/components/agent-sidebar/ChatComposer';
 import { ChatHistoryMenu } from '@/components/agent-sidebar/ChatHistoryMenu';
 import { ChatBranchNavigationContext } from '@/components/agent-sidebar/ChatBranchNavigationContext';
@@ -59,6 +60,8 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
   const create = useCreateChatSession();
   const [selectedId, setSelectedId] = useState<string | null>(() => rememberedChat(storageKey));
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [hasDraft, setHasDraft] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
   const [created, setCreated] = useState<ChatListItem | null>(null);
   const [open, setOpen] = useState(() => !!rememberedChat(storageKey));
   const [point, setPoint] = useState<Point>(() => panelPosition({ x: window.innerWidth - 416, y: 100 }));
@@ -92,7 +95,7 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
     try { window.sessionStorage.setItem(storageKey, id); } catch { /* DB history remains authoritative. */ }
   }, [storageKey]);
 
-  const openAt = useCallback<OpenCanvasChat>((target, position) => {
+  const createDraftAt = useCallback<OpenCanvasChat>((target, position) => {
     if (lifecycle.current.readOnly || preparing.current) return;
     const version = useWorkflowEditStore.getState().baseVersion?.match(/^v(\d+)\.sv(\d+)$/);
     if (!version) return;
@@ -111,6 +114,7 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
     setDraft({ chatId, targetName, binding: { workflow_id: wfId, major_version: Number(version[1]),
       initial_subversion: Number(version[2]), target } });
     setCreated(null);
+    setHasDraft(false);
     setSelectedId(chatId);
     setPoint(panelPosition(position));
     setOpen(true);
@@ -119,8 +123,7 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
   const dismiss = useCallback(() => {
     if (preparing.current) return;
     setOpen(false);
-    if (!persisted) { setDraft(null); setSelectedId(null); }
-  }, [persisted]);
+  }, []);
   useEffect(() => {
     if (!open) return;
     const outside = (event: MouseEvent) => {
@@ -155,11 +158,21 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
     };
   }, [persisted, selectedId, wfId]);
 
+  const switchConversation = (action: () => void) => {
+    if (draft && hasDraft) setPendingSwitch(() => action);
+    else action();
+  };
+  const openAt: OpenCanvasChat = (target, position) => {
+    switchConversation(() => createDraftAt(target, position));
+  };
+
   const selectHistory = (id: string) => {
-    if (preparing.current) return;
+    if (preparing.current || id === selectedId) return;
     const item = sessions.data?.items.find(row => row.chat_id === id && row.workflow_context?.workflow_id === wfId);
     if (!item) return;
-    setDraft(null); setCreated(null); setSelectedId(id); setOpen(true); remember(id);
+    switchConversation(() => {
+      setDraft(null); setCreated(null); setHasDraft(false); setSelectedId(id); setOpen(true); remember(id);
+    });
   };
   const prepareConversation = async (): Promise<string> => {
     if (lifecycle.current.readOnly || !lifecycle.current.mounted || !selectedId) throw new Error(t('canvasChat.readOnly'));
@@ -248,9 +261,9 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
   };
 
   const controls = <div className="flex shrink-0 items-center gap-0.5 [&_button]:h-8 [&_button]:w-8 [&_button]:rounded-full" data-role="canvas-chat-launcher">
-    {!readOnly && <Button variant="ghost" size="icon" aria-label={t('canvasChat.open')}
-      title={t('canvasChat.open')} data-action="canvas-new-chat"
-      onClick={() => openAt({ kind: 'workflow' }, { x: window.innerWidth - 416, y: 100 })}>
+    {!readOnly && <Button variant="ghost" size="icon" aria-label={t(draft ? 'canvasChat.resumeDraft' : 'canvasChat.open')}
+      title={t(draft ? 'canvasChat.resumeDraft' : 'canvasChat.open')} data-action="canvas-new-chat"
+      onClick={() => draft ? setOpen(true) : openAt({ kind: 'workflow' }, { x: window.innerWidth - 416, y: 100 })}>
       <MessageSquare className="h-4 w-4" />
     </Button>}
     <ChatHistoryMenu wfId={wfId} activeChatId={selectedId} onSelect={selectHistory} workflowContextOnly />
@@ -303,12 +316,19 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
           <ChatComposer key={visibleChatId} wfId={wfId} chatId={visibleChatId}
             projectId={selected?.project_id} chatPersisted={persisted} quietFrame compactAttachments showModelSelector
             historyReady={transcript.ready} disabledReason={disabledReason} prepareConversation={prepareConversation}
+            onDraftPresenceChange={setHasDraft}
             onSendAccepted={() => remember(visibleChatId)} />
         </div>
       </> : <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
         {sessions.isLoading ? t('loading', 'Loading…') : selectedId ? t('canvasChat.unavailable') : t('canvasChat.empty')}
       </div>}
     </div>
+    <ConfirmationDialog open={pendingSwitch !== null}
+      onOpenChange={value => { if (!value) setPendingSwitch(null); }}
+      title={t('canvasChat.discardDraftTitle')}
+      description={t('canvasChat.discardDraftDescription')}
+      confirmLabel={t('canvasChat.discardDraftConfirm')} cancelLabel={t('common.cancel', 'Cancel')}
+      onConfirm={() => { pendingSwitch?.(); setPendingSwitch(null); }} />
     </ChatBranchNavigationContext.Provider>
   </CanvasChatContext.Provider>;
 }

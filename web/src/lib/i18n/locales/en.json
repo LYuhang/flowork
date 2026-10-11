@@ -3741,6 +3741,7 @@
   "deployments.runtime.description": "Saved settings take effect after the new instance is ready and traffic has switched.",
   "deployments.runtime.rollout": "Deployment state",
   "deployments.runtime.activeVersion": "Serving version",
+  "deployments.runtime.error": "Deployment needs attention.",
   "deployments.runtime.empty": "No resident instance is running.",
   "deployments.runtime.pendingRequests": "Unfinished requests",
   "deployments.runtime.activatedAt": "Serving since",

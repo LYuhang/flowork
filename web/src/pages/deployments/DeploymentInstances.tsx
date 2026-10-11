@@ -1,3 +1,4 @@
+import { ActionableError } from '@/components/presentation/ActionableError';
 import { WorkflowVersionLink } from '@/components/resources/WorkflowVersionLink';
 import { useTranslation } from 'react-i18next';
 import type { Deployment } from '@/lib/api/deployments';
@@ -15,6 +16,9 @@ export function DeploymentInstances({ dep }: { dep: Deployment }) {
     <p role="status" className="mb-4 text-sm text-content-secondary">
       {t('deployments.runtime.rollout', 'Deployment state')}: {t(`deployments.runtime.${dep.rollout_status ?? 'pending'}`, dep.rollout_status ?? 'pending')}
     </p>
+    {dep.rollout_error && <ActionableError className="mb-4"
+      title={t('deployments.runtime.error', 'Deployment needs attention.')}
+      technicalDetails={dep.rollout_error} />}
     {dep.runtime.instances.length === 0 ? <p className="rounded-lg border border-dashed border-edge-subtle p-5 text-sm text-content-tertiary">
       {t('deployments.runtime.empty', 'No resident instance is running.')}
     </p> : <ul className="space-y-3">

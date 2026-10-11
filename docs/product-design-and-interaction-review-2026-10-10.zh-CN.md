@@ -1716,3 +1716,11 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 桌面浅色两组日志为 PASS（`/tmp/history-empty-error-live.log`），随后进程退出 143，未生成最终 JSON；不将该进程记为完整成功，终止原因未确认。原进程已确认结束。
 - 剩余桌面暗色及手机明暗共 6 组在独立只读测试中通过，完整结果 `/tmp/history-empty-error-remaining.json`。两个区域分别验证受控 GET 503 明确展示错误，点击已有 Refresh/Retry 后显示空结果；写请求 0，页面无横向溢出。定时触发错误的窄屏浅色截图已查看。
 - 未创建、继续或执行任务；受控空结果不改变后台历史。综合此前详情加载、日志/指标、评估的结果，继续缩小 U08 未验范围；请求记录、运行实例等其他区域尚不在本轮异常矩阵中，不提前关闭总项。
+
+### 部署请求记录与运行实例错误补验（2026-10-11）
+
+- `/tmp/deployment-requests-states.json`：请求记录区域在 1280/390px × 明暗 4 组通过。进入 Activity 并展开 Request records，受控 GET 503 显示错误，手动 Retry 后空列表显示 No invocations yet；非读取请求 0，无横向溢出。
+- 运行实例发现实际遗漏：详情接口返回 rollout_error，前端仅显示 rollout_status，未呈现失败原因。`/tmp/runtime-error-before.json` 四组真实页面注入包含 QA_PREPARATION_FAILED 的响应，确认详情文本都未出现。只修改浏览器响应，未重配或启动后台部署。
+- 复用 ActionableError 显示部署需处理及可展开的 rollout_error，提供中英文标题，不新增重试执行按钮。部署详情 GET 正常包含 runtime；现有 runtime 缺失时的行为保持不变。
+- ESLint、4163 项语言键一致性、2696 字面键覆盖与部署详情 20 项测试通过（`/tmp/runtime-error-tests.log`），正在发布及复验修复后页面。
+- 修复后 `/tmp/runtime-error-after.json` 四组全部通过：错误详情存在且点击后可见，写请求 0，无页面溢出，手机暗色截图已查看。生产构建及路径检查通过，917 个静态文件发布后逐个核验，未重启 API。

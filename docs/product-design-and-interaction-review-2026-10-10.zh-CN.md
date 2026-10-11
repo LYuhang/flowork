@@ -1967,3 +1967,22 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 实际点击“补充到当前回复”，只发送一次 inputs POST，收到 202 和 accepted 回执；断网 12 秒后恢复，原请求和补充各显示一条。实际点击停止，停止按钮退出、历史保留；刷新后两条输入和此前助手回复仍在，没有自动重发。
 - 只读数据库确认该 Run 的持久状态为 cancelled；专用项目沙盒释放返回 200，历史保留。截图已查看：窄侧栏正文、消息操作与编辑框无溢出；截图在刷新后模型选择器仍加载，不能用它证明模型加载耗时或稳态显示已验收。
 - 证据 `docs/validation/native-steer-stop-2026-10-11.json`，原始截图 `/tmp/steer-native-final.png`。这次补足此前普通扩展页面的运行/停止链路证据，不将停止测试冒充模型自然完成后的补充内容执行验证。
+
+
+### 三入口共享功能矩阵（2026-10-11 汇总，整体仍未关闭）
+
+本轮重新读取原始成功记录，而非只检索“passed”文案；摘要及原始文件 SHA 保存在 `docs/validation/shared-chat-evidence-2026-10-11.json`。下列验证的组合不代表每个入口执行了全部排列组合；受控响应、持久化夹具与真实 Terra 测试的边界沿用各节说明。
+
+| 行为 | 主对话 | 画布对话 | 原生侧栏 | 结论/限制 |
+| --- | --- | --- | --- | --- |
+| F01 发送键、换行、IME 与命令菜单 | send-shortcuts、IME 两入口记录中的主对话 | canvas-send-shortcuts、IME 画布记录 | native-send-shortcuts、native-ime-menu-live | 各入口已验；组合输入使用 CDP，不宣称实体系统输入法认证 |
+| F02/F03 展开、草稿及多附件 | composer-draft-live | canvas-composer-live、canvas-draft-recovery-live | native-composer-live | 已验展开/收起保留、末项删除；画布额外覆盖关闭恢复及取消/确认切换 |
+| F03 附件归属下一轮 | attachment-rounds-live | canvas-attachment-ui-rounds-live | native-attachment-capacity-restored | Terra 两轮及刷新后附件 2/0 已验；此前容量故障记录保留 |
+| F04 停止与失败后继续 | stop-two-window-live、manual-retry-live | canvas-queue-stop | native-steer-stop-2026-10-11 | 主入口覆盖真实手动重试；画布停止后队列 blocked；侧栏断网/停止/刷新和数据库 cancelled 已验。不是三入口各自重复全部异常注入 |
+| F05 复制进已有草稿 | copy-draft-result 四组 | canvas-copy-draft-live 双主题 | native-copy-draft-2026-10-11 | 不发送、保留历史及附件，已验 |
+| F06 分享预览和撤销 | share-lifecycle-live 四组，含匿名公开页 | canvas-share-2026-10-11 | native-share-2026-10-11 | 画布/侧栏补验真实匿名 API 范围及撤销；公开页渲染复用主入口证据 |
+| F13 置顶持久化 | pin-after-archive-verified | canvas-pin-2026-10-11 | native-pin-2026-10-11 | 三入口实际置顶/取消置顶及刷新已验，归档已移除 |
+| F15 排队与补充 | chat-queue-real-retest、chat-queue-human-fixed、真实补充双窗口记录 | canvas-queue-stop | queue-native-sidepanel-fixed、native-steer-stop-2026-10-11 | 排队自然续执行、停止/人工交互阻断与补充回执组合已验；不引用失败的 chat-queue-real 作为通过证据 |
+| F16 从此轮分支 | chat-branch-followup 及文件/Goal/权限补验 | canvas-branch-verified | 当前未开放，后端明确拒绝 browser Project | 差异待用户明确，不勾选整体共享一致性；不创建新项目冒充同项目分支 |
+
+F07 的“主对话更多菜单”、F08 的主对话文件目录入口、F09–F11 的应用项目/资源导航、F17 的 Workflow 布局属于各自页面布局；此次矩阵不将不存在的入口标为成功，也不以此自动免除已有的跨入口正文/附件/预览行为要求。它们的独立验收继续引用前文 F07/F08、菜单、资源搜索及复杂画布记录。视觉、状态、待处理和阅读稳定性沿用已归并矩阵；本轮未新增业务行为。

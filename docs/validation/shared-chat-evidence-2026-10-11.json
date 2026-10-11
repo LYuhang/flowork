@@ -1,0 +1,269 @@
+{
+  "purpose": "Re-read existing successful evidence; no new test execution claimed",
+  "records": [
+    {
+      "name": "composer-draft-live",
+      "source": "/tmp/composer-draft-live.json",
+      "source_sha256": "ba6d212b4bba286728622eabf0551f2f31d8b1d8f22e4bc2da0727ad3891851b",
+      "observations": {
+        "passed": true,
+        "cases": [
+          {
+            "width": 1280,
+            "selectionRetained": true,
+            "draftRetained": true,
+            "attachments": 8,
+            "touchScroll": 0,
+            "sends": 0
+          },
+          {
+            "width": 390,
+            "selectionRetained": true,
+            "draftRetained": true,
+            "attachments": 7,
+            "touchScroll": 1165,
+            "sends": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "native-composer-live",
+      "source": "/tmp/native-composer-live.json",
+      "source_sha256": "0a773387eaf5943050679519f2e54742788d062a5992ddb0740e68e1fad85013",
+      "observations": {
+        "nativePanel": true,
+        "passed": true,
+        "selectionRetained": true,
+        "draftRetained": true,
+        "visibility": "visible",
+        "attachments": 5
+      }
+    },
+    {
+      "name": "canvas-composer-live",
+      "source": "/tmp/canvas-composer-live.json",
+      "source_sha256": "ea7c2dd3c697223a1bf4813d7f303257bb4a0e216fea5ecefcbef66536e25002",
+      "observations": {
+        "passed": true,
+        "cases": [
+          {
+            "theme": "light",
+            "attachments": 5,
+            "draftRetained": true
+          },
+          {
+            "theme": "dark",
+            "attachments": 5,
+            "draftRetained": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "canvas-draft-recovery-live",
+      "source": "/tmp/canvas-draft-recovery-live.json",
+      "source_sha256": "a29650e79d5a453455f1b7f07ba91559d65fcdbe3a5782b097edea4d45e01c20",
+      "observations": {
+        "closeResume": true,
+        "cancelSwitch": true,
+        "confirmSwitch": true,
+        "secondaryEscape": true,
+        "passed": true
+      }
+    },
+    {
+      "name": "attachment-rounds-live",
+      "source": "/tmp/attachment-rounds-live.json",
+      "source_sha256": "397bc4e87f4e7db8ab98eb360b9a5b5ca3bfa93871742f3163e68e04527b60cf",
+      "observations": {
+        "firstRoundCompleted": true,
+        "reloadedAttribution": true,
+        "passed": true,
+        "attachment_counts_by_user_turn": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "native-attachment-capacity-restored",
+      "source": "/tmp/native-attachment-capacity-restored.json",
+      "source_sha256": "ffdf3145560e63daabbbc8d6fed0770ea579aa5dca6c99e424eca170e943e84d",
+      "observations": {
+        "nativePanel": true,
+        "selectedChatReady": true,
+        "firstRoundCompleted": true,
+        "reloadedAttribution": true,
+        "passed": true,
+        "visibility": "visible",
+        "attachment_counts_by_user_turn": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "canvas-attachment-ui-rounds-live",
+      "source": "/tmp/canvas-attachment-ui-rounds-live.json",
+      "source_sha256": "6e87cdd64dda8d3113ea5f9cae4a7c7d99987bc9a688a0166534c218380f0046",
+      "observations": {
+        "firstRoundCompleted": true,
+        "reloadedAttribution": true,
+        "passed": true,
+        "attachment_counts_by_user_turn": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "canvas-copy-draft-live",
+      "source": "/tmp/canvas-copy-draft-live.json",
+      "source_sha256": "c99424cb8ec8d7704e647437c5782bb06d648b612cc696f7be3248f6fb08fe45",
+      "observations": {
+        "copyMerged": true,
+        "passed": true,
+        "cases": [
+          {
+            "theme": "light",
+            "attachments": 5,
+            "draftRetained": true
+          },
+          {
+            "theme": "dark",
+            "attachments": 5,
+            "draftRetained": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "ime-menu-navigation-verified",
+      "source": "/tmp/ime-menu-navigation-verified.json",
+      "source_sha256": "f597e303f12740e1d92832e6a728b9ac43578a666604538498d986bfd6be6bd0",
+      "observations": {
+        "passed": true,
+        "cases": [
+          {
+            "surface": "main",
+            "compositionKeysPassed": 10,
+            "secondaryCompositionEscapeSafe": true,
+            "normalEscapeCloses": true
+          },
+          {
+            "surface": "canvas",
+            "compositionKeysPassed": 10,
+            "secondaryCompositionEscapeSafe": true,
+            "normalEscapeCloses": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "native-ime-menu-live",
+      "source": "/tmp/native-ime-menu-live.json",
+      "source_sha256": "c37888a36f26d5211997aa39b98147d0236424e8d9e19cbced37085fc4addff1",
+      "observations": {
+        "nativePanel": true,
+        "secondaryCompositionEscapeSafe": true,
+        "passed": true,
+        "visibility": "visible",
+        "compositionKeysPassed": 10
+      }
+    },
+    {
+      "name": "chat-queue-real-retest",
+      "source": "/tmp/chat-queue-real-retest.json",
+      "source_sha256": "999e47ed585f6356bd229c91ccd5236be21ae1469ab3a0931ad946999b3f2823",
+      "observations": {
+        "previousQueueCancelled": true,
+        "sent": true,
+        "crossWindowQueued": true,
+        "reloadQueued": true,
+        "passed": true,
+        "queueHttp": 201,
+        "releaseStatus": 200,
+        "finalReceipt": {
+          "status": "started",
+          "error_code": null,
+          "started_run_present": true
+        }
+      }
+    },
+    {
+      "name": "canvas-queue-stop",
+      "source": "/tmp/canvas-queue-stop.json",
+      "source_sha256": "8b823788904b2e90b28f1c31bb451d9636d1442089cf8e396d976b8a83cf906a",
+      "observations": {
+        "sent": true,
+        "passed": true,
+        "stopHttp": 202,
+        "releaseStatus": 200,
+        "receipt": {
+          "status": "blocked",
+          "error_code": "previous_turn_not_successful",
+          "started_run_present": false
+        }
+      }
+    },
+    {
+      "name": "queue-native-sidepanel-fixed",
+      "source": "/tmp/queue-native-sidepanel-fixed.json",
+      "source_sha256": "5eab29aedcaaf7f9b1786b0ccfba0bea6da7aa75cdcd8847cb40293c845327f3",
+      "observations": {
+        "nativePanel": true,
+        "sent": true,
+        "reloadQueued": true,
+        "passed": true,
+        "visibility": "visible",
+        "queueHttp": 201
+      }
+    },
+    {
+      "name": "chat-queue-human-fixed",
+      "source": "/tmp/chat-queue-human-fixed.json",
+      "source_sha256": "c8bd525f2ba3aa90b4677897be5ecfcba664c4a71de866b7db7830311fab211f",
+      "observations": {
+        "sent": true,
+        "crossWindowQueued": true,
+        "reloadQueued": true,
+        "humanBlocked": true,
+        "humanSubmitted": true,
+        "passed": true,
+        "queueHttp": 201,
+        "releaseStatus": 200,
+        "finalReceipt": {
+          "status": "blocked",
+          "error_code": "previous_turn_waiting_for_input",
+          "started_run_present": false
+        }
+      }
+    },
+    {
+      "name": "canvas-branch-verified",
+      "source": "/tmp/canvas-branch-verified.json",
+      "source_sha256": "3e343857548e8d42d8407c39893ca049a0aded4bf4edb04646651f020fd05b04",
+      "observations": {
+        "historyVisible": true,
+        "refreshPreserved": true,
+        "passed": true,
+        "releaseStatus": 200
+      }
+    },
+    {
+      "name": "chat-branch-followup",
+      "source": "/tmp/chat-branch-followup.json",
+      "source_sha256": "cc9e327f87d6260fc4d07513de741b81acc2839173190e62239df65645f09633",
+      "observations": {
+        "apiIntercepted": false,
+        "noAutomaticTurn": true,
+        "branchHistoryExcludesLater": true,
+        "branchTurnSubmitted": true,
+        "modelExcludedLaterMarker": true,
+        "sourcePreserved": true,
+        "passed": true
+      }
+    }
+  ]
+}

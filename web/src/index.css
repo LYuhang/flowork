@@ -771,7 +771,8 @@
     }
   }
 
-  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  /* Narrow panes favor stable scrolling over backdrop composition. */
+  @media (max-width: 639px), (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
     .surface-topbar,
     .surface-floating {
       background: oklch(var(--surface-raised));

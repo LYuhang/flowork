@@ -1682,3 +1682,9 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - `/tmp/canvas-attachment-ui-rounds-live.json` 记录 passed=true、持久化用户消息附件数量 2/0、删除测试对话 200；截图 `/tmp/canvas-attachment-ui-rounds-live.jpg` 已查看。未执行、保存或修改 QA 的 200 节点 Workflow，未删除共享项目。
 - 本次同时记录 VFS 内容/运行目录及新对话 state 的 404；不把附件用例成功扩大为全部网络请求无错误。请求监听未捕获提交体，不声称原始 POST 载荷已审计。
 - 重新读取此前 `/tmp/composer-draft-live.json`（390px 触摸滚动 1165px、末项删除后 8→7）、`/tmp/native-composer-live.json`（原生侧栏末项删除后 5）、`/tmp/canvas-composer-live.json`（双主题末项删除后 5）的成功结果。结合三个入口真实两轮模型与刷新归属证据，关闭总清单的多附件操作/跨轮归属项。
+
+### 任务与部署详情读取失败恢复补验（2026-10-11）
+
+- `/tmp/detail-error-recovery-live.json`：真实已部署页面，任务/部署 × 1280/390px × 明暗主题共 8 组通过。浏览器仅对详情 GET 注入可控延迟和 HTTP 503，先验证加载提示，再验证明确的错误和 Retry；点击 Retry 后放行真实 API，恢复资源详情。
+- 全程监测到非 GET/HEAD/OPTIONS 请求数为 0，没有执行任务、调用部署或重放业务。无页面横向溢出，窄屏部署恢复截图已查看。此为前端受控错误验收，不作为真实后端故障复现，也不能代替各 Tab 的局部加载/错误/空数据验证。
+- 前一轮画布附件测试结束后，QA 项目沙盒释放接口返回 200（`/tmp/canvas-attachment-sandbox-release.json`），保留项目、Workflow 和既有文件。

@@ -1,10 +1,28 @@
+import { getSearchQuery, openSearchPanel, searchPanelOpen, SearchQuery, setSearchQuery } from '@codemirror/search';
 import { EditorView } from '@codemirror/view';
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { CodePreviewEditor } from '../CodePreviewEditor';
 
+const theme = vi.hoisted(() => ({ resolvedTheme: 'light' }));
+vi.mock('next-themes', () => ({ useTheme: () => theme }));
+
 describe('CodePreviewEditor desktop editing contract', () => {
+  it('preserves search state when the theme changes', () => {
+    theme.resolvedTheme = 'light';
+    const props = { value: 'needle source', language: { id: 'text', description: null }, readOnly: false,
+      ariaLabel: 'theme source', onChange: () => undefined };
+    const rendered = render(<CodePreviewEditor {...props} />);
+    const view = EditorView.findFromDOM(screen.getByRole('textbox', { name: 'theme source' }).closest('.cm-editor') as HTMLElement)!;
+    act(() => { openSearchPanel(view); view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: 'needle' })) }); });
+    theme.resolvedTheme = 'dark';
+    rendered.rerender(<CodePreviewEditor {...props} />);
+    expect(searchPanelOpen(view.state)).toBe(true);
+    expect(getSearchQuery(view.state).search).toBe('needle');
+    expect(view.state.doc.toString()).toBe('needle source');
+    theme.resolvedTheme = 'light';
+  });
   it('captures the editor selection including indentation and source line coordinates', () => {
     const onSelectionChange = vi.fn();
     const value = 'first\n    second\nthird';

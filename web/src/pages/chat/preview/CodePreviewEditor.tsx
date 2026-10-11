@@ -1,6 +1,7 @@
 import { textSelectionFromOffsets, type PreviewTextSelection } from '@/lib/preview/text-reference';
 import { useCallback, useMemo, type KeyboardEvent } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
+import { search } from '@codemirror/search';
 import { indentWithTab } from '@codemirror/commands';
 import { indentUnit } from '@codemirror/language';
 import { EditorState, type Extension } from '@codemirror/state';
@@ -11,6 +12,8 @@ import { useEffect, useState } from 'react';
 import type { CodePreviewLanguage } from './code-preview-language';
 
 const BASE_EXTENSIONS: Extension[] = [
+  // Keep search state installed when theme/language extensions reconfigure.
+  search(),
   keymap.of([indentWithTab]),
   EditorState.tabSize.of(4),
   EditorView.lineWrapping,

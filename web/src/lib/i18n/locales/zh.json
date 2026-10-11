@@ -82,6 +82,7 @@
   "evaluation.contract": "evaluate(results) 接收全部结果字典，返回指标字典。仅支持指定标准库，不允许第三方库。",
   "evaluation.useTemplate": "使用模板",
   "evaluation.script": "评估脚本",
+  "evaluation.loadError": "加载评估失败。",
   "evaluation.loading": "加载中…",
   "evaluation.save": "保存脚本",
   "evaluation.running": "评估中…",

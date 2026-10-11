@@ -82,6 +82,7 @@
   "evaluation.contract": "evaluate(results) receives all result dictionaries and returns a metrics dictionary. Approved standard library only; no third-party libraries.",
   "evaluation.useTemplate": "Use template",
   "evaluation.script": "Evaluation script",
+  "evaluation.loadError": "Failed to load evaluations.",
   "evaluation.loading": "Loading…",
   "evaluation.save": "Save script",
   "evaluation.running": "Evaluating…",

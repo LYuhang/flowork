@@ -1,3 +1,4 @@
+import { ActionableError } from '@/components/presentation/ActionableError';
 import { SectionBlock } from '@/components/layout/section-block';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,8 +23,14 @@ export function EvaluationTab({ taskId, canEdit, canExecute }: { taskId: string;
     if (run) await taskResultRequest(taskId, 'evaluation', 'POST');
   }, onSuccess: async () => { setDraft(null); await client.invalidateQueries({ queryKey: ['evaluation', taskId] }); },
   onError: (error: Error) => toast.error(error.message) });
-  if (query.isPending) return <p className="p-4">{t('evaluation.loading', 'Loading…')}</p>;
-  if (query.error) return <p role="alert" className="p-4 text-destructive">{query.error.message}</p>;
+  if (query.isPending) return <p role="status" className="p-4 text-sm text-content-secondary">{t('evaluation.loading', 'Loading…')}</p>;
+  if (query.isError) return <ActionableError
+    title={t('evaluation.loadError', 'Failed to load evaluations.')}
+    description={t('logs.loadErrorHint', 'Check the connection and try again.')}
+    actionLabel={t('retry', 'Retry')}
+    onAction={() => void query.refetch()}
+    technicalDetails={query.error.message}
+  />;
   return <div className="space-y-5">
     <SectionBlock variant="detail" title={t('evaluation.title', 'Evaluation')} contentClassName="space-y-4">
     <EvaluationEditor value={value} onChange={setDraft} disabled={!canEdit || mutation.isPending} alwaysOpen />

@@ -1653,3 +1653,18 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 另建独立对话做单文件诊断，30 秒仍未得到完成附件，读取草稿接口 200；未执行 Agent，项目删除 200。证据 `/tmp/native-upload-probe.json`。页面 response 监听均未捕获上传失败响应，不能据此认为上传请求正常，也尚未取得具体上传错误；需进一步检查扩展通信层及错误详情。
 - 诊断运行中磁盘可用空间曾为 0，关闭测试浏览器后恢复 52MB；这是实测环境容量问题，尚不能认定为上传失败的直接原因。后续需先释放可再生成的测试缓存或归档旧测试产物，再做受控补验。
 - 前序提交 1939349 的 CI 38112928423（API/Web/插件）和 Security 38112928429 全部成功。已将此前完成内容推送 main 至 e7a4d31；新 CI 38114492559 与 Security 38114492562 已启动，本次侧栏失败不计入通过项。
+
+### V05 原生侧栏测试时序修正与第二轮提交中断（2026-10-11）
+
+- 已归档旧 `/tmp/timeout-ci-report` 与 `/tmp/flowork-local-cli-qa` 至同名 `.verified-archive.tar.gz`，逐文件 SHA-256 验证后移除原目录；后一归档含 2132 个普通文件。校验最初使用压缩包随机读取过慢，停止校验进程后改为顺序读取完成。启动浏览器前磁盘可用空间由约 51MB 增至 92MB，归档保留可恢复，未删除应用数据。
+- `/tmp/native-upload-diagnostic.json` 的浏览器上下文请求记录没有附件上传请求，且起始仍在读取旧对话状态。测试脚本从历史菜单选择新对话后，遗漏原测试已有的 `data-chat-id` 就绪等待；此前失败不能直接认定为生产上传链路缺陷。没有为此修改产品或新增自动重试。
+- 修正脚本先确认目标对话 ID 后，新建独立原生侧栏对话，两个文本附件成功上传，Terra 第一轮实际读取并回复正确字符串，历史接口确认该轮有两个附件。
+- 第二轮不带附件提交后，页面显示“Connection interrupted. The live response could not be resumed.”，并明确说明手动 Retry 会新建执行而非恢复连接；未点击重试。只读检查时页面有两条用户消息、无停止按钮，但持久化历史只有第一轮用户消息及其回复，不能认为第二轮已接受或完成。
+- 证据 `/tmp/native-attachment-second-observation.json`、`/tmp/native-attachment-ready-ready.json`（最终测试结果）、相关 `.log`。原生侧栏两轮完整归属验收仍未通过，需要继续定位第二轮提交/恢复链路，不把首次上传恢复成功扩大为整个用例通过。
+
+### 第二轮失败确认磁盘原因并恢复数据库（2026-10-11）
+
+- 原生侧栏测试最终返回 draft HTTP 500、临时项目删除 HTTP 500。PostgreSQL 日志在 05:30:17 UTC 明确记录 `INSERT INTO agent_runs` 时 `No space left on device`；之后 API 日志报告 5433 连接被拒绝。这提供了本次第二轮未持久化的直接服务端原因，不能归因为附件串轮或模型失败。
+- 确认 Docker 无运行容器后，移除三份旧测试镜像 `flowork-postgres:ci-fix`、`flowork-valkey:security-scan`、`flowork-openfga-postgres:security-fix`，未删除卷、项目文件或 resident/local 应用镜像。可用空间升至约 533MB。
+- 通过原数据目录与原端口启动 PostgreSQL，未初始化或重置数据库。真实 `/auth/me` 与本测试对话历史接口均返回 200，再清理本测试项目返回 200；结果 `/tmp/native-attachment-db-recovery.json`，清理后可用空间约 574MB。
+- 未重发失败的第二轮请求，也未为产品增加自动业务重试。原生侧栏两轮验收保持未完成，后续在容量恢复后使用新的独立测试对话验证。

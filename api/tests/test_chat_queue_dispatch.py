@@ -42,6 +42,7 @@ async def test_queued_dispatch_runs_once_and_reconciles_durable_result(client, o
         expected = 'started' if outcome in {'accepted', 'lost_after_commit'} else 'failed' if outcome == 'denied' else 'unknown'
         assert result['status'] == expected
         assert result['started_run_id'] == ('queued-' + input_id if expected == 'started' else None)
+        assert (await ChatQueueRepo(db, me['user_id']).latest(chat))['status'] == expected
 
 
 @pytest.mark.asyncio

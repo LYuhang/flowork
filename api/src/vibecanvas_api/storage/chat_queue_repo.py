@@ -77,10 +77,8 @@ class ChatQueueRepo:
         if row is None:
             return None
         result = await self._materialize(row)
-        if result['status'] in {'claimed', 'unknown'}:
-            result.update(status='started' if row['accepted_run_id'] else 'unknown',
-                          started_run_id=row['accepted_run_id'],
-                          error_code=None if row['accepted_run_id'] else result['error_code'] or 'submission_unconfirmed')
+        if result['status'] in {'claimed', 'unknown'} and row['accepted_run_id']:
+            result.update(status='started', started_run_id=row['accepted_run_id'], error_code=None)
         elif result['status'] == 'queued':
             if row['previous_status'] in {'failed', 'cancelled', 'cancel_requested'}:
                 result.update(status='blocked', error_code='previous_turn_not_successful')

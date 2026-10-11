@@ -136,7 +136,10 @@ async def test_queue_read_after_process_loss_does_not_dispatch_or_claim(client):
         await repo.claim(chat, run)
     async with session(me) as db:
         repo = ChatQueueRepo(db, me['user_id'])
-        assert (await repo.latest(chat))['status'] == 'unknown'
+        # A read during dispatch must not invent a failure/unknown outcome.
+        receipt = await repo.latest(chat)
+        assert receipt['status'] == 'claimed'
+        assert receipt['error_code'] is None
         assert await repo.claim(chat, run) is None
         await AgentRunsRepo(db).create(run_id='accepted-' + input_id, tenant_id=me['tenant_id'],
             chat_id=chat, creator_user_id=me['user_id'], client_request_id=input_id, input_snapshot={})

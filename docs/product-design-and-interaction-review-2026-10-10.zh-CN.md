@@ -1098,3 +1098,17 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 下一轮 `t_27d91c994f6648aba97c1280bdda21d1` 的真实 tab-list 工具回执 succeeded，包含目标 URL、tab_id、window_id；不是仅依据模型成功文案。结束后释放 QA 沙盒 200。
 - 证据 `/tmp/queue-extension-foreground.json`、`/tmp/queue-extension-foreground-history.json`。截图中在断言看到完成后又短暂出现处理中，不能据此宣称全过程状态稳定；只读重新打开验证最终回复存在、停止按钮消失（`/tmp/queue-extension-final-view.json`）。仍需补连续观察，排查完成附近旧流重放/状态合并。
 - main `3d44cb4` 的 Web 门禁检测到 `composer.queue.attachments` 缺基础翻译键（已有 one/other）。按现有语言目录约定补齐中英文基础回退，单复数形式保持；翻译键覆盖、两语言一致性及硬编码文案检查通过。不得绕过门禁。
+
+### F15 双窗口连续时序补测（2026-10-11）
+
+- 在主应用用 Terra 显式启动新一轮排队验收，每 100ms 记录停止按钮及最后一条 assistant 文本变化。输入 `d9301c65-7772-4c81-9c63-5a7fa4956a2f` 仅派发下一轮 `t_6328bb4a1fa7417ab4d3a7c666598c6c`；两窗口及观察窗口刷新均通过。
+- 记录显示第一轮开始 → 第一轮完成 → 约 5.8 秒后下一轮运行 → 下一轮完成，最后持续观察 8 秒未回退。未复现“第二轮最终完成后又运行”，不能据此将上一次侧边栏截图直接定性为已确认的历史/流合并缺陷，也不能宣称侧边栏异常已修复。
+- 证据 `/tmp/queue-completion-timeline.json`、`.cjs`、`.png`；QA 沙盒释放 200。后续需在侧边栏本身记录同样的连续时序，区分普通两轮交接和完成态回退。
+
+### F15 侧边栏连续记录与提交状态修正
+
+- 扩展新对话 `48e88957-4ac8-4a82-908b-e2c868426a48` 连续记录：第一轮完成后直到第二轮最终回复，停止按钮未重新出现；未观察到最终完成后回退。第二轮真实 tab-list 成功，结果不丢失，但运行状态发现/显示存在延迟，仍需检查 activity reconciliation 时序。
+- 证据 `/tmp/queue-extension-timeline.json`、`/tmp/queue-extension-timeline-history.json`。QA 沙盒释放 200。不能把脚本 passed 当作所有连续状态断言均已通过，因为脚本原本只断言最终完成。
+- 此轮在正常派发中读取队列，得到 unknown/submission_unconfirmed；随后同一次派发正常启动 `t_8d833de147c74e11bec321741d9f5717`。根因是 latest 查询把所有尚无 accepted_run 的 claimed 一律映射为 unknown。
+- 修正为保留持久化 claimed 状态；真正派发失败后的 unknown 保持不变，若已有明确 run 回执仍修正为 started。读请求不派发、不重试。进程重启后没有确认结果的 claimed 也不凭空推断为失败；后续查询仍可确认已接受的执行。
+- 复用确认无客户端占用的旧隔离 PostgreSQL（55439），仅建立独立 queue_confirmation_test 数据库，未修改旧库。队列仓储/派发 12 项通过；补充各结果 latest 查询断言后，5 项派发测试再次通过；Ruff 通过。证据 `/tmp/queue-confirmation-tests.log`、`/tmp/queue-confirmation-outcomes.log`。

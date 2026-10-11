@@ -1802,3 +1802,12 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 将批次错误日志移到拿得到 HTTP 响应的层，保留原事件名和 reason_code，增加 openfga_request_id；不记录查询 tuple、用户信息、响应正文，不改变 fail-closed、返回错误及无重试语义。
 - 新增回归检查请求恰好一次、仅一条失败日志、上游 ID 保留、私有消息不进日志。13 项 HTTP 客户端单元测试通过，使用同一测试文件隔离运行（`/tmp/openfga-log-correlation-unit.log`）。直接走仓库全局 conftest 的尝试因 root 无法 initdb 在 setup 阶段失败，不冒充数据库集成验收通过。
 - 此改动仍为本地待发布，需在下一次 API 发布时部署；不是 503 根因修复。生产前端的删除恢复循环修复仍为 b21b4a5。
+
+
+### 授权关联日志发布与健康验证（2026-10-11）
+
+- 发布前只读确认全租户 Agent 无 running/waiting_approval/cancel_requested，Workflow 执行均为 success/error；任务为终态/暂停，定时执行均为终态。
+- 只更新 OpenFGA 客户端文件，逐一优雅重启 API 与后台 worker；启动使用原进程完整环境、参数和工作目录，未遗漏原资源配置，未改 OpenFGA/数据库/沙盒配置。原日志保留为 pre-auth-correlation.log。运行文件 SHA256 与仓库相同。
+- API 启动初期端口尚未监听；随后 `/healthz` 200，已登录用户的项目、任务、部署三个真实列表 GET 均 200，证据 `/tmp/auth-correlation-deploy-check.json`。不是通过自动重新执行业务验证。
+- 因此上节“本地待发布”的日志关联改动现已生效。13 项客户端单元测试及上述健康读取已通过，但没有人为使线上授权失败；关联日志失败分支仍以 MockTransport 测试为证，不宣称线上 503 已修复。
+- b21b4a5 完整 CI 38118734576、安全 38118734571 本次核对仍在运行，等待终态后再批量推送本轮诊断记录，避免文档更新反复取消正在运行的检查。

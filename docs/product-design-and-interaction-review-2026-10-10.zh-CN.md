@@ -1601,3 +1601,11 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - ESLint、Vite 构建、部署路径检查通过，已发布前端；未宣称此次已运行完整 TypeScript 检查。
 - `/tmp/mobile-preview-verified.json` 四组真实文件测试：上传、目录加载、文件点击及正文读取；先输入草稿，打开再关闭预览，四组草稿均保留。390px 覆盖层宽度大于 380px，关闭后输入区大于 280px；已查看明暗窄屏截图 `/tmp/mobile-preview-fixed-390-{light,dark}.jpg`。独立项目删除 200。
 - 网络检查仍捕获四次对话列表 `/chats` 503，因此仅判定布局/文件/草稿用例通过。此前队列 503 同时段 API 日志有 `openfga_batch_check_failed / authorization_check_failed`；本轮同样存在授权服务错误，需要进一步定位，不归因于布局、不加自动重试或放宽权限。
+
+### 授权 503 诊断与本轮门禁（2026-10-11）
+
+- 解析 OpenFGA 日志中的 BatchCheck 子结果，确认 04:41–04:47 多次真实失败为 PostgreSQL `sql error: timeout: read tcp ...:5433: i/o timeout`；请求整体常在 27–443ms 返回，不能简单认定为 API 两秒总超时。只提取错误消息，不输出日志中的原始用户/资源元组。
+- 数据库新连接实测 15ms，检查时可用内存约 1.1GB。当前启动配置强制 `context-propagation-to-datastore=true`，与 [OpenFGA 官方默认配置](https://github.com/openfga/openfga/blob/main/.config-schema.json) 不同；官方说明该选项可能在取消/超时时导致连接池连接被取消。配置差异只是排查线索，不是已证明的根因。
+- 同一份历史失败批次（50 个只读检查），当前实例 true 与临时独立端口实例 false 各完成 10 次串行、30 次三并发，均无子检查错误。证据 `/tmp/fga-cancellation-probe.json`、`/tmp/fga-concurrent-probe.json`；临时进程均退出，不更改真实权限，不添加业务重试。初次诊断缺少服务令牌返回 401，补齐现有凭据后才进行有效对照，令牌未输出。
+- 当前证据不足以证明切换该配置能解决 503，因此未修改生产启动参数；真实故障继续待查，不将暂时无法复现写成已修复。
+- `c645e6b` 对应完整 CI `38111640069` 与 Security `38111640123` 均已成功，后续本地已验提交可以推送；后续提交仍需确认各自门禁结果。

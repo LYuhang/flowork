@@ -1,0 +1,40 @@
+{
+  "installer_sha256": "a596858c6d9ebff9ba4b173cc4a340f644693b968004e4bd0841cbd5eff93616",
+  "run_as": "flowork (non-root)",
+  "exit_code": 0,
+  "cleanup_reproduction": [
+    {
+      "version": "before",
+      "exit_code": 1,
+      "permission_denied": true
+    },
+    {
+      "version": "after",
+      "exit_code": 0,
+      "permission_denied": false
+    }
+  ],
+  "fresh_source_build": true,
+  "private_build_tree_removed": true,
+  "independent_postgres": true,
+  "model_publish_canary_promote_rollback": true,
+  "revocation_verified": true,
+  "supply_chain_tests_passed": 35,
+  "benchmarks": {
+    "openfga_list_objects_samples": 100.0,
+    "openfga_list_objects_p50_ms": 5.588,
+    "openfga_list_objects_p95_ms": 11.445,
+    "openfga_list_objects_p99_ms": 13.828,
+    "openfga_batch_check_50_samples": 100.0,
+    "openfga_batch_check_50_p50_ms": 8.777,
+    "openfga_batch_check_50_p95_ms": 14.644,
+    "openfga_batch_check_50_p99_ms": 24.715
+  },
+  "production_observation": {
+    "batch_requests": 2443,
+    "failed_batches": 0,
+    "checks": 42200,
+    "failed_checks": 0,
+    "observed_until": "2026-10-11T08:25:05.946358+00:00"
+  }
+}

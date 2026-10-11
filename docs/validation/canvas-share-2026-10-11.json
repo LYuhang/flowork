@@ -1,0 +1,13 @@
+{
+  "share": {
+    "previewBeforeCreation": true,
+    "creates": 1,
+    "anonymousMessageCount": 1,
+    "previewMatchesPublic": true,
+    "revoked": true,
+    "focusReturned": true,
+    "sends": 0
+  },
+  "passed": true,
+  "cleanupChat": 200
+}

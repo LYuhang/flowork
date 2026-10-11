@@ -1,0 +1,14 @@
+{
+  "nativePanel": true,
+  "visibility": "visible",
+  "pin": {
+    "pinReload": true,
+    "unpinReload": true,
+    "archiveAbsent": true,
+    "focusReturned": true,
+    "patches": 2,
+    "sends": 0
+  },
+  "passed": true,
+  "cleanupProject": 200
+}

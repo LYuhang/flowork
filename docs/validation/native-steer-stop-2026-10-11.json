@@ -1,0 +1,19 @@
+{
+  "apiIntercepted": false,
+  "model": "GPT-5.6-Terra",
+  "posts": 1,
+  "stage": "complete",
+  "nativePanel": true,
+  "visibility": "visible",
+  "sent": true,
+  "chatId": "fb8fc10e-c829-484f-8c2c-0af0b0ba322c",
+  "inputId": "4c056581-11e9-4b1e-8e27-fb3f9fa78510",
+  "runId": "t_16699e770c084045a8638c1a1038dd27",
+  "offlineRecovered": true,
+  "stopPreservesHistory": true,
+  "passed": true,
+  "reloadPreservesHistory": true,
+  "sandboxReleaseHttp": 200,
+  "sandboxReleased": true,
+  "durableRunStatus": "cancelled"
+}

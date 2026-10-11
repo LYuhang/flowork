@@ -23,7 +23,9 @@ case "$(uname -s):$(uname -m)" in
 esac
 
 work_dir="$(mktemp -d)"
-trap 'rm -r "$work_dir"' EXIT
+# Go's module cache contains read-only directories. Only make this installer’s
+# private temporary tree writable; caller-provided caches are left untouched.
+trap 'chmod -R u+w "$work_dir"; rm -r "$work_dir"' EXIT
 for tool in curl sha256sum tar patch; do
   command -v "$tool" >/dev/null || { printf 'Required build tool missing: %s\n' "$tool" >&2; exit 2; }
 done

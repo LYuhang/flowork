@@ -1235,3 +1235,11 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - Security gates 38101216941 的镜像步骤失败，公开构建产物明确显示 extension-build 缺 `/app/web/src/index.css`（ENOENT）。这是共享主题引入的新构建输入未同步到 Docker 阶段；原生部署构建成功不能覆盖 Docker 场景。
 - web/Dockerfile 补 COPY 主应用主题文件，并在构建阶段检查非空 shell-theme.css。使用隔离目录，仅复制该阶段所需扩展源码、branding、index.css，复用已安装依赖，实际 Vite 构建与产物引用检查通过（`/tmp/extension-docker-input-check.log`）。受本机磁盘空间限制未在本机执行全镜像构建；完整镜像验证交由推送后的 CI，不将隔离输入验证当作镜像门禁通过。
 - 本次因明确修复失败门禁而立即推送累计提交；新的完整 CI 仍需跟踪。
+
+### 2026-10-11：U04 真实 Deployment PTY 补验
+
+- 复用已停用的 QA Mixed No Model Control API（700aa88a…），显式启用一次，准备实例后从部署详情 Terminal 页点击 Connect terminal。未调用 Workflow、未使用模型。
+- 实际浏览器终端输入 printf，真实沙盒返回 PTY_THEME_READY；亮/暗/system 三次偏好切换过程中 WebSocket 数量始终 1、ready 握手始终 1，原 xterm DOM 仍连接。随后输入另一命令收到 PTY_THEME_AFTER，验证换肤后双向链路仍可用。
+- 此页无直接主题按钮，测试通过 localStorage+storage 事件触发应用 ThemeProvider；真实设置菜单选择及 system 变化已有独立验收，不把此脚本描述成点击了主题菜单。终端亮暗截图已查看，输出可读；暗色截图捕获在其他按钮的颜色过渡期间，不作为全页面稳定样式截图。
+- 主动 Disconnect 后出现 Reconnect；最终 API 停用 200，并再次读取确认 enabled=false、active_revision_id=null。证据 `/tmp/pty-theme-live.json`，本轮没有留下活跃验收实例。
+- 该项补齐真实 PTY 换肤不重连验证；全页面稳定截图及输入/滚动/模糊性能仍待完成。

@@ -129,6 +129,60 @@ async def test_metadata_only_fork_preserves_native_completed_history(tmp_path, l
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('goal_status', ['paused', 'active'])
+async def test_product_branch_keeps_selected_history_without_inheriting_goal(tmp_path, local_provider, goal_status):
+    from vibecanvas_api.services.agent_runtime.codex_branch import fork_native_thread
+
+    executable = resolve_codex_executable()
+    if executable is None:
+        pytest.skip('Codex CLI is not installed')
+    provider_url, calls, _entered, _release = local_provider
+    client = CodexAppServer(
+        executable=executable,
+        env={'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'CODEX_HOME': str(tmp_path)},
+        cwd=str(tmp_path), experimental=True,
+    )
+    common = thread_options(tmp_path, provider_url)
+    try:
+        await client.start()
+        source = (await client.request('thread/start', common, timeout_s=20))['thread']['id']
+        turns = []
+        for index in range(3):
+            started = await client.request('turn/start', {
+                'threadId': source,
+                'input': [{'type': 'text', 'text': f'Branch boundary marker {index}'}],
+            }, timeout_s=20)
+            turns.append(started['turn']['id'])
+            async with asyncio.timeout(40):
+                async for event in client.messages():
+                    if event.get('method') == 'turn/completed':
+                        assert event['params']['turn']['status'] == 'completed'
+                        break
+                else:
+                    pytest.fail('App-server closed before completing the fixture turn')
+        await client.request('thread/goal/set', {
+            'threadId': source, 'objective': 'Preserve the original goal', 'status': goal_status,
+        }, timeout_s=20)
+        target = await fork_native_thread(client, source_thread_id=source,
+                                          last_turn_id=turns[1], overrides=common)
+        original = await client.request('thread/read', {'threadId': source, 'includeTurns': True}, timeout_s=20)
+        copied = await client.request('thread/read', {'threadId': target, 'includeTurns': True}, timeout_s=20)
+        assert all(f'Branch boundary marker {i}' in json.dumps(original) for i in range(3))
+        assert all(f'Branch boundary marker {i}' in json.dumps(copied) for i in range(2))
+        assert 'Branch boundary marker 2' not in json.dumps(copied)
+        assert (await client.request('thread/goal/get', {'threadId': target}, timeout_s=20))['goal'] is None
+        assert (await client.request('thread/goal/get', {'threadId': source}, timeout_s=20))['goal']['status'] == goal_status
+        # An active source Goal may continue independently. Any extra provider
+        # request must still contain the source-only third turn, never the fork.
+        if goal_status == 'paused':
+            assert len(calls) == 3
+        else:
+            assert all('Branch boundary marker 2' in json.dumps(body) for body in calls[3:])
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_native_steering_keeps_the_active_turn_and_consumes_the_update(tmp_path, local_provider):
     from vibecanvas_api.services.agent_runtime.codex_steering import steer_native_turn
     from vibecanvas_api.services.agent_runtime.protocol import RuntimeSteerInput

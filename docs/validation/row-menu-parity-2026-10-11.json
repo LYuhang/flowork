@@ -1,0 +1,57 @@
+{
+  "cases": [
+    {
+      "width": 1280,
+      "kind": "project",
+      "labels": [
+        "New Chat",
+        "Start sandbox",
+        "Rename project",
+        "Delete project"
+      ],
+      "escapeFocus": true,
+      "rightClickParity": true,
+      "outsideClose": true
+    },
+    {
+      "width": 1280,
+      "kind": "chat",
+      "labels": [
+        "Pin",
+        "Rename",
+        "Delete"
+      ],
+      "escapeFocus": true,
+      "rightClickParity": true,
+      "outsideClose": true
+    },
+    {
+      "width": 390,
+      "kind": "project",
+      "labels": [
+        "New Chat",
+        "Start sandbox",
+        "Rename project",
+        "Delete project"
+      ],
+      "escapeFocus": true,
+      "rightClickParity": false,
+      "outsideClose": true
+    },
+    {
+      "width": 390,
+      "kind": "chat",
+      "labels": [
+        "Pin",
+        "Rename",
+        "Delete"
+      ],
+      "escapeFocus": true,
+      "rightClickParity": false,
+      "outsideClose": true
+    }
+  ],
+  "businessWrites": 0,
+  "passed": true,
+  "cleanup": 200
+}

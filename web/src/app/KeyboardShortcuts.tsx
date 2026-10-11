@@ -153,6 +153,7 @@ function closeTopmostDialog(): boolean {
 export function KeyboardShortcuts() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
 

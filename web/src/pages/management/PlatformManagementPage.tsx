@@ -276,13 +276,13 @@ export function PlatformManagementPage() {
       <div className="page-content max-w-3xl">
         <ActionableError
           title={t('management.unavailable', 'Platform management is not available for this account.')}
-          description={t('management.unavailableHint', 'This area is limited to platform operators. Workspace owners can manage members, identity, and service accounts from Organization settings.')}
+          description={t('management.unavailableHint', 'This area is limited to platform operators. You can manage your preferences and account in Settings.')}
           actionLabel={t('retry', 'Retry')}
           onAction={() => void overview.refetch()}
           technicalDetails={overview.error instanceof Error ? overview.error.message : undefined}
         />
         <Button asChild variant="outline" className="mt-4">
-          <Link to="/settings?tab=organization">{t('management.openOrganization', 'Open Organization settings')}</Link>
+          <Link to="/settings">{t('management.openSettings', 'Open settings')}</Link>
         </Button>
       </div>
     </div>

@@ -1668,3 +1668,10 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 确认 Docker 无运行容器后，移除三份旧测试镜像 `flowork-postgres:ci-fix`、`flowork-valkey:security-scan`、`flowork-openfga-postgres:security-fix`，未删除卷、项目文件或 resident/local 应用镜像。可用空间升至约 533MB。
 - 通过原数据目录与原端口启动 PostgreSQL，未初始化或重置数据库。真实 `/auth/me` 与本测试对话历史接口均返回 200，再清理本测试项目返回 200；结果 `/tmp/native-attachment-db-recovery.json`，清理后可用空间约 574MB。
 - 未重发失败的第二轮请求，也未为产品增加自动业务重试。原生侧栏两轮验收保持未完成，后续在容量恢复后使用新的独立测试对话验证。
+
+### V05 容量恢复后的原生侧栏两轮附件验收通过（2026-10-11）
+
+- 使用全新独立 QA 对话，在 Chrome 原生 sidePanel 中等待目标 chat ID 就绪，选择 GPT-5.6-Terra。第一轮上传两个文本文件，提示词不包含文件中的验证字符串，模型实际读取并正确返回；第二轮不带附件，正常返回独立确认文本。
+- 重载原生侧栏后两条用户消息保留，文件名仅显示于第一轮，编辑框附件清空。持久化历史第一轮 attachments=2、第二轮 attachments=0。证据 `/tmp/native-attachment-capacity-restored.json`，截图 `/tmp/native-attachment-capacity-live.jpg` 已查看，临时项目删除返回 200。
+- 本次是容量恢复后的新测试，不是自动重放失败请求。此结果补齐原生侧栏附件归属，不能抹去之前磁盘满导致的服务中断；画布相同用例仍在补验。
+- 画布首次补验在历史菜单选择预建空对话时超时，未发送模型请求，测试对话已删除（200）。证据 `/tmp/canvas-attachment-rounds-live.json`。后续改用 UI 新建对话，避免用未显示于历史菜单的空记录作为入口。

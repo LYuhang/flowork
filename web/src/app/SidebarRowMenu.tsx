@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useRef, type ReactNode } from 'react';
 import { MoreHorizontal, type LucideIcon } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -12,18 +12,20 @@ export interface SidebarRowAction {
 }
 
 /** Both entry points use the same actions and confirmation handlers. */
-export function SidebarRowMenu({ label, actions, children }: {
+export function SidebarRowMenu({ label, actions, children, onAction }: {
   label: string;
   actions: SidebarRowAction[];
   children: ReactNode;
+  onAction?: (trigger: HTMLButtonElement | null) => void;
 }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const items = (context: boolean) => {
     const Item = context ? ContextMenuItem : DropdownMenuItem;
     const Separator = context ? ContextMenuSeparator : DropdownMenuSeparator;
     return actions.map(({ label, icon: Icon, onSelect, disabled, destructive }) => (
       <Fragment key={label}>
         {destructive && <Separator />}
-        <Item disabled={disabled} onSelect={onSelect} className={destructive ? 'text-destructive focus:text-destructive' : undefined}>
+        <Item disabled={disabled} onSelect={() => { onAction?.(triggerRef.current); onSelect(); }} className={destructive ? 'text-destructive focus:text-destructive' : undefined}>
           <Icon className="mr-2 size-4" />{label}
         </Item>
       </Fragment>
@@ -36,7 +38,7 @@ export function SidebarRowMenu({ label, actions, children }: {
           {children}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button type="button" aria-label={label} title={label}
+              <button ref={triggerRef} type="button" aria-label={label} title={label}
                 className="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-surface-raised hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(pointer:coarse)]:size-9">
                 <MoreHorizontal className="size-4" />
               </button>

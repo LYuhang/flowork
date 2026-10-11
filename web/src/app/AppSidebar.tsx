@@ -16,7 +16,7 @@
 import { useChatListActions } from '@/components/agent-sidebar/use-chat-list-actions';
 import { useTranslation } from 'react-i18next';
 import { openProjectChatDraft } from '@/lib/chat/project-draft';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { NavLink, useLocation, useNavigate } from 'react-router';
 import {
@@ -143,6 +143,15 @@ export function AppSidebar({
   onSearchActions?: () => void;
 } = {}) {
   const { t } = useTranslation();
+  const rowActionTrigger = useRef<HTMLButtonElement | null>(null);
+  const rememberRowAction = (trigger: HTMLButtonElement | null) => { rowActionTrigger.current = trigger; };
+  const restoreRowActionFocus = (event: Event) => {
+    if (rowActionTrigger.current?.isConnected) {
+      event.preventDefault();
+      rowActionTrigger.current.focus();
+    }
+    rowActionTrigger.current = null;
+  };
   const navigate = useNavigate();
   const location = useLocation();
   const collapsed = useUIStore((s) => s.navSidebarCollapsed);
@@ -595,7 +604,7 @@ export function AppSidebar({
                 );
                 return (
                   <div key={project.project_id}>
-                    <SidebarRowMenu label={t('nav.projects.actions', 'Actions for project {{name}}', { name: project.name })} actions={[
+                    <SidebarRowMenu onAction={rememberRowAction} label={t('nav.projects.actions', 'Actions for project {{name}}', { name: project.name })} actions={[
                       { label: t('new_chat', 'New Chat'), icon: Plus, disabled: !carrierScopeId, onSelect: () => newChat(project.project_id) },
                       { label: sandboxState === 'idle' || sandboxState === 'closed'
                           ? t('chat.sandbox.start_hint', 'Start sandbox') : t('chat.sandbox.close_hint', 'Release sandbox'),
@@ -640,7 +649,7 @@ export function AppSidebar({
                             </div>
                           );
                           return (
-                            <SidebarRowMenu key={item.chat_id} label={t('nav.chatHistory.actions', 'Actions for conversation {{name}}', { name: label })} actions={[
+                            <SidebarRowMenu onAction={rememberRowAction} key={item.chat_id} label={t('nav.chatHistory.actions', 'Actions for conversation {{name}}', { name: label })} actions={[
                               ...actionsForChat(item),
                               { label: t('nav.chatHistory.rename', 'Rename'), icon: Pencil,
                                 onSelect: () => openRenameChat(item.chat_id, label) },
@@ -722,7 +731,7 @@ export function AppSidebar({
       </button> : null}
       </nav>
       <Dialog open={releaseProject !== null} onOpenChange={(open) => { if (!open) setReleaseProject(null); }}>
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={restoreRowActionFocus}>
           <DialogHeader>
             <DialogTitle>{t('nav.projects.releaseTitle', 'Release project sandbox?')}</DialogTitle>
             <DialogDescription>{t('nav.projects.releaseDescription', 'This releases the shared runtime for all chats in this project. Saved files and conversation history remain available; the next message restores the workspace.')}</DialogDescription>
@@ -783,7 +792,7 @@ export function AppSidebar({
         open={!!renameProjectTarget}
         onOpenChange={(open) => !open && setRenameProjectTarget(null)}
       >
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={restoreRowActionFocus}>
           <form onSubmit={(event) => {
             event.preventDefault();
             void submitRenameProject();
@@ -820,7 +829,7 @@ export function AppSidebar({
         open={!!deleteProjectTarget}
         onOpenChange={(open) => !open && setDeleteProjectTarget(null)}
       >
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={restoreRowActionFocus}>
           <DialogHeader>
             <DialogTitle>{t('nav.projects.deleteTitle', 'Delete this project?')}</DialogTitle>
             <DialogDescription>
@@ -858,7 +867,7 @@ export function AppSidebar({
           if (!open) setRenameTarget(null);
         }}
       >
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={restoreRowActionFocus}>
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -903,7 +912,7 @@ export function AppSidebar({
       <Dialog open={!!deleteTarget} onOpenChange={(open) => {
         if (!open) { setDeleteTarget(null); setDeleteChatFiles(false); }
       }}>
-        <DialogContent className="min-w-0 overflow-x-hidden">
+        <DialogContent onCloseAutoFocus={restoreRowActionFocus} className="min-w-0 overflow-x-hidden">
           <DialogHeader className="min-w-0">
             <DialogTitle>
               {t('nav.chatHistory.deleteTitle', 'Delete this chat?')}

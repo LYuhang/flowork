@@ -1688,3 +1688,18 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - `/tmp/detail-error-recovery-live.json`：真实已部署页面，任务/部署 × 1280/390px × 明暗主题共 8 组通过。浏览器仅对详情 GET 注入可控延迟和 HTTP 503，先验证加载提示，再验证明确的错误和 Retry；点击 Retry 后放行真实 API，恢复资源详情。
 - 全程监测到非 GET/HEAD/OPTIONS 请求数为 0，没有执行任务、调用部署或重放业务。无页面横向溢出，窄屏部署恢复截图已查看。此为前端受控错误验收，不作为真实后端故障复现，也不能代替各 Tab 的局部加载/错误/空数据验证。
 - 前一轮画布附件测试结束后，QA 项目沙盒释放接口返回 200（`/tmp/canvas-attachment-sandbox-release.json`），保留项目、Workflow 和既有文件。
+
+### 任务日志与部署指标局部错误/空状态补验（2026-10-11）
+
+- `/tmp/detail-tab-empty-verified.json`：任务 Events 和部署 metrics 两个区域 × 1280/390px × 明暗，共 8 组通过。浏览器控制对应 GET 返回 503，明确展示读取错误；点击该区域 Retry 后返回空集合，分别显示 No events yet / No invocations in this window，未将错误伪装为空数据。非读取请求数均为 0，无整页横向溢出。
+- 初始测试在 Tab 渲染完成前扫描折叠按钮，遗漏展开 Events，导致提示断言失败；诊断 DOM 确认 Events 仍折叠。修正为等待实际 Events 按钮并确认 aria-expanded=true 后再验证，没有为测试修改产品逻辑。部署空状态使用实际英文翻译，而非源码备用字符串。
+- 此证据针对日志/指标两个区域，尚不等于执行历史、定时触发记录、评估等全部 Tab 异常组合完成，因此不整体关闭任务/部署验收项。
+- e7a4d31 对应 CI 38114492559 和 Security 38114492562 已全部成功；累计验收文档已推送 main 至 13e7f4e，后续提交门禁另行跟踪。
+
+### 修正日志区域无依据的 Live 提示（2026-10-11）
+
+- 窄屏错误截图确认：事件 GET 失败时标题仍显示 Live。源码用 `stream.done === false` 推断 Live，但 hook 未建立连接时也返回 false，不能证明实时连接正常。
+- 最小修正仅保留收到结束事件后的 Stream closed 标签，去掉推断出的 Live，不新增连接状态、轮询或业务重试。错误卡及其 Retry 行为不变。
+- ESLint、9 个相关测试文件/71 项、生产 Vite 构建与部署路径检查通过；记录 `/tmp/task-live-label-tests.log`、`/tmp/task-live-label-build.log`。测试命令额外匹配了 run 相关文件，结果如实记为 9 文件而非单个任务测试文件；不将 Vite 构建当作全项目类型检查。
+- 前端已发布，917 个构建文件逐个哈希验证一致，保留旧哈希资源，未重启 API。真实页面复验另记最终结果。
+- 发布后 `/tmp/task-live-label-verified.json` 通过：390px 暗色真实页面下受控 GET 错误不显示 Live；手动重试到空状态正常，非读取请求 0，无整页溢出。提示滚入视口后的截图已查看。

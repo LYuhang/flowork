@@ -1131,11 +1131,9 @@ export function TaskDetailPage() {
             title={t("taskDetail.events", "Events")}
             description={t("taskDetail.eventsDescription", "Live execution updates. Expand an event only when technical details are needed.")}
             contentClassName="min-w-0"
-            actions={<span className="text-xs text-muted-foreground">
-                {stream.done
-                  ? t("taskDetail.streamClosed", "Stream closed")
-                  : t("taskDetail.streamLive", "Live")}
-              </span>}
+            actions={stream.done ? <span className="text-xs text-muted-foreground">
+                {t("taskDetail.streamClosed", "Stream closed")}
+              </span> : null}
           >
           <div className="mb-4" data-testid="task-event-filters">
           <LogHistoryControls

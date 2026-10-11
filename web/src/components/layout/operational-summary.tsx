@@ -26,24 +26,28 @@ export function OperationalSummary({
   label,
   items,
   className,
+  variant = 'default',
 }: {
   label: string;
   items: OperationalSummaryItem[];
   className?: string;
+  variant?: 'default' | 'detail';
 }) {
   return (
     <section
       data-slot="operational-summary"
       aria-label={label}
       className={cn(
-        'relative overflow-hidden rounded-xl border border-edge-subtle bg-surface-sunken/35',
+        'relative overflow-hidden border border-edge-subtle',
+        variant === 'detail' ? 'rounded-lg bg-surface-raised' : 'rounded-xl bg-surface-sunken/35',
         className,
       )}
     >
-      <div className="absolute inset-y-0 left-0 w-1 bg-focus/70" aria-hidden="true" />
+      {variant === 'default' && <div className="absolute inset-y-0 left-0 w-1 bg-focus/70" aria-hidden="true" />}
       <dl
         className={cn(
-          'grid grid-cols-2 divide-edge-subtle pl-1 sm:divide-x',
+          'grid grid-cols-2 divide-edge-subtle sm:divide-x',
+          variant === 'default' && 'pl-1',
           items.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2 lg:grid-cols-4',
         )}
       >

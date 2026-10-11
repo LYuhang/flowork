@@ -123,6 +123,7 @@ function OverviewTab({
   return (
     <div className="space-y-5">
       <OperationalSummary
+        variant="detail"
         label={t('deployments.detail.operationalSummary', 'Deployment health summary')}
         className=""
         items={[

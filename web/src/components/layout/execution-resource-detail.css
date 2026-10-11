@@ -48,15 +48,6 @@
   font-weight: 400;
   line-height: 1.5rem;
 }
-.execution-resource-detail [data-slot='operational-summary'] {
-  @apply rounded-lg bg-surface-raised;
-}
-.execution-resource-detail [data-slot='operational-summary'] > div[aria-hidden] {
-  display: none;
-}
-.execution-resource-detail [data-slot='operational-summary'] dl {
-  padding-left: 0;
-}
 .execution-resource-detail table {
   font-size: 0.8125rem;
   line-height: 1.5rem;

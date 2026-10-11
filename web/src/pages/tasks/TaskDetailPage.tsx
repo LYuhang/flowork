@@ -893,6 +893,7 @@ export function TaskDetailPage() {
           <div className="contents">
             {scheduledQuery.data ? (
               <OperationalSummary
+                variant="detail"
                 label={t("tasks.scheduled.operationalSummary", "Schedule summary")}
                 className=""
                 items={[

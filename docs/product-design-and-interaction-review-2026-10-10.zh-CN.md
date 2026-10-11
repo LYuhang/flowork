@@ -1243,3 +1243,10 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 此页无直接主题按钮，测试通过 localStorage+storage 事件触发应用 ThemeProvider；真实设置菜单选择及 system 变化已有独立验收，不把此脚本描述成点击了主题菜单。终端亮暗截图已查看，输出可读；暗色截图捕获在其他按钮的颜色过渡期间，不作为全页面稳定样式截图。
 - 主动 Disconnect 后出现 Reconnect；最终 API 停用 200，并再次读取确认 enabled=false、active_revision_id=null。证据 `/tmp/pty-theme-live.json`，本轮没有留下活跃验收实例。
 - 该项补齐真实 PTY 换肤不重连验证；全页面稳定截图及输入/滚动/模糊性能仍待完成。
+
+### 2026-10-11：U08 摘要样式归属收敛
+
+- OperationalSummary 增加明确的 detail 变体，任务及部署详情主动选择；详情的实色背景、较小圆角和无装饰条/左内边距由组件本身负责。列表保持默认样式。删除 execution-resource-detail.css 中三处依赖该组件内部 DOM 的覆盖。
+- ESLint、现有页面壳契约测试 3 项、生产构建及部署路径检查通过，前端静态资源已上线。
+- 真实 Chromium 亮/暗 × 列表/详情 4 项验证背景、装饰条数量及 dl 内边距符合原有差异：`/tmp/summary-variant-live.json`。这次只验证摘要布局，列表采样可能仍为统计加载时的占位值，不能据此声明统计数据正确。
+- U08 仍存在 detail-properties、section-header、表格等外层覆盖，尚未完成全部收敛；后续按组件分批处理，不以本次摘要变体代表整项完成。

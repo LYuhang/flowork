@@ -639,7 +639,7 @@ export function ChatMessageList({
     readingAnchorRef.current = anchor;
     // The request can finish before React commits its state updates. Keep the
     // snapshot until a layout effect observes the committed transcript.
-    Promise.resolve().then(onLoadOlderHistory).catch(() => {
+    Promise.resolve().then(() => onLoadOlderHistory()).catch(() => {
       historyFillTargetRef.current = null;
       // Keep the current viewport on failure; the load button remains retryable.
     }).finally(() => {

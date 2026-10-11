@@ -314,8 +314,10 @@ export function ChatPage() {
     () => readRecentChatLocation(account, 'chat'),
     [account],
   );
+  const discardedRestoredChatId = useRef<string | null>(null);
   const restoredChatId = restoredChatLocation?.chatId ?? null;
   useEffect(() => {
+    if (restoredChatId === discardedRestoredChatId.current) return;
     if (!activeChatId && chatEntryIntent === null && restoredChatId) {
       if (restoredChatLocation?.draft && restoredChatLocation.projectId) {
         setActiveProjectId(restoredChatLocation.projectId);
@@ -580,6 +582,7 @@ export function ChatPage() {
     // authoritative inventory arrives, then let normal startup selection pick
     // the newest valid session (or a fresh draft).
     writeRecentChatSelection(account, 'chat', null);
+    discardedRestoredChatId.current = restoredChatId;
     initialChatSelectionRef.current = false;
     setActiveChatId('chat', null);
   }, [

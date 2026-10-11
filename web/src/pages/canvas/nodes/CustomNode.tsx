@@ -246,8 +246,8 @@ function CustomNodeImpl({ data, selected, id, isConnectable }: NodeProps) {
           data-node-header
           className="flex items-center gap-1.5 border-b px-2.5 py-2"
           style={{
-            backgroundColor: `${headerColor}1f`,
-            borderBottomColor: `${headerColor}40`,
+            backgroundColor: `color-mix(in srgb, ${headerColor} 12%, transparent)`,
+            borderBottomColor: `color-mix(in srgb, ${headerColor} 25%, transparent)`,
           }}
         >
           <Icon className="h-4 w-4 shrink-0" style={{ color: headerColor }} aria-hidden />

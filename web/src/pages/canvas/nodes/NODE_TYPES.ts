@@ -1,34 +1,23 @@
-/**
- * Static per-node-type metadata: header colors and human-readable labels.
- *
- * `NODE_COLORS` is the canonical palette ported verbatim from
- * the legacy `frontend/constants.ts`. We keep it as inline hex (rather
- * than Tailwind tokens) because each node owns its own background hue
- * outside the global semantic palette, and we render it via inline
- * `backgroundColor` style — see `CustomNode.tsx`.
- *
- * `NODE_LABELS` is a placeholder English-only mapping. T18 swaps it for
- * an `i18next`-backed lookup; until then, `CustomNode` falls back to
- * the raw `node_type` key when a label is missing.
- */
-
+/** Node identity colors follow paired theme tokens. Selection and execution
+ * states remain separate from type identity. All canvas insertion surfaces
+ * share this registry, including their inline icon/background styles. */
 export const NODE_COLORS: Record<string, string> = {
-  HumanApprovalNode: '#d97706',
-  StartNode: '#10b981',
-  EndNode: '#ef4444',
-  CodeNode: '#3b82f6',
-  PromptNode: '#8b5cf6',
-  ParallelStartNode: '#06b6d4',
-  ParallelEndNode: '#0ea5e9',
-  ConditionNode: '#f97316',
-  LoopBeginNode: '#ec4899',
-  LoopEndNode: '#f43f5e',
-  HTTPRequestNode: '#14b8a6',
-  TransformNode: '#a855f7',
-  TemplateNode: '#f472b6',
-  TableReadNode: '#22d3ee',
-  TableWriteNode: '#34d399',
-  SubAgentNode: '#6366f1',
+  HumanApprovalNode: 'var(--node-human-approval-node)',
+  StartNode: 'var(--node-start-node)',
+  EndNode: 'var(--node-end-node)',
+  CodeNode: 'var(--node-code-node)',
+  PromptNode: 'var(--node-prompt-node)',
+  ParallelStartNode: 'var(--node-parallel-start-node)',
+  ParallelEndNode: 'var(--node-parallel-end-node)',
+  ConditionNode: 'var(--node-condition-node)',
+  LoopBeginNode: 'var(--node-loop-begin-node)',
+  LoopEndNode: 'var(--node-loop-end-node)',
+  HTTPRequestNode: 'var(--node-h-t-t-p-request-node)',
+  TransformNode: 'var(--node-transform-node)',
+  TemplateNode: 'var(--node-template-node)',
+  TableReadNode: 'var(--node-table-read-node)',
+  TableWriteNode: 'var(--node-table-write-node)',
+  SubAgentNode: 'var(--node-sub-agent-node)',
 };
 
 export const NODE_LABELS: Record<string, string> = {
@@ -65,7 +54,7 @@ export const ADDABLE_NODE_TYPES: readonly string[] = Object.keys(NODE_LABELS).fi
 );
 
 /** Default header color when a node_type is unknown. */
-export const DEFAULT_NODE_COLOR = '#64748b';
+export const DEFAULT_NODE_COLOR = 'var(--node-unknown)';
 
 /**
  * Per-node-type icon, used by the compact canvas card header (and reusable by

@@ -12,6 +12,23 @@
 
 @layer base {
   :root {
+    --node-human-approval-node: #b45309;
+    --node-start-node: #047857;
+    --node-end-node: #b91c1c;
+    --node-code-node: #1d4ed8;
+    --node-prompt-node: #6d28d9;
+    --node-parallel-start-node: #0e7490;
+    --node-parallel-end-node: #0369a1;
+    --node-condition-node: #c2410c;
+    --node-loop-begin-node: #be185d;
+    --node-loop-end-node: #be123c;
+    --node-h-t-t-p-request-node: #0f766e;
+    --node-transform-node: #7e22ce;
+    --node-template-node: #be185d;
+    --node-table-read-node: #0e7490;
+    --node-table-write-node: #047857;
+    --node-sub-agent-node: #4338ca;
+    --node-unknown: #475569;
     color-scheme: light;
 
     /* Canonical workbench surfaces. Values are OKLCH components so Tailwind
@@ -120,6 +137,23 @@
   }
 
   .dark {
+    --node-human-approval-node: #d97706;
+    --node-start-node: #10b981;
+    --node-end-node: #ef4444;
+    --node-code-node: #3b82f6;
+    --node-prompt-node: #8b5cf6;
+    --node-parallel-start-node: #06b6d4;
+    --node-parallel-end-node: #0ea5e9;
+    --node-condition-node: #f97316;
+    --node-loop-begin-node: #ec4899;
+    --node-loop-end-node: #f43f5e;
+    --node-h-t-t-p-request-node: #14b8a6;
+    --node-transform-node: #a855f7;
+    --node-template-node: #f472b6;
+    --node-table-read-node: #22d3ee;
+    --node-table-write-node: #34d399;
+    --node-sub-agent-node: #6366f1;
+    --node-unknown: #94a3b8;
     color-scheme: dark;
     --surface-app: 17% 0.01 255;
     --surface-nav: 19.5% 0.01 255;

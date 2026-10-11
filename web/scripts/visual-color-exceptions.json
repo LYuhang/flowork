@@ -238,27 +238,5 @@
     "tokens": [
       "'#ffffff'"
     ]
-  },
-  "src/pages/canvas/nodes/NODE_TYPES.ts": {
-    "reason": "Canonical node-type identity palette; theme contrast remains a separate canvas review.",
-    "tokens": [
-      "'#06b6d4'",
-      "'#0ea5e9'",
-      "'#10b981'",
-      "'#14b8a6'",
-      "'#22d3ee'",
-      "'#34d399'",
-      "'#3b82f6'",
-      "'#6366f1'",
-      "'#64748b'",
-      "'#8b5cf6'",
-      "'#a855f7'",
-      "'#d97706'",
-      "'#ec4899'",
-      "'#ef4444'",
-      "'#f43f5e'",
-      "'#f472b6'",
-      "'#f97316'"
-    ]
   }
 }

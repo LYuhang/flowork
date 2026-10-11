@@ -1228,3 +1228,10 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 发现 390px 下冲突说明被按钮挤成窄列，改为可换行布局，说明至少优先占一行可读宽度；宽屏仍允许同行。亮/暗截图检查正常且无横向溢出。
 - 两种主题均通过：冲突出现后草稿保留→点覆盖出现确认→取消仍保留草稿→再次明确确认覆盖→刷新后内容确实持久化。文件已清理（200）。证据 `/tmp/preview-conflict-verified.json`。第一次脚本把 alertdialog 写成 dialog 导致观察超时；测试文件已清理后修正脚本，不属于产品保存失败。
 - ESLint、生产构建和部署路径检查通过，修复已更新线上静态资源。冲突的 Reload 分支及真实 PTY 仍待继续验收，不据此关闭全部特殊预览检查。
+
+### 2026-10-11：冲突重新加载与 Docker 主题依赖补齐
+
+- 真实文件冲突的 Reload latest 分支在 390px 亮/暗均通过：原草稿在点击前保留，点击后编辑区读取 REMOTE 版本，页面刷新后仍为 REMOTE，未误写旧草稿；测试文件清理 200。证据 `/tmp/preview-conflict-reload.json`。
+- Security gates 38101216941 的镜像步骤失败，公开构建产物明确显示 extension-build 缺 `/app/web/src/index.css`（ENOENT）。这是共享主题引入的新构建输入未同步到 Docker 阶段；原生部署构建成功不能覆盖 Docker 场景。
+- web/Dockerfile 补 COPY 主应用主题文件，并在构建阶段检查非空 shell-theme.css。使用隔离目录，仅复制该阶段所需扩展源码、branding、index.css，复用已安装依赖，实际 Vite 构建与产物引用检查通过（`/tmp/extension-docker-input-check.log`）。受本机磁盘空间限制未在本机执行全镜像构建；完整镜像验证交由推送后的 CI，不将隔离输入验证当作镜像门禁通过。
+- 本次因明确修复失败门禁而立即推送累计提交；新的完整 CI 仍需跟踪。

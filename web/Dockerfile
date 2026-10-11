@@ -64,12 +64,13 @@ COPY extension/package.json extension/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY extension/ ./
 COPY web/public/branding/ /app/web/public/branding/
+COPY web/src/index.css /app/web/src/index.css
 
 ARG VITE_WEB_BASE="http://localhost:9001"
 ARG VITE_EXTENSION_ALLOWED_ORIGINS="http://localhost:9001"
 ENV VITE_WEB_BASE=$VITE_WEB_BASE \
     VITE_EXTENSION_ALLOWED_ORIGINS=$VITE_EXTENSION_ALLOWED_ORIGINS
-RUN pnpm build && test -f dist/manifest.json && test -f dist/sidepanel.html
+RUN pnpm build && test -f dist/manifest.json && test -f dist/sidepanel.html && test -s dist/shell-theme.css
 
 # Python's standard library creates the deployment-local ZIP without adding a
 # package manager or archive utility to the final nginx runtime image.

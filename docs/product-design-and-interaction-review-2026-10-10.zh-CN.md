@@ -1865,3 +1865,11 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 
 - 实际安装扩展、打开原生 Chrome sidePanel 后，`/tmp/native-ime-menu-live.json` 同样通过：可见原生侧栏、10 组组合按键、二级菜单组合 Esc 保留，零消息发送，专用项目清理 200。以上使用浏览器合成组合标记验证应用事件处理；此前 CDP 中文组合 Enter 检查仍有效，不声称覆盖所有实体系统输入法。
 - 上一提交 b21b4a5 的完整 CI 38118734576 已 completed/success，安全 38118734571 同样通过；现在批量推送本轮日志关联、主题/性能记录及输入法修复，推送后新提交检查仍需等待。
+
+
+### Ctrl/Cmd+Enter 与失败后草稿的浏览器补验（2026-10-11）
+
+- 主对话与实际原生插件侧栏各完成 5 组：默认修饰键发送模式下 Ctrl+Enter/Meta+Enter；Enter 发送模式下 Enter/Ctrl+Enter/Meta+Enter。每组只产生一次消息请求，文本与当前草稿一致。
+- 在浏览器网络层明确返回受理前 503，检查草稿恢复、Send 可用；两秒观察内没有额外请求。此为受控失败的前端行为测试，不是模型超时或真实发送成功测试；请求没有进入后端执行。真实手动重试的 Terra 成功链路仍以前述 manual-retry-live 记录为证。
+- Shift+Enter 保留换行，修饰键发送模式下普通 Enter 保留换行；Enter 发送模式下输入 /goal 再按 Enter，仅补全命令和打开二级菜单，不发送请求。普通 Esc 关闭菜单并保留命令。
+- 证据 `docs/validation/send-shortcuts-2026-10-11.json`、`docs/validation/native-send-shortcuts-2026-10-11.json`，两份均通过、专用项目均清理 200。Meta 为 Linux Chromium 的键盘事件模拟，不冒充实体 macOS 键盘或系统输入法。画布入口已有组合输入/菜单/换行的实机验证，但本轮未在画布创建执行；因此仍不勾选全部入口快捷键验收项。

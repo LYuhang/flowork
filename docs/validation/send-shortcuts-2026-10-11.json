@@ -1,0 +1,46 @@
+{
+  "cases": [
+    {
+      "mode": "Ctrl+Enter to send",
+      "key": "Control+Enter",
+      "requests": 1,
+      "failedDraftRestored": true
+    },
+    {
+      "mode": "Ctrl+Enter to send",
+      "key": "Meta+Enter",
+      "requests": 1,
+      "failedDraftRestored": true
+    },
+    {
+      "mode": "Enter to send",
+      "key": "Enter",
+      "requests": 1,
+      "failedDraftRestored": true
+    },
+    {
+      "mode": "Enter to send",
+      "key": "Control+Enter",
+      "requests": 1,
+      "failedDraftRestored": true
+    },
+    {
+      "mode": "Enter to send",
+      "key": "Meta+Enter",
+      "requests": 1,
+      "failedDraftRestored": true
+    }
+  ],
+  "requests": [
+    "QA Ctrl+Enter to send Control+Enter",
+    "QA Ctrl+Enter to send Meta+Enter",
+    "QA Enter to send Enter",
+    "QA Enter to send Control+Enter",
+    "QA Enter to send Meta+Enter"
+  ],
+  "noAutomaticResendObservedMs": 2000,
+  "slashEnterSelectsInsteadOfSending": true,
+  "actualBackendSends": 0,
+  "passed": true,
+  "cleanup": 200
+}

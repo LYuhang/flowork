@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from vibecanvas_api.authorization.openfga_client import (
     OpenFgaHttpClient,
@@ -81,6 +82,34 @@ async def test_per_check_error_fails_closed():
             [("user:alice", "can_view", "workflow:wf")],
             consistency=ConsistencyPreference.MINIMIZE_LATENCY,
         )
+
+
+@pytest.mark.asyncio
+async def test_batch_error_logs_upstream_id_without_private_details_or_retry():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            headers={"x-request-id": "upstream-request-123"},
+            json={"result": {"0": {"error": {
+                "internal_error": "internal_error",
+                "message": "private database details",
+            }}}},
+        )
+
+    with capture_logs() as logs, pytest.raises(OpenFgaUnavailableError):
+        await _client(handler).batch_check(
+            [("user:private-user", "can_view", "workflow:private-workflow")],
+            consistency=ConsistencyPreference.MINIMIZE_LATENCY,
+        )
+
+    assert len(requests) == 1
+    assert len(logs) == 1
+    assert logs[0]["openfga_request_id"] == "upstream-request-123"
+    assert logs[0]["reason_code"] == "authorization_check_failed"
+    assert "private" not in json.dumps(logs)
 
 
 @pytest.mark.asyncio

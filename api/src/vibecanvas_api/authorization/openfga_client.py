@@ -149,7 +149,6 @@ class OpenFgaHttpClient:
             items = [raw_results.get(str(index)) for index in range(offset, offset + len(chunk))]
             for item in items:
                 if not isinstance(item, dict) or "error" in item:
-                    logger.warning("openfga_batch_check_failed", reason_code="authorization_check_failed")
                     raise OpenFgaUnavailableError("authorization_check_failed")
                 if not isinstance(item.get("allowed"), bool):
                     raise OpenFgaUnavailableError("authorization_invalid_response")
@@ -289,6 +288,18 @@ class OpenFgaHttpClient:
             ) from exc
         if not isinstance(payload, dict):
             raise OpenFgaUnavailableError("authorization_invalid_response")
+        results = payload.get("result")
+        if isinstance(results, dict) and any(
+            isinstance(item, dict) and "error" in item
+            for item in results.values()
+        ):
+            # BatchCheck can return HTTP 200 with failed decisions. Link the
+            # upstream log without recording authorization tuples or bodies.
+            logger.warning(
+                "openfga_batch_check_failed",
+                reason_code="authorization_check_failed",
+                openfga_request_id=response.headers.get("x-request-id"),
+            )
         return payload
 
 

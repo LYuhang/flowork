@@ -1435,3 +1435,10 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 初次视频测试坐标点到了进度条，未播放；截图确认后调整为原生播放按钮位置再通过，没有修改产品实现。定位到 3 秒使用 currentTime，不将其描述为已经覆盖拖动进度条或实体移动端媒体控件。
 - 结果 `/tmp/av-preview-live.json`，截图 `/tmp/av-preview-{audio,video}-{width}-{theme}.jpg`；已查看窄屏浅色音频和暗色视频。两个上传文件均删除 200，未创建或启动 Agent/Workflow/Deployment。
 - 以上补齐音视频的主题和原生控件基本实机证据；浏览器编码兼容、长视频缓冲、全屏及视频时间引用仍不能由这组小文件测试替代。8949277 Web/扩展 CI 成功，API 全量仍在运行，后续本地提交尚待推送。
+
+### F01 组合输入与二级命令 Esc 修复（2026-10-11）
+
+- 真实 Chromium 通过 CDP imeSetComposition 触发中文组合输入，分别在 Enter-to-send 与 Ctrl+Enter-to-send 下按 Enter；每组独立记录 keydown，确认 isComposing=true、发送尝试为 0。Shift+Enter 均换行，Ctrl+Enter 模式下普通 Enter 也换行。通过请求拦截计数并阻止意外模型调用；本次实际没有触发拦截发送。
+- 实际点击 `/goal` 一级候选，输入框先变成 `/goal `，二级菜单可见。增加关闭断言后发现 Esc 无效：焦点在输入框，而二级菜单只有自身键盘监听。已在共享输入框添加二级菜单 Esc 处理，保留命令前缀，preventDefault/stopPropagation 防止误关闭外层画布；组合输入中的 Esc 不走此关闭分支。
+- 持久回归新增 goal/skill-use 两组“从输入框 Esc 关闭并保留前缀与焦点”，相关 20 项测试通过。定向 ESLint、生产构建及部署路径检查通过，静态前端已发布。线上重跑上述输入法/快捷键/goal 前缀和 Esc 断言通过，发送次数 0，专用项目删除 200。结果 `/tmp/composer-ime-live.json`，测试日志 `/tmp/composer-secondary-escape-tests.log`。
+- 这是 Chromium 组合输入协议验收，不替代实体中文输入法候选窗、手机或原生侧栏所有键盘场景；skill-use 的此次 Esc 新增证据是组件测试。整体快捷键验收仍保留这些边界。

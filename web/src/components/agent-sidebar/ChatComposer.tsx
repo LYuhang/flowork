@@ -1003,6 +1003,14 @@ export function ChatComposer({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape' && !e.nativeEvent.isComposing && (goalPickerOpen || skillPickerOpen)) {
+      e.preventDefault();
+      e.stopPropagation();
+      setGoalPickerOpen(false);
+      setSkillPickerOpen(false);
+      setMenuDismissed(true);
+      return;
+    }
     if (mentionMenuOpen) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();

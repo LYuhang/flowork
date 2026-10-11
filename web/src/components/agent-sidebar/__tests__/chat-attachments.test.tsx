@@ -319,6 +319,20 @@ describe('chat attachments', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it.each(['goal', 'skill-use'])('closes the /%s picker from the composer without losing the command', async (command) => {
+    server.use(http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({carrier_scope_id:SCOPE,surface:'chat',available_commands:['goal','skill']})));
+    renderComposer();
+    const input=screen.getByRole('textbox');
+    fireEvent.change(input,{target:{value:'/'}});
+    await userEvent.click(await screen.findByRole('option',{name:new RegExp('/'+command)}));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await userEvent.click(input);
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(input).toHaveValue('/'+command+' ');
+    expect(input).toHaveFocus();
+  });
+
   it('uses a second-level goal menu and writes the bare goal command for a new objective', async () => {
     server.use(http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({carrier_scope_id:SCOPE,surface:'chat',available_commands:['goal']})));
     renderComposer();

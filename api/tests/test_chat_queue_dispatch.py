@@ -46,14 +46,15 @@ async def test_queued_dispatch_runs_once_and_reconciles_durable_result(client, o
 
 
 @pytest.mark.asyncio
-async def test_human_wait_event_permanently_blocks_previously_queued_input(client):
+@pytest.mark.parametrize('event_type', ['HITL_REQUIRED', 'INTERACTION_REQUIRED'])
+async def test_human_wait_event_permanently_blocks_previously_queued_input(client, event_type):
     from vibecanvas_api.services.agent_run_writer import AgentRunWriter
     me, chat, run = await fixture(client)
     input_id = uuid.uuid4().hex
     async with session(me) as db:
         await ChatQueueRepo(db, me['user_id']).enqueue(chat, run, input_id, {'content': 'Next'})
     writer = AgentRunWriter(run_id=run, tenant_id=me['tenant_id'], chat_id=chat, user_id=me['user_id'])
-    await writer.emit(1, 'HITL_REQUIRED', {'hitl_request_id': 'approval'})
+    await writer.emit(1, event_type, {'hitl_request_id': 'approval'})
     await writer.close()
     async with session(me) as db:
         await db.execute(text("UPDATE agent_runs SET status='completed' WHERE run_id=:run"), {'run': run})

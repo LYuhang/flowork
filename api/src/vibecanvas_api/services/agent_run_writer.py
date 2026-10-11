@@ -45,7 +45,7 @@ class AgentRunWriter:
 
     async def _append(self, seq: int, event_type: str, payload: dict) -> None:
         async with session_scope(tenant_id=self.tenant_id) as session:
-            if event_type == "HITL_REQUIRED" and self.chat_id and self.user_id:
+            if event_type in {"HITL_REQUIRED", "INTERACTION_REQUIRED"} and self.chat_id and self.user_id:
                 from vibecanvas_api.storage.chat_queue_repo import ChatQueueRepo
                 await ChatQueueRepo(session, self.user_id).block_for_interaction(self.chat_id, self.run_id)
             await AgentRunsRepo(session).append_event(

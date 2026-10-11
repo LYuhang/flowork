@@ -187,7 +187,7 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
 
   return (
     <SectionBlock
-      variant="card"
+      variant="detail"
       title={t('deployments.detail.basic', 'Basic information')}
       description={t('deployments.detail.basicDescription', 'Identity and workflow routing for this deployment.')}
       actions={canUpdate && !editing ? (
@@ -248,7 +248,7 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
 function ReadOnlyConfig({ dep }: { dep: Deployment }) {
   const { t } = useTranslation();
   const onOff = (value: boolean) => value ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off');
-  return <SectionBlock title={t('deployments.detail.trafficControl', 'Traffic and runtime controls')}>
+  return <SectionBlock variant="detail" title={t('deployments.detail.trafficControl', 'Traffic and runtime controls')}>
     <DetailSummary layout="rows" items={[
       { label: t('deployments.settings.acceptTraffic', 'Accept requests'), value: onOff(dep.enabled) },
       { label: t('deployments.create.fields.rateLimitQps', 'Rate limit (QPS)'), value: dep.rate_limit_qps },
@@ -521,7 +521,7 @@ function CodeExamplesTab({
     [dep, exampleInputs],
   );
   return (
-    <SectionBlock title={t('deployments.code.title', 'Call this deployment')}
+    <SectionBlock variant="detail" title={t('deployments.code.title', 'Call this deployment')}
       icon={<Code2 className="size-4" aria-hidden="true" />}
       description={t('deployments.code.placeholderHint', 'Examples use environment-variable placeholders and never include your secret value.')}>
       <p className="mt-3 text-xs text-muted-foreground">
@@ -551,7 +551,7 @@ function UsageEndpoint({ dep }: { dep: Deployment }) {
   const endpointPath = endpointFor(dep);
   const endpoint = resolveApiUrl(endpointPath);
   return (
-    <SectionBlock title={t('deployments.detail.endpoint', 'Endpoint')}
+    <SectionBlock variant="detail" title={t('deployments.detail.endpoint', 'Endpoint')}
       description={t('deployments.detail.endpointHelp', 'Use this address from your application or the examples below.')}>
       <div className="flex min-w-0 items-center gap-2 rounded-md border border-edge-subtle bg-surface-sunken/35 px-3 py-2">
         <code className="min-w-0 select-text truncate font-mono text-[13px]" title={endpoint}>
@@ -785,7 +785,7 @@ function MonitoringTab({ query, onTest, range, onRangeChange }: { query: UseQuer
 
   return (
     <div className="space-y-4">
-      <SectionBlock title={t('deployments.detail.metricsChart', 'Requests, errors, and latency')}
+      <SectionBlock variant="detail" title={t('deployments.detail.metricsChart', 'Requests, errors, and latency')}
         description={t('deployments.metrics.minute')}
         actions={<div className="flex items-center gap-2">
           <Select value={range} onValueChange={value => onRangeChange(value as MetricsRange)}>
@@ -820,7 +820,7 @@ function MonitoringTab({ query, onTest, range, onRangeChange }: { query: UseQuer
         )}
       </SectionBlock>
       {series.length > 0 && (
-        <SectionBlock variant="card" collapsible defaultOpen={false} title={t("deployments.metrics.values", "Metric values")} contentClassName="overflow-x-auto">
+        <SectionBlock variant="detail" collapsible defaultOpen={false} title={t("deployments.metrics.values", "Metric values")} contentClassName="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b bg-surface-sunken text-left text-xs font-medium text-muted-foreground">
               <tr>
@@ -889,7 +889,7 @@ function TestTab({
   };
   return (
     <div className="space-y-4">
-      <SectionBlock
+      <SectionBlock variant="detail"
         title={t('deployments.detail.testRequest', 'Request')}
         description={t('deployments.detail.testRequestHelp', 'Edit the example generated from the workflow Start node, then send it to this deployment.')}
       >
@@ -909,7 +909,7 @@ function TestTab({
           </Button>
         </div>
       </SectionBlock>
-        <SectionBlock
+        <SectionBlock variant="detail"
           title={t('deployments.detail.testResponse', 'Response')}
           description={responseStatus === 'idle'
             ? t('deployments.detail.testResponsePending', 'Run the request to see the HTTP result and workflow output here.')
@@ -1219,7 +1219,7 @@ export function DeploymentDetailPage() {
           </TabsContent>
           <TabsContent value="activity" className="space-y-5">
             <ExecutionHistory key={depId} source="deployment" sourceId={depId} />
-            <SectionBlock variant="card" collapsible defaultOpen={false}
+            <SectionBlock variant="detail" collapsible defaultOpen={false}
               title={t('deployments.detail.requestRecords', 'Request records')}
               description={t('deployments.detail.requestRecordsHelp', 'Inspect request source, timing and transport errors. Workflow traces and approvals are listed above.')} >
               <RunsTab depId={depId} active={activeTab === 'activity'} />

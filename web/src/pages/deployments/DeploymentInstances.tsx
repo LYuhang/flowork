@@ -10,7 +10,7 @@ export function DeploymentInstances({ dep }: { dep: Deployment }) {
   const { t } = useTranslation();
   const formatTime = useFormatDateTime();
   if (!dep.runtime) return null;
-  return <SectionBlock title={t('deployments.runtime.title', 'Runtime instances')}
+  return <SectionBlock variant="detail" title={t('deployments.runtime.title', 'Runtime instances')}
     description={t('deployments.runtime.description', 'Saved settings take effect after the new instance is ready and traffic has switched.')}>
     <p role="status" className="mb-4 text-sm text-content-secondary">
       {t('deployments.runtime.rollout', 'Deployment state')}: {t(`deployments.runtime.${dep.rollout_status ?? 'pending'}`, dep.rollout_status ?? 'pending')}

@@ -818,7 +818,7 @@ export function TaskDetailPage() {
 
         {/* An idle schedule has no meaningful completion percentage. */}
         {(!isScheduledRun || task.status === "running") && <SectionBlock
-          variant="card"
+          variant="detail"
           title={summary ? t("taskDetail.summary", "Summary") : t("tasks.col.progress", "Progress")}
           description={!summary && rowCounts
             ? t("taskDetail.rowsProgress", "{{done}} of {{total}} rows done", { done: rowCounts.done, total: rowCounts.total })
@@ -948,7 +948,7 @@ export function TaskDetailPage() {
         {!isScheduledRun && !batchSetup && <p className="py-6 text-sm text-muted-foreground">{t("taskDetail.noConfiguration", "No saved input configuration is available for this task.")}</p>}
         {batchSetup && (
           <SectionBlock
-            variant="card"
+            variant="detail"
             title={t("taskDetail.setup", "Task setup")}
             description={t(
               "taskDetail.setupDescription",
@@ -981,7 +981,7 @@ export function TaskDetailPage() {
 
           {isScheduledRun && (
             <SectionBlock
-              variant="card"
+              variant="detail"
               title={t("tasks.scheduled.configuration", "Schedule configuration")}
               description={t("tasks.scheduled.configurationDescription", "Timing and workflow settings used for each scheduled execution.")}
             >
@@ -1041,7 +1041,7 @@ export function TaskDetailPage() {
           {capabilities.has("inspect_runs") && <ExecutionHistory key={taskId} source="task" sourceId={taskId ?? ''} />}
           {isScheduledRun && (
             <SectionBlock
-              variant="card"
+              variant="detail"
               collapsible
               defaultOpen={false}
               title={t("taskDetail.triggerHistory", "Schedule triggers")}
@@ -1125,7 +1125,7 @@ export function TaskDetailPage() {
             </SectionBlock>
           )}
           <SectionBlock
-            variant="card"
+            variant="detail"
             collapsible
             defaultOpen={false}
             title={t("taskDetail.events", "Events")}

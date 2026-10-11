@@ -24,19 +24,19 @@ export function SectionBlock({
   defaultOpen?: boolean;
   className?: string;
   contentClassName?: string;
-  variant?: 'card' | 'plain';
+  variant?: 'card' | 'plain' | 'detail';
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const reactId = useId();
   const contentId = `section-${reactId.replaceAll(':', '')}`;
 
   const heading = (
-    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+    <div className={cn('flex min-w-0 flex-1 items-start gap-2.5', variant === 'detail' && !collapsible && 'basis-48')}>
       {icon ? <span className="mt-0.5 shrink-0 text-content-secondary">{icon}</span> : null}
       <div className="min-w-0">
-        <h2 data-slot="section-title" className="text-sm font-semibold text-content-primary">{title}</h2>
+        <h2 data-slot="section-title" className={cn('font-semibold text-content-primary', variant === 'detail' ? 'text-[15px] leading-6' : 'text-sm')}>{title}</h2>
         {description ? (
-          <p data-slot="section-description" className="mt-0.5 text-xs leading-5 text-content-secondary">{description}</p>
+          <p data-slot="section-description" className={cn('leading-5 text-content-secondary', variant === 'detail' ? 'mt-1 text-[13px]' : 'mt-0.5 text-xs')}>{description}</p>
         ) : null}
       </div>
     </div>
@@ -47,8 +47,8 @@ export function SectionBlock({
       data-slot="detail-section"
       className={cn(
         'shrink-0',
-        variant === 'card'
-          ? 'overflow-hidden rounded-lg border border-edge-subtle bg-surface-base'
+        variant !== 'plain'
+          ? cn('overflow-hidden rounded-lg border border-edge-subtle', variant === 'detail' ? 'bg-surface-raised' : 'bg-surface-base')
           : 'border-b border-edge-subtle py-6 last:border-b-0',
         className,
       )}
@@ -56,8 +56,9 @@ export function SectionBlock({
       <div
         data-slot="section-header"
         className={cn(
-          'flex items-start gap-3',
-          variant === 'card'
+          'flex gap-3',
+          variant === 'detail' ? 'flex-wrap items-center' : 'items-start',
+          variant !== 'plain'
             ? 'border-b border-edge-subtle bg-surface-sunken/55 px-4 py-3'
             : 'pb-4',
         )}
@@ -65,7 +66,7 @@ export function SectionBlock({
         {collapsible ? (
           <button
             type="button"
-            className="flex min-w-0 flex-1 items-start gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            className={cn('flex min-w-0 flex-1 items-start gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus', variant === 'detail' && 'basis-48')}
             aria-expanded={open}
             aria-controls={contentId}
             onClick={() => setOpen((current) => !current)}
@@ -82,7 +83,7 @@ export function SectionBlock({
       {open ? (
         <div
           id={contentId}
-          className={cn(variant === 'card' ? 'p-4' : '', contentClassName)}
+          className={cn(variant !== 'plain' ? 'p-4' : '', contentClassName)}
         >
           {children}
         </div>

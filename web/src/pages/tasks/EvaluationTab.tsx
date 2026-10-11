@@ -25,7 +25,7 @@ export function EvaluationTab({ taskId, canEdit, canExecute }: { taskId: string;
   if (query.isPending) return <p className="p-4">{t('evaluation.loading', 'Loading…')}</p>;
   if (query.error) return <p role="alert" className="p-4 text-destructive">{query.error.message}</p>;
   return <div className="space-y-5">
-    <SectionBlock title={t('evaluation.title', 'Evaluation')} contentClassName="space-y-4">
+    <SectionBlock variant="detail" title={t('evaluation.title', 'Evaluation')} contentClassName="space-y-4">
     <EvaluationEditor value={value} onChange={setDraft} disabled={!canEdit || mutation.isPending} alwaysOpen />
     <div className="flex flex-wrap items-center gap-3">
       {canEdit && <Button variant="outline" disabled={mutation.isPending || (value.enabled && !value.script.trim())} onClick={() => mutation.mutate(false)}>{t('evaluation.save', 'Save script')}</Button>}
@@ -33,7 +33,7 @@ export function EvaluationTab({ taskId, canEdit, canExecute }: { taskId: string;
       {!query.data?.ready && <p className="text-sm text-muted-foreground">{t('evaluation.notReady', 'Evaluation becomes available after inference results are saved.')}</p>}
     </div>
     </SectionBlock>
-    <SectionBlock title={t('evaluation.history', 'Evaluation history')} contentClassName="space-y-4">
+    <SectionBlock variant="detail" title={t('evaluation.history', 'Evaluation history')} contentClassName="space-y-4">
     {!query.data?.records.length && <p className="text-sm text-muted-foreground">{t('evaluation.empty', 'No evaluations yet.')}</p>}
     {query.data?.records.map(record => <article key={record.id} className="space-y-3 rounded-lg border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">

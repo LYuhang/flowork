@@ -6,19 +6,9 @@
 .execution-resource-detail [data-page-region='detail-content'] > [data-orientation='horizontal'] > [role='tabpanel'] {
   margin-top: 1.25rem;
 }
-.execution-resource-detail [data-slot='section-title'],
 .execution-resource-detail section > header h2 {
   font-size: 0.9375rem;
   line-height: 1.5rem;
-}
-.execution-resource-detail [data-slot='section-description'] {
-  font-size: 0.8125rem;
-  line-height: 1.25rem;
-  margin-top: 0.25rem;
-}
-.execution-resource-detail [data-slot='section-header'] {
-  flex-wrap: wrap;
-  align-items: center;
 }
 .execution-resource-detail dl dt {
   @apply text-content-secondary;
@@ -50,12 +40,6 @@
 }
 .execution-resource-detail tbody tr:hover {
   @apply bg-surface-hover;
-}
-.execution-resource-detail [data-slot='detail-section'] {
-  @apply bg-surface-raised;
-}
-.execution-resource-detail [data-slot='section-header'] > :first-child {
-  flex-basis: 12rem;
 }
 @media (max-width: 639px) {
   .execution-resource-detail [data-slot='execution-table'],

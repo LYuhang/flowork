@@ -1286,3 +1286,10 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 实际画布复测 Start/Code/End 浅色图标对比约 4.62/5.53/5.24，暗色 5.42/3.88/3.93；截图检查节点文字与类型色可读。证据 `/tmp/canvas-node-contrast-verified.json` 与 `/tmp/canvas-node-contrast-after.json`。首个采样脚本误将 alpha 通道参与亮度计算得到 null，修正采样后才采用数值。
 - 视觉规则、ESLint、生产构建及部署路径检查通过，静态资源已上线。未执行或修改 Workflow。其余节点类型、节点选择器、导出及执行状态组合仍需补验，不以三类节点覆盖全部 U05。
 - c4b1a01 的安全门禁 38101689761 已全成功，包括修复后的完整生产镜像步骤；Web/Extension CI 成功，Python CI 38101689760 仍在运行。
+
+### 2026-10-11：U05 全类型选择器与画布材质
+
+- 真实画布打开节点选择器，全部 16 类在亮/暗下的图标混合背景对比分别最低约 4.57/3.47；Esc 关闭和焦点回到 Add node 均通过。证据 `/tmp/node-picker-contrast.json`。未选择条目、未创建节点、未运行 Workflow。
+- 画布底部工具栏此前单独使用 backdrop-blur-sm，绕过窄屏/降低透明度规则；改用共享 surface-floating。视觉检查、ESLint、生产构建及部署路径检查通过，静态资源已更新。
+- 源码确认画布当前导出为 serializeWorkflow(draft) 的 JSON，不导出节点颜色；缩略图使用独立中性色。没有把 JSON 导出误当作图像主题导出。
+- 真实浏览器亮/暗 × 1400/390px 四项工具栏验证通过：桌面 8px 模糊、窄屏关闭；点击画布空白处关闭选择器，焦点返回 Add node。窄屏先通过按钮收起 Inspector，避免点击被底部面板遮挡。两主题分别实际下载 JSON 并比较完全相同，下载文件已清理。证据 `/tmp/canvas-material-verified.json`。第一轮脚本未收起 Inspector 的点击超时保留在 `/tmp/canvas-material-live.json`，不计为通过。

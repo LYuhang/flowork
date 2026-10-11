@@ -97,7 +97,7 @@ export function CanvasNodePicker({ children, readOnly }: { children: ReactNode; 
         {point && <PopoverAnchor className="pointer-events-none fixed h-px w-px" style={{ left: point.x, top: point.y }} />}
         <div data-layout-overlay className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center">
           <div role="toolbar" aria-label={t('canvas.tools.label', 'Canvas tools')} data-canvas-toolbar
-            className="pointer-events-auto flex max-w-[calc(100%-16px)] flex-wrap justify-center items-center gap-1 rounded-full border border-edge-structural bg-popover/95 p-1.5 shadow-lg backdrop-blur-sm">
+            className="pointer-events-auto flex max-w-[calc(100%-16px)] flex-wrap justify-center items-center gap-1 rounded-full border border-edge-structural surface-floating p-1.5 shadow-lg">
           <Controls orientation="horizontal" showInteractive={!readOnly}
             fitViewOptions={{ padding: 0.16, minZoom: 0.1, maxZoom: 1, duration: 200 }}
             className="!static !m-0 !translate-x-0 !gap-0.5 !border-0 !bg-transparent !shadow-none [&>button]:!h-8 [&>button]:!w-8 [&>button]:!rounded-full [&>button]:!border-0 [&>button]:!bg-transparent [&>button:hover]:!bg-accent" />

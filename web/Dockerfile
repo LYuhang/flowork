@@ -28,6 +28,7 @@ RUN corepack enable && corepack prepare pnpm@10.34.4 --activate
 
 # Install deps with a deterministic lockfile first so this layer caches.
 COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/patches/ ./patches/
 RUN pnpm install --frozen-lockfile
 
 # Copy the rest of the frontend tree.

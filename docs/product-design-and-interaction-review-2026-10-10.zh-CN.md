@@ -1365,3 +1365,11 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 已安装 `@file-viewer/react` 2.3.0 在 options 引用变化时调用 controller.update；core 2.3.0 的 update 无条件重新 loadSource。因此 NativeWorkbookPreview 的 resolvedTheme 改动导致文件重载。当前 spreadsheet renderer 2.3.2 只注册 zoom provider，通用 getViewState 不含所选工作表。
 - 核对上游 3.1.2 源码：controller 对同源 rendering options 的改变增加通用 view-state 恢复，但 spreadsheet 仍未注册包含工作表的 view-state provider；仅升级不能直接证明该问题消除。未升级依赖、未添加 DOM 轮询或手工复刻查看器状态。
 - **待修复，U11 不关闭**：需在第三方适配边界提供可靠的工作簿状态保留或不重建的换肤路径，覆盖所选表、缩放、滚动、选区、快速换肤和切换文件；保持 Preview 轻量，不扩展编辑功能。上游接口参考 [File Viewer 使用说明](https://doc.file-viewer.app/guide/usage)。
+
+### U11 工作簿换肤与 Shadow DOM 选区修复（2026-10-11）
+
+- 固定版本的 spreadsheet renderer 增加实例级 `setTheme` 小补丁，仅更新原表格配置并重绘。应用适配器将主题变化从 FileViewer options 中分离；异步挂载完成使用最新主题，卸载后移除实例。未增加 DOM 状态恢复、轮询或编辑功能。补丁及升级移除条件见 `web/patches/README.md`；锁文件记录补丁哈希，Docker 在安装前复制 patches。
+- 更严格的复制检查发现另一处既有问题：第二次单击单元格会被第三方表格的 window 监听器误判为点击外部，清空选区。通过仅在测试浏览器拦截 JS 响应记录调用栈，确认来自 `handleOutsideMousedown → clearEditor → clearSelector`；不换肤也能复现。补丁在现有 Shadow DOM 适配处依据 composedPath 拦截这类错误外部事件，真正外部点击和 blur 仍沿用原行为。没有将测试注入写入产品。
+- 真实已登录 Chromium：上传专用双表、501 行 XLSX，选 Summary、放大到 110%、滚动 650px、选择并复制 Sample 30。亮/暗连续切换五次，每次先清空剪贴板再复制，验证选区仍有效；在原屏幕坐标再次点击和复制仍为 Sample 30，证明位置保留。点击顶部表格外部后选区取消；根实例未替换，fetch/XHR 总数保持初次加载的 4 次，无 pageerror。临时文件删除返回 200。证据 `/tmp/workbook-theme-state-live.json`，截图 `/tmp/workbook-theme-final.jpg`。
+- 早期复制检查未先清空剪贴板，不能独立证明选区保留；已由上述严格检查替代。中间怀疑 loadConfig 清空选区，随后调用栈证明是外部点击误判，最终保留公开 loadConfig 接口，没有引入私有配置写入。
+- 组件/适配器 5 项测试通过，覆盖主题变化不改变 options 引用、加载中切换主题、卸载和下一文件实例的生命周期；适配器独立 TypeScript 检查、ESLint、视觉规则、生产构建及路径检查通过。静态前端已发布。完整项目类型与镜像检查待本次 GitHub CI；快速切换文件等完整交互仍需补验，不据此关闭整个 U11 或总验收。

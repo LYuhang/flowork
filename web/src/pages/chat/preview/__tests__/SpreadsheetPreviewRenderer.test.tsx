@@ -6,6 +6,7 @@ import type { PreviewDescriptorV1 } from '@/lib/preview/protocol';
 import { SpreadsheetPreviewRenderer } from '../SpreadsheetPreviewRenderer';
 
 const nativeViewerProps = vi.hoisted(() => vi.fn());
+const theme = vi.hoisted(() => ({ resolvedTheme: 'light' }));
 
 vi.mock('@file-viewer/react', () => ({
   default: (props: Record<string, unknown>) => {
@@ -17,7 +18,7 @@ vi.mock('@file-viewer/renderer-spreadsheet', () => ({
   spreadsheetRenderer: { name: 'spreadsheet' },
 }));
 vi.mock('next-themes', () => ({
-  useTheme: () => ({ resolvedTheme: 'light' }),
+  useTheme: () => theme,
 }));
 vi.mock('ag-grid-community', () => ({
   AllCommunityModule: {},
@@ -54,6 +55,7 @@ const descriptor: PreviewDescriptorV1 = {
 afterEach(() => {
   vi.unstubAllGlobals();
   nativeViewerProps.mockReset();
+  theme.resolvedTheme = 'light';
 });
 
 describe('SpreadsheetPreviewRenderer lifecycle', () => {
@@ -95,6 +97,7 @@ describe('SpreadsheetPreviewRenderer lifecycle', () => {
       }),
     }));
     const firstProps = nativeViewerProps.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    theme.resolvedTheme = 'dark';
     view.rerender(
       <SpreadsheetPreviewRenderer
         descriptor={{

@@ -1,9 +1,9 @@
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PreviewToolbar } from './PreviewToolbar';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FileViewer, { type FileViewerProps, type FileViewerHandle, type ViewerState } from '@file-viewer/react';
-import { spreadsheetRenderer } from '@file-viewer/renderer-spreadsheet';
+import { createWorkbookTheme } from './workbook-theme';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'next-themes';
 
@@ -19,6 +19,10 @@ export function NativeWorkbookPreview({
   const viewer = useRef<FileViewerHandle>(null);
   const [viewerState, setViewerState] = useState<ViewerState | null>(null);
   const { resolvedTheme } = useTheme();
+  const [workbookTheme] = useState(() => createWorkbookTheme(resolvedTheme === 'dark' ? 'dark' : 'light'));
+  useEffect(() => {
+    workbookTheme.setTheme(resolvedTheme === 'dark' ? 'dark' : 'light');
+  }, [resolvedTheme, workbookTheme]);
   const [renderError, setRenderError] = useState<PreviewErrorInfo | null>(null);
   const url = descriptor.content?.url;
   const viewerKey = `${fileRefKey(descriptor.fileRef)}:${descriptor.revision}`;
@@ -27,9 +31,9 @@ export function NativeWorkbookPreview({
     // The renderer package narrows its mount element to HTMLDivElement while
     // core's public registry accepts HTMLElement. Runtime contracts are the
     // same; isolate the upstream generic-variance mismatch at this boundary.
-    renderers: [spreadsheetRenderer] as unknown as NonNullable<FileViewerProps['options']>['renderers'],
+    renderers: [workbookTheme.renderer] as unknown as NonNullable<FileViewerProps['options']>['renderers'],
     styleIsolation: 'shadow' as const,
-    theme: resolvedTheme === 'dark' ? 'dark' as const : 'light' as const,
+    theme: workbookTheme.initialTheme,
     i18n: {
       locale: i18n.resolvedLanguage?.toLowerCase().startsWith('zh')
         ? 'zh-CN' as const
@@ -51,7 +55,7 @@ export function NativeWorkbookPreview({
       resizableColumns: true,
       resizableRows: true,
     },
-  }), [i18n.resolvedLanguage, resolvedTheme]);
+  }), [i18n.resolvedLanguage, workbookTheme]);
   const handleStateChange = useCallback((state: ViewerState) => {
     setViewerState(state);
     if (state.error) {

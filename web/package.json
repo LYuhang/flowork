@@ -136,6 +136,9 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "msw"
-    ]
+    ],
+    "patchedDependencies": {
+      "@file-viewer/renderer-spreadsheet@2.3.2": "patches/@file-viewer__renderer-spreadsheet@2.3.2.patch"
+    }
   }
 }

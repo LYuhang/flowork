@@ -1139,7 +1139,7 @@
   .resource-table-tasks td[data-col="name"] { grid-column: 1 / -1; order: -1; }
   .resource-table-tasks td[data-col="actions"] { position: absolute; top: 0.75rem; right: 0.75rem; }
   .resource-table-tasks td[data-col="name"] { padding-right: 2.75rem; }
-  .resource-table-tasks td[data-col="sandbox"], .resource-table-tasks td[data-col="progress"], .resource-table-tasks td[data-col="created"], .resource-table-tasks td[data-col="lastActivity"], .resource-table-tasks td[data-col="updated"] { grid-column: 1 / -1; }
+  .resource-table-tasks td[data-col="created"], .resource-table-tasks td[data-col="lastActivity"], .resource-table-tasks td[data-col="updated"] { grid-column: 1 / -1; }
   .resource-table-tasks td[colspan] { grid-column: 1 / -1; }
 }
 @container (max-width: 960px) {

@@ -1766,3 +1766,12 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 用户明确要求提高授权间歇 503 的排查优先级。最近 OpenFGA 日志仍包含 PostgreSQL 读取 i/o timeout，个别批次记录的 query_duration_ms 仅 38–250ms；目前不足以证明数据库长期慢查询、资源不足或某项配置是根因，不通过增加自动业务重试掩盖。
 
 - 独立新夹具复验 `/tmp/row-actions-delete-diagnostic.json` 全部通过：原名/规范化相同名禁用、两类重命名刷新保留、取消删除保留、项目删除后关闭弹窗且查询 404，消息 POST 为 0，未捕获 pageerror。此前渲染错误仍为偶发待定位，不以此次成功覆盖失败记录。
+
+
+### 授权 503 优先排查：批次特征与差异化只读对照（2026-10-11）
+
+- 当前授权服务为 OpenFGA v1.20.0，原生启动开启 `context-propagation-to-datastore=true`。官方接口说明该开关决定取消信号是否传入数据库，不能仅凭开启即判定错误：[OpenFGA WithContextPropagationToDatastore](https://pkg.go.dev/github.com/openfga/openfga/pkg/server#WithContextPropagationToDatastore)。
+- 本次读取现存日志：17,138 个 BatchCheck 记录中，161 个包含单项错误；失败批次 query_duration_ms 中位数 144ms、最大 1,073ms，成功批次中位数 76ms。此为当前日志样本，不是用户请求错误率，也不能把 query_duration_ms 当作完整端到端延迟。最近失败含 PostgreSQL read tcp i/o timeout，但尚不足以断定慢查询或请求取消。
+- 取最近 40 种不同失败请求内容，只重做权限读取；当前服务与使用同一数据库、关闭传播的临时隔离服务分别完成 40 次，均无单项错误。结果 `/tmp/fga-diverse-read-probe.json`。临时服务已结束，没有改变生产配置，没有重放业务执行。
+- 首版诊断脚本未带 bearer token，80 次返回 401；这批为无效诊断，补齐凭据后的上项结果才是有效对照。凭据未写入结果或输出。
+- 结合此前同一批次重复、并发及取消对照，当前仍未稳定复现实际超时；不因此关闭问题，不贸然延长超时、关闭传播或加入自动重试。下一步需关联真实失败批次的请求取消、连接状态与数据库事件。

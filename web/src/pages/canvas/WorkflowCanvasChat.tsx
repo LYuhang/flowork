@@ -262,9 +262,10 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
     <ChatBranchNavigationContext.Provider value={id => {
       setDraft(null); setCreated(null); setSelectedId(id); setOpen(true); remember(id);
     }}>
+    {/* Bound expanded input to the resizable panel, reserving room for its header and composer controls. */}
     <div ref={panel} hidden={!open} role="dialog" aria-label={title} data-role="canvas-chat"
       onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); dismiss(); } }}
-      className="fixed z-40 flex min-h-[320px] min-w-[300px] resize flex-col overflow-hidden rounded-xl border bg-background shadow-xl"
+      className="fixed z-40 [container-type:size] [--composer-expanded-height:min(45dvh,28rem,max(64px,calc(100cqh_-_240px)))] flex min-h-[320px] min-w-[300px] resize flex-col overflow-hidden rounded-xl border bg-background shadow-xl"
       style={{ left: point.x, top: point.y, width: 380, height: 420,
         maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100vh - 16px)', display: open ? undefined : 'none' }}>
       <div className="flex h-10 shrink-0 cursor-move items-center gap-2 border-b px-2"

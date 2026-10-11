@@ -1305,7 +1305,7 @@ export function ChatComposer({
               inputTypographyClass,
               embedded && 'min-h-[72px]',
               quietFrame && 'min-h-[64px] max-h-[138px] px-0',
-              editorExpanded && 'h-[min(45dvh,28rem)] max-h-none',
+              editorExpanded && 'h-[var(--composer-expanded-height,min(45dvh,28rem))] max-h-none',
             )}
             aria-autocomplete="list"
             data-role="agent-composer-input"

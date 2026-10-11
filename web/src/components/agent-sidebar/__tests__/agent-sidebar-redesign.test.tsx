@@ -461,6 +461,31 @@ describe('ChatMessageList', () => {
     } finally { raf.mockRestore(); }
   });
 
+  it('keeps following the bottom when content finishes laying out after completion', () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+    let resize = () => {};
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resize = callback; }
+      observe() {}
+      disconnect() {}
+    });
+    try {
+      render(<ChatMessageList wfId="wf" activeChatId="late-layout" />);
+      const log = screen.getByRole('log', { name: 'Conversation' });
+      let height = 1000;
+      Object.defineProperties(log, {
+        scrollHeight: { configurable: true, get: () => height },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, value: 600, writable: true },
+      });
+      fireEvent.scroll(log);
+      height = 1300;
+      act(() => resize());
+      expect(log.scrollTop).toBe(1300);
+    } finally { vi.stubGlobal('ResizeObserver', OriginalResizeObserver); }
+  });
+
   it.each([false, true])('handles a final message batched with completion, reading older=%s', async readingOlder => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 1; });

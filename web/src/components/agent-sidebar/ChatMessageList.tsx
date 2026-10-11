@@ -668,15 +668,19 @@ export function ChatMessageList({
   }, [historyItems, renderItems, olderHistoryLoading, paginationRevision, scrollStateKey, restoreViewport, captureViewport]);
 
   useLayoutEffect(() => {
-    // Images and lazy tool cards may acquire their final height after the page
-    // commits. Preserve the same reading anchor through those layout changes.
-    const content = scrollRef.current?.firstElementChild;
+    // Images, tool cards and the composer can settle after the final message.
+    // Keep each window's existing reading position or bottom-following choice.
+    const viewport = scrollRef.current;
+    const content = viewport?.firstElementChild;
     const observer = content && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
-      if (!shouldStickToBottomRef.current && readingAnchorRef.current) {
+      if (shouldStickToBottomRef.current && viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
+      } else if (readingAnchorRef.current) {
         restoreViewport(readingAnchorRef.current);
       }
     }) : null;
     if (content) observer?.observe(content);
+    if (viewport) observer?.observe(viewport);
     return () => {
       observer?.disconnect();
       paginationRef.current = null;

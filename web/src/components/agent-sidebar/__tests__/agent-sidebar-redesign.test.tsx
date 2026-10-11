@@ -441,6 +441,26 @@ describe('ChatMessageList', () => {
     expect(toggle).toHaveTextContent('2 tools used');
   });
 
+  it.each([false, true])('preserves the reading preference when another window starts a turn, reading older=%s', readingOlder => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 1; });
+    try {
+      render(<ChatMessageList wfId="wf" activeChatId="remote-start" />);
+      const log = screen.getByRole('log', { name: 'Conversation' });
+      Object.defineProperties(log, {
+        scrollHeight: { configurable: true, value: 1000 },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, value: readingOlder ? 200 : 600, writable: true },
+      });
+      const scroll = vi.fn();
+      log.scrollTo = scroll;
+      fireEvent.scroll(log);
+      act(() => useChatStreamStore.getState().beginTurn('remote-start', 'remote-turn'));
+      if (readingOlder) expect(scroll).not.toHaveBeenCalled();
+      else expect(scroll).toHaveBeenCalledWith({ top: 1000, behavior: 'auto' });
+    } finally { raf.mockRestore(); }
+  });
+
   it.each([false, true])('handles a final message batched with completion, reading older=%s', async readingOlder => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 1; });

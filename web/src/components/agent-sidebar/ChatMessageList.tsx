@@ -779,12 +779,12 @@ export function ChatMessageList({
   }, [scrollStateKey, scrollToBottom, setChatScrollPosition]);
 
   useEffect(() => {
-    const streamJustStarted = isStreaming && !wasAutoStreamingRef.current;
     const streamJustFinished = !isStreaming && wasAutoStreamingRef.current;
     wasAutoStreamingRef.current = isStreaming;
     // Completion can arrive in the same render as the final message.
     if ((!isStreaming && !streamJustFinished) || loadingOlderRef.current) return;
-    if (!streamJustStarted && !shouldStickToBottomRef.current) return;
+    // A turn may start in another window while this window is reading history.
+    if (!shouldStickToBottomRef.current) return;
     requestAnimationFrame(() => scrollToBottom('auto'));
   }, [isStreaming, streamBuffer.length, merged.length, scrollToBottom]);
 

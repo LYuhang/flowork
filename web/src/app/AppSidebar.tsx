@@ -515,11 +515,11 @@ export function AppSidebar({
                         onNavigate?.();
                       }}
                       className={cn(
-                        'text-ui relative flex h-9 items-center gap-3 rounded-md px-3 font-semibold text-muted-foreground transition-colors duration-feedback before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-focus before:opacity-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-surface-hover/70 hover:text-foreground aria-[current=page]:bg-primary/[0.07] aria-[current=page]:font-bold aria-[current=page]:text-foreground aria-[current=page]:before:opacity-100',
+                        'text-ui relative flex h-9 items-center gap-3 rounded-md px-3 font-medium text-muted-foreground transition-colors duration-feedback before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-focus before:opacity-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-surface-hover/70 hover:text-foreground aria-[current=page]:bg-primary/[0.07] aria-[current=page]:font-semibold aria-[current=page]:text-foreground aria-[current=page]:before:opacity-100',
                         effectiveCollapsed && 'justify-center px-0',
                       )}
                     >
-                      <ResourceIcon kind={item.kind} size="sm" />
+                      <ResourceIcon kind={item.kind} size="sm" variant="plain" />
                       {!effectiveCollapsed && <span className="truncate">{label}</span>}
                     </NavLink>
                   </TooltipTrigger>
@@ -647,7 +647,7 @@ export function AppSidebar({
                                     : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
                                 )}
                               >
-                                <ResourceIcon kind="chat" size="sm" className="size-5 rounded" />
+                                <ResourceIcon kind="chat" size="sm" variant="plain" className="size-5 rounded" />
                                 <span className="min-w-0 flex-1 truncate">{label}</span>
                                 {item.pinned_at && <Pin className="size-3 shrink-0" aria-label={t('chat.list.pinned', 'Pinned')} />}
                                 <ChatRunStatus chatId={item.chat_id} run={item.latest_run} />

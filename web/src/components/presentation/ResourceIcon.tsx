@@ -12,12 +12,14 @@ const sizes = {
 export function ResourceIcon({
   kind,
   size = 'md',
+  variant = 'badge',
   label,
   className,
   ...props
 }: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
   kind: ResourceKind;
   size?: keyof typeof sizes;
+  variant?: 'badge' | 'plain';
   label?: string;
 }) {
   const visual = resourceVisual(kind);
@@ -25,10 +27,10 @@ export function ResourceIcon({
   return (
     <span
       className={cn(
-        'grid shrink-0 place-items-center ring-1 ring-inset',
+        'grid shrink-0 place-items-center',
         sizes[size].shell,
         visual.foregroundClass,
-        visual.surfaceClass,
+        variant === 'badge' && ['ring-1 ring-inset', visual.surfaceClass],
         className,
       )}
       role={label ? 'img' : undefined}

@@ -1205,3 +1205,10 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 线上真实 Chromium 任务菜单亮/暗两套主题 × 普通/降低透明度/增强对比度/强制颜色共 8 项通过；核对 computed style、打开、Escape 关闭及焦点回到触发按钮。证据 `/tmp/floating-material-live.json`，普通暗色截图已人工检查。此项不代表所有浮层入口均已完成实机交互检查。
 - 视觉规则、改动组件 ESLint、生产构建及部署路径检查通过；静态资源已上线。未进行后端重启，因为本批仅涉及前端样式。模糊性能对比仍待验收。
 - 上一批 main `0bc7ef3` 的 Continuous integration 三项（Python、Web、Extension）及 Security gates 均成功；本次提交后继续跟踪新一轮门禁。
+
+### 2026-10-11：V04 侧栏视觉权重与窄屏页面检查
+
+- 主导航普通项改为 medium，选中项 semibold；侧栏资源及会话图标采用无底块样式，保留资源色与形状。ResourceIcon 新增 plain 变体，页面标题及其他资源卡仍保留原 badge 默认值。
+- ESLint、视觉规则、生产构建和部署路径检查通过；静态资源已发布。真实 Chromium 亮/暗两种主题核对字号权重、透明图标底色，以及任务→部署→返回的选中状态，结果 `/tmp/sidebar-weight-live.json`。侧栏截图已检查；该截图中央部署数据仍在加载，不作为部署内容验收证据。
+- 390px 浅色下，任务、部署、项目、知识库、技能、MCP、存储、设置 8 个页面等待实际内容加载完成后，document 宽度均为 390px，无 pageerror。证据 `/tmp/theme-pages-final-390-light.json`，设置截图已检查。其余截图需继续逐页审阅，不以无脚本错误代替视觉或交互验收。
+- main bed12a7 的 CI 38101216951 与 Security gates 38101216941 正在运行；本批先本地提交，待上一轮门禁结束后一起推送，避免取消长时间 Python 检查。

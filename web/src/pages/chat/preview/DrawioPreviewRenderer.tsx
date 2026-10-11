@@ -184,7 +184,7 @@ export function DrawioPreviewRenderer({
   }
   if (currentRender?.failed) {
     return <PreviewErrorState descriptor={descriptor} error={{ code: 'render_failed', params: {} }}
-      message={t('preview.drawio.renderUnavailable', 'The file was read, but the draw.io renderer could not finish. Check your connection to diagrams.net and try again.')} onRetry={retryPreview} />;
+      message={t('preview.drawio.renderUnavailable', 'The file was read, but the diagram could not be rendered. Try again or download the source file.')} onRetry={retryPreview} />;
   }
   if (!currentRender?.url || !xml) {
     return <AsyncState kind="loading" title={t('preview.drawio.loading', 'Loading draw.io preview…')} className="h-full rounded-none border-0" />;

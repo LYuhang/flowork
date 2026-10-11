@@ -168,7 +168,7 @@
   "execution.refresh": "Refresh",
   "execution.myApprovals": "Awaiting my approval",
   "execution.allStatuses": "All statuses",
-  "preview.drawio.renderUnavailable": "The file was read, but the draw.io renderer could not finish. Check your connection to diagrams.net and try again.",
+  "preview.drawio.renderUnavailable": "The file was read, but the diagram could not be rendered. Try again or download the source file.",
   "preview.reference.fileChanged": "The source file has changed since this reference was created.",
   "preview.reference.fileChangedHelp": "The saved excerpt remains in the conversation. This preview cannot reproduce the original file version.",
   "preview.reference.missingObjects": "Some referenced objects are unavailable in this version.",

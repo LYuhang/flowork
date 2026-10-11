@@ -168,7 +168,7 @@
   "execution.refresh": "刷新",
   "execution.myApprovals": "待我确认",
   "execution.allStatuses": "全部状态",
-  "preview.drawio.renderUnavailable": "文件已读取，但 Draw.io 渲染未完成。请检查与 diagrams.net 的连接后重试。",
+  "preview.drawio.renderUnavailable": "文件已读取，但图表渲染未完成。请重试或下载源文件。",
   "preview.reference.fileChanged": "源文件自引用后已发生变化。",
   "preview.reference.fileChangedHelp": "引用文字仍保存在对话中，此预览无法重现原文件版本。",
   "preview.reference.missingObjects": "部分引用对象在此版本中不可用。",

@@ -463,7 +463,11 @@ start_openfga() {
   local token_file="$RUNDIR/openfga-token"
   local erasure_password_file="$RUNDIR/openfga-erasure-password"
   local datastore="vibecanvas_openfga"
-  if [[ ! -x "$openfga_bin" ]]; then
+  # Upgrade the launcher-managed binary; preserve explicitly supplied binaries.
+  if [[ ! -x "$openfga_bin" ]] || {
+    [[ -z "${OPENFGA_BIN:-}" ]] &&
+      ! "$openfga_bin" version | grep -Fq 'v1.20.0-flowork-pgx2675'
+  }; then
     "$REPO_ROOT/scripts/security/install_openfga_server.sh" "$openfga_bin"
   fi
   if [[ ! -s "$token_file" ]]; then

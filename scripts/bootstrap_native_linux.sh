@@ -59,7 +59,7 @@ fi
 echo "[1/7] Installing host packages"
 sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  binutils build-essential ca-certificates clang cmake curl file git gnupg jq libpq-dev libssl-dev pkg-config openssh-client \
+  binutils build-essential ca-certificates clang cmake curl file git gnupg jq libpq-dev libssl-dev patch pkg-config openssh-client \
   openssl patch postgresql postgresql-contrib procps redis-server ripgrep rsync \
   tar unzip util-linux zip \
   bubblewrap fuse3 nfs-common \

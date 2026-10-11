@@ -106,6 +106,16 @@ automatic reloader; restart the stack after changing Engine or API code.
 | Check service health | `./launch.sh status` |
 | Show recent logs | `./launch.sh logs` |
 
+The native OpenFGA installer currently builds the pinned 1.20.0 source with
+the same pgx cancellation fix and security dependency updates as the Docker
+image. It verifies a temporary Go 1.26.9 toolchain and requires `curl`, `tar`,
+`sha256sum`, and `patch` (included by the Linux bootstrap). Allow several minutes
+and 4 GB of temporary disk space for the first build; the compiler and build
+caches are removed afterward. The launcher upgrades its managed OpenFGA binary
+once to `v1.20.0-flowork-pgx2675`; an explicit `OPENFGA_BIN` remains operator-managed.
+The narrow backport comes from [pgx #2675](https://github.com/jackc/pgx/pull/2675)
+and can be removed when the pinned upstream OpenFGA release includes it.
+
 The launcher delegates service orchestration to
 [`native_dev_up.sh`](../scripts/native_dev_up.sh). Process state and logs are
 stored under `/tmp/vibecanvas-native/` by default; persistent development data

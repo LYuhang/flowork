@@ -12,6 +12,10 @@ artifacts.
 
 Notable license choices in the current dependency graph include:
 
+- OpenFGA's pgx dependency is MIT-licensed. The temporary background-reader
+  backport in `scripts/security/patches/pgx-background-timeout.patch` comes from
+  upstream commit `591ba5dd146423bc672ace8eeaa13f88c0b354c0` (pgx #2675).
+  Its license is retained in `scripts/security/patches/pgx.LICENSE`.
 - The pinned `playwright-core` browser runtime is distributed under Apache-2.0.
   The browser extension's CDP browser model and
   relay data plane are adapted from Microsoft Playwright commit

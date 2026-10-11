@@ -1,0 +1,236 @@
+{
+  "build": {
+    "native_install_passed": true,
+    "version": "v1.20.0-flowork-pgx2675",
+    "binary_sha256": "12d24a2fe7da1777fc9ac488f392b1d5dd84a91d309ed878812b1ca7328d575a",
+    "go": "1.26.9",
+    "pgx": "v5.10.0",
+    "grpc": "v1.83.2",
+    "x_net": "v0.60.0",
+    "upstream_bgreader_tests_passed": true,
+    "supply_chain_contract_tests_passed": 35,
+    "source": {
+      "driver_sha256": "52ad7ef4e13a6fd37727b094bc70570fd4e91a840df8911f673d098cb1b24b9f",
+      "matches_verified_upstream_fix": true
+    }
+  },
+  "batch_comparison": {
+    "unpatched": {
+      "requests": 200,
+      "errors": 0,
+      "checks": 7775,
+      "p50_ms": 172.5,
+      "p95_ms": 314
+    },
+    "patched": {
+      "requests": 200,
+      "errors": 0,
+      "checks": 7775,
+      "p50_ms": 158.0,
+      "p95_ms": 265
+    },
+    "matching_decision_sets": 200,
+    "identical_runtime_configuration": true
+  },
+  "deployment": {
+    "started_at": "2026-10-11T08:04:58.411952+00:00",
+    "health_status": 200,
+    "new_pid": 943440,
+    "version": "v1.20.0-flowork-pgx2675",
+    "preserved_environment": true,
+    "other_services_restarted": false
+  },
+  "api_reads": [
+    {
+      "round": 0,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 0,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 0,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 1,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 1,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 1,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 2,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 2,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 2,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 3,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 3,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 3,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 4,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 4,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 4,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 5,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 5,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 5,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 6,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 6,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 6,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 7,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 7,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 7,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 8,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 8,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 8,
+      "path": "/api/v1/deployments",
+      "status": 200
+    },
+    {
+      "round": 9,
+      "path": "/api/v1/projects",
+      "status": 200
+    },
+    {
+      "round": 9,
+      "path": "/api/v1/tasks",
+      "status": 200
+    },
+    {
+      "round": 9,
+      "path": "/api/v1/deployments",
+      "status": 200
+    }
+  ],
+  "pages_after_ready": [
+    {
+      "path": "/chat",
+      "api_status": 200,
+      "has_content": true,
+      "server_errors": []
+    },
+    {
+      "path": "/tasks",
+      "api_status": 200,
+      "has_content": true,
+      "server_errors": []
+    },
+    {
+      "path": "/deployments",
+      "api_status": 200,
+      "has_content": true,
+      "server_errors": []
+    }
+  ],
+  "chat_after_model_ready": [
+    {
+      "path": "/chat",
+      "api_status": 200,
+      "has_content": true,
+      "server_errors": []
+    }
+  ],
+  "post_deploy_observation": {
+    "batch_requests": 1427,
+    "failed_batches": 0,
+    "checks": 18787,
+    "failed_checks": 0,
+    "observed_until": "2026-10-11T08:09:39.696194+00:00"
+  },
+  "limitations": [
+    "Docker image build and security scan await the new commit CI.",
+    "Native build tested on Linux amd64; arm64 toolchain checksum is pinned but not executed here.",
+    "Short observation period does not establish the cause of every historical 503."
+  ],
+  "automatic_business_retries_added": false
+}

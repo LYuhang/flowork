@@ -551,8 +551,8 @@ function TextDocumentRenderer({
         ) : null}
       </PreviewToolbar>
       {conflict ? (
-        <div role="alert" className="flex items-center gap-2 border-b border-state-warning/30 bg-state-warning/10 px-3 py-2 text-xs text-state-warning">
-          <span className="min-w-0 flex-1">
+        <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-state-warning/30 bg-state-warning/10 px-3 py-2 text-xs text-state-warning">
+          <span className="min-w-0 flex-[1_1_16rem]">
             {t(
               'preview.conflict.description',
               'This file changed after editing began. Reload it or explicitly overwrite the latest revision.',

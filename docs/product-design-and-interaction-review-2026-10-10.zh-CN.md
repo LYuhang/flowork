@@ -1250,3 +1250,10 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - ESLint、现有页面壳契约测试 3 项、生产构建及部署路径检查通过，前端静态资源已上线。
 - 真实 Chromium 亮/暗 × 列表/详情 4 项验证背景、装饰条数量及 dl 内边距符合原有差异：`/tmp/summary-variant-live.json`。这次只验证摘要布局，列表采样可能仍为统计加载时的占位值，不能据此声明统计数据正确。
 - U08 仍存在 detail-properties、section-header、表格等外层覆盖，尚未完成全部收敛；后续按组件分批处理，不以本次摘要变体代表整项完成。
+
+### 2026-10-11：U08 属性布局收回 DetailSummary
+
+- DetailSummary 增加 rows 布局；任务/部署详情显式使用。字段行的响应式列宽、间距、分隔线和值的字重由组件负责，默认 stacked 布局保留其他页面原状。删除详情 CSS 中 24 行属性布局覆盖。
+- 实际线上部署设置页在更新前后分别采集 1280/390px × 亮/暗共 4 组 computed style，列宽、gap、padding、分隔线宽、标签/值字号、值字重和上边距完全一致。证据 `/tmp/detail-properties-before.json` 与 `/tmp/detail-properties-after.json`。首次脚本未进入 Settings 页签导致等待失败，修正后在发布前完成基线采集。
+- ESLint、页面壳契约 3 项、生产构建和部署路径检查通过；静态资源已上线。任务页使用同一组件且调用点已切换，尚不能把部署实测称为任务所有状态实测。
+- U08 的 section-header 和通用表格等 CSS 覆盖尚未全部消除，继续按实际用途处理。

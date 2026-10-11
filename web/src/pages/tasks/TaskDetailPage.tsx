@@ -991,7 +991,7 @@ export function TaskDetailPage() {
                 </div>
               ) : scheduledQuery.data ? (
                 <div data-testid="schedule-configuration-details">
-                  <DetailSummary
+                  <DetailSummary layout="rows"
                     className="gap-x-8"
                     items={[
                     {
@@ -1106,7 +1106,7 @@ export function TaskDetailPage() {
                     <CopyButton value={selectedExecution.id} />
                     <WorkflowVersionLink source={{ type: "execution", id: selectedExecution.id }} workflowId={selectedExecution.workflow_id} version={selectedExecution.version} kind="execution" />
                   </div>
-                  <DetailSummary className="mt-4" items={[
+                  <DetailSummary layout="rows" className="mt-4" items={[
                     { label: t("taskDetail.startedAt", "Started"), value: formatTime(selectedExecution.started_at) },
                     { label: t("taskDetail.finishedAt", "Finished"), value: formatTime(selectedExecution.finished_at) },
                     { label: t("tasks.scheduled.notification", "Notification"), value: selectedExecution.notification_state?.status

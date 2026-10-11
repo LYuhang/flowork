@@ -230,7 +230,7 @@ function BasicInfoSection({ dep, canUpdate }: { dep: Deployment; canUpdate: bool
           </div>
         </div>
       ) : (
-        <DetailSummary
+        <DetailSummary layout="rows"
           className="gap-x-8"
           items={[
             { label: t('deployments.detail.deploymentId', 'Deployment ID'), value: copyable(dep.id, t('deployments.detail.deploymentId', 'Deployment ID')) },
@@ -249,7 +249,7 @@ function ReadOnlyConfig({ dep }: { dep: Deployment }) {
   const { t } = useTranslation();
   const onOff = (value: boolean) => value ? t('deployments.settings.on', 'On') : t('deployments.settings.off', 'Off');
   return <SectionBlock title={t('deployments.detail.trafficControl', 'Traffic and runtime controls')}>
-    <DetailSummary items={[
+    <DetailSummary layout="rows" items={[
       { label: t('deployments.settings.acceptTraffic', 'Accept requests'), value: onOff(dep.enabled) },
       { label: t('deployments.create.fields.rateLimitQps', 'Rate limit (QPS)'), value: dep.rate_limit_qps },
       { label: t('tasks.version.label', 'Workflow version'), value: dep.pinned_major != null && dep.pinned_sub != null ? `v${dep.pinned_major}.sv${dep.pinned_sub}` : '—' },

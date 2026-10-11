@@ -1,0 +1,46 @@
+{
+  "scope": "Isolated pgx driver reproduction against the running PostgreSQL; not an OpenFGA deployment or proof attributing every historical 503.",
+  "driver_version": "v5.10.0",
+  "toolchain": "go1.25.0 linux/amd64",
+  "upstream_issue": "https://github.com/jackc/pgx/issues/2673",
+  "upstream_fix": "https://github.com/jackc/pgx/pull/2675",
+  "patch_commit": "591ba5dd146423bc672ace8eeaa13f88c0b354c0",
+  "changed_driver_file": "pgconn/internal/bgreader/bgreader.go",
+  "patched_file_sha256": "52ad7ef4e13a6fd37727b094bc70570fd4e91a840df8911f673d098cb1b24b9f",
+  "method": "Upstream slowConn reproduction, delaying writes by 60ms and cancelling first query at 95ms, then SELECT 2 on the same connection. Final test adds SELECT pg_sleep(1) with 20ms deadline. Three independent connections per series; no application execution or automatic retries.",
+  "before": [
+    {
+      "case": 1,
+      "exit_code": 0,
+      "output": "2026/10/11 07:43:02 query 1, context cancelled mid-query: err=<nil> closed=false\n2026/10/11 07:43:02 query 2, context.Background():        err=timeout: read tcp [database socket]->[database socket]: i/o timeout\n"
+    },
+    {
+      "case": 2,
+      "exit_code": 0,
+      "output": "2026/10/11 07:43:02 query 1, context cancelled mid-query: err=<nil> closed=false\n2026/10/11 07:43:02 query 2, context.Background():        err=timeout: read tcp [database socket]->[database socket]: i/o timeout\n"
+    },
+    {
+      "case": 3,
+      "exit_code": 0,
+      "output": "2026/10/11 07:43:02 query 1, context cancelled mid-query: err=<nil> closed=false\n2026/10/11 07:43:02 query 2, context.Background():        err=timeout: read tcp [database socket]->[database socket]: i/o timeout\n"
+    }
+  ],
+  "after": [
+    {
+      "case": 1,
+      "exit_code": 0,
+      "output": "2026/10/11 07:43:40 query 1, context cancelled mid-query: err=<nil> closed=false\n2026/10/11 07:43:40 query 2, context.Background():        err=<nil>\n2026/10/11 07:43:40 real query timeout remains an error: true\n"
+    },
+    {
+      "case": 2,
+      "exit_code": 0,
+      "output": "2026/10/11 07:43:40 query 1, context cancelled mid-query: err=<nil> closed=false\n2026/10/11 07:43:40 query 2, context.Background():        err=<nil>\n2026/10/11 07:43:40 real query timeout remains an error: true\n"
+    },
+    {
+      "case": 3,
+      "exit_code": 0,
+      "output": "2026/10/11 07:43:40 query 1, context cancelled mid-query: err=<nil> closed=false\n2026/10/11 07:43:40 query 2, context.Background():        err=<nil>\n2026/10/11 07:43:40 real query timeout remains an error: true\n"
+    }
+  ],
+  "production_changed": false
+}

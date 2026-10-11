@@ -1917,3 +1917,12 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 初次 `/tmp/native-copy-draft-live.json` 在异步草稿保存尚未确认时立即读取，返回附件 0；保留失败记录。补验新增复制前后只读等待保存完成，未增加业务重试或修改产品，结果通过。不能把该次失败说成已确定的产品附件丢失。
 - 重新核验 F17 记录：200 节点桌面/窄屏布局与撤销通过，桌面保存重开通过；19 节点循环/展开输出、9 节点条件/并行、断开子图、只读及公网视口均有独立记录。窄屏记录 saveReload=false 表示未做保存重开，不能写成两个宽度都执行了保存。
 - 共享功能不能等同所有入口有相同功能：当前 MessageItem 仅在 surface=chat 时传递分支轮次，浏览器侧栏无分支入口；后端 branch_source 对 browser 明确返回 browser_project_branch_not_supported，避免破坏一浏览器项目一对话的约束。本轮只确认代码边界，没有将浏览器侧栏分支标为成功；共享矩阵仍保留未勾选，继续核对适用范围和剩余证据。
+
+
+### 授权 503：同版数据库驱动缺陷复现（2026-10-11）
+
+- 重新核对 API 三条 `openfga_batch_check_failed` 与对应 OpenFGA 请求，均有 `sql error: timeout: read tcp ...: i/o timeout`。有日志且可以关联；“未解决”指尚未完成根因确认与生产修复。
+- 发现上游 pgx [问题 #2673](https://github.com/jackc/pgx/issues/2673) 与已合并的[修复 #2675](https://github.com/jackc/pgx/pull/2675)：慢写触发后台读取时，取消产生的网络超时可能被缓存，当前查询从已缓存响应成功返回，下一次正常查询却收到遗留超时。这与本机短耗时、无当前 context deadline 的 I/O timeout 高度吻合，但不是仅凭症状就证明每一条历史 503 都源于此。
+- 取 OpenFGA 1.20.0 所依赖的 pgx v5.10.0，使用校验过的 Go 1.25.0 工具链，在隔离目录构建上游复现程序；连接当前 PostgreSQL，仅执行 SELECT，不写业务数据或派发业务。3 次独立连接均复现：第一次查询成功且连接未关闭，第二次 SELECT 2 报遗留 I/O timeout。
+- 仅将 `pgconn/internal/bgreader/bgreader.go` 替换为上游合并提交 `591ba5dd146423bc672ace8eeaa13f88c0b354c0` 的同文件，再编译。3 次后续 SELECT 2 全部成功；增加 20ms deadline 的 `SELECT pg_sleep(1)`，3 次均仍返回错误，未把真正超时吞掉。脱敏证据：`docs/validation/auth-pgx-cancellation-2026-10-11.json`。
+- 当前结论：已实证当前依赖存在可导致同类错误的上游缺陷，并验证窄修复有效。尚未修改线上 OpenFGA、未切换 context 配置、未增加自动重试；不能将驱动级实验写成线上已修复。下一步需统一 Docker 重建与原生安装路径，验证 OpenFGA 实际批量授权及页面请求后再部署、观察。较新的 OpenFGA 发布说明不能替代确认其是否包含该刚合并修复。

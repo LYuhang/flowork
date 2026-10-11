@@ -1349,3 +1349,19 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 从上传的构建日志确认，失败发生在 Web 镜像 `tsc -b`：搜索分页回调增加可选 pageSize 后，普通滚动仍直接传给 Promise.then，Promise 的 void 入参与 number|undefined 不兼容（TS2345）。这是编译失败，不是发现新的镜像漏洞。
 - 改为显式无参闭包 `then(() => onLoadOlderHistory())`，保留普通滚动默认 30 条和搜索定位 200 条的行为。相关历史/分页回归 81 项、ESLint 通过。
 - 本机单独执行完整类型检查，900 MB 堆上限仍不足，进程明确因堆内存不足退出；不将此记录为类型检查通过。完整类型与镜像门禁继续由新的 GitHub CI 确认。本次为修复确定失败而立即推送，不继续等待注定失败的旧 Web 构建。
+
+
+### U11 部署指标图表实机补验（2026-10-11）
+
+- 使用已停用 QA 部署的真实历史指标，选择最近 14 天，响应包含 6 个有记录的分钟桶；未启用实例、未新发调用。QPS、错误率、P95 延迟 × 明暗 × 1280/390px 共 12 组通过。
+- 验证坐标标签、单位、聚焦/悬停读数；真实 Tab/Shift+Tab 可在采样点之间移动，读数与 API 对应值一致（延迟从毫秒转秒、显示三位小数）；切换主题前后已选读数保留，无 document 横向溢出。窄屏暗色截图已查看。证据 `/tmp/metric-theme-live.json`。
+- 使用现有固定读数区和 SVG title，没有增加新的 Tooltip 或图表库。此项只有 6 个真实采样桶，不据此声明数万采样点的性能或全部触屏交互已覆盖；本次未改图表实现。
+
+
+### U11 工作簿换肤状态丢失：实测未通过（2026-10-11）
+
+- 创建仅含 Orders/Summary 的专用临时 XLSX，通过真实存储上传和独立 Preview 打开；点击 Summary 并放大到 110%。浅色通过，切为暗色后 Summary 的 aria-pressed 变为 false，缩放回到 100%。无 pageerror。测试后临时文件 DELETE 200，未保留新业务数据。证据 `/tmp/workbook-theme-live.json`、`/tmp/workbook-theme-error.jpg`。
+- 首次脚本把上传接口的目录参数当作文件路径，导致 resolve 失败；修正为目录上传并断言返回文件路径后才复现产品问题。此前失败不作为产品缺陷证据，临时路径已清理。
+- 已安装 `@file-viewer/react` 2.3.0 在 options 引用变化时调用 controller.update；core 2.3.0 的 update 无条件重新 loadSource。因此 NativeWorkbookPreview 的 resolvedTheme 改动导致文件重载。当前 spreadsheet renderer 2.3.2 只注册 zoom provider，通用 getViewState 不含所选工作表。
+- 核对上游 3.1.2 源码：controller 对同源 rendering options 的改变增加通用 view-state 恢复，但 spreadsheet 仍未注册包含工作表的 view-state provider；仅升级不能直接证明该问题消除。未升级依赖、未添加 DOM 轮询或手工复刻查看器状态。
+- **待修复，U11 不关闭**：需在第三方适配边界提供可靠的工作簿状态保留或不重建的换肤路径，覆盖所选表、缩放、滚动、选区、快速换肤和切换文件；保持 Preview 轻量，不扩展编辑功能。上游接口参考 [File Viewer 使用说明](https://doc.file-viewer.app/guide/usage)。

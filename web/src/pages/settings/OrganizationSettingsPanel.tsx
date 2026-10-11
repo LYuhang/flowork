@@ -104,10 +104,10 @@ function StatusBadge({ status }: { status: string }) {
     <span className={cn(
       'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
       active
-        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+        ? 'bg-state-success/10 text-state-success'
         : 'bg-muted text-muted-foreground',
     )}>
-      <span className={cn('size-1.5 rounded-full', active ? 'bg-emerald-500' : 'bg-current/50')} />
+      <span className={cn('size-1.5 rounded-full', active ? 'bg-state-success' : 'bg-current/50')} />
       {t(`organization.statuses.${status}`, status)}
     </span>
   );

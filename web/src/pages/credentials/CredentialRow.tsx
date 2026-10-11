@@ -107,7 +107,7 @@ export function CredentialRow({ cred, onEdit, onDelete }: CredentialRowProps) {
           </button> : null}
           <span className="ml-1 min-w-24 text-xs text-muted-foreground" aria-live="polite">
             {testResult ? (
-              <span className={testResult.ok ? 'text-emerald-600' : 'text-destructive'}>
+              <span className={testResult.ok ? 'text-state-success' : 'text-destructive'}>
                 {testResult.ok
                   ? <><CircleCheck className="mr-1 inline size-3.5" />{t('credentials.connected', 'Connected')} · {testResult.latency_ms} ms</>
                   : <><CircleX className="mr-1 inline size-3.5" />{t(`credentials.test.${testResult.outcome}`, testResult.outcome.replaceAll('_', ' '))}</>}

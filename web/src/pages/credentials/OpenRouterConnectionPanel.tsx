@@ -136,7 +136,7 @@ export function OpenRouterConnectionPanel() {
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">OpenRouter</h3>
               {value?.connected ? (
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-state-success">
                   <CircleCheck className="size-3.5" aria-hidden="true" />
                   {t('credentials.openrouter.connected', 'Connected')}
                 </span>

@@ -282,7 +282,7 @@ export function RuntimeModelPicker({
                         <span className="flex min-w-0 items-center gap-2">
                           <span className="truncate text-sm font-medium">{model.label}</span>
                           {free ? (
-                            <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                            <span className="shrink-0 rounded-full bg-state-success/10 px-1.5 py-0.5 text-xs font-semibold text-state-success">
                               {t('agent_settings.free_model', 'Free')}
                             </span>
                           ) : null}

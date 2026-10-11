@@ -166,7 +166,7 @@ export function EnterpriseIdentityPanel({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-medium">{provider.display_name}</p>
-                  <span className={`rounded-full px-2 py-0.5 text-xs ${provider.status === 'active' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${provider.status === 'active' ? 'bg-state-success/10 text-state-success' : 'bg-muted text-muted-foreground'}`}>
                     {provider.status}
                   </span>
                   <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
@@ -399,7 +399,7 @@ export function EnterpriseIdentityPanel({
               {t('organization.identity.tokenDescription', 'This token is shown once. Store it in the identity provider secret field; Flowork keeps only its hash.')}
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+          <div className="rounded-lg border border-state-warning/30 bg-state-warning/5 p-3">
             <p className="mb-2 text-xs font-medium">{issuedToken?.providerName}</p>
             <code className="block break-all text-xs" data-testid="issued-scim-token">
               {issuedToken?.value}

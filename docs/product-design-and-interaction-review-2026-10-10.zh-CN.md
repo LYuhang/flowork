@@ -1197,3 +1197,11 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 实测任务卡片原先让 Sandbox 和 Progress 各占整行，造成中等桌面和手机上的重复空白。仅调整任务表的窄容器 CSS，使 Status/Sandbox、Type/Workflow、Progress/Duration 成对排列；Created 仍完整一行，操作位置与所有字段保留。
 - 生产构建及部署路径检查通过，静态资源已发布。真实页面四组合（1280/390 × light/dark）通过：同一行高度 413→313px，9 个字段均保留，成对字段不重叠且未超出视口；更多菜单可打开，Esc 关闭并恢复按钮焦点。证据 `/tmp/task-card-density-live.json`、`/tmp/task-card-390-dark.jpg`（已查看）。改前高度通过仅在测试页面临时恢复原两项 CSS 规则测量，未改变业务数据。
 - 同步更新原生部署的 public/dist/在线下载目录及旧别名插件压缩包，防止后续前端构建重新复制旧插件包。本次不需要重启后端。完整主题、空态/错误态、详情页与性能矩阵仍未关闭。
+
+### 2026-10-11：共享浮层材质与无障碍回退
+
+- DropdownMenu、ContextMenu、Select、Popover 共用 `surface-floating`，顶部栏使用同一材质：96% 实色背景和 8px 轻微模糊；内容、日志与数据面板未增加模糊层。
+- 默认实色，支持 backdrop-filter 时才增强；降低透明度、增强对比度和强制颜色偏好下恢复实色并关闭模糊。
+- 线上真实 Chromium 任务菜单亮/暗两套主题 × 普通/降低透明度/增强对比度/强制颜色共 8 项通过；核对 computed style、打开、Escape 关闭及焦点回到触发按钮。证据 `/tmp/floating-material-live.json`，普通暗色截图已人工检查。此项不代表所有浮层入口均已完成实机交互检查。
+- 视觉规则、改动组件 ESLint、生产构建及部署路径检查通过；静态资源已上线。未进行后端重启，因为本批仅涉及前端样式。模糊性能对比仍待验收。
+- 上一批 main `0bc7ef3` 的 Continuous integration 三项（Python、Web、Extension）及 Security gates 均成功；本次提交后继续跟踪新一轮门禁。

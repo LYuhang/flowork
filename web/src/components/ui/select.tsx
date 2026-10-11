@@ -74,7 +74,7 @@ const SelectContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "relative z-modal-popover max-h-[min(var(--radix-select-content-available-height),20rem)] min-w-[8rem] overflow-hidden rounded-md border border-edge-structural bg-popover text-popover-foreground shadow-popover duration-popover data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 motion-reduce:animate-none origin-[--radix-select-content-transform-origin]",
+        "relative z-modal-popover max-h-[min(var(--radix-select-content-available-height),20rem)] min-w-[8rem] overflow-hidden rounded-md border border-edge-structural surface-floating text-popover-foreground shadow-popover duration-popover data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 motion-reduce:animate-none origin-[--radix-select-content-transform-origin]",
         position === "popper" &&
           "w-[var(--radix-select-trigger-width)]",
         className

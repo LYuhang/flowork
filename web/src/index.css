@@ -753,8 +753,30 @@
   }
 
   .surface-topbar {
-    @apply border-b border-edge-structural backdrop-blur;
-    background: oklch(var(--surface-raised) / 0.92);
+    @apply border-b border-edge-structural;
+  }
+
+  /* Small floating surfaces share one material. Solid is the default so
+     unsupported browsers and accessibility overrides retain full contrast. */
+  .surface-topbar,
+  .surface-floating {
+    background: oklch(var(--surface-raised));
+  }
+
+  @supports (backdrop-filter: blur(8px)) {
+    .surface-topbar,
+    .surface-floating {
+      background: oklch(var(--surface-raised) / 0.96);
+      backdrop-filter: blur(8px);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+    .surface-topbar,
+    .surface-floating {
+      background: oklch(var(--surface-raised));
+      backdrop-filter: none;
+    }
   }
 
   .surface-panel {

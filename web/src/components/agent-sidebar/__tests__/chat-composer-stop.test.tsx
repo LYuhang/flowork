@@ -210,6 +210,29 @@ describe('ChatComposer Stop', () => {
     await waitFor(() => expect(sent).toHaveBeenCalledOnce());
   });
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('leaves menu navigation to the active IME (%j)', async (composition) => {
+    server.use(http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({
+      carrier_scope_id: 'wf_x', surface: 'chat', debug_view_enabled: false,
+      available_commands: ['workflow', 'browser'],
+    })));
+    renderComposer('ime-navigation');
+    const input = screen.getByRole('textbox');
+    await userEvent.type(input, '/');
+    await screen.findByRole('listbox');
+    for (const key of ['ArrowDown', 'ArrowUp', 'Escape', 'Tab', 'Enter']) {
+      const escapedEditor = vi.fn();
+      document.addEventListener('keydown', escapedEditor);
+      try {
+        expect(fireEvent.keyDown(input, { key, ...composition })).toBe(true);
+        expect(escapedEditor).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener('keydown', escapedEditor);
+      }
+      expect(screen.getByRole('listbox')).toBeVisible();
+      expect(input).toHaveValue('/');
+    }
+  });
+
   it('completes a slash command instead of sending when Enter-to-send is selected', async () => {
     useComposerPreferences.setState({ sendShortcut: 'enter' });
     server.use(http.get('*/api/v1/chats/bootstrap', () => HttpResponse.json({

@@ -1003,7 +1003,12 @@ export function ChatComposer({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Escape' && !e.nativeEvent.isComposing && (goalPickerOpen || skillPickerOpen)) {
+    // Composition owns candidate navigation as well as confirmation keys.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) {
+      e.stopPropagation();
+      return;
+    }
+    if (e.key === 'Escape' && (goalPickerOpen || skillPickerOpen)) {
       e.preventDefault();
       e.stopPropagation();
       setGoalPickerOpen(false);
@@ -1029,8 +1034,7 @@ export function ChatComposer({
         setMentionDismissed(true);
         return;
       }
-      const composing = e.nativeEvent.isComposing || e.keyCode === 229;
-      if (!composing && (e.key === 'Tab' || e.key === 'Enter')) {
+      if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
         completeMention(mentionCandidates[activeMention].name);
         return;
@@ -1053,11 +1057,9 @@ export function ChatComposer({
         setMenuDismissed(true);
         return;
       }
-      const composing = e.nativeEvent.isComposing || e.keyCode === 229;
       if (
-        !composing &&
-        (e.key === 'Tab' ||
-          (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey))
+        e.key === 'Tab' ||
+        (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey)
       ) {
         e.preventDefault();
         completeCommand(candidates[active]);
@@ -1067,8 +1069,6 @@ export function ChatComposer({
 
     // ── send / newline ───────────────────────────────────────────────────
     if (e.key !== 'Enter') return;
-    // Enter while an IME composition is active must never send.
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     // Shift+Enter is always a newline (the escape hatch).
     if (e.shiftKey) return;
     // Modifier+Enter remains available when Enter-to-send is selected.

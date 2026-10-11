@@ -18,6 +18,7 @@ import {
   FolderPlus,
   ListChecks,
   MoreHorizontal,
+  Search,
   FolderOpen,
   Plus,
   RefreshCw,
@@ -183,6 +184,8 @@ export function ChatPage() {
   const qc = useQueryClient();
   const account = useAuthStore((state) => state.user);
   const activeChatId = useUIStore((s) => s.activeChatIds.chat);
+  const [searchChatId, setSearchChatId] = useState<string | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const [attentionFocus, setAttentionFocus] = useState<PendingActionFocus | null>(null);
   const [searchParams] = useSearchParams();
   // Empty persisted chats are intentionally absent from conversation history.
@@ -1120,12 +1123,12 @@ export function ChatPage() {
             <span className="hidden sm:inline">{t('chat.toolbar.files', 'Files')}</span>
           </Button>
         </ChatToolbarTooltip>
-        {debugAvailable && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="sm"
+              ref={moreButtonRef}
               aria-label={t('chat.toolbar.more', 'More chat actions')}
               className="h-8 shrink-0 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
             >
@@ -1133,7 +1136,15 @@ export function ChatPage() {
               <span className="hidden sm:inline">{t('chat.toolbar.moreShort', 'More')}</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-48" onCloseAutoFocus={event => {
+            if (searchChatId && searchChatId === activeChatId) {
+              event.preventDefault();
+              requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-role=chat-message-search] input')?.focus());
+            }
+          }}>
+            <DropdownMenuItem disabled={!activeChatIsPersisted} onSelect={() => setSearchChatId(activeChatId)}>
+              <Search className="h-4 w-4" />{t('chat.search.open')}
+            </DropdownMenuItem>
             {debugAvailable ? (
               <DropdownMenuItem
                 disabled={!workspaceScopeId}
@@ -1146,7 +1157,6 @@ export function ChatPage() {
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
-        )}
       </header>
 
       {boot.isLoading && !activeHistory.isSuccess ? (
@@ -1233,6 +1243,11 @@ export function ChatPage() {
                   <>
 
                   <ChatMessageList
+                    searchOpen={!!activeChatId && searchChatId === activeChatId}
+                    onSearchOpenChange={open => {
+                      setSearchChatId(open ? activeChatId : null);
+                      if (!open) moreButtonRef.current?.focus();
+                    }}
                     focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
                     focusMessageId={searchParams.get('resumeChat') === activeChatId ? searchParams.get('focusMessage') : null}
                     wfId={carrierScopeId}

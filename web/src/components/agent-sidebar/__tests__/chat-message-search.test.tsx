@@ -16,7 +16,17 @@ async function openSearch() {
 }
 
 describe('conversation search', () => {
-  it('continues past an empty page and locates previous/next results without sending', async () => {
+  it('waits for explicit submit rather than searching during input', async () => {
+    search.mockResolvedValue({ items: [], scanned: 0, next_cursor: null });
+    render(<ChatMessageSearch chatId="chat" open onOpenChange={vi.fn()} onLocate={vi.fn()} />);
+    await userEvent.type(screen.getByRole('textbox'), 'needle');
+    await new Promise(resolve => setTimeout(resolve, 350));
+    expect(search).not.toHaveBeenCalled();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(search).toHaveBeenCalledOnce());
+  });
+
+  it('continues past an empty page and lists selectable highlighted candidates', async () => {
     search.mockResolvedValueOnce({ items: [], scanned: 100, next_cursor: 150 })
       .mockResolvedValueOnce({ items: [match, { ...match, id: 'next-message' }], scanned: 2, next_cursor: null });
     const locate = vi.fn();
@@ -25,11 +35,13 @@ describe('conversation search', () => {
     await screen.findByText('Matching messages: 2');
     expect(search).toHaveBeenNthCalledWith(2, 'chat', 'needle', 150, expect.any(AbortSignal));
     expect(container.querySelector('mark')).toHaveTextContent('needle');
-    await userEvent.click(screen.getByRole('button', { name: 'Locate matching message' }));
+    expect(container.querySelector('mark')).toHaveClass('text-state-danger');
+    expect(screen.getAllByRole('button', { name: 'Locate matching message' })).toHaveLength(2);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Locate matching message' })[0]);
     expect(locate).toHaveBeenLastCalledWith('old-message');
-    await userEvent.click(screen.getByRole('button', { name: 'Next matching message' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Locate matching message' })[1]);
     expect(locate).toHaveBeenLastCalledWith('next-message');
-    await userEvent.click(screen.getByRole('button', { name: 'Previous matching message' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Locate matching message' })[0]);
     expect(locate).toHaveBeenLastCalledWith('old-message');
   });
 

@@ -159,6 +159,8 @@ export interface ChatMessageListProps {
   workflowViewerId?: string | null;
   onOpenWorkflowPreview?: (workflowId: string) => void;
   focusMessageId?: string | null;
+  searchOpen?: boolean;
+  onSearchOpenChange?: (open: boolean) => void;
   focusRequest?: { id: string; revision: number } | null;
   historyItems?: RawChunk[];
   historyLoading?: boolean;
@@ -166,7 +168,7 @@ export interface ChatMessageListProps {
   historyError?: boolean;
   hasOlderHistory?: boolean;
   olderHistoryLoading?: boolean;
-  onLoadOlderHistory?: () => Promise<void> | void;
+  onLoadOlderHistory?: (pageSize?: number) => Promise<void> | void;
   persistedChatIds?: string[];
   onOpenFilePreview?: (path: string) => void;
   onOpenInteractivePreview?: (artifact: InteractiveArtifact) => void;
@@ -411,6 +413,8 @@ export function ChatMessageList({
   onOpenWorkflowPreview,
   focusMessageId: referenceMessageId,
   focusRequest,
+  searchOpen,
+  onSearchOpenChange,
   historyItems: historyItemsProp,
   historyLoading: historyLoadingProp,
   hasOlderHistory = false,
@@ -792,6 +796,7 @@ export function ChatMessageList({
   const focusKey = `${activeChatId ?? ''}:${focusKind}:${focusMessageId ?? ''}:${searchMessageId ? searchFocus?.revision : focusRequest?.revision ?? ''}`;
   const focusedKey = useRef('');
   const focusLoading = useRef(false);
+  const [focusPageRevision, setFocusPageRevision] = useState(0);
   const [focusErrorKey, setFocusErrorKey] = useState('');
   useEffect(() => {
     if (!focusMessageId || focusedKey.current === focusKey || historyIsLoading || olderHistoryLoading) return;
@@ -823,18 +828,22 @@ export function ChatMessageList({
     if (hasOlderHistory && onLoadOlderHistory) {
       if (focusLoading.current) return;
       focusLoading.current = true;
-      Promise.resolve(onLoadOlderHistory()).catch(() => setFocusErrorKey(focusKey))
-        .finally(() => { focusLoading.current = false; });
+      // Search navigation reads larger pages than incremental scroll loading.
+      Promise.resolve().then(() => onLoadOlderHistory(200)).catch(() => setFocusErrorKey(focusKey))
+        .finally(() => {
+          focusLoading.current = false;
+          setFocusPageRevision(revision => revision + 1);
+        });
     } else if (historyItems.length > 0) {
       const frame = requestAnimationFrame(() => setFocusErrorKey(focusKey));
       return () => cancelAnimationFrame(frame);
     }
-  }, [focusMessageId, focusKind, focusKey, focusErrorKey, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems, captureViewport]);
+  }, [focusMessageId, focusKind, focusKey, focusErrorKey, focusPageRevision, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems, captureViewport]);
 
   return (
     <ChatRenderProvider value={{ chatId: activeChatId, surface }}>
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {activeChatId && historyItems.length > 0 && <ChatMessageSearch key={activeChatId} chatId={activeChatId} onLocate={id => {
+      {activeChatId && historyItems.length > 0 && <ChatMessageSearch key={activeChatId} open={searchOpen} onOpenChange={onSearchOpenChange} chatId={activeChatId} onLocate={id => {
         setSearchFocus(previous => ({ chatId: activeChatId, id, revision: (previous?.revision ?? 0) + 1, requestRevision: focusRequest?.revision }));
         if (!id) scrollRef.current?.querySelectorAll('[data-reference-highlight]').forEach(element => element.removeAttribute('data-reference-highlight'));
       }} />}

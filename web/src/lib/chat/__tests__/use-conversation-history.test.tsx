@@ -1,17 +1,18 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { useConversationHistory } from '../use-conversation-history';
+import { fetchChatHistoryPage } from '@/lib/api/queries/chats';
 import type { ChatHistoryPage } from '@/lib/api/queries/chats';
 const state = vi.hoisted(() => ({ page: undefined as ChatHistoryPage | undefined, older: undefined as ChatHistoryPage | undefined }));
 vi.mock('@/lib/api/queries/chats', () => ({
  CHAT_INITIAL_HISTORY_LIMIT: 30,
  useChatHistory: () => ({ data: state.page }),
- fetchChatHistoryPage: async () => state.older,
+ fetchChatHistoryPage: vi.fn(async () => state.older),
 }));
 function page(start: number, end: number, total: number): ChatHistoryPage {
  return { items: Array.from({ length: end - start + 1 }, (_, n) => ({ id: String(start+n), role: 'assistant', content: String(start+n) })), offset: start-1, total, limit: end-start+1 };
 }
-beforeEach(() => { state.page = undefined; state.older = undefined; });
+beforeEach(() => { state.page = undefined; state.older = undefined; vi.mocked(fetchChatHistoryPage).mockClear(); });
 it('keeps visible history while the new Turn history query is pending', () => {
  state.page = page(31,60,60);
  const { result, rerender } = renderHook(() => useConversationHistory('scope','chat',true));
@@ -103,4 +104,15 @@ it('removes first-Turn history when the pre-Turn checkpoint is empty', async () 
  expect(result.current.items).toEqual([]);
  expect(result.current.hasOlder).toBe(false);
  act(() => useChatStreamStore.getState().reset());
+});
+
+it('uses a larger bounded page for search navigation without changing default scroll paging', async () => {
+ state.page = page(301,330,330); state.older = page(101,300,330);
+ const { result } = renderHook(() => useConversationHistory('scope','search',true));
+ await act(async () => { await result.current.loadOlder(200); });
+ expect(fetchChatHistoryPage).toHaveBeenLastCalledWith('scope','search',{limit:200,offset:100});
+ expect(result.current.items).toHaveLength(230);
+ state.older = page(71,100,330);
+ await act(async () => { await result.current.loadOlder(); });
+ expect(fetchChatHistoryPage).toHaveBeenLastCalledWith('scope','search',{limit:30,offset:70});
 });

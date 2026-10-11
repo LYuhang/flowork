@@ -32,12 +32,12 @@ export function useConversationHistory(scopeId: string, chatId: string | null, p
   }
   const pending = useRef(new Set<string>());
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
-  const loadOlder = useCallback(async () => {
+  const loadOlder = useCallback(async (pageSize = CHAT_INITIAL_HISTORY_LIMIT) => {
     if (!chatId || !window || window.offset <= 0 || pending.current.has(key)) return;
     pending.current.add(key);
     setLoadingKey(key);
     try {
-      const limit = Math.min(CHAT_INITIAL_HISTORY_LIMIT, window.offset);
+      const limit = Math.min(pageSize, window.offset);
       const page = await fetchChatHistoryPage(scopeId, chatId, {
         limit, offset: Math.max(0, window.offset - limit), ...(turnId ? { beforeTurnId: turnId } : {}),
       });

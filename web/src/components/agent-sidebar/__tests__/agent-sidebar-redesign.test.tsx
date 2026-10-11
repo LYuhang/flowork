@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -144,19 +144,20 @@ describe('ChatMessageList', () => {
       items: [{ id: 'old-hit', role: 'user', excerpt: 'older needle', match_start: 6, match_end: 12 }],
       scanned: 101, next_cursor: null,
     })));
-    let rows = [{ id: 'recent', role: 'user', content: 'Recent request stays visible' }];
-    let older = true;
-    const load = vi.fn(async () => {
-      rows = [{ id: 'old-hit', role: 'user', content: 'older needle' }, ...rows];
-      older = false;
-      update();
-    });
-    const props = { wfId: 'wf', activeChatId: 'search-chat', onLoadOlderHistory: load };
-    const view = render(<ChatMessageList {...props} historyItems={rows} hasOlderHistory olderHistoryLoading />);
+    const load = vi.fn();
+    function HistoryHarness({ loading = false }: { loading?: boolean }) {
+      const [rows, setRows] = useState([{ id: 'recent', role: 'user', content: 'Recent request stays visible' }]);
+      load.mockImplementation(async () => {
+        const page = rows.length;
+        const row = { id: page === 3 ? 'old-hit' : `page-${page}`, role: 'user', content: page === 3 ? 'older needle' : `Earlier page ${page}` };
+        setRows(previous => [row, ...previous]);
+      });
+      return <ChatMessageList wfId="wf" activeChatId="search-chat" onLoadOlderHistory={load} historyItems={rows} hasOlderHistory={rows.length < 4} olderHistoryLoading={loading} />;
+    }
+    const view = render(<HistoryHarness loading />);
     const log = screen.getByRole('log', { name: 'Conversation' });
     Object.defineProperties(log, { scrollHeight: { configurable: true, value: 2000 }, clientHeight: { configurable: true, value: 500 } });
-    const update = () => view.rerender(<ChatMessageList {...props} historyItems={rows} hasOlderHistory={older} />);
-    update();
+    view.rerender(<HistoryHarness />);
     act(() => {
       useChatStreamStore.getState().beginTurn('search-chat', '');
       useChatStreamStore.getState().appendChunk({ role: 'assistant', content: 'Live output stays visible' }, 'search-chat');
@@ -166,8 +167,8 @@ describe('ChatMessageList', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     await screen.findByText('Matching messages: 1');
     await userEvent.click(screen.getByRole('button', { name: 'Locate matching message' }));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
     await waitFor(() => expect(view.container.querySelector('[data-reference-highlight]')).toHaveAttribute('data-quotable-message', 'old-hit'));
-    expect(load).toHaveBeenCalledOnce();
     expect(screen.getByText('Recent request stays visible')).toBeVisible();
     expect(screen.getByText('Live output stays visible')).toBeVisible();
     expect(useChatStreamStore.getState().runtimes['search-chat'].state).toBe('streaming');

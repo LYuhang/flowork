@@ -244,10 +244,10 @@ export function DeploymentsListPage() {
         <OperationalSummary
           label={t('deployments.summary.label', 'Deployment status summary')}
           items={[
-            { icon: ShieldCheck, label: t('deployments.summary.active', 'Active'), value: activeCount, tone: 'success', hint: t('deployments.summaryHint.active', 'Deployments accepting requests.') },
-            { icon: PlugZap, label: t('deployments.summary.disabled', 'Disabled'), value: disabledCount, tone: 'neutral', hint: t('deployments.summaryHint.disabled', 'Deployments kept but not serving traffic.') },
-            { icon: Rocket, label: t('deployments.summary.invokes', 'Total calls'), value: invokeCount, tone: 'info', hint: t('deployments.summaryHint.invokes', 'Recorded API, webhook, and test invocations.') },
-            { icon: RefreshCw, label: t('deployments.summary.lastActivity', 'Last activity'), value: formatTime(lastActivity), tone: 'neutral', hint: t('deployments.summaryHint.lastActivity', 'Most recent API, webhook, or test request.') },
+            { icon: ShieldCheck, label: t('deployments.summary.active', 'Active'), value: query.data ? activeCount : '—', tone: 'success', hint: t('deployments.summaryHint.active', 'Deployments accepting requests.') },
+            { icon: PlugZap, label: t('deployments.summary.disabled', 'Disabled'), value: query.data ? disabledCount : '—', tone: 'neutral', hint: t('deployments.summaryHint.disabled', 'Deployments kept but not serving traffic.') },
+            { icon: Rocket, label: t('deployments.summary.invokes', 'Total calls'), value: query.data ? invokeCount : '—', tone: 'info', hint: t('deployments.summaryHint.invokes', 'Recorded API, webhook, and test invocations.') },
+            { icon: RefreshCw, label: t('deployments.summary.lastActivity', 'Last activity'), value: query.data ? formatTime(lastActivity) : '—', tone: 'neutral', hint: t('deployments.summaryHint.lastActivity', 'Most recent API, webhook, or test request.') },
           ]}
         />
 

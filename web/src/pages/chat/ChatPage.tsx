@@ -1024,6 +1024,7 @@ export function ChatPage() {
           <Plus className="h-4 w-4" />
           <span className="hidden sm:inline">{t('new_chat', 'New Chat')}</span>
         </Button>
+        <ChatShareDialog key={activeChatId} chatId={activeChatId ?? ''} disabled={!activeChatIsPersisted} />
         <PendingActionsMenu scopeId={carrierScopeId} onSelect={action => {
           activeRunDiscoveryGenerationRef.current += 1;
           setActiveRunDiscoveryStatus('ready');
@@ -1033,7 +1034,6 @@ export function ChatPage() {
           if (chat?.project_id) setActiveProjectId(chat.project_id);
           setAttentionFocus(previous => ({ chatId: action.chat_id, id: action.hitl_request_id, revision: (previous?.revision ?? 0) + 1 }));
         }} />
-        <ChatShareDialog key={activeChatId} chatId={activeChatId ?? ''} disabled={!activeChatIsPersisted} />
         <ChatToolbarTooltip label={t('chat.toolbar.preview', 'Preview page')}>
           <Button
             ref={previewToggleButtonRef}

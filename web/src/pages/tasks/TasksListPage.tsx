@@ -588,16 +588,16 @@ export function TasksListPage() {
           label={t('tasks.summary.label', 'Task status summary')}
           items={activeType === 'scheduled_run'
             ? [
-                { label: t('tasks.summary.enabled', 'Enabled'), value: summary?.enabled ?? 0, tone: 'success', hint: t('tasks.summaryHint.enabled', 'Schedules that will trigger future runs.') },
-                { label: t('tasks.summary.paused', 'Paused'), value: summary?.paused ?? 0, tone: 'neutral', hint: t('tasks.summaryHint.paused', 'Schedules stopped by the user.') },
-                { label: t('tasks.summary.running', 'Running'), value: (summary?.running ?? 0) + (summary?.resuming ?? 0), tone: 'info', hint: t('tasks.summaryHint.scheduledRunning', 'Scheduled runs currently executing.') },
-                { label: t('tasks.summary.failed', 'Failed'), value: summary?.failed ?? 0, tone: 'danger', hint: t('tasks.summaryHint.scheduledFailed', 'Schedules whose latest state needs attention.') },
+                { label: t('tasks.summary.enabled', 'Enabled'), value: summary?.enabled ?? '—', tone: 'success', hint: t('tasks.summaryHint.enabled', 'Schedules that will trigger future runs.') },
+                { label: t('tasks.summary.paused', 'Paused'), value: summary?.paused ?? '—', tone: 'neutral', hint: t('tasks.summaryHint.paused', 'Schedules stopped by the user.') },
+                { label: t('tasks.summary.running', 'Running'), value: summary ? summary.running + (summary.resuming ?? 0) : '—', tone: 'info', hint: t('tasks.summaryHint.scheduledRunning', 'Scheduled runs currently executing.') },
+                { label: t('tasks.summary.failed', 'Failed'), value: summary?.failed ?? '—', tone: 'danger', hint: t('tasks.summaryHint.scheduledFailed', 'Schedules whose latest state needs attention.') },
               ]
             : [
-                { label: t('tasks.summary.running', 'Running'), value: (summary?.running ?? 0) + (summary?.resuming ?? 0), tone: 'info', hint: t('tasks.summaryHint.batchRunning', 'Batch jobs actively processing rows.') },
-                { label: t('tasks.summary.queued', 'Queued'), value: summary?.queued ?? 0, tone: 'neutral', hint: t('tasks.summaryHint.queued', 'Batch jobs waiting for worker capacity.') },
-                { label: t('tasks.summary.failed', 'Failed'), value: summary?.failed ?? 0, tone: 'danger', hint: t('tasks.summaryHint.batchFailed', 'Batch jobs that stopped with errors.') },
-                { label: t('tasks.summary.finished', 'Finished'), value: summary?.finished ?? 0, tone: 'success', hint: t('tasks.summaryHint.finished', 'Batch jobs completed successfully.') },
+                { label: t('tasks.summary.running', 'Running'), value: summary ? summary.running + (summary.resuming ?? 0) : '—', tone: 'info', hint: t('tasks.summaryHint.batchRunning', 'Batch jobs actively processing rows.') },
+                { label: t('tasks.summary.queued', 'Queued'), value: summary?.queued ?? '—', tone: 'neutral', hint: t('tasks.summaryHint.queued', 'Batch jobs waiting for worker capacity.') },
+                { label: t('tasks.summary.failed', 'Failed'), value: summary?.failed ?? '—', tone: 'danger', hint: t('tasks.summaryHint.batchFailed', 'Batch jobs that stopped with errors.') },
+                { label: t('tasks.summary.finished', 'Finished'), value: summary?.finished ?? '—', tone: 'success', hint: t('tasks.summaryHint.finished', 'Batch jobs completed successfully.') },
               ]}
         />
 

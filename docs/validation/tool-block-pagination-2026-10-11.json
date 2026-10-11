@@ -1,0 +1,17 @@
+{
+  "nativePanel": true,
+  "visibility": "visible",
+  "uploadResponses": [],
+  "groupText": "50 tools used (shell)",
+  "fixtureRows": 102,
+  "tools": 50,
+  "groups": 1,
+  "passed": true,
+  "cleanupProject": 200,
+  "fixture": "Persisted synthetic transcript; no tool executions or model requests",
+  "assertions": [
+    "Earliest user request and final paragraph both loaded without manual pagination",
+    "50 calls in one tool block",
+    "No earlier-history button remains"
+  ]
+}

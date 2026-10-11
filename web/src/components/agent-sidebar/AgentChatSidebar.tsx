@@ -1,9 +1,10 @@
 import { PendingActionsMenu, type PendingActionFocus } from './PendingActionsMenu';
+import { ChatBranchNavigationContext } from './ChatBranchNavigationContext';
 import { watchChatActivity } from '@/lib/api/sse/chat-activity';
 /**
  * Browser-extension conversation surface, mounted by EmbedShell.
- * The carrier scope selects history; each Chat owns an automatically created
- * Project with persistent files and a Project-scoped Runtime.
+ * The carrier scope selects history. New conversations create a Project;
+ * explicit branches share their source Project's files and Runtime.
  *
  * Internally:
  *   - `collapsed` toggles between a fixed-position icon button (a la
@@ -511,22 +512,24 @@ export function AgentChatSidebar({
 
       <div className="flex min-h-0 flex-1 flex-col">
 
-        <ChatMessageList
-          focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
-          readingActive={active}
-          wfId={lastWfId}
-          vfsScopeId={workspaceScopeId || undefined}
-          activeChatId={activeChatId}
-          surface={chatSurface}
-          compact={embedded}
-          historyItems={historyItems}
-          historyLoading={selectedHistory.isLoading}
-          hasOlderHistory={hasOlderHistory}
-          olderHistoryLoading={olderHistoryLoading}
-          onLoadOlderHistory={loadOlderHistory}
-          onOpenFilePreview={openFilePreview}
-          onSubmitInteractiveAsNewMessage={submitInteractiveAsNewMessage}
-        />
+        <ChatBranchNavigationContext.Provider value={handleHistorySelect}>
+          <ChatMessageList
+            focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
+            readingActive={active}
+            wfId={lastWfId}
+            vfsScopeId={workspaceScopeId || undefined}
+            activeChatId={activeChatId}
+            surface={chatSurface}
+            compact={embedded}
+            historyItems={historyItems}
+            historyLoading={selectedHistory.isLoading}
+            hasOlderHistory={hasOlderHistory}
+            olderHistoryLoading={olderHistoryLoading}
+            onLoadOlderHistory={loadOlderHistory}
+            onOpenFilePreview={openFilePreview}
+            onSubmitInteractiveAsNewMessage={submitInteractiveAsNewMessage}
+          />
+        </ChatBranchNavigationContext.Provider>
         <div className={cn('relative flex-none', embedded && 'bg-surface-work before:pointer-events-none before:absolute before:-top-5 before:inset-x-0 before:h-5 before:bg-gradient-to-t before:from-surface-work before:to-transparent')}>
           <ChatComposer
             wfId={lastWfId}

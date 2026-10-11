@@ -1,0 +1,27 @@
+{
+  "apiIntercepted": false,
+  "model": "GPT-5.6-Terra",
+  "stage": "complete",
+  "nativePanel": true,
+  "visibility": "visible",
+  "sent": true,
+  "lastChat": "29d02cfc-8f9d-484b-b123-f75c0f88c2b5",
+  "source": "35e7b47a-15ff-4a69-bfdd-22b0c1b7c0a9",
+  "branch": "29d02cfc-8f9d-484b-b123-f75c0f88c2b5",
+  "project": "prj_48263b83a7985de0963c42d3df4bbb8f",
+  "startsAgent": false,
+  "boundary": true,
+  "continued": true,
+  "passed": true,
+  "sameProject": true,
+  "sandboxRelease": 200,
+  "deleteBranch": 200,
+  "sourceRetained": true,
+  "cleanupProject": 200,
+  "browserCommand": {
+    "command": "flowork-cli browser tab-list",
+    "status": "succeeded",
+    "tabCount": 1,
+    "toolInvocationStatus": "success"
+  }
+}

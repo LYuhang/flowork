@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useContext, useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -10,6 +10,7 @@ import en from '@/lib/i18n/locales/en.json';
 import zh from '@/lib/i18n/locales/zh.json';
 import { ChatMessageList } from '@/components/agent-sidebar/ChatMessageList';
 import { ChatHistoryMenu } from '@/components/agent-sidebar/ChatHistoryMenu';
+import { ChatBranchNavigationContext } from '@/components/agent-sidebar/ChatBranchNavigationContext';
 import { AgentChatSidebar } from '@/components/agent-sidebar/AgentChatSidebar';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { useUIStore } from '@/stores/ui';
@@ -17,7 +18,10 @@ import i18n from '@/lib/i18n';
 
 // This suite exercises transcript continuity/layout. Engagement owns its query
 // and tooltip providers and is covered separately in chat-engagement.test.tsx.
-vi.mock('@/components/agent-sidebar/MessageActions', () => ({ MessageActions: () => null }));
+vi.mock('@/components/agent-sidebar/MessageActions', () => ({ MessageActions: ({ turnId }: { turnId?: string }) => {
+  const openBranch = useContext(ChatBranchNavigationContext);
+  return openBranch && turnId ? <button onClick={() => openBranch('created-branch')}>Open branch from {turnId}</button> : null;
+} }));
 
 // ONE shared mock factory for the chats queries (isolate=false → one factory
 // for the whole file; later tasks reuse historyMock/sessionsMock).
@@ -32,7 +36,9 @@ const readServerActiveTurnsMock = vi.fn(async (..._args: unknown[]) => [] as Arr
 }>);
 vi.mock('@/lib/api/queries/chats', () => ({
   CHAT_INITIAL_HISTORY_LIMIT: 30,
-  fetchChatHistory: vi.fn(),
+  CHAT_HISTORY_STALE_TIME_MS: 120_000,
+  CHAT_HISTORY_GC_TIME_MS: 1_800_000,
+  fetchChatHistory: vi.fn(async () => ({ items: [] })),
   fetchChatHistoryPage: (...a: unknown[]) => fetchHistoryPageMock(...a),
   useChatHistory: (...a: unknown[]) => historyMock(...a),
   useChatSessions: (...a: unknown[]) => ({ refetch: vi.fn(), ...sessionsMock(...a) }),
@@ -295,6 +301,31 @@ describe('ChatMessageList', () => {
     } finally {
       animationFrame.mockRestore();
     }
+  });
+
+  it('completes a tool block across database pages even when later text fills two viewports', async () => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const toolRow = (id: string) => ({ id, role: 'assistant', content: '', tool_calls: [{ id, name: 'shell', arguments: '{}' }] });
+    let rows = [toolRow('third'), { id: 'answer', role: 'assistant', content: 'Long final answer' }];
+    const load = vi.fn(async () => {
+      rows = load.mock.calls.length === 1
+        ? [toolRow('second'), ...rows]
+        : [{ id: 'request', role: 'user', content: 'Earlier request' }, toolRow('first'), ...rows];
+      update();
+    });
+    const props = { wfId: 'wf', activeChatId: 'tool-boundary', hasOlderHistory: true, onLoadOlderHistory: load };
+    const view = render(<ChatMessageList {...props} historyItems={rows} olderHistoryLoading />);
+    const log = screen.getByRole('log', { name: 'Conversation' });
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 600 },
+    });
+    const update = () => view.rerender(<ChatMessageList {...props} historyItems={rows} olderHistoryLoading={false} />);
+    update();
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Earlier request')).toBeInTheDocument();
+    expect(screen.getByText('Long final answer')).toBeInTheDocument();
+    expect(log.querySelectorAll('[data-chat-render-key^="tool-group-"]')).toHaveLength(1);
   });
 
   it('fills two viewport heights initially and prepends two more on explicit load', async () => {
@@ -1340,6 +1371,17 @@ describe('AgentChatSidebar redesign', () => {
     expect(requests).toEqual(['real-workflow']);
     view.unmount();
     client.clear();
+  });
+
+  it('opens a browser branch inside the sidebar without creating another conversation', async () => {
+    useUIStore.setState({ lastActiveWorkflowId: '__browser_test', activeChatIds: { chat: 'main-chat', browser: 'source' } });
+    sessionsMock.mockReturnValue({ data: { items: [{ chat_id: 'source', project_id: 'shared-project', surface: 'browser' }] }, isLoading: false });
+    historyMock.mockReturnValue({ data: { items: [{ id: 'answer', role: 'assistant', content: 'Selected answer', turn_id: 'selected-turn' }] }, isLoading: false });
+    render(<AgentChatSidebar embedded chatSurface="browser" />, { wrapper: SidebarWrapper });
+    await userEvent.click(await screen.findByRole('button', { name: 'Open branch from selected-turn' }));
+    await waitFor(() => expect(useUIStore.getState().activeChatIds.browser).toBe('created-branch'));
+    expect(useUIStore.getState().activeChatIds.chat).toBe('main-chat');
+    expect(createChatMock).not.toHaveBeenCalled();
   });
 
   it('header has New Chat + History + Close', () => {

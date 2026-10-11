@@ -174,12 +174,6 @@ class ChatRepo:
         ).with_for_update())).scalar_one_or_none()
         if project is None:
             raise LookupError("project_not_found")
-        if surface == "browser":
-            sibling = (await self._s.execute(select(Chat.chat_id).where(
-                Chat.project_id == project_id,
-            ))).scalar_one_or_none()
-            if sibling is not None:
-                raise ValueError("browser_project_already_has_chat")
         tenant_id = await self._tenant_id()
         chat = Chat(
             chat_id=chat_id,

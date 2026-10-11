@@ -41,10 +41,6 @@ class BranchOut(BaseModel):
 
 async def branch_source(chat_id, turn_id, request, auth, session, service):
     source = await owned_chat(request, auth, service, session, chat_id, export=True)
-    if source.surface == 'browser':
-        # Browser projects currently have a one-Chat invariant. Do not silently
-        # create an unrelated Project or move a side-panel Chat into main Chat.
-        raise HTTPException(409, 'browser_project_branch_not_supported')
     repo = ChatRepo(session, auth.user_id)
     await repo.materialize_session_metadata(source)
     await _authorize_chat_carrier(

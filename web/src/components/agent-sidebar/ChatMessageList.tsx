@@ -704,7 +704,11 @@ export function ChatMessageList({
       const el = scrollRef.current;
       if (!el || loadingOlderRef.current || lastAutoFillItemsRef.current === historyItems) return;
       const target = historyFillTargetRef.current ?? 2 * el.clientHeight;
-      if (el.scrollHeight < target || el.clientHeight === 0) {
+      // The leading tool block may continue in the previous database page.
+      // Complete that visual unit before stopping, even if later messages
+      // already fill the viewport. Existing group keys preserve its state.
+      const unfinishedToolBlock = renderItems[0]?.kind === 'tool_group';
+      if (unfinishedToolBlock || el.scrollHeight < target || el.clientHeight === 0) {
         lastAutoFillItemsRef.current = historyItems;
         maybeLoadOlderHistory(true, target);
       } else {
@@ -720,7 +724,7 @@ export function ChatMessageList({
     maybeLoadOlderHistory,
     olderHistoryLoading,
     onLoadOlderHistory,
-    renderItems.length,
+    renderItems,
   ]);
 
   const updateScrollHint = useCallback(() => {

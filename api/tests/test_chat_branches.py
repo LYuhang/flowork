@@ -68,6 +68,72 @@ async def test_branch_rejects_live_turn_and_other_owner(client):
 
 
 @pytest.mark.asyncio
+async def test_browser_branch_shares_project_without_inheriting_control_or_starting_agent(client):
+    headers, me, _ = await seed(client)
+    bootstrap = await client.get('/api/v1/chats/bootstrap', headers=headers,
+                                 params={'surface': 'browser'})
+    scope = bootstrap.json()['carrier_scope_id']
+    source, target = str(uuid.uuid4()), str(uuid.uuid4())
+    base = f'/api/v1/chat-scopes/{scope}/chats'
+    created = await client.put(f'{base}/{source}', json={}, headers=headers)
+    assert created.status_code == 200, created.text
+    project = created.json()['project_id']
+    run = uuid.uuid4().hex
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        await AgentRunsRepo(db).create(run_id=run, tenant_id=me['tenant_id'], chat_id=source,
+            creator_user_id=me['user_id'], client_request_id=run, input_snapshot={})
+        repo = ChatRepo(db, me['user_id'])
+        await repo.persist_message(source, {'message_id': 'selected', 'role': 'assistant',
+            'turn_id': run, 'content': {'text': 'Browser selected answer'}})
+        await db.execute(text("UPDATE agent_runs SET status='completed' WHERE run_id=:run"), {'run': run})
+        await repo.persist_message(source, {'message_id': 'later', 'role': 'user',
+            'turn_id': 'later', 'content': {'text': 'Later browser message'}})
+        await db.execute(text("UPDATE chats SET browser_session_id='source-control' WHERE chat_id=:chat"),
+                         {'chat': source})
+    endpoint = f'/api/v1/chats/{source}/branches'
+    preview = await client.get(endpoint + '/preview', params={'turn_id': run}, headers=headers)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['project_id'] == project
+    response = await client.post(endpoint, headers=headers,
+        json={'chat_id': target, 'turn_id': run, 'name': 'Browser branch'})
+    assert response.status_code == 201, response.text
+    assert response.json()['project_id'] == project
+    assert response.json()['starts_agent'] is False
+    # The normal idempotent entry must restore this branch's actual Project,
+    # not allocate a different automatic Project derived from its new Chat ID.
+    restored = await client.put(f'{base}/{target}', json={}, headers=headers)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()['project_id'] == project
+    explicit = await client.put(f'{base}/{target}', json={'project_id': project}, headers=headers)
+    assert explicit.status_code == 200, explicit.text
+    conflict = await client.put(f'{base}/{target}',
+        json={'project_id': str(uuid.uuid4())}, headers=headers)
+    assert conflict.status_code == 422, conflict.text
+    assert conflict.json()['detail'] == 'chat_project_conflict'
+    history = await client.get(f'{base}/{target}/messages', headers=headers)
+    assert history.status_code == 200, history.text
+    assert 'Browser selected answer' in history.text
+    assert 'Later browser message' not in history.text
+    async with session_scope(tenant_id=me['tenant_id'], user_id=me['user_id']) as db:
+        row = (await db.execute(text('SELECT surface, browser_session_id FROM chats WHERE chat_id=:chat'),
+                               {'chat': target})).one()
+        assert row == ('browser', None)
+        assert await db.scalar(text('SELECT count(*) FROM agent_runs WHERE chat_id=:chat'), {'chat': target}) == 0
+    # Ordinary new browser chats still get their own workspace; clients cannot
+    # place arbitrary new chats into the branch's shared Project.
+    independent = await client.put(f'{base}/{uuid.uuid4()}', json={}, headers=headers)
+    assert independent.status_code == 200, independent.text
+    assert independent.json()['project_id'] != project
+    denied = await client.put(f'{base}/{uuid.uuid4()}', json={'project_id': project}, headers=headers)
+    assert denied.status_code == 422, denied.text
+    deleted = await client.delete(f'{base}/{target}', params={'surface': 'browser'}, headers=headers)
+    assert deleted.status_code == 200, deleted.text
+    source_workspace = await client.get('/api/v1/chats/workspace', params={'chat_id': source}, headers=headers)
+    assert source_workspace.status_code == 200, source_workspace.text
+    assert source_workspace.json()['project_id'] == project
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('after_commit', [False, True])
 async def test_branch_authorization_outage_reports_unavailable_without_repeating_creation(
     client, monkeypatch, after_commit,

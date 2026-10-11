@@ -337,8 +337,10 @@ and [approval repository](../api/src/vibecanvas_api/storage/hitl_repo.py).
 
 Slash Commands provide task-specific operating guidance for a Chat.
 Every resident Project workspace owns one aggregate MCP Hub. Its Chats share
-the workspace and app-server. Extension conversations automatically create a
-one-Chat Project; there is no separate per-Chat runtime ownership model.
+the workspace and app-server. New extension conversations automatically create
+independent Projects; explicit conversation branches share the source Project's
+current files and Runtime. Browser control stays Chat-specific and is not
+inherited by a branch. There is no separate per-Chat runtime ownership model.
 Custom MCP selection and its revision are Project-owned. Repeated selection
 of the same server is idempotent; each accepted Turn snapshots the selection,
 while invocation authority and user approvals remain Chat/Turn-specific.

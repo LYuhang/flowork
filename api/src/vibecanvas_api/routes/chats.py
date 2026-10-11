@@ -550,10 +550,22 @@ async def create_chat_session(
         project = await project_repo.for_workflow(scope_id)
         project_id = project.project_id
     else:
-        project_id = await _new_chat_project(
-            project_repo, session, auth, chat_id=chat_id, surface=surface,
-            project_id=body.project_id, name="Browser chat",
-        )
+        existing = await chat_repo.get_authorized_inventory(chat_id) if surface == "browser" else None
+        if existing is not None:
+            # Explicit branches share their source Project. Reopening one must
+            # use its saved binding, not derive a new Project from its Chat ID.
+            if (existing["creator_user_id"] != auth.user_id
+                    or existing["scope_id"] != scope_id
+                    or existing["surface"] != surface):
+                raise HTTPException(status_code=404, detail="chat_not_found")
+            project_id = existing["project_id"]
+            if body.project_id is not None and body.project_id != project_id:
+                raise HTTPException(status_code=422, detail="chat_project_conflict")
+        else:
+            project_id = await _new_chat_project(
+                project_repo, session, auth, chat_id=chat_id, surface=surface,
+                project_id=body.project_id, name="Browser chat",
+            )
     try:
         await chat_repo.register_session(
             scope_id, chat_id=chat_id, name=name, surface=surface,

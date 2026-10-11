@@ -225,7 +225,7 @@ function MessageItemComponent({
           </button>
         ) : null}
         {message.role === 'assistant' && hasContent && !streaming && actionsEnabled && identity?.chatId && message.id ? (
-          <MessageActions chatId={identity.chatId} turnId={identity.surface === 'chat' ? message.turn_id : undefined} messageId={message.id} content={message.content} timestamp={message.ts} />
+          <MessageActions chatId={identity.chatId} turnId={message.turn_id} messageId={message.id} content={message.content} timestamp={message.ts} />
         ) : null}
         </div>
       </div>

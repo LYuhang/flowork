@@ -1,0 +1,178 @@
+{
+  "baseline": "8b6a89c",
+  "current": "b21b4a5",
+  "environment": "same server headless Chromium, synthetic 20-message history, reduced motion, not physical-device INP",
+  "cases": [
+    {
+      "version": "baseline",
+      "width": 1280,
+      "messageCount": 20,
+      "inputToNextFrame": {
+        "count": 102,
+        "median": 7.100000023841858,
+        "p95": 40.90000009536743,
+        "over50ms": 4,
+        "max": 85.69999992847443
+      },
+      "scrollFrameInterval": {
+        "count": 90,
+        "median": 16.600000023841858,
+        "p95": 23.09999990463257,
+        "over50ms": 1,
+        "max": 50.199999928474426
+      },
+      "scrollRange": 1339,
+      "blurElements": 1
+    },
+    {
+      "version": "current",
+      "width": 1280,
+      "messageCount": 20,
+      "inputToNextFrame": {
+        "count": 102,
+        "median": 4.100000023841858,
+        "p95": 11.800000071525574,
+        "over50ms": 0,
+        "max": 21.399999976158142
+      },
+      "scrollFrameInterval": {
+        "count": 90,
+        "median": 16.700000047683716,
+        "p95": 31.299999952316284,
+        "over50ms": 4,
+        "max": 68.60000002384186
+      },
+      "scrollRange": 1743,
+      "blurElements": 1
+    },
+    {
+      "version": "current",
+      "width": 1280,
+      "messageCount": 20,
+      "inputToNextFrame": {
+        "count": 102,
+        "median": 4.699999928474426,
+        "p95": 10.600000023841858,
+        "over50ms": 0,
+        "max": 18.399999976158142
+      },
+      "scrollFrameInterval": {
+        "count": 90,
+        "median": 16.699999928474426,
+        "p95": 30.90000009536743,
+        "over50ms": 3,
+        "max": 65.5
+      },
+      "scrollRange": 1743,
+      "blurElements": 1
+    },
+    {
+      "version": "baseline",
+      "width": 1280,
+      "messageCount": 20,
+      "inputToNextFrame": {
+        "count": 102,
+        "median": 6.900000095367432,
+        "p95": 61.09999990463257,
+        "over50ms": 8,
+        "max": 121.10000002384186
+      },
+      "scrollFrameInterval": {
+        "count": 90,
+        "median": 16.700000047683716,
+        "p95": 46.300000071525574,
+        "over50ms": 2,
+        "max": 79.60000002384186
+      },
+      "scrollRange": 1339,
+      "blurElements": 1
+    },
+    {
+      "version": "baseline",
+      "width": 390,
+      "messageCount": 20,
+      "inputToNextFrame": {
+        "count": 102,
+        "median": 11.300000071525574,
+        "p95": 49.40000009536743,
+        "over50ms": 5,
+        "max": 68.79999995231628
+      },
+      "scrollFrameInterval": {
+        "count": 90,
+        "median": 16.700000047683716,
+        "p95": 28.399999976158142,
+        "over50ms": 2,
+        "max": 123.89999997615814
+      },
+      "scrollRange": 2043,
+      "blurElements": 2
+    },
+    {
+      "version": "current",
+      "width": 390,
+      "messageCount": 20,
+      "inputToNextFrame": {
+        "count": 102,
+        "median": 5,
+        "p95": 21.699999928474426,
+        "over50ms": 0,
+        "max": 40.89999997615814
+      },
+      "scrollFrameInterval": {
+        "count": 90,
+        "median": 16.699999928474426,
+        "p95": 20,
+        "over50ms": 2,
+        "max": 85.10000002384186
+      },
+      "scrollRange": 2459,
+      "blurElements": 0
+    },
+    {
+      "version": "current",
+      "width": 390,
+      "messageCount": 20,
+      "inputToNextFrame": {
+        "count": 102,
+        "median": 7.299999952316284,
+        "p95": 54,
+        "over50ms": 6,
+        "max": 87.10000002384186
+      },
+      "scrollFrameInterval": {
+        "count": 90,
+        "median": 16.699999928474426,
+        "p95": 20.300000071525574,
+        "over50ms": 1,
+        "max": 57.60000002384186
+      },
+      "scrollRange": 2459,
+      "blurElements": 0
+    },
+    {
+      "version": "baseline",
+      "width": 390,
+      "messageCount": 20,
+      "inputToNextFrame": {
+        "count": 102,
+        "median": 4.5,
+        "p95": 41.10000002384186,
+        "over50ms": 4,
+        "max": 91.30000007152557
+      },
+      "scrollFrameInterval": {
+        "count": 90,
+        "median": 16.699999928474426,
+        "p95": 17.90000009536743,
+        "over50ms": 0,
+        "max": 43.299999952316284
+      },
+      "scrollRange": 2043,
+      "blurElements": 2
+    }
+  ],
+  "sentMessages": 0,
+  "passed": true,
+  "cleanup": 200
+}

@@ -1212,3 +1212,12 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - ESLint、视觉规则、生产构建和部署路径检查通过；静态资源已发布。真实 Chromium 亮/暗两种主题核对字号权重、透明图标底色，以及任务→部署→返回的选中状态，结果 `/tmp/sidebar-weight-live.json`。侧栏截图已检查；该截图中央部署数据仍在加载，不作为部署内容验收证据。
 - 390px 浅色下，任务、部署、项目、知识库、技能、MCP、存储、设置 8 个页面等待实际内容加载完成后，document 宽度均为 390px，无 pageerror。证据 `/tmp/theme-pages-final-390-light.json`，设置截图已检查。其余截图需继续逐页审阅，不以无脚本错误代替视觉或交互验收。
 - main bed12a7 的 CI 38101216951 与 Security gates 38101216941 正在运行；本批先本地提交，待上一轮门禁结束后一起推送，避免取消长时间 Python 检查。
+
+### 2026-10-11：页面主题与真实 CSV 预览补验
+
+- 390px 亮/暗各 8 页（Task、Deployment、Workflow `/workspace`、Knowledge、Skill、MCP、Storage、Settings）已等待内容加载并逐一审阅截图，无整页横向溢出或 pageerror，未发现当前首屏遮挡。上节将 `/workspace` 称为项目页不准确，此处更正为 Workflow 列表。此结果不覆盖列表所有行与所有按钮。
+- 1280px 浅色相同 8 页加载/溢出/脚本检查通过；任务和部署截图已审阅，其余截图仍待审阅。证据 `/tmp/theme-pages-final-1280-light.json`。
+- 设置页真实点击 Light/Dark/System 菜单，焦点恢复、刷新保留及 system 随浏览器配色变化即时更新通过：`/tmp/theme-settings-live.json`。
+- U03 补验：通过真实存储 API 在独立 QA 项目写入唯一 CSV，独立 Preview 页面渲染真实表格，点击列标题排序后检查亮→暗→亮配色，排序和单元格焦点均保留；无 pageerror，测试文件已删除（200）。证据 `/tmp/structured-preview-theme-verified.json`。主题切换在此用根节点 class 模拟，以单独验证表格组件不重建；真实主题菜单链路由上一项覆盖。
+- 首次 CSV 脚本用了不匹配当前 AG Grid 的容器选择器，读取排序结果失败；临时文件已清理。改用实际 row-index 后完成验证，未修改产品代码或自动重试业务执行。
+- 以上仍未闭合真实 PTY、冲突保存、所有独立入口及性能验收。

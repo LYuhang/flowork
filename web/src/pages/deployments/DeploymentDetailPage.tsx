@@ -1,3 +1,4 @@
+import { DetailTable } from '@/components/layout/detail-table';
 import { DeploymentMetricChart } from './DeploymentMetricChart';
 import '@/components/layout/execution-resource-detail.css';
 import { deploymentCodeExamples, endpointFor, type CodeLanguage } from './deployment-code-examples';
@@ -686,7 +687,7 @@ function RunsTab({ depId, active }: { depId: string; active: boolean }) {
         </div>
       ) : <>
       <div className="hidden min-w-[58rem] sm:block">
-      <table className="w-full text-sm">
+      <DetailTable>
         <thead className="sticky top-0 z-10 border-b bg-surface-sunken text-left text-xs font-medium text-muted-foreground shadow-[0_1px_0_var(--color-edge-subtle)]">
           <tr>
             <th scope="col" className="px-4 py-3 font-medium">{t('deployments.detail.requestId', 'Request id')}</th>
@@ -717,7 +718,7 @@ function RunsTab({ depId, active }: { depId: string; active: boolean }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </DetailTable>
       {visibleRows.length === 0 ? (
         <div className="px-4 py-8 text-center text-sm text-content-tertiary">
           {t('deployments.detail.noMatchingRuns', 'No runs match these filters.')}
@@ -821,7 +822,7 @@ function MonitoringTab({ query, onTest, range, onRangeChange }: { query: UseQuer
       </SectionBlock>
       {series.length > 0 && (
         <SectionBlock variant="detail" collapsible defaultOpen={false} title={t("deployments.metrics.values", "Metric values")} contentClassName="overflow-x-auto">
-          <table className="w-full text-sm">
+          <DetailTable>
             <thead className="border-b bg-surface-sunken text-left text-xs font-medium text-muted-foreground">
               <tr>
                 <th scope="col" className="px-4 py-3 font-medium">{t('deployments.detail.bucket', 'Bucket')}</th>
@@ -842,7 +843,7 @@ function MonitoringTab({ query, onTest, range, onRangeChange }: { query: UseQuer
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DetailTable>
         </SectionBlock>
       )}
     </div>

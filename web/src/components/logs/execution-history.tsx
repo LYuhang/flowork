@@ -1,3 +1,5 @@
+import './execution-history.css';
+import { DetailTable } from '@/components/layout/detail-table';
 import { SectionBlock } from '@/components/layout/section-block';
 import { CopyButton } from '@/components/ui/copy-button';
 import { useEffect, useMemo, useState } from 'react';
@@ -37,7 +39,7 @@ export function ExecutionHistory({ source, sourceId }: { source: ExecutionSource
     return () => window.clearInterval(timer);
   }, [hasPending]);
   return (
-    <SectionBlock title={t('execution.history')}
+    <SectionBlock variant="detail" title={t('execution.history')}
       actions={
         <div className="flex items-center gap-2">
           <Select value={filter} onValueChange={(value) => setFilter(value as typeof filter)}>
@@ -56,7 +58,7 @@ export function ExecutionHistory({ source, sourceId }: { source: ExecutionSource
       {query.isError && items.length === 0 ? null : query.isLoading ? <p role="status" className="text-sm text-content-secondary">{t('execution.loading')}</p>
           : items.length === 0 ? <p className="text-sm text-content-secondary">{t('execution.empty')}</p>
             : <div className="app-scrollbar max-h-[32rem] overflow-auto rounded-lg border border-edge-subtle">
-              <table data-slot="execution-table" className="w-full text-left text-sm" aria-label={t('execution.history')}>
+              <DetailTable data-slot="execution-table" className="text-left" aria-label={t('execution.history')}>
                 <thead className="sticky top-0 z-10 bg-surface-sunken">
                   <tr>
                     <th scope="col" className="px-4 py-3">{t('execution.id')}</th>
@@ -96,7 +98,7 @@ export function ExecutionHistory({ source, sourceId }: { source: ExecutionSource
                 </td>
               </tr>)}
                 </tbody>
-              </table>
+              </DetailTable>
             </div>}
       {query.hasNextPage && <Button variant="outline" size="sm" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{t('execution.loadMore')}</Button>}
     </SectionBlock>

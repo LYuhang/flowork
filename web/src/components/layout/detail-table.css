@@ -1,0 +1,21 @@
+/* Owned by DetailTable; independent of the containing page. */
+.detail-table {
+  font-size: 0.8125rem;
+  line-height: 1.5rem;
+}
+.detail-table thead th {
+  @apply border-b border-edge-subtle bg-surface-sunken text-content-secondary;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.detail-table tbody td {
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+.detail-table tbody tr + tr {
+  @apply border-t border-edge-subtle;
+}
+.detail-table tbody tr:hover {
+  @apply bg-surface-hover;
+}

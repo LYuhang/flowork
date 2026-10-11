@@ -816,7 +816,14 @@ export function AppSidebar({
               <Button type="button" variant="outline" onClick={() => setRenameProjectTarget(null)}>
                 {t('cancel', 'Cancel')}
               </Button>
-              <Button type="submit" disabled={!renameProjectDraft.trim() || renameProject.isPending}>
+              <Button
+                type="submit"
+                disabled={
+                  !renameProjectDraft.trim()
+                  || renameProjectDraft.trim().replace(/\s+/g, ' ') === renameProjectTarget?.label
+                  || renameProject.isPending
+                }
+              >
                 {renameProject.isPending
                   ? t('common.saving', 'Saving…')
                   : t('nav.projects.rename', 'Rename project')}

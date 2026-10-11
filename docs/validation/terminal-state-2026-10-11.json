@@ -1,0 +1,22 @@
+{
+  "kind": "durable timeout fixture, no model execution",
+  "cases": [
+    {
+      "width": 1280,
+      "partialHistoryRetained": true,
+      "failedBadge": true,
+      "sendAvailable": true,
+      "timeoutDetailsVisible": true
+    },
+    {
+      "width": 390,
+      "partialHistoryRetained": true,
+      "failedBadge": true,
+      "sendAvailable": true,
+      "timeoutDetailsVisible": true
+    }
+  ],
+  "sends": 0,
+  "passed": true,
+  "cleanup": 200
+}

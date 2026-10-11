@@ -1,0 +1,11 @@
+{
+  "nativePanel": true,
+  "visibility": "visible",
+  "uploadResponses": [],
+  "partialHistoryRetained": true,
+  "timeoutDetailsVisibleAfterReload": true,
+  "sendAvailable": true,
+  "sends": 0,
+  "passed": true,
+  "cleanupProject": 200
+}

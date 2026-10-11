@@ -22,7 +22,6 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
-from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -1025,7 +1024,7 @@ async def update_chat_list_state(
 ):
     await _authorize_chat(request=request, auth=auth, service=service, chat_id=chat_id,
                           action=Action.UPDATE, consistency=ConsistencyPreference.HIGHER_CONSISTENCY)
-    updated = await chat_repo.set_list_state(chat_id, pinned=body.pinned, archived=body.archived)
+    updated = await chat_repo.set_list_state(chat_id, pinned=body.pinned)
     if updated is None:
         raise HTTPException(status_code=404, detail="chat_not_found")
     await chat_repo.commit()
@@ -1382,7 +1381,6 @@ async def list_chats(
     request: Request,
     page: PageRequest = Depends(PageRequest.as_query),
     surface: str | None = Query(default=None),
-    archive_state: Literal["active", "archived", "all"] = Query(default="all"),
     chat_repo: ChatRepo = Depends(get_chat_repo),
     workflow_repo: WorkflowRepo = Depends(get_workflow_repo),
     auth: AuthContext = Depends(current_user),
@@ -1415,7 +1413,6 @@ async def list_chats(
         scope_id,
         authorized_ids,
         surface=chat_surface,
-        archive_state=archive_state,
     )
     sliced = chats[page.offset:page.offset + page.limit]
     resources = [

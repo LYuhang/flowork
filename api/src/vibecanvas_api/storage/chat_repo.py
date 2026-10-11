@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
 
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -428,7 +427,6 @@ class ChatRepo:
         *,
         major_version: int = 0,
         surface: str | None = None,
-        archive_state: Literal["active", "archived", "all"] = "all",
     ) -> list[dict]:
         """Intersect OpenFGA ListObjects with tenant-scoped Chat rows.
 
@@ -453,10 +451,6 @@ class ChatRepo:
             query = query.where(Chat.major_version == major_version)
         if surface:
             query = query.where(Chat.surface == surface)
-        if archive_state == "active":
-            query = query.where(Chat.archived_at.is_(None))
-        elif archive_state == "archived":
-            query = query.where(Chat.archived_at.is_not(None))
         query = query.order_by(
             Chat.pinned_at.desc().nullslast(),
             Chat.last_message_at.desc().nullslast(),
@@ -998,13 +992,10 @@ class ChatRepo:
         return True
 
     async def set_list_state(
-        self, chat_id: str, *, pinned: bool | None = None, archived: bool | None = None,
+        self, chat_id: str, *, pinned: bool,
     ) -> dict | None:
         """Change list preferences only; no messages, runtime or workspace writes."""
-        values = {}
-        for column, enabled in (("pinned_at", pinned), ("archived_at", archived)):
-            if enabled is not None:
-                values[column] = func.coalesce(getattr(Chat, column), func.now()) if enabled else None
+        values = {"pinned_at": func.coalesce(Chat.pinned_at, func.now()) if pinned else None}
         row = (await self._s.execute(
             update(Chat).where(Chat.chat_id == chat_id, Chat.creator_user_id == self._user_id,
                                Chat.deleted_at.is_(None))

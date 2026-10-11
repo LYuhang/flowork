@@ -40,7 +40,6 @@ import { AsyncState } from '@/components/ui/async-state';
 import { PaneResizeHandle } from '@/components/ui/pane-resize-handle';
 import { usePersistedPaneWidth } from '@/components/ui/use-persisted-pane-width';
 import { StatusDot, type SemanticStatus } from '@/components/ui/status';
-import { ArchivedChatNotice } from '@/components/agent-sidebar/ArchivedChatNotice';
 import { ChatMessageList } from '@/components/agent-sidebar/ChatMessageList';
 import type { SubmitInteractiveAsNewTurn } from '@/components/agent-sidebar/tool-render/InteractiveArtifactBlock';
 import {
@@ -633,7 +632,7 @@ export function ChatPage() {
         return;
       }
       setActiveProjectId(projectId);
-      setActiveChatId('chat', chatSessions.data?.items.find((chat) => chat.project_id === projectId && !chat.archived_at)?.chat_id ?? null);
+      setActiveChatId('chat', chatSessions.data?.items.find((chat) => chat.project_id === projectId)?.chat_id ?? null);
       setChatEntryIntent(null);
       queueMicrotask(() => setActiveRunDiscoveryStatus('ready'));
       return;
@@ -690,7 +689,7 @@ export function ChatPage() {
       }
       const latestPersistedChat = (
         (chatSessions.data?.items ?? []) as ChatListItem[]
-      ).find(chat => !chat.archived_at);
+      )[0];
       if (latestPersistedChat) {
         if (latestPersistedChat.project_id) {
           setActiveProjectId(latestPersistedChat.project_id);
@@ -1232,7 +1231,7 @@ export function ChatPage() {
                   </div>
                 ) : showConversation ? (
                   <>
-                  <ArchivedChatNotice chat={activeChatSession} />
+
                   <ChatMessageList
                     focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
                     focusMessageId={searchParams.get('resumeChat') === activeChatId ? searchParams.get('focusMessage') : null}

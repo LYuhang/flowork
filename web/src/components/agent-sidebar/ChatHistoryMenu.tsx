@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuPortal,
 } from '@/components/ui/dropdown-menu';
 import { useChatSessions } from '@/lib/api/queries/chats';
@@ -44,12 +43,10 @@ export function ChatHistoryMenu({
   const { t } = useTranslation();
   const formatDateTime = useFormatDateTime();
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState('active');
   const actionsFor = useChatListActions();
   const sessions = useChatSessions(wfId, surface);
   const items = (sessions.data?.items ?? []).filter(item =>
-    Boolean(item.archived_at) === (view === 'archived')
-    && (!workflowContextOnly || item.workflow_context?.workflow_id === wfId));
+    (!workflowContextOnly || item.workflow_context?.workflow_id === wfId));
 
   useEffect(() => {
     // Closing synchronously prevents portalled menu content remaining visible
@@ -80,11 +77,6 @@ export function ChatHistoryMenu({
         collisionPadding={8}
         className="max-h-[min(24rem,calc(100vh-4rem))] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto"
       >
-        <DropdownMenuRadioGroup value={view} onValueChange={setView}>
-          <DropdownMenuRadioItem value="active" onSelect={event => event.preventDefault()}>{t('chat.list.active', 'Current chats')}</DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="archived" onSelect={event => event.preventDefault()}>{t('chat.list.archived', 'Archived chats')}</DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
         {sessions.isLoading ? (
           <div className="space-y-1 p-1">
             <Skeleton className="h-6 w-full" />
@@ -144,7 +136,7 @@ export function ChatHistoryMenu({
             );
           })
         ) : (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">{view === 'archived' ? t('chat.list.emptyArchived', 'No archived conversations.') : t('no_chats', 'No chats yet.')}</div>
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('no_chats', 'No chats yet.')}</div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

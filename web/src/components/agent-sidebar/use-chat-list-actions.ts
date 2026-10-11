@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArchiveRestore, Pin, PinOff } from 'lucide-react';
+import { Pin, PinOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { updateChatListState, type ChatListStateChange } from '@/lib/api/chat-engagement';
 import type { ChatListItem, ChatSessionsPage } from '@/lib/api/queries/chats';
 
-type ListItem = Pick<ChatListItem, 'chat_id' | 'pinned_at' | 'archived_at'>;
+type ListItem = Pick<ChatListItem, 'chat_id' | 'pinned_at'>;
 
 /** Metadata-only actions, shared by the main navigation and history menus. */
 export function useChatListActions() {
@@ -28,12 +28,6 @@ export function useChatListActions() {
       icon: item.pinned_at ? PinOff : Pin,
       disabled: mutation.isPending,
       onSelect: () => mutation.mutate({ chatId: item.chat_id, change: { pinned: !item.pinned_at } }),
-    },
-    {
-      label: item.archived_at ? t('chat.list.restore', 'Restore conversation') : t('chat.list.archive', 'Archive conversation'),
-      icon: item.archived_at ? ArchiveRestore : Archive,
-      disabled: mutation.isPending,
-      onSelect: () => mutation.mutate({ chatId: item.chat_id, change: { archived: !item.archived_at } }),
     },
   ];
 }

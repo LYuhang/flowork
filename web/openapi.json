@@ -5955,21 +5955,6 @@
             }
           },
           {
-            "name": "archive_state",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "active",
-                "archived",
-                "all"
-              ],
-              "type": "string",
-              "default": "all",
-              "title": "Archive State"
-            }
-          },
-          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -20531,17 +20516,6 @@
               }
             ],
             "title": "Pinned"
-          },
-          "archived": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Archived"
           }
         },
         "additionalProperties": false,

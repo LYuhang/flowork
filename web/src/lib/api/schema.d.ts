@@ -6035,8 +6035,6 @@ export interface components {
         ChatListStatePatch: {
             /** Pinned */
             pinned?: boolean | null;
-            /** Archived */
-            archived?: boolean | null;
         };
         /** ChatProjectCreateBody */
         ChatProjectCreateBody: {
@@ -13404,7 +13402,6 @@ export interface operations {
         parameters: {
             query?: {
                 surface?: string | null;
-                archive_state?: "active" | "archived" | "all";
                 limit?: number;
                 offset?: number;
             };

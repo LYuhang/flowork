@@ -35,7 +35,6 @@ import { useWorkflow } from '@/lib/api/queries/workflow';
 import { getBasePath } from '@/lib/base-path';
 import { SSEStatusBanner } from '@/components/agent-sidebar/SSEStatusBanner';
 import { ChatHistoryMenu } from '@/components/agent-sidebar/ChatHistoryMenu';
-import { ArchivedChatNotice } from './ArchivedChatNotice';
 import { ChatMessageList } from '@/components/agent-sidebar/ChatMessageList';
 import type { SubmitInteractiveAsNewTurn } from '@/components/agent-sidebar/tool-render/InteractiveArtifactBlock';
 import { ChatComposer } from '@/components/agent-sidebar/ChatComposer';
@@ -276,7 +275,7 @@ export function AgentChatSidebar({
       const sessionsReady =
         sessions.data !== undefined || sessions.isFetched || sessions.isError;
       if (embedded && !sessionsReady) return;
-      const latestVisible = sessionItems.find(item => !item.archived_at);
+      const latestVisible = sessionItems[0];
       if (latestVisible) {
         setActiveChatId(chatSurface, latestVisible.chat_id);
       } else if (initialCreationScope.current !== lastWfId) {
@@ -511,7 +510,7 @@ export function AgentChatSidebar({
       <SSEStatusBanner wfId={lastWfId} activeChatId={activeChatId} />
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <ArchivedChatNotice chat={sessionItems.find(item => item.chat_id === activeChatId)} />
+
         <ChatMessageList
           focusRequest={attentionFocus?.chatId === activeChatId ? attentionFocus : null}
           readingActive={active}

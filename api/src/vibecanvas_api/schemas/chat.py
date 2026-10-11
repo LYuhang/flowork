@@ -31,12 +31,11 @@ class ChatListState(BaseModel):
 class ChatListStatePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     pinned: bool | None = None
-    archived: bool | None = None
 
     @model_validator(mode="after")
     def require_change(self):
-        if self.pinned is None and self.archived is None:
-            raise ValueError("Specify pinned or archived")
+        if self.pinned is None:
+            raise ValueError("Specify pinned")
         return self
 
 

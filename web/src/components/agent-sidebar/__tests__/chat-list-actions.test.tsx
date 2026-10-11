@@ -5,10 +5,8 @@ import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
 import { server } from '@/__tests__/msw-handlers';
-import { useChatSessions } from '@/lib/api/queries/chats';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { ChatHistoryMenu } from '../ChatHistoryMenu';
-import { ArchivedChatNotice } from '../ArchivedChatNotice';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 const stamp = '2026-10-10T12:00:00Z';
@@ -45,9 +43,7 @@ afterEach(() => { cleanup(); client.clear(); });
 function setup() {
   const select = vi.fn();
   function Harness() {
-    const sessions = useChatSessions('scope');
-    return <><ChatHistoryMenu wfId="scope" activeChatId="current" onSelect={select} />
-      <ArchivedChatNotice chat={sessions.data?.items.find(item => item.chat_id === 'current')} /></>;
+    return <ChatHistoryMenu wfId="scope" activeChatId="current" onSelect={select} />;
   }
   render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>);
   return { user: userEvent.setup(), select };
@@ -56,12 +52,10 @@ async function openHistory(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Chat History' }));
   await screen.findByRole('menuitem', { name: 'Newer chat' });
 }
-it('filters archived chats without changing their stored state or selecting them', async () => {
+it('includes legacy archived chats in ordinary history without archive controls', async () => {
   const { user, select } = setup(); await openHistory(user);
-  expect(screen.queryByText('Older archive')).not.toBeInTheDocument();
-  await user.click(screen.getByRole('menuitemradio', { name: 'Archived chats' }));
   expect(await screen.findByText('Older archive')).toBeVisible();
-  expect(screen.queryByText('Newer chat')).not.toBeInTheDocument();
+  expect(screen.queryByRole('menuitemradio')).toBeNull();
   await user.click(screen.getByText('Older archive'));
   expect(select).toHaveBeenCalledExactlyOnceWith('archived');
   expect(patches).toEqual([]);
@@ -79,23 +73,11 @@ it('pins through the row action without opening the conversation', async () => {
   await user.click(screen.getByRole('menuitem', { name: 'Actions for conversation Current conversation' }));
   expect(await screen.findByRole('menuitem', { name: 'Unpin' })).toBeVisible();
 });
-it('archives a running chat and restores it from the notice without changing the run', async () => {
-  useChatStreamStore.getState().beginTurn('current', 'live-turn');
-  const { user } = setup(); await openHistory(user);
-  await user.click(screen.getByRole('menuitem', { name: 'Actions for conversation Current conversation' }));
-  fireEvent.click(await screen.findByRole('menuitem', { name: 'Archive conversation' }));
-  expect(await screen.findByText('This conversation is archived.')).toBeVisible();
-  expect(useChatStreamStore.getState().runtimes.current.state).toBe('streaming');
-  await user.click(screen.getByRole('button', { name: 'Restore conversation' }));
-  await waitFor(() => expect(screen.queryByText('This conversation is archived.')).toBeNull());
-  expect(patches).toEqual([{ id: 'current', body: { archived: true } }, { id: 'current', body: { archived: false } }]);
-  expect(useChatStreamStore.getState().runtimes.current.turnId).toBe('live-turn');
-});
 it('keeps the list unchanged and reports a failed mutation without retrying', async () => {
   fail = true; const { user } = setup(); await openHistory(user);
   await user.click(screen.getByRole('menuitem', { name: 'Actions for conversation Current conversation' }));
-  fireEvent.click(await screen.findByRole('menuitem', { name: 'Archive conversation' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Pin' }));
   await waitFor(() => expect(toast.error).toHaveBeenCalledOnce());
-  expect(patches).toHaveLength(1); expect(rows[1].archived_at).toBeNull();
+  expect(patches).toHaveLength(1); expect(rows[1].pinned_at).toBeNull();
   expect(screen.queryByText('This conversation is archived.')).toBeNull();
 });

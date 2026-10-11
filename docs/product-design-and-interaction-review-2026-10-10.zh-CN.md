@@ -1148,3 +1148,12 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 使用实际 Codex App Server 0.157.1 和生产 `fork_native_thread`，建立三轮历史，在源会话设置 active Goal，再从第二轮创建分支。分支只有前两轮历史，Goal 已清除；源历史保留，源 Goal 仍为 active。
 - 初次脚本错误地要求“所有模型请求总计仍为 3”，被源 Goal 的一次正常继续执行打破。修正测试将后续请求内容与源第三轮标记核对，确认新增的一次调用属于源目标继续执行，而非分支启动。没有为通过测试修改产品行为。
 - 结果 `/tmp/codex-branch-active-goal-verified-result.json`：本地协议模型共 4 次请求，源 Goal 继续 1 次，分支自动模型调用 0，外部模型调用 0。这里验证的是实际原生进程和协议，模型响应使用本地固定服务，不冒充 Terra 浏览器实测；真实 HTML 分支资源及跨账号授权仍需补验。
+
+
+### F16 HTML 文件预览及跨账号权限实测（2026-10-11）
+
+- Terra 在 QA 项目 `prj_114d96a37274402ebb44cf6b329265d6` 创建 HTML 与同目录 SVG，通过实际 render_preview 发布。页面按钮创建分支 `43f798ba-df16-4b0a-831b-28c6b21659bd` 返回 201，历史中的 canonical artifact 为 read_only；未为分支自动发起模型请求。
+- 真实浏览器从分支卡片打开右侧预览，通过工具栏“更多 → Open in new page”打开独立页面，再刷新。三个场景均显示正文 BRANCH_RESOURCE_OK，图片 complete 且 naturalWidth > 0；未观察到草稿、交互决定或文件写入请求。测试发生在 QA 沙盒释放 200 后，文件仍可读。截图 `/tmp/chat-branch-html-inline.png`、`/tmp/chat-branch-html-standalone.png` 已查看；完整结果 `/tmp/chat-branch-html-preview-verified.json`。
+- 首次预览脚本按宽工具栏寻找直接链接，实际窄面板已收纳到“更多”菜单，等待新页面超时。改为实际菜单按钮路径后验收通过，没有重复模型任务或创建新分支；首次失败日志保留 `/tmp/chat-branch-html-preview.log`。
+- 新建独立测试账号，通过真实在线 API 对照：分支历史、interactive artifact 资源会话、项目文件 preview resolve，原账号均 200，未授权账号均 404 且响应没有正文。证据 `/tmp/chat-branch-cross-account.json`；账号删除请求 204。
+- 边界说明：当前 render_preview 发布的是 HTML **文件预览**，文件仍共享项目当前版本，可由有权限用户编辑，并不承诺历史文件快照。本次未冒充历史 html_preview 交互桥的浏览器写入测试；该遗留组件的只读通信仍以已有组件测试为证。原生 rollout 缺失的完整恢复实测及全需求矩阵核验仍待补齐。

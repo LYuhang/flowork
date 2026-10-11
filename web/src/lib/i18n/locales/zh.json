@@ -9,6 +9,7 @@
   "composer.queue.unconfirmed": "提交结果尚未确认，请先查询状态，不要重复发送。",
   "composer.queue.cancel": "取消排队",
   "composer.queue.check": "查询排队状态",
+  "composer.queue.attachments": "{{count}} 个附件",
   "composer.queue.attachments_one": "{{count}} 个附件",
   "composer.queue.attachments_other": "{{count}} 个附件",
   "composer.queue.status.queued": "已排队，等待当前轮完成",

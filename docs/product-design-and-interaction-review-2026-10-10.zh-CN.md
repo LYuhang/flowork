@@ -1084,3 +1084,17 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 已静态发布两项前端修改，资源先发布、index 最后原子替换，没有重启后端或中断对话。线上健康检查 200。
 - 真实浏览器打开已有附件队列对话，在 390px 和 1280px 宽度测试：状态行高度均为 24px，默认折叠、展开查看附件数量、再次收起通过，无页面横向溢出。证据 `/tmp/compact-queue-live.json`、`/tmp/compact-queue-390.png`（已查看）。此轮为已有对话的真实 UI 验收，不宣称新增 Terra 执行或侧边栏队列链路已验收。
 - F15 安装侧边栏完整排队链路、人工交互实机边界，以及 F16 剩余验收继续待补；整体需求尚未完成。
+
+### F15 已安装扩展排队首次实测：浏览器操作未通过
+
+- Terra 侧边栏对话 `d76ee360-19ad-4e00-b3b6-fb0927612d0d` 入队返回 201，刷新保留队列和对话，第一轮结束后仅启动一次下一轮 `t_d33165b2374c4dcdb54ca6c794c5792f`，历史中该轮 user 消息仅一份。
+- 第二轮真实调用 browser tab-list 返回 browser_initialization_failed；Agent 原样报告，没有重试。不能将此轮记成浏览器成功。QA 沙盒已释放 200。
+- 测试脚本将 sidepanel.html 打开为普通标签，刷新后未重新激活普通网页；初始化代码禁止控制扩展内部页面。此为待验证的环境因素，尚未确认为唯一根因。下一次显式验收需记录当前 active tab 并以普通网页作为目标。
+- 证据 `/tmp/queue-extension-history.json`、`/tmp/queue-extension-receipt.json`、`/tmp/queue-extension-failure-analysis.json`。
+
+### F15 扩展普通网页目标补测与 CI 翻译门禁修复
+
+- 显式新建 Terra 验收对话 `717f0e19-9b42-4252-8517-a844e0c8ea44`，刷新侧边栏后通过 Chrome API 确认 active tab 为 `https://flowork.top/health`。入队 201、刷新恢复、仅一次 POST、仅一份下一轮用户消息通过。
+- 下一轮 `t_27d91c994f6648aba97c1280bdda21d1` 的真实 tab-list 工具回执 succeeded，包含目标 URL、tab_id、window_id；不是仅依据模型成功文案。结束后释放 QA 沙盒 200。
+- 证据 `/tmp/queue-extension-foreground.json`、`/tmp/queue-extension-foreground-history.json`。截图中在断言看到完成后又短暂出现处理中，不能据此宣称全过程状态稳定；只读重新打开验证最终回复存在、停止按钮消失（`/tmp/queue-extension-final-view.json`）。仍需补连续观察，排查完成附近旧流重放/状态合并。
+- main `3d44cb4` 的 Web 门禁检测到 `composer.queue.attachments` 缺基础翻译键（已有 one/other）。按现有语言目录约定补齐中英文基础回退，单复数形式保持；翻译键覆盖、两语言一致性及硬编码文案检查通过。不得绕过门禁。

@@ -9,6 +9,7 @@
   "composer.queue.unconfirmed": "Submission not confirmed. Check its status before sending again.",
   "composer.queue.cancel": "Cancel queued message",
   "composer.queue.check": "Check queue status",
+  "composer.queue.attachments": "{{count}} attachments",
   "composer.queue.attachments_one": "{{count}} attachment",
   "composer.queue.attachments_other": "{{count}} attachments",
   "composer.queue.status.queued": "Queued for next turn",

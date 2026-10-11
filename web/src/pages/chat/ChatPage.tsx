@@ -925,7 +925,9 @@ export function ChatPage() {
       : PREVIEW_PANE_MIN_WIDTH;
   const dockedPreviewOpen = previewOpen && !narrowViewport;
   const paneLayoutScope = `${accountNamespace}:main-chat${narrowViewport ? ':narrow' : ''}`;
-  const paneLayoutKey = `chat-panes:${paneLayoutScope}:${dockedPreviewOpen ? 'view' : 'no-view'}:${debugPaneVisible ? 'debug' : 'no-debug'}`;
+  // The panel library retains layouts by panel IDs. Keep the transcript mounted
+  // when adding/removing a pane so its reading anchor survives width changes.
+  const paneLayoutKey = `chat-panes:${paneLayoutScope}`;
   const defaultPaneLayout = useMemo(
     () => loadChatPaneLayout(paneLayoutScope, dockedPreviewOpen, debugPaneVisible),
     [debugPaneVisible, paneLayoutScope, dockedPreviewOpen],

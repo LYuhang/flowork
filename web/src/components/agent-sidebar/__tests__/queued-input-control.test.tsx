@@ -40,7 +40,10 @@ it.each([false, true])('preserves the queued receipt and cancels once, lost resp
   expect(await screen.findByText('Queued for next turn')).toBeTruthy();
   expect(button).toBeDisabled();
   cleanup(); render(element);
-  expect(await screen.findByText('Next instruction')).toBeTruthy();
+  const details = document.querySelector('[data-role=queued-input-details]');
+  expect(details).not.toHaveAttribute('open');
+  fireEvent.click(details!.querySelector('summary')!);
+  expect(await screen.findByText('Next instruction')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Cancel queued message' }));
   expect(await screen.findByText('Queue cancelled')).toBeTruthy();
   expect(posts).toBe(1);

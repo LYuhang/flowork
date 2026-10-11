@@ -440,6 +440,34 @@ describe('ChatMessageList', () => {
     expect(toggle).toHaveTextContent('2 tools used');
   });
 
+  it.each([false, true])('handles a final message batched with completion, reading older=%s', async readingOlder => {
+    historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 1; });
+    try {
+      render(<ChatMessageList wfId="wf" activeChatId="completion-tail" />);
+      const log = screen.getByRole('log', { name: 'Conversation' });
+      let height = 1000;
+      Object.defineProperties(log, {
+        scrollHeight: { configurable: true, get: () => height },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, value: 600, writable: true },
+      });
+      const scroll = vi.fn();
+      log.scrollTo = scroll;
+      act(() => useChatStreamStore.getState().beginTurn('completion-tail', 'final-turn'));
+      log.scrollTop = readingOlder ? 200 : 600;
+      fireEvent.scroll(log);
+      scroll.mockClear();
+      height = 1400;
+      act(() => {
+        useChatStreamStore.getState().appendChunk({ role: 'assistant', content: 'Final answer' }, 'completion-tail');
+        useChatStreamStore.getState().setState('complete', 'completion-tail');
+      });
+      if (readingOlder) expect(scroll).not.toHaveBeenCalled();
+      else expect(scroll).toHaveBeenCalledWith({ top: 1400, behavior: 'auto' });
+    } finally { raf.mockRestore(); }
+  });
+
   it('exposes a named conversation log and announces stream boundaries without token spam', async () => {
     historyMock.mockReturnValue({ data: { items: [] }, isLoading: false });
     const { container } = render(<ChatMessageList wfId="wf" activeChatId="c1" />);

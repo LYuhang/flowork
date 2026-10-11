@@ -1724,3 +1724,9 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 复用 ActionableError 显示部署需处理及可展开的 rollout_error，提供中英文标题，不新增重试执行按钮。部署详情 GET 正常包含 runtime；现有 runtime 缺失时的行为保持不变。
 - ESLint、4163 项语言键一致性、2696 字面键覆盖与部署详情 20 项测试通过（`/tmp/runtime-error-tests.log`），正在发布及复验修复后页面。
 - 修复后 `/tmp/runtime-error-after.json` 四组全部通过：错误详情存在且点击后可见，写请求 0，无页面溢出，手机暗色截图已查看。生产构建及路径检查通过，917 个静态文件发布后逐个核验，未重启 API。
+
+### 高对比度与减少动效的键盘交互补验（2026-10-11）
+
+- 浏览器模拟 forced-colors=active 与 prefers-reduced-motion=reduce，真实任务列表在 1280/390px × 应用明暗主题四组均通过。证据 `/tmp/accessibility-material-live.json`。
+- 行菜单按钮键盘聚焦时保留 2px solid 轮廓（阴影被系统禁用仍可识别）；Enter 打开、ArrowDown 移动到菜单项、Esc 关闭并回到触发按钮。菜单 backdrop-filter=none，动画/过渡时长均为 0.00001s，无页面横向溢出。桌面和手机截图已查看。
+- 额外部署页刷新按钮实测也保留高对比度焦点轮廓（`/tmp/forced-focus-before.json`），因此没有添加重复的 CSS 防御规则。这里只验证浏览器媒体模拟下的主应用共享按钮/菜单，不等同实体操作系统、屏幕阅读器及插件所有页面完整无障碍验收。

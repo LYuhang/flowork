@@ -180,6 +180,13 @@ function previewItemFromToolCall(
 
 
 export function ChatPage() {
+  const [narrowViewport, setNarrowViewport] = useState(() => window.matchMedia('(max-width: 639px)').matches);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 639px)');
+    const update = () => setNarrowViewport(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
   const { t } = useTranslation();
   const qc = useQueryClient();
   const account = useAuthStore((state) => state.user);
@@ -916,15 +923,16 @@ export function ChatPage() {
     activePreviewItem?.resource.kind === 'workflow'
       ? WORKFLOW_PREVIEW_PANE_MIN_WIDTH
       : PREVIEW_PANE_MIN_WIDTH;
-  const paneLayoutScope = `${accountNamespace}:main-chat`;
-  const paneLayoutKey = `chat-panes:${paneLayoutScope}:${previewOpen ? 'view' : 'no-view'}:${debugPaneVisible ? 'debug' : 'no-debug'}`;
+  const dockedPreviewOpen = previewOpen && !narrowViewport;
+  const paneLayoutScope = `${accountNamespace}:main-chat${narrowViewport ? ':narrow' : ''}`;
+  const paneLayoutKey = `chat-panes:${paneLayoutScope}:${dockedPreviewOpen ? 'view' : 'no-view'}:${debugPaneVisible ? 'debug' : 'no-debug'}`;
   const defaultPaneLayout = useMemo(
-    () => loadChatPaneLayout(paneLayoutScope, previewOpen, debugPaneVisible),
-    [debugPaneVisible, paneLayoutScope, previewOpen],
+    () => loadChatPaneLayout(paneLayoutScope, dockedPreviewOpen, debugPaneVisible),
+    [debugPaneVisible, paneLayoutScope, dockedPreviewOpen],
   );
   const persistPaneLayout = useCallback(
-    (layout: ResizableLayout) => saveChatPaneLayout(paneLayoutScope, previewOpen, debugPaneVisible, layout),
-    [debugPaneVisible, paneLayoutScope, previewOpen],
+    (layout: ResizableLayout) => saveChatPaneLayout(paneLayoutScope, dockedPreviewOpen, debugPaneVisible, layout),
+    [debugPaneVisible, paneLayoutScope, dockedPreviewOpen],
   );
   useEffect(
     () => () => {
@@ -966,6 +974,40 @@ export function ChatPage() {
   useEffect(() => {
     if (!debugAvailable) queueMicrotask(() => setDebugOpen(false));
   }, [debugAvailable, setDebugOpen]);
+
+  const previewContent = carrierScopeId ? (
+    <Suspense
+      fallback={(
+        <div className="flex h-full min-h-0 bg-surface-work">
+          <AsyncState
+            kind="loading"
+            title={t('chat.preview.loading', 'Loading preview...')}
+          />
+        </div>
+      )}
+    >
+      <ChatPreviewPane
+        originChatId={activeChatId}
+        open
+        scopeId={carrierScopeId}
+        items={previewItems}
+        resources={previewResources}
+        activeId={activePreviewId}
+        onToggleOpen={(nextOpen) => {
+          if (nextOpen) setPreviewOpen(true);
+          else closePreviewPane();
+        }}
+        onSelect={selectPreviewItem}
+        onOpenResource={openPreviewItem}
+        onOpenInteractiveFile={(path) => {
+          const fileRef = fileRefFromAgentPath(path, { projectId: selectedProjectId });
+          if (fileRef) openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
+        }}
+        onCloseItem={closePreviewItem}
+        onSubmitInteractiveAsNewMessage={submitInteractiveAsNewMessage}
+      />
+    </Suspense>
+  ) : null;
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-work">
@@ -1179,6 +1221,7 @@ export function ChatPage() {
             <ResizableGroup
               key={paneLayoutKey}
               id={paneLayoutKey}
+              inert={narrowViewport && previewOpen}
               orientation="horizontal"
               className="min-w-0 flex-1"
               defaultLayout={defaultPaneLayout}
@@ -1372,7 +1415,7 @@ export function ChatPage() {
                   )}
                 </main>
               </ResizablePanel>
-              {previewOpen && (
+              {dockedPreviewOpen && (
                 <>
                   <ChatPaneSeparator
                     label={t('chat.preview.resize', 'Resize Chat and View panels')}
@@ -1382,37 +1425,7 @@ export function ChatPage() {
                     minSize={previewPaneMinWidth}
                     groupResizeBehavior="preserve-pixel-size"
                   >
-                    <Suspense
-                      fallback={(
-                        <div className="flex h-full min-h-0 bg-surface-work">
-                          <AsyncState
-                            kind="loading"
-                            title={t('chat.preview.loading', 'Loading preview...')}
-                          />
-                        </div>
-                      )}
-                    >
-                      <ChatPreviewPane
-                        originChatId={activeChatId}
-                        open
-                        scopeId={carrierScopeId}
-                        items={previewItems}
-                        resources={previewResources}
-                        activeId={activePreviewId}
-                        onToggleOpen={(nextOpen) => {
-                          if (nextOpen) setPreviewOpen(true);
-                          else closePreviewPane();
-                        }}
-                        onSelect={selectPreviewItem}
-                        onOpenResource={openPreviewItem}
-                        onOpenInteractiveFile={(path) => {
-                          const fileRef = fileRefFromAgentPath(path, { projectId: selectedProjectId });
-                          if (fileRef) openPreviewItem(filePreviewItem(fileRef, fileNameFromPath(path)));
-                        }}
-                        onCloseItem={closePreviewItem}
-                        onSubmitInteractiveAsNewMessage={submitInteractiveAsNewMessage}
-                      />
-                    </Suspense>
+                    {previewContent}
                   </ResizablePanel>
                 </>
               )}
@@ -1438,6 +1451,11 @@ export function ChatPage() {
                 </>
               )}
             </ResizableGroup>
+            {narrowViewport && previewOpen && (
+              <aside className="absolute inset-0 z-10 min-w-0 bg-surface-work" data-role="mobile-chat-preview">
+                {previewContent}
+              </aside>
+            )}
             {explorerOpen && (
               <aside
                 className="absolute inset-y-0 right-0 z-20 flex shrink-0 flex-col border-l border-edge-structural bg-surface-work sm:relative sm:inset-auto sm:z-auto"

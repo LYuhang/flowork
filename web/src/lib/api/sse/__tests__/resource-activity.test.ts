@@ -84,3 +84,26 @@ it('does not refetch inactive history pages while draining an active read', asyn
  expect(client.getQueryState(['history','chat','old-page'])?.isInvalidated).toBe(true);
  stop();client.clear();
 });
+
+it('keeps status fresh while metadata retries and cancels both readers on close', async () => {
+  vi.useFakeTimers();
+  mocks.connect.mockReturnValue(new Promise(() => {}));
+  const status = vi.fn().mockResolvedValue(undefined);
+  const metadata = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+  const stop = watchResourceActivity('/activity', [status, metadata]);
+  const options = mocks.connect.mock.calls.at(-1)![1];
+  options.onmessage({ event: 'changed' });
+  await vi.advanceTimersByTimeAsync(100);
+  for (let i = 0; i < 20; i++) options.onmessage({ event: 'changed' });
+  await vi.advanceTimersByTimeAsync(100);
+  expect(status).toHaveBeenCalledTimes(2);
+  expect(metadata).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(900);
+  expect(metadata).toHaveBeenCalledTimes(2);
+  options.onmessage({ event: 'changed' });
+  stop();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(status).toHaveBeenCalledTimes(2);
+  expect(metadata).toHaveBeenCalledTimes(2);
+  expect(vi.getTimerCount()).toBe(0);
+});

@@ -1112,3 +1112,24 @@ F15 验收必须覆盖：Terra 正在执行工具时补充文本、补充与自�
 - 此轮在正常派发中读取队列，得到 unknown/submission_unconfirmed；随后同一次派发正常启动 `t_8d833de147c74e11bec321741d9f5717`。根因是 latest 查询把所有尚无 accepted_run 的 claimed 一律映射为 unknown。
 - 修正为保留持久化 claimed 状态；真正派发失败后的 unknown 保持不变，若已有明确 run 回执仍修正为 started。读请求不派发、不重试。进程重启后没有确认结果的 claimed 也不凭空推断为失败；后续查询仍可确认已接受的执行。
 - 复用确认无客户端占用的旧隔离 PostgreSQL（55439），仅建立独立 queue_confirmation_test 数据库，未修改旧库。队列仓储/派发 12 项通过；补充各结果 latest 查询断言后，5 项派发测试再次通过；Ruff 通过。证据 `/tmp/queue-confirmation-tests.log`、`/tmp/queue-confirmation-outcomes.log`。
+
+### F15 原生侧边栏验收与运行状态刷新解耦（实施中）
+
+- 之前测试是在已安装扩展的 sidepanel.html 标签页中操作；为激活目标网页而将其放到后台，不能完全替代 Chrome 原生侧边栏。新脚本通过用户手势调用 chrome.sidePanel.open，关闭辅助扩展标签页，通过 CDP 接入真正的侧边栏 page，并确认 document.visibilityState=visible。
+- 原生侧边栏对话 `1b07c1fe-5b36-4516-9471-645a8bb14bf2` 排队、刷新、浏览器 tab-list 及最终回复均成功。但后端第二轮 first_runtime_event 为 00:26:59.308 UTC，前端直到约 00:27:19.748 才显示停止按钮；同期 active-runs 查询本身不足 1 秒。证据 `/tmp/queue-native-sidepanel.json`、`.png`（已查看）、服务日志；沙盒释放 200。
+- 复现测试将历史刷新保持 pending，再送入新事件，旧实现运行发现仅调用 1 次，无法发现新轮次。新实现仍共用单条 SSE，只将运行状态发现与其它投影刷新各自合并、补读；慢历史不阻塞新运行发现。焦点与事件的运行发现串行，避免旧读越过新读。
+- 首轮 24 项测试通过，补充慢元数据失败重试、关闭清理及焦点/事件顺序后相关 26 项通过；另有恢复流与公共刷新 18 项通过。ESLint、TypeScript 通过。上述前端修正尚待静态发布后的原生侧边栏复测。
+- 磁盘清理：清除可再生成的旧 Node/QA 浏览器缓存；确认旧隔离 PG 55439 无客户端后停止，完整归档到 `/tmp/flowork-scheduling-pg-offline.tar.gz`（约 30MB，已验证目录），释放原约 150MB。线上 PG 未动；后续不能直接复用已停止的 55439，需恢复隔离归档或另建测试库。
+
+### CI 镜像构建内存上限定位
+
+- 已取得失败 run `38097579570` 的公开 container-security artifact（`11686472658`），保存为 `/tmp/security-d25611e-artifact.zip`。`build/web.log` 明确显示 tsc 达到约 1017MB 后 heap out of memory，exit 134；扫描还未执行，不是已确认的漏洞命中。
+- Web Docker 构建阶段 NODE_OPTIONS 固定 1024MB，改为 1536MB，保留低构建并行度及完整类型/安全检查。运行时 nginx 不使用该 Node 配置。完整强制类型检查与后续远端镜像构建仍需核实，不能仅以改值宣称 CI 已恢复。
+
+### F15 运行发现解耦发布后原生侧边栏复测通过
+
+- 本地完整强制类型检查在 1536MB 堆上限下通过；生产构建、部署路径检查通过。待处理事项按钮 6 项回归通过。前端三个实现文件已静态发布，没有中断后端执行。
+- 真正的 Chrome 原生侧边栏、Terra、新对话 `69eaa1f6-6d73-4e5f-adac-2940c475c84b`：排队 201、刷新恢复、单次入队 POST、下一轮仅一份用户消息、真实 tab-list 成功、最终状态稳定通过。
+- 下一轮 `t_313488671c024432a6683beb4c148ca2` 后端 first_runtime_event 为 00:36:48.927 UTC；前端于 00:36:47.420 已显示停止按钮，比模型运行建立早约 1.5 秒（此前落后约 20 秒）。这不是声称所有网络下均无延迟，而是相同原生侧边栏场景的改前/改后证据。最终持续观察 8 秒未回退，释放 QA 沙盒 200。
+- 证据 `/tmp/queue-native-sidepanel-fixed.json`、`/tmp/queue-native-sidepanel-fixed-timing.json`、`.png`（已查看）。F15 人工交互的完整实机边界及其它 F16 待验项目仍未完成。
+- 补充 CI：旧 `6753bcf` 的安全检查 `38098086655` 全部通过，说明 1GB 堆失败并非每次必现；保留适度增加构建堆余量的改动以处理已证实的 OOM。新版本完整远端门禁仍需等待，不能用旧版本绿灯替代。

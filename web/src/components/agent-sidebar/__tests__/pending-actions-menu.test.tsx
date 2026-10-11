@@ -79,7 +79,7 @@ it('refreshes after another window resolves a request and unsubscribes on close'
   await screen.findByText('Approve export');
   const [path, refresh] = vi.mocked(watchResourceActivity).mock.calls[0];
   expect(path).toBe('/api/v1/chat-scopes/scope/attention/activity');
-  await refresh();
+  await Promise.all((Array.isArray(refresh) ? refresh : [refresh]).map(read => read()));
   expect(await screen.findByText('Nothing needs your attention.')).toBeVisible();
   await user.keyboard('{Escape}');
   expect(vi.mocked(watchResourceActivity).mock.results[0].value).toHaveBeenCalledOnce();

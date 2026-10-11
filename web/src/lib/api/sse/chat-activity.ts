@@ -1,6 +1,6 @@
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { readServerActiveTurns } from './server-active-turn';
-import { reconcileChatWithServer, type ReconcileChatArgs } from './chat-reconcile';
+import { refreshChatRuntime, refreshChatProjections, type ReconcileChatArgs } from './chat-reconcile';
 import { watchResourceActivity } from './resource-activity';
 
 /** Each window subscribes independently; only failed reads are retried. */
@@ -16,7 +16,7 @@ export function watchChatActivity(args: ReconcileChatArgs): () => void {
   }, 60_000);
   const stopActivity = watchResourceActivity(
     `/api/v1/chat-scopes/${encodeURIComponent(args.wfId)}/chats/${encodeURIComponent(args.chatId)}/activity`,
-    () => reconcileChatWithServer(args, { throwOnError: true }),
+    [() => refreshChatRuntime(args), () => refreshChatProjections(args)],
     100,
     () => window.clearInterval(leaseTimer),
   );

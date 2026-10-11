@@ -2,12 +2,14 @@ import { QueryObserver } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '@/app/query-client';
 
-const mocks = vi.hoisted(() => ({ readServerActiveTurns: vi.fn() }));
+const mocks = vi.hoisted(() => ({ readServerActiveTurns: vi.fn(), connect: vi.fn() }));
+vi.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: mocks.connect }));
 vi.mock('../server-active-turn', () => ({ readServerActiveTurns: mocks.readServerActiveTurns }));
 vi.mock('../active-turn', () => ({ readActiveTurnFor: () => null }));
 vi.mock('../resume-turn', () => ({ resumeActiveTurn: vi.fn() }));
 
-import { reconcileChatWithServer } from '../chat-reconcile';
+import { watchChatActivity } from '../chat-activity';
+import { reconcileChatWithServer, refreshChatRuntime } from '../chat-reconcile';
 
 const chat = { wfId: 'scope-1', chatId: 'chat-1' };
 const historyKey = ['chat-history', chat.wfId, chat.chatId, null];
@@ -96,4 +98,44 @@ it('reads again when an activity event arrives during an older focus reconciliat
   finish([]);
   await Promise.all([focus, activity]);
   expect(mocks.readServerActiveTurns.mock.calls.length).toBe(initialCalls + 1);
+});
+
+
+it('discovers a new run while a previous activity history refresh is still pending', async () => {
+  vi.useFakeTimers();
+  mocks.connect.mockReturnValue(new Promise(() => {}));
+  mocks.readServerActiveTurns.mockResolvedValue([]);
+  let finish!: (value: string[]) => void;
+  observeHistory(vi.fn().mockImplementationOnce(() => new Promise<string[]>(resolve => { finish = resolve; })).mockResolvedValue(['new message']));
+  const stop = watchChatActivity(chat);
+  try {
+    const options = mocks.connect.mock.calls.at(-1)![1];
+    const before = mocks.readServerActiveTurns.mock.calls.length;
+    options.onmessage({ event: 'changed' });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(mocks.readServerActiveTurns).toHaveBeenCalledTimes(before + 1);
+    options.onmessage({ event: 'changed' });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(mocks.readServerActiveTurns).toHaveBeenCalledTimes(before + 2);
+  } finally {
+    stop();
+    finish(['new message']);
+    await vi.advanceTimersByTimeAsync(100);
+    unsubscribe?.();
+    unsubscribe = undefined;
+    queryClient.clear();
+    vi.useRealTimers();
+  }
+});
+
+
+it('serializes focus and activity discovery without acknowledging a newer event with an older read', async () => {
+  let finish!: (turns: []) => void;
+  mocks.readServerActiveTurns.mockReset().mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue([]);
+  const focus = refreshChatRuntime(chat);
+  const activity = refreshChatRuntime(chat);
+  expect(mocks.readServerActiveTurns).toHaveBeenCalledTimes(1);
+  finish([]);
+  await Promise.all([focus, activity]);
+  expect(mocks.readServerActiveTurns).toHaveBeenCalledTimes(2);
 });

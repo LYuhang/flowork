@@ -12,18 +12,14 @@ export async function refreshResourceQuery(client: QueryClient, queryKey: readon
   await client.invalidateQueries(filter, options);
 }
 
-/** Snapshot invalidations: coalesce bursts, preserve changes during a read. */
-export function watchResourceActivity(
-  path: string, refresh: () => Promise<unknown>, coalesceMs = 100, onStop?: () => void,
-): () => void {
-  const ctrl = new AbortController();
+/** Each reader coalesces independently, so slow metadata cannot delay run status. */
+function activityReader(refresh: () => Promise<unknown>, coalesceMs: number, ctrl: AbortController) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let dirty = false;
   let reading = false;
   let retryMs = 0;
   ctrl.signal.addEventListener('abort', () => {
     if (timer) clearTimeout(timer);
-    onStop?.();
   }, { once: true });
   const schedule = () => {
     if (timer || reading || ctrl.signal.aborted) return;
@@ -48,6 +44,17 @@ export function watchResourceActivity(
       });
     }, Math.max(coalesceMs, retryMs));
   };
+  return () => { dirty = true; schedule(); };
+}
+
+/** Snapshot invalidations share one transport and retain changes during reads. */
+export function watchResourceActivity(
+  path: string, refresh: (() => Promise<unknown>) | Array<() => Promise<unknown>>, coalesceMs = 100, onStop?: () => void,
+): () => void {
+  const ctrl = new AbortController();
+  const readers = (Array.isArray(refresh) ? refresh : [refresh])
+    .map(read => activityReader(read, coalesceMs, ctrl));
+  ctrl.signal.addEventListener('abort', () => onStop?.(), { once: true });
   const token = useAuthStore.getState().token;
   void fetchEventSource(`${getApiBase()}${path}`, {
     signal: ctrl.signal,
@@ -63,14 +70,12 @@ export function watchResourceActivity(
     },
     onmessage(message) {
       if (message.event !== 'changed') return;
-      dirty = true;
-      schedule();
+      readers.forEach(invalidate => invalidate());
     },
     onclose() { throw new Error('Resource activity disconnected'); },
     onerror() { return 2000; },
   }).catch(() => {});
   return () => {
     ctrl.abort();
-    if (timer) clearTimeout(timer);
   };
 }

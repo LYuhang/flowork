@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ connect: vi.fn(), reconcile: vi.fn(async () => {}), lease: vi.fn(async () => []) }));
 vi.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: mocks.connect }));
-vi.mock('../chat-reconcile', () => ({ reconcileChatWithServer: mocks.reconcile }));
+vi.mock('../chat-reconcile', () => ({ refreshChatProjections: mocks.reconcile, refreshChatRuntime: vi.fn(async () => {}) }));
 vi.mock('../server-active-turn', () => ({ readServerActiveTurns: mocks.lease }));
 import { useChatStreamStore } from '@/stores/chat-stream';
 import { watchChatActivity } from '../chat-activity';

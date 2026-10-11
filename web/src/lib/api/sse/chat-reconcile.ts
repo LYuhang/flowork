@@ -50,10 +50,29 @@ export function reconcileChatWithServer(args: ReconcileChatArgs, options: { thro
   return options.throwOnError ? next : next.catch(() => {});
 }
 
-async function reconcileChat({
+async function reconcileChat(args: ReconcileChatArgs): Promise<void> {
+  await refreshChatRuntime(args);
+  await refreshChatProjections(args);
+}
+
+const pendingRuntimeRefreshes = new Map<string, Promise<void>>();
+
+/** Serialize discovery only; an older focus read cannot overtake a newer event read. */
+export function refreshChatRuntime(args: ReconcileChatArgs): Promise<void> {
+  if (!args.wfId) return Promise.resolve();
+  const key = JSON.stringify([args.wfId, args.chatId ?? null]);
+  const pending = pendingRuntimeRefreshes.get(key);
+  if (pending) return pending.catch(() => {}).then(() => refreshChatRuntime(args));
+  const next = readChatRuntime(args).finally(() => {
+    if (pendingRuntimeRefreshes.get(key) === next) pendingRuntimeRefreshes.delete(key);
+  });
+  pendingRuntimeRefreshes.set(key, next);
+  return next;
+}
+
+async function readChatRuntime({
   wfId,
   chatId,
-  surface = 'chat',
 }: ReconcileChatArgs): Promise<void> {
   if (!wfId) return;
 
@@ -85,6 +104,11 @@ async function reconcileChat({
     }
   }
 
+  if (turns === null) throw new Error('Active-run discovery unavailable');
+}
+
+export async function refreshChatProjections({ wfId, chatId, surface = 'chat' }: ReconcileChatArgs): Promise<void> {
+  if (!wfId) return;
   const projections = await Promise.allSettled([
     refreshActiveProjection(['chats', wfId, surface]),
     refreshActiveProjection(['chat-projects']),
@@ -109,8 +133,6 @@ async function reconcileChat({
 
   const failed = projections.find((result) => result.status === 'rejected');
   if (failed?.status === 'rejected') throw failed.reason;
-  // A tolerant discovery implementation must not acknowledge the event.
-  if (turns === null) throw new Error('Active-run discovery unavailable');
 
   // History rows contain the creation-time ToolMessage projection. Existing
   // interactive cards may keep the same React key after refetch, so explicitly

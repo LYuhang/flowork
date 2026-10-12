@@ -57,13 +57,7 @@ For external webhook POST, serialize the input JSON once to UTF-8 bytes. Set `X-
 
 External webhook submissions return a ticket with the same execution status semantics. Poll its `result_url` using `X-Vibecanvas-Timestamp` (current Unix seconds) and `X-Vibecanvas-Signature`: `sha256=` plus the hex HMAC-SHA256, with the current webhook secret, of `timestamp + ".GET " + result_url`. Sign the canonical `/api/v1/...` path in the returned result_url, without a reverse-proxy mount prefix. A POST signature cannot authorize a result query. Never print the secret or replace a pending delivery with another submission.
 
-Skill and Knowledge downloads are self-contained Git directories, including .git history.
-Use git log/status/diff to inspect history and edits. Legacy packages receive a local baseline commit.
-Before create/publish, initialize Git for a new package and review/commit all intended files;
-resolve conflicts and move unrelated untracked/ignored files outside the directory.
-CLI publication rejects dirty repositories and never auto-commits. check validates package
-contents without requiring a clean Git state. Preserve .git on upload. Platform version counters
-remain separate from Git commits; --expected-version uses the downloaded platform version.
+Skill and Knowledge downloads are self-contained Git directories, including .git history. Use git log/status/diff to inspect history and edits. Legacy packages receive a local baseline commit. Before create/publish, initialize Git for a new package and review/commit all intended files; resolve conflicts and move unrelated untracked/ignored files outside the directory. CLI publication rejects dirty repositories and never auto-commits. check validates package contents without requiring a clean Git state. Preserve .git on upload. Platform version counters remain separate from Git commits; --expected-version uses the downloaded platform version.
 
 Use `flowork-cli knowledge` for file packages: list/get/download/check/create/publish/delete. Always use named --knowledge-id; no connection state or Knowledge MCP. Download then use bash ls/find/cat/rg to inspect or search files. create/check/publish require --source-dir with root README.md YAML frontmatter: name (1..200 characters) and description (up to 2000 characters, empty allowed). Edit files and metadata together, run check, then publish the whole directory; absent files are removed. --expected-version from download is required; a newer publication or an unpublished draft rejects the write without changing anything. Publishing succeeds separately from asynchronous indexing. Read leaf help and README.md; never publish private credentials.
 

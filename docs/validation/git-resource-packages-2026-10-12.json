@@ -31,7 +31,8 @@
       "skill": "deleted",
       "knowledge": "deleted"
     },
-    "raw_tool_results_reviewed": true
+    "raw_tool_results_reviewed": true,
+    "sandbox_released": true
   },
   "boundaries": [
     "Legacy packages receive one local baseline commit on download; previous platform releases are not reconstructed into Git history.",
@@ -43,5 +44,17 @@
   "deployment": {
     "posix_preserved": true,
     "health": 200
+  },
+  "ci_initial_run": {
+    "url": "https://github.com/LYuhang/flowork/actions/runs/38293823871",
+    "api_passed": 4482,
+    "api_skipped": 88,
+    "api_failed": 1,
+    "failure": "test_platform_guidance_prose_has_no_hard_wrapping",
+    "fix": "Join the new AGENTS.md prose paragraph without manual line wrapping; no functional change."
+  },
+  "guidance_regression": {
+    "passed": 22,
+    "log": "/tmp/git-packages-guidance-tests.log"
   }
 }

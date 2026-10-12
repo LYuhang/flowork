@@ -253,7 +253,7 @@ async def _authorized_runtime_packages(*, tenant_id: str, user_id: str, requeste
                     continue
                 files = await SkillsRepo(session).read_revision_files(row["skill_id"], row["current_revision_id"])
                 if files is not None:
-                    packages[skill_id] = files
+                    packages[skill_id] = [item for item in files if not item[0].startswith(".git/")]
     finally:
         await client.close()
 

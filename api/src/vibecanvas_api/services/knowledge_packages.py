@@ -237,7 +237,7 @@ async def replace_package(
             item.data,
             item.content_type,
         )
-        parser_type = detect_parser_type(item.path, content_type) or "binary"
+        parser_type = "binary" if item.path.startswith(".git/") else (detect_parser_type(item.path, content_type) or "binary")
         status = (
             "pending" if derive_index and parser_type != "binary" else "stored"
         )

@@ -399,6 +399,8 @@ class SkillsRepo:
             path=prefix,
         )
         for path, content_type, data in files:
+            if path.startswith(".git/"):
+                continue
             media_type = (
                 content_type
                 or mimetypes.guess_type(path)[0]

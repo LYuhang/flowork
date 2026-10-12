@@ -955,7 +955,7 @@ async def _write_file(
         blob,
         file.content_type,
     )
-    parser_type = detect_parser_type(package_path, mime_type) or "binary"
+    parser_type = "binary" if package_path.startswith(".git/") else (detect_parser_type(package_path, mime_type) or "binary")
     content_hash = hashlib.sha256(blob).hexdigest()
 
     await _authorize_knowledge_base(

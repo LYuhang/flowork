@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-12",
+  "feature": "Git-backed Skill and Knowledge CLI packages",
+  "regression_tests": {
+    "passed": 146,
+    "log": "/tmp/git-packages-tests.log"
+  },
+  "git_specialist_tests": {
+    "passed": 21,
+    "overlaps_regression_suite": true,
+    "log": "/tmp/git-packages-final-tests.log"
+  },
+  "live": {
+    "url": "https://flowork.top/chat/open/chat_948ee26b702449d8b82c10aeefa0e1aa",
+    "model": "GPT-5.6-Terra",
+    "api_intercepted": false,
+    "completed": true,
+    "checks": {
+      "skill_v1_git_commit": "8776f84e136c32c77acc957c9825ffe01a889382",
+      "skill_v2_git_commit": "3fcdd0959f81aad050431516a0ccb1c7bd1cc5ca",
+      "knowledge_v1_git_commit": "ddbc0c727ffc285ad40976a9a907b4c5468d390e",
+      "knowledge_v2_git_commit": "706569aec337644b029daa5ed36e2a8a64f59ab1",
+      "skill_markdown_backend_rewritten": false,
+      "dirty_publish_refused_without_upload": true
+    },
+    "resources": {
+      "skill_id": "9b806ca0-853d-48ef-ba05-b1dfcb36e2e4",
+      "knowledge_id": "72102ddf-1e3c-4e76-b3cc-8ebe3193f0a1"
+    },
+    "deletion": {
+      "skill": "deleted",
+      "knowledge": "deleted"
+    },
+    "raw_tool_results_reviewed": true
+  },
+  "boundaries": [
+    "Legacy packages receive one local baseline commit on download; previous platform releases are not reconstructed into Git history.",
+    "CLI create/publish require a clean standalone Git repository. UI uploads remain compatible with existing non-Git packages.",
+    "UI edits to Git-backed content are exposed as a dirty working tree on download, never silently committed.",
+    "Existing package size/file-count limits include .git.",
+    "The final action-specific error hint wording was refined after the live run and verified by the 21-test Git suite."
+  ],
+  "deployment": {
+    "posix_preserved": true,
+    "health": 200
+  }
+}

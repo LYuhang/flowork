@@ -41,6 +41,7 @@ def metadata(row):
 
 
 def index_summary(files):
+    files = [file for file in files if not getattr(file, "name", "").startswith(".git/")]
     counts = {state: sum(f.status == state for f in files) for state in ("stored", "pending", "indexing", "indexed", "failed")}
     state = "indexing" if counts["indexing"] else ("pending" if counts["pending"] else (
         "failed" if counts["failed"] else ("ready" if counts["indexed"] else "not_indexed")))

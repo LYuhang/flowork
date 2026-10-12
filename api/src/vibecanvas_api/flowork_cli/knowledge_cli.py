@@ -2,12 +2,100 @@
 import base64
 import os
 import stat
+import subprocess
 import tempfile
+from pathlib import Path
 from uuid import UUID
 
 READ_OPERATIONS = frozenset("knowledge." + name for name in ("list", "get", "download", "check"))
 WRITE_OPERATIONS = frozenset("knowledge." + name for name in ("create", "publish", "delete"))
 OPERATIONS = READ_OPERATIONS | WRITE_OPERATIONS
+
+GIT_HELP = (
+    " Packages are self-contained Git directories; .git is stored and downloaded with the package. "
+    "Use git log and git diff to inspect history/changes. Before create/publish, initialize Git if needed, "
+    "review and commit all intended files. HEAD must exist; staged, unstaged, untracked, ignored extra files "
+    "and unresolved conflicts block publication. Nothing is auto-committed on publication. "
+    "Keep temporary files outside the package. --expected-version still identifies the platform version, not a commit."
+)
+
+
+def package_error_hint(resource, action):
+    hint = f"Read {resource} {action} --help."
+    if action in {"create", "publish"}:
+        return hint + " Inspect git status --ignored and git diff; review/commit intended changes and move unrelated files outside the package before publishing."
+    if action == "download":
+        return hint + " Downloads require a new directory; partial local files may remain after failure."
+    return hint
+
+
+def package_git(source, *args):
+    # Do not inherit an enclosing repository or execute hooks/fsmonitor helpers.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
+    try:
+        result = subprocess.run(
+            ["git", "-C", os.path.abspath(source), "-c", "core.hooksPath=" + os.devnull,
+             "-c", "core.fsmonitor=false", "-c", "core.fileMode=false", *args],
+            env=env, capture_output=True, text=True, timeout=30,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("Git is required for Skill/Knowledge packages; install git first.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("Package Git check exceeded 30 seconds; inspect the local repository.") from exc
+    if result.returncode:
+        raise ValueError("Package Git command failed: " + (result.stderr.strip() or " ".join(args)))
+    return result.stdout
+
+
+def inspect_package_git(source):
+    root = Path(source).absolute()
+    git_dir = root / ".git"
+    if git_dir.is_symlink() or not git_dir.is_dir():
+        raise ValueError("Package root needs its own .git directory. Use git init, review files, git add and git commit first; linked worktrees are not portable packages.")
+    # A downloaded config is data, not permission to execute filters or read
+    # another repository. Ordinary local/user/remote/branch settings are kept.
+    config = package_git(root, "config", "--local", "--no-includes", "--name-only", "--list")
+    for key in config.lower().splitlines():
+        if key.startswith(("include.", "includeif.", "filter.")) or key in {
+            "core.worktree", "extensions.worktreeconfig", "core.sshcommand",
+        }:
+            raise ValueError("Non-portable package Git configuration: " + key)
+    for name in ("objects/info/alternates", "objects/info/http-alternates", "commondir", "shallow"):
+        if (git_dir / name).exists():
+            raise ValueError("Package must contain its complete Git history; unsupported .git/" + name)
+    package_git(root, "rev-parse", "--verify", "HEAD^{commit}")
+    if any(line.startswith("160000 ") for line in package_git(root, "ls-files", "--stage").splitlines()):
+        raise ValueError("Git submodules are not self-contained package files; include the actual files instead.")
+    package_git(root, "fsck", "--connectivity-only", "--no-reflogs")
+    return package_git(root, "rev-parse", "HEAD").strip()
+
+
+def require_clean_package(source):
+    commit = inspect_package_git(source)
+    if any(line[:1].islower() or line.startswith("S ") for line in package_git(source, "ls-files", "-v").splitlines()):
+        raise ValueError("Clear Git assume-unchanged/skip-worktree flags before publication so every file is checked.")
+    status = package_git(source, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching")
+    if status:
+        raise ValueError("Package has uncommitted, untracked or ignored files. Inspect git status and git diff, resolve conflicts and commit intended changes; move unrelated files outside the package. Nothing was uploaded.\n" + status)
+    return commit
+
+
+def prepare_download_git(source):
+    root = Path(source)
+    initialized = not (root / ".git").exists()
+    if initialized:
+        package_git(root, "init", "--quiet", "--template=", "--initial-branch=main")
+        package_git(root, "config", "core.fileMode", "false")
+        package_git(root, "add", "--force", "--all")
+        package_git(root, "-c", "user.name=Flowork", "-c", "user.email=packages@flowork.local",
+                    "-c", "commit.gpgSign=false", "commit", "--quiet", "-m", "Downloaded package baseline")
+    commit = inspect_package_git(root)
+    # The package transport stores regular-file bytes, not executable bits.
+    package_git(root, "config", "core.fileMode", "false")
+    return {"git_commit": commit, "git_initialized": initialized,
+            "git_clean": not bool(package_git(root, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching")),
+            "git_hint": "Use git log / git diff. Review and commit changes before create/publish; .git history is included. Existing history is preserved; legacy packages receive one local baseline commit."}
 
 
 def add_parser(groups):
@@ -25,6 +113,8 @@ def add_parser(groups):
         "delete": "Delete the remote package, preserving local downloads. Requires configured write approval; no bypass flag. Active indexing may block deletion; inspect get and wait before retrying.",
     }
     for action, description in descriptions.items():
+        if action in {"download", "check", "create", "publish"}:
+            description += GIT_HELP
         leaf = command(actions, action, description)
         if action in {"get", "download", "publish", "delete"}:
             leaf.add_argument("--knowledge-id", required=True, help="Exact Knowledge UUID from list/create.")
@@ -161,10 +251,13 @@ def execute(args, endpoint, cli):
     operation = "knowledge." + args.action
     dispatched = False
     destination = None
+    git_commit = None
     try:
         value = {k: v for k, v in vars(args).items() if v is not None and k not in {"resource", "action", "source_dir", "output_dir"}}
         if getattr(args, "source_dir", None):
             value["files"] = collect(args.source_dir)
+            if args.action in {"create", "publish"}:
+                git_commit = require_clean_package(args.source_dir)
         value = validate(operation, value)
         if not endpoint:
             raise ValueError("No active Flowork Agent execution is connected.")
@@ -178,9 +271,12 @@ def execute(args, endpoint, cli):
                 destination = tempfile.mkdtemp(prefix=value["knowledge_id"] + "-", dir="/data/knowledge")
         dispatched = True
         result = cli.request(endpoint, value, operation=operation)
+        if git_commit and "error" not in result:
+            result["git_commit"] = git_commit
         if destination and "error" not in result:
             files = result.pop("files")
             materialize(destination, files)
+            result.update(prepare_download_git(destination))
             readme = next(item["path"] for item in files if item["path"].casefold() == "readme.md")
             result.update(local_directory=destination, readme=os.path.join(destination, readme))
     except (OSError, ValueError, KeyError, KeyboardInterrupt) as exc:
@@ -188,7 +284,7 @@ def execute(args, endpoint, cli):
             result = cli.uncertain_result()
         else:
             result = cli.error("read_failed" if dispatched else "invalid_arguments", str(exc),
-                "Check knowledge " + args.action + " --help. Downloads require a new destination; partial local files may remain after failure.")
+                package_error_hint("knowledge", args.action))
         if destination:
             result["local_directory"] = destination
     result.setdefault("status", "failed" if "error" in result else "succeeded")

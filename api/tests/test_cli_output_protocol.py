@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from vibecanvas_api.flowork_cli import cli
+from vibecanvas_api.flowork_cli import cli, knowledge_cli
 
 
 @contextmanager
@@ -41,6 +41,7 @@ def test_publication_stdout_is_one_json_and_approval_progress_is_stderr(tmp_path
     source = tmp_path / 'source'
     source.mkdir()
     (source / ('README.md' if resource == 'knowledge' else 'SKILL.md')).write_text('# Test')
+    knowledge_cli.prepare_download_git(source)
     with peer(tmp_path, [{'_transport':'heartbeat'}, {'_progress':{'status':'auto_approved'}},
                          {'_progress':{'status':'publishing'}}, {'status':'succeeded','package_version':2}]) as (endpoint, _):
         assert cli.main([resource,'publish','--'+resource+'-id',str(uuid4()),'--source-dir',str(source),'--expected-version','1'],socket_path=endpoint) == 0

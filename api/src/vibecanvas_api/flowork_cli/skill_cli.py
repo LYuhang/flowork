@@ -26,6 +26,8 @@ def add_commands(commands):
         'download': 'Download the latest authorized Skill package into a NEW directory. Never overwrite existing local edits. Read SKILL.md; edit files, check, then publish the custom Skill if your current permissions allow editing.',
     }
     for action, description in descriptions.items():
+        if action in {'download', 'check', 'create', 'publish'}:
+            description += knowledge_cli.GIT_HELP
         leaf = commands.add_parser(action, help=description, description=description, allow_abbrev=False)
         if action in {'download', 'refresh', 'publish', 'delete', 'install', 'uninstall'}:
             leaf.add_argument('--skill-id', required=True)
@@ -61,10 +63,13 @@ def execute(args, endpoint, cli):
     operation = 'skill.update' if args.action == 'publish' else 'skill.' + args.action
     dispatched = False
     destination = None
+    git_commit = None
     try:
         value = {key:val for key,val in vars(args).items() if key not in {'resource','action','source_dir','output_dir'} and val is not None}
         if getattr(args, 'source_dir', None):
             value['files'] = knowledge_cli.collect(args.source_dir, entrypoint='SKILL.md')
+            if args.action in {'create', 'publish'}:
+                git_commit = knowledge_cli.require_clean_package(args.source_dir)
         value = validate(operation, value)
         if not endpoint:
             raise ValueError('No active Flowork Agent execution is connected.')
@@ -77,14 +82,17 @@ def execute(args, endpoint, cli):
                 destination = tempfile.mkdtemp(prefix=value['skill_id']+'-', dir='/data/skills')
         dispatched = True
         result = cli.request(endpoint, value, operation=operation)
+        if git_commit and 'error' not in result:
+            result['git_commit'] = git_commit
         if destination and 'error' not in result:
             files = result.pop('files')
             knowledge_cli.materialize(destination, files, entrypoint='SKILL.md')
+            result.update(knowledge_cli.prepare_download_git(destination))
             result.update(local_directory=destination, entrypoint=os.path.join(destination, 'SKILL.md'))
     except (ValueError, OSError, KeyError, TypeError, KeyboardInterrupt) as exc:
         result = cli.uncertain_result() if dispatched and operation in WRITE_OPERATIONS else cli.error(
             'read_failed' if dispatched else 'invalid_arguments', str(exc),
-            'Read skill '+args.action+' --help. Downloads require a new directory; partial local files may remain after failure.')
+            knowledge_cli.package_error_hint('skill', args.action))
         if destination:
             result['local_directory'] = destination
     result.setdefault('status', 'failed' if 'error' in result else 'succeeded')

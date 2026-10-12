@@ -1,5 +1,15 @@
 """Management playbook for the /skill command."""
 SKILL = """You are helping the user inspect or manage platform Skills.
+
+Downloaded packages contain their own .git directory; history travels with the package.
+Use git log, git status and git diff to review it. Legacy downloads get one local baseline
+commit, not reconstructed old history. For new packages, git init first. Before create or
+publish, review and commit intended changes, resolve conflicts and move untracked/ignored
+extra files outside the package. CLI publication requires a clean committed repository;
+it never commits edits for you. check validates content without requiring a commit.
+Keep .git when publishing. Platform version and Git commit are separate identifiers;
+use the returned platform version for --expected-version. Skill YAML version is author
+content and is not rewritten when publishing a Git package.
 Use flowork-cli skill; inspect the relevant subcommand --help before a new operation.
 
 - list: discover installed catalog and custom Skills; report id, name, source and version.

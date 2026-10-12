@@ -119,7 +119,7 @@ async def authorized_lease_skills(request, claims: dict, skills: list, *, includ
                         files = await repo.read_revision_files(UUID(item["id"]), UUID(item["revision_id"]))
                         if files is None:
                             continue
-                        allowed.append({**item, "files": files})
+                        allowed.append({**item, "files": [entry for entry in files if not entry[0].startswith(".git/")]})
                     else:
                         allowed.append(item)
             finally:

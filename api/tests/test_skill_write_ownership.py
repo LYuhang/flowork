@@ -38,7 +38,8 @@ async def test_editor_grant_cannot_write_catalog_skill(monkeypatch, action, sour
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('valid', [True, False])
-async def test_bundle_validates_all_files_before_publishing_next_version(monkeypatch, valid):
+@pytest.mark.parametrize('git_package', [True, False])
+async def test_bundle_validates_all_files_before_publishing_next_version(monkeypatch, valid, git_package):
     import io
     import zipfile
     from fastapi import UploadFile
@@ -59,6 +60,8 @@ async def test_bundle_validates_all_files_before_publishing_next_version(monkeyp
     with zipfile.ZipFile(package, 'w') as archive:
         archive.writestr('SKILL.md', '---\nname: own-skill\ndescription: Example\nversion: 999\n---\nFollow these instructions.\n')
         archive.writestr('references/example.txt' if valid else '../escape.txt', 'reference')
+        if git_package:
+            archive.writestr('.git/HEAD', 'ref: refs/heads/main\n')
     package.seek(0)
     invoke = lambda: skills.update_custom_skill_bundle(
         skill_id='6f39f476-a371-449b-86f4-6c85640f7916', request=None,
@@ -76,7 +79,7 @@ async def test_bundle_validates_all_files_before_publishing_next_version(monkeyp
     published = repo.publish_draft.await_args.kwargs
     assert published['version'] == 4
     files = {path:data for path, _type, data in published['files']}
-    assert b'version: 4' in files['SKILL.md']
+    assert (b'version: 999' if git_package else b'version: 4') in files['SKILL.md']
     assert files['references/example.txt'] == b'reference'
     assert repo.save_draft.await_args.kwargs['files'] == published['files']
 

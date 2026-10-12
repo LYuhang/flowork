@@ -86,6 +86,7 @@ def test_reject_invalid_requests(action, args):
 
 def test_check_and_create_require_source(tmp_path, monkeypatch):
     (tmp_path / "README.md").write_bytes(base64.b64decode(encoded()["data"]))
+    knowledge_cli.prepare_download_git(tmp_path)
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append(kw["operation"]) or {})
     for action in ("check", "create"):
@@ -98,11 +99,12 @@ def test_upload_captures_complete_tree_with_expected_version(tmp_path, monkeypat
     (tmp_path / "nested").mkdir()
     (tmp_path / "nested" / "binary.bin").write_bytes(bytes(range(256)))
     (tmp_path / ".hidden").write_text("included")
+    knowledge_cli.prepare_download_git(tmp_path)
     seen = []
     monkeypatch.setattr(cli, "request", lambda endpoint, args, **kw: seen.append(args) or {"package_version": 8})
     assert cli.main(["knowledge", "publish", "--expected-version", "7", "--knowledge-id", str(uuid4()), "--source-dir", str(tmp_path)], socket_path="test") == 0
     assert set(seen[0]) == {"knowledge_id", "files", "expected_version"}
-    assert {f["path"] for f in seen[0]["files"]} == {"README.md", "nested/binary.bin", ".hidden"}
+    assert {f["path"] for f in seen[0]["files"] if not f["path"].startswith(".git/")} == {"README.md", "nested/binary.bin", ".hidden"}
 
 
 @pytest.mark.parametrize("kind", ["missing_readme", "symlink", "fifo"])
@@ -205,6 +207,7 @@ async def test_denial_never_publishes(monkeypatch):
 def test_large_package_has_no_four_mib_cli_cap(tmp_path, monkeypatch):
     (tmp_path / "README.md").write_text("# Large")
     (tmp_path / "large.bin").write_bytes(b"x" * (5 * 1024 * 1024))
+    knowledge_cli.prepare_download_git(tmp_path)
     def request(endpoint, args, **kw):
         assert len(base64.b64decode(next(f["data"] for f in args["files"] if f["path"] == "large.bin"))) == 5 * 1024 * 1024
         return {"package_version": 2}

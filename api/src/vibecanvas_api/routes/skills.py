@@ -947,9 +947,14 @@ async def update_custom_skill_bundle(
     version = int(current["version"]) + 1
     raw = next(data for path, _ct, data in files if path == "SKILL.md")
     try:
-        frontmatter, files = validate_skill_files(_replace_skill_md(
-            files, _with_version(raw.decode("utf-8"), version),
-        ))
+        # Git packages publish the committed bytes unchanged. Platform version
+        # counters live in metadata, independently of the author's YAML version.
+        if any(path.startswith(".git/") for path, _ct, _data in files):
+            frontmatter, files = validate_skill_files(files)
+        else:
+            frontmatter, files = validate_skill_files(_replace_skill_md(
+                files, _with_version(raw.decode("utf-8"), version),
+            ))
         draft = await repo.save_draft(
             skill_id=sid, tenant_id=_skill_write_tenant(request, ctx), files=files,
         )

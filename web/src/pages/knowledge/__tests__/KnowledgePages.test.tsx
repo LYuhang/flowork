@@ -150,7 +150,9 @@ describe('Knowledge pages', () => {
 
     expect(await screen.findByText('Product handbook')).toBeInTheDocument();
     expect(screen.getByText('v3')).toBeInTheDocument();
-    expect(screen.getByText(/2 files/)).toBeInTheDocument();
+    expect(screen.getByText(/^Updated /)).toBeInTheDocument();
+    // Storage totals include Git internals; show content counts in the detail tree.
+    expect(screen.queryByText(/2 files/)).not.toBeInTheDocument();
     expect(screen.queryByText('Needs attention')).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Filter by status' })).not.toBeInTheDocument();
     await user.type(screen.getByPlaceholderText('Search knowledge bases'), 'missing');

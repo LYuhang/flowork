@@ -105,6 +105,7 @@ from vibecanvas_api.schemas.access import (
     decision_allows_content,
 )
 from vibecanvas_api.services.knowledge_versions import archive_current, clear_draft
+from vibecanvas_api.services.package_git import commit_web_package, is_git_metadata
 from vibecanvas_api.services.kb_search import (
     EncryptedKbSearchLimitError,
     KbSearchService,
@@ -1514,6 +1515,8 @@ async def put_knowledge_draft_file(kb_id: uuid.UUID, path: str, request: Request
     file: UploadFile = File(...), expected_hash: str = Form(...), create: bool = Form(False),
     ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service)):
+    if is_git_metadata(path):
+        raise HTTPException(422, 'Git history is managed by publication, not the file editor')
     from vibecanvas_api.services.knowledge_packages import validate_package
     from vibecanvas_api.services.knowledge_versions import save_snapshot
     kb = await _versioned_kb(kb_id, request, ctx, session, service, write=True)
@@ -1546,6 +1549,8 @@ async def put_knowledge_draft_file(kb_id: uuid.UUID, path: str, request: Request
 async def delete_knowledge_draft_file(kb_id: uuid.UUID, path: str, request: Request,
     expected_hash: str = Query(...), ctx: AuthContext = Depends(current_user),
     session: AsyncSession = Depends(tenant_db), service: AuthzService = Depends(get_authz_service)):
+    if is_git_metadata(path):
+        raise HTTPException(422, 'Git history is managed by publication, not the file editor')
     from vibecanvas_api.services.knowledge_versions import save_snapshot
     kb = await _versioned_kb(kb_id, request, ctx, session, service, write=True)
     _, files = await _knowledge_draft_state(session, kb, expected_hash)
@@ -1558,6 +1563,17 @@ async def delete_knowledge_draft_file(kb_id: uuid.UUID, path: str, request: Requ
     return _knowledge_snapshot_out(row, updated, kb.package_version)
 
 
+@router.delete('/{kb_id}/draft')
+async def discard_knowledge_draft(kb_id: uuid.UUID, request: Request,
+    expected_hash: str = Query(...), ctx: AuthContext = Depends(current_user),
+    session: AsyncSession = Depends(tenant_db), service: AuthzService = Depends(get_authz_service)):
+    kb = await _versioned_kb(kb_id, request, ctx, session, service, write=True)
+    await _knowledge_draft_state(session, kb, expected_hash)
+    await clear_draft(session, kb_id)
+    row, files = await _knowledge_draft_state(session, kb)
+    return _knowledge_snapshot_out(row, files, kb.package_version)
+
+
 @router.post('/{kb_id}/versions')
 async def publish_knowledge_draft(kb_id: uuid.UUID, body: KnowledgeDraftPublish, request: Request,
     ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
@@ -1567,12 +1583,24 @@ async def publish_knowledge_draft(kb_id: uuid.UUID, body: KnowledgeDraftPublish,
     if row['version'] != 0:
         raise HTTPException(status_code=409, detail='knowledge_draft_required')
     try:
+        from vibecanvas_api.services.knowledge_versions import read_snapshot
+        from vibecanvas_api.services.knowledge_metadata import with_metadata
+        files = with_metadata(files, name=kb.name, description=kb.description, only_if_missing=True)
+        base = await read_snapshot(session, kb_id, kb.package_version)
+        committed = await asyncio.to_thread(
+            commit_web_package,
+            [(item.path, item.content_type, item.data) for item in base],
+            [(item.path, item.content_type, item.data) for item in files],
+            message=f'Publish Knowledge version {kb.package_version + 1}',
+        )
+        files = [PackageFile(path, data, content_type or 'application/octet-stream')
+                 for path, content_type, data in committed]
         version, pending = await replace_package(session, kb_id=kb_id, actor_user_id=uuid.UUID(ctx.user_id),
                                                  expected_version=kb.package_version, files=files)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail='kb_name_conflict') from exc
+    await enqueue_package_indexing(tenant_id=str(kb.tenant_id), user_id=ctx.user_id, file_ids=pending, session=session)
     await session.commit()
-    await enqueue_package_indexing(tenant_id=str(kb.tenant_id), user_id=ctx.user_id, file_ids=pending)
     return {'version':version, 'indexing_files':len(pending)}

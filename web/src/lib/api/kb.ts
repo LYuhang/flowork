@@ -310,3 +310,7 @@ export async function writeKnowledgeDraftFile(id: string, path: string, expected
 export async function publishKnowledgeDraft(id: string, expectedHash: string): Promise<{version: number}> {
   return jsonOrThrow(await authedFetch(`/api/v1/kb/${id}/versions`, {method: 'POST', body: JSON.stringify({expected_hash: expectedHash})}), 'publishKnowledgeDraft');
 }
+
+export async function discardKnowledgeDraft(id: string, expectedHash: string): Promise<KnowledgeSnapshot> {
+  return jsonOrThrow(await authedFetch(`/api/v1/kb/${id}/draft?${new URLSearchParams({expected_hash: expectedHash})}`, {method: 'DELETE'}), 'discardKnowledgeDraft');
+}

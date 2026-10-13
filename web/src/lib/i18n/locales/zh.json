@@ -3910,15 +3910,15 @@
   "files.manage.keepEditing": "继续编辑",
   "files.manage.notText": "这不是 UTF-8 文本文件，请使用替换文件。",
   "files.manage.tooLarge": "在线编辑支持不超过 2 MiB 的文本文件，更大的文件请使用替换文件。",
-  "files.manage.skillSaved": "文件修改保存到草稿；新建版本后才会供 Agent 使用。",
+  "files.manage.skillSaved": "修改保存为草稿；发布时才生成新版本和 Git 提交。",
   "files.manage.knowledgeSaved": "文件修改保存到草稿；发布新版本后更新 Agent 可用内容和检索索引。",
   "files.manage.draft": "草稿",
   "files.manage.finishEditing": "结束编辑",
   "files.manage.historyStart": "从本次功能上线开始保留发布历史；此前未保存的旧版本内容无法还原。",
   "files.manage.publishTitle": "发布 v{{version}}？",
   "files.manage.publish": "发布",
-  "files.manage.publishKnowledgeHint": "将草稿发布为新版本供 Agent 使用。检索索引在后台更新，历史版本保留并只读。",
-  "files.manage.publishSkillHint": "将全部草稿文件发布为新版本。Agent 可刷新沙盒副本，历史版本保留并只读。",
+  "files.manage.publishKnowledgeHint": "将所有已保存的草稿修改发布为新版本，并创建 Git 提交。搜索索引在后台更新。",
+  "files.manage.publishSkillHint": "将所有已保存的草稿修改发布为新版本，并创建 Git 提交。",
   "execution.nodeRunTab": "运行信息",
   "execution.snapshotNoRun": "这是 Workflow 版本快照，未关联某次执行。",
   "knowledge.indexedFiles": "已索引文件 · 当前发布版本",
@@ -4166,5 +4166,8 @@
   "canvasChat.resumeDraft": "继续工作流草稿",
   "canvasChat.discardDraftTitle": "丢弃未发送草稿？",
   "canvasChat.discardDraftDescription": "切换对话将丢弃当前未发送的文字和本地暂存附件。",
-  "canvasChat.discardDraftConfirm": "丢弃并继续"
+  "canvasChat.discardDraftConfirm": "丢弃并继续",
+  "files.manage.discardDraft": "放弃草稿",
+  "files.manage.discardDraftHint": "放弃所有已保存的草稿修改？已发布版本和 Git 历史保持不变。",
+  "files.manage.draftDiscarded": "已放弃草稿"
 }

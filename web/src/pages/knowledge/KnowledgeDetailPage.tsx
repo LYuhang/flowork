@@ -1,3 +1,4 @@
+import { DiscardPackageDraft } from '@/components/files/DiscardPackageDraft';
 import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -28,6 +29,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  discardKnowledgeDraft,
   deleteKb,
   getKb,
   listKbFiles,
@@ -86,7 +88,7 @@ export function KnowledgeDetailPage() {
   const number = selectedVersion === 'latest' ? detail.data?.package_version : Number(selectedVersion);
   const snapshot = useQuery({queryKey: ['knowledge-version', kbId, number], queryFn: () => getKnowledgeVersion(kbId, number!), enabled: !!number && !editing});
   const shown = editing ? draft : snapshot;
-  const shownFiles: KbFile[] = (shown.data?.files ?? []).map(path => ({
+  const shownFiles: KbFile[] = (shown.data?.files ?? []).filter(path => !path.startsWith('.git/')).map(path => ({
     ...(files.data?.find(file => file.name === path) ?? {}), id: path, name: path,
   } as KbFile));
   const loadFile = (path: string) => getKnowledgeVersionFile(kbId, editing ? 0 : number!, path);
@@ -200,7 +202,7 @@ export function KnowledgeDetailPage() {
         icon={BookOpen}
         metadata={(
           <>
-            <span>{shown.data?.files.length ?? detail.data.file_count} {t('knowledge.files', 'files')}</span>
+            <span>{shownFiles.length} {t('knowledge.files', 'files')}</span>
             {editing && <span>{t('files.manage.draft', 'Draft')}</span>}
             <ResourceAccessBadge access={detail.data.access} /><ResourceProvenanceLine provenance={detail.data.provenance} />
           </>
@@ -214,6 +216,11 @@ export function KnowledgeDetailPage() {
               </SelectContent>
             </Select>
             <Button variant="outline" size="sm" disabled={!canUpdate || selectedVersion !== 'latest' || !draft.data || publish.isPending} onClick={() => {setEditing(!editing); setTab('files');}}>{editing ? t('files.manage.finishEditing', 'Finish editing') : t('edit', 'Edit')}</Button>
+            {editing && <DiscardPackageDraft expectedHash={draft.data?.content_hash ?? ''} disabled={!draft.data?.has_changes || publish.isPending || upload.isPending || removeFile.isPending} onDiscard={async hash => {
+              const next = await discardKnowledgeDraft(kbId, hash);
+              client.setQueryData(['knowledge-draft', kbId], next);
+              setEditing(false);
+            }} />}
             {editing && <Button size="sm" disabled={!draft.data?.has_changes || publish.isPending} onClick={() => {setPublishHash(draft.data!.content_hash); setPublishOpen(true);}}>{t('skills.custom.new_version', 'New version')}</Button>}
             {(!canUpdate || selectedVersion !== 'latest') && <span className="text-xs text-muted-foreground">{t('resourceAccess.editUnavailable')}</span>}
             <Button variant="outline" size="sm" onClick={() => void refresh()}>

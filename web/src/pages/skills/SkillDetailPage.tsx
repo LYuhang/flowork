@@ -1,3 +1,4 @@
+import { DiscardPackageDraft } from '@/components/files/DiscardPackageDraft';
 import { ResourceAccessBadge } from '@/components/resources/ResourceAccessBadge';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSetSkillInstalled, useDeleteSkill, usePublishSkillVersion, useSkill, useSkillDraft, useSkillVersion, useSkillVersions } from '@/lib/api/queries/skills';
-import { getSkillFile, getSkillVersionFile, getSkillDraftFile, writeSkillDraftFile } from '@/lib/api/skills';
+import { discardSkillDraft, getSkillFile, getSkillVersionFile, getSkillDraftFile, writeSkillDraftFile } from '@/lib/api/skills';
 import { SkillFileBrowser } from '@/pages/skills/SkillFileBrowser';
 import { StatusBadge } from '@/components/ui/status';
 import { useFormatDateTime } from '@/lib/timezone';
@@ -59,7 +60,7 @@ export function SkillDetailPage() {
   const skill = query.data;
   const viewed = historical.data ?? skill;
   const token = draft.data?.draft_hash ?? draft.data?.base_revision_hash ?? '';
-  const files = editing && draft.data ? draft.data.files : viewed.files;
+  const files = (editing && draft.data ? draft.data.files : viewed.files).filter(path => !path.startsWith('.git/'));
   const changeFile = async (path: string, file?: File, create = false) => {
     await writeSkillDraftFile(skill.id, path, token, file, create);
     await Promise.all([draft.refetch(), query.refetch()]);
@@ -97,6 +98,11 @@ export function SkillDetailPage() {
       {skill.source_url && <Button variant="outline" size="sm" asChild><a href={skill.source_url} target="_blank" rel="noreferrer"><ExternalLink />{t('skills.catalog.source', 'Source')}</a></Button>}
       {skill.source === 'custom' && <>
         <Button variant="outline" size="sm" disabled={!canEdit || !!revision || !draft.data || publish.isPending} onClick={() => setEditing(!editing)}><Pencil />{editing ? t('files.manage.finishEditing', 'Finish editing') : t('skills.edit', 'Edit')}</Button>
+        {editing && <DiscardPackageDraft expectedHash={token} disabled={!draft.data?.has_changes || publish.isPending} onDiscard={async hash => {
+          await discardSkillDraft(skill.id, hash);
+          await Promise.all([draft.refetch(), query.refetch()]);
+          setEditing(false);
+        }} />}
         {editing && <Button size="sm" disabled={!draft.data?.has_changes || publish.isPending} onClick={() => {setNextVersion(String(skill.version+1)); setPublishHash(token); setVersionDialog(true);}}><GitCommitHorizontal />{t('skills.custom.new_version', 'New version')}</Button>}
       </>}
       {skill.source === 'custom' && (!canEdit || !!revision) && <span className="text-xs text-muted-foreground">{t('resourceAccess.editUnavailable')}</span>}

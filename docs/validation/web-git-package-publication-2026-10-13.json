@@ -1,0 +1,131 @@
+{
+  "feature": "Skill and Knowledge web draft publication with Git history",
+  "date": "2026-10-13",
+  "environment": {
+    "url": "https://flowork.top",
+    "storage": "posix",
+    "browser": "Chromium via Playwright, actual HTTP and UI, no API mocks"
+  },
+  "validation": {
+    "lifecycle": {
+      "apiIntercepted": false,
+      "resources": [
+        {
+          "resource": "skills",
+          "id": "706fe221-389f-4641-b75f-4496d55368b5"
+        },
+        {
+          "resource": "kb",
+          "id": "9e467e62-0244-413a-af01-1d156fb9e021"
+        }
+      ],
+      "checks": [
+        "skills: saved draft survives refresh; cancel preserves it; discard restores publication",
+        "skills: browser publication v2 clears draft and downloads full Git package",
+        "skills: second publication advances to v3; historical v2 is read-only",
+        "kb: saved draft survives refresh; cancel preserves it; discard restores publication",
+        "kb: browser publication v2 clears draft and downloads full Git package",
+        "kb: second publication advances to v3; historical v2 is read-only"
+      ],
+      "completed": true
+    },
+    "visual": {
+      "checks": [
+        "skills: light list/detail/editor/history/mobile; published text visible; history read-only; no horizontal page overflow",
+        "knowledge: light list/detail/editor/history/mobile; published text visible; history read-only; no horizontal page overflow",
+        "skills: dark list/detail/editor/history/mobile; published text visible; history read-only; no horizontal page overflow",
+        "knowledge: dark list/detail/editor/history/mobile; published text visible; history read-only; no horizontal page overflow"
+      ],
+      "pageErrors": [],
+      "completed": true
+    },
+    "overview": {
+      "checks": [
+        "skills light mobile overview rendered ID, metadata without page overflow",
+        "knowledge light mobile overview rendered ID, metadata without page overflow",
+        "skills dark mobile overview rendered ID, metadata without page overflow",
+        "knowledge dark mobile overview rendered ID, metadata without page overflow"
+      ],
+      "pageErrors": [],
+      "completed": true
+    },
+    "conflict": {
+      "checks": [
+        "skills: stale editor save rejected; unsaved text retained; other window draft discarded; publication unchanged",
+        "knowledge: stale editor save rejected; unsaved text retained; other window draft discarded; publication unchanged"
+      ],
+      "completed": true
+    },
+    "git": [
+      {
+        "resource": "skills",
+        "version": 2,
+        "commit": "0b64be84f7b4f673a3fdae48c4004e391ada923d",
+        "clean": true,
+        "commits": 2
+      },
+      {
+        "resource": "skills",
+        "version": 3,
+        "commit": "bfa78edadbec68a85b080d8eaf72b15414d76b51",
+        "clean": true,
+        "commits": 3
+      },
+      {
+        "resource": "kb",
+        "version": 2,
+        "commit": "8f8cc9ea934cff068c9b953caf809e7a89e99805",
+        "clean": true,
+        "commits": 2
+      },
+      {
+        "resource": "kb",
+        "version": 3,
+        "commit": "bf475f5a3b973316290e175950564683f97426d0",
+        "clean": true,
+        "commits": 3
+      }
+    ],
+    "cleanup": {
+      "completed": true,
+      "checks": [
+        {
+          "resource": "skills",
+          "id": "706fe221-389f-4641-b75f-4496d55368b5",
+          "deleteStatus": 204,
+          "subsequentGetStatus": 404
+        },
+        {
+          "resource": "kb",
+          "id": "9e467e62-0244-413a-af01-1d156fb9e021",
+          "deleteStatus": 204,
+          "subsequentGetStatus": 404
+        }
+      ]
+    }
+  },
+  "automated_checks": {
+    "final_api_suite": "48 passed: web package Git, package file editing, background queue, knowledge packages, sharing",
+    "related_api_suite": "48 passed (overlaps final suite; not summed)",
+    "openapi": "8 passed",
+    "frontend": "15 passed",
+    "static": "Ruff, ESLint, locale audits, TypeScript, Vite build, deployment paths and bundle audit passed"
+  },
+  "coverage": [
+    "Legacy baseline and existing Git parent history",
+    "Save persists a draft without changing publication",
+    "Discard confirmation cancel and confirm",
+    "Stale save, publish and discard conflicts retain content",
+    "Concurrent publication allows only one commit/version",
+    "Git generation failure and transactional indexing enqueue failure retain draft",
+    "Git metadata excluded from file editor",
+    "Downloaded v2/v3 packages are clean and v3 has exact v2 parent",
+    "Light/dark desktop and mobile lists, details, editors, history, overview",
+    "No claim of a whole-application visual regression sweep; scope is affected Skill/Knowledge pages"
+  ],
+  "deployment_notes": [
+    "API restarted preserving existing runtime environment and POSIX storage",
+    "Static ownership issue during rollout corrected; subsequent publication sets flowork ownership before index swap",
+    "No schema migration; temporary acceptance resources deleted"
+  ]
+}

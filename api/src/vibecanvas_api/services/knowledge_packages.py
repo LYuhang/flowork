@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from functools import partial
 import hashlib
 from io import BytesIO
 from pathlib import PurePosixPath
@@ -18,7 +19,7 @@ from zipfile import BadZipFile, ZipFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from vibecanvas_api.services.background_queue import enqueue_background_job_async
+from vibecanvas_api.services.background_queue import enqueue_background_job_async, enqueue_background_job_in_transaction
 from vibecanvas_api.services.file_format import content_type_for
 from vibecanvas_api.services.object_store import get_object_store
 from vibecanvas_api.services.parsers import detect_parser_type
@@ -269,11 +270,12 @@ async def replace_package(
 
 
 async def enqueue_package_indexing(
-    *, tenant_id: str, user_id: str, file_ids: list[uuid.UUID]
+    *, tenant_id: str, user_id: str, file_ids: list[uuid.UUID], session: AsyncSession | None = None
 ) -> None:
+    enqueue = enqueue_background_job_async if session is None else partial(enqueue_background_job_in_transaction, session)
     for file_id in file_ids:
         task_id = uuid.uuid4()
-        await enqueue_background_job_async(
+        await enqueue(
             "kb.index_file",
             job_id=str(task_id),
             queue=route_for("kb_index_file"),

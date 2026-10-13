@@ -1,6 +1,7 @@
 """Tenant Skill catalog, installation, inspection, and removal routes."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import replace
 import re
@@ -23,6 +24,7 @@ from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from vibecanvas_api.services.package_git import commit_web_package, is_git_metadata
 
 from vibecanvas_api.auth.deps import (
     AuthContext,
@@ -737,6 +739,8 @@ async def put_skill_draft_file(
     ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
+    if is_git_metadata(path):
+        raise HTTPException(422, "Git history is managed by publication, not the file editor")
     blob = await file.read(config.skills.max_file_bytes + 1)
     if len(blob) > config.skills.max_file_bytes:
         raise HTTPException(status_code=413, detail="skill_file_too_large")
@@ -772,6 +776,8 @@ async def delete_skill_draft_file(
     ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
     service: AuthzService = Depends(get_authz_service),
 ):
+    if is_git_metadata(path):
+        raise HTTPException(422, "Git history is managed by publication, not the file editor")
     sid, repo, files = await _editable_skill_files(skill_id, expected_hash, request, ctx, session, service)
     if path == "SKILL.md":
         raise HTTPException(status_code=409, detail="skill_root_required")
@@ -779,6 +785,17 @@ async def delete_skill_draft_file(
         raise HTTPException(status_code=409, detail="package_file_changed")
     await repo.save_draft(skill_id=sid, tenant_id=_skill_write_tenant(request, ctx),
                           files=[item for item in files if item[0] != path])
+    return await get_custom_skill_draft(skill_id, request, ctx, session, service)
+
+
+@router.delete("/{skill_id}/draft", response_model=SkillDraftOut)
+async def discard_custom_skill_draft(
+    skill_id: str, request: Request, expected_hash: str = Query(...),
+    ctx: AuthContext = Depends(current_user), session: AsyncSession = Depends(tenant_db),
+    service: AuthzService = Depends(get_authz_service),
+):
+    sid, repo, _ = await _editable_skill_files(skill_id, expected_hash, request, ctx, session, service)
+    await session.execute(text("DELETE FROM skill_drafts WHERE skill_id=:id"), {"id": sid})
     return await get_custom_skill_draft(skill_id, request, ctx, session, service)
 
 
@@ -884,6 +901,11 @@ async def publish_custom_skill_version(
         consistency=ConsistencyPreference.HIGHER_CONSISTENCY,
     )
     try:
+        versioned_files = await asyncio.to_thread(
+            commit_web_package, await repo.read_current_files(sid) or [], versioned_files,
+            message=f"Publish Skill version {body.version}",
+        )
+        _, versioned_files = validate_skill_files(versioned_files)
         row = await repo.publish_draft(
             skill_id=sid,
             tenant_id=_skill_write_tenant(request, ctx),

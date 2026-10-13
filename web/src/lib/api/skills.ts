@@ -301,3 +301,7 @@ export async function writeSkillDraftFile(id: string, path: string, expectedHash
   });
   return jsonOrThrow<SkillDraft>(response, 'writeSkillDraftFile');
 }
+
+export async function discardSkillDraft(id: string, expectedHash: string): Promise<SkillDraft> {
+  return jsonOrThrow<SkillDraft>(await authedFetch(`/api/v1/skills/${encodeURIComponent(id)}/draft?${new URLSearchParams({expected_hash: expectedHash})}`, {method: 'DELETE'}), 'discardSkillDraft');
+}

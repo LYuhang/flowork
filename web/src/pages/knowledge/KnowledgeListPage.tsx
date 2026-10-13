@@ -187,7 +187,7 @@ export function KnowledgeListPage() {
                 </span>
                 <span className="mt-1 [overflow-wrap:anywhere] line-clamp-2 text-sm leading-5 text-content-secondary">{item.description || t('knowledge.noDescription', 'No description')}</span>
                 <span className="mt-3 block text-xs text-content-tertiary">
-                  {item.file_count} {t('knowledge.files', 'files')} · {t('knowledge.updatedAt', 'Updated {{time}}', { time: formatTime(item.latest_updated_at) })}
+                  {t('knowledge.updatedAt', 'Updated {{time}}', { time: formatTime(item.latest_updated_at) })}
                 </span>
                 <ResourceProvenanceLine provenance={item.provenance} className="mt-1 flex" />
               </span>

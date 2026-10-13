@@ -3910,15 +3910,15 @@
   "files.manage.keepEditing": "Keep editing",
   "files.manage.notText": "This is not a UTF-8 text file. Use Replace file instead.",
   "files.manage.tooLarge": "Online editing supports text files up to 2 MiB. Use Replace file for larger files.",
-  "files.manage.skillSaved": "File changes are saved to the draft. Create a new version to make them available to Agents.",
+  "files.manage.skillSaved": "Edits are saved as a draft. Publishing creates a new version and Git commit.",
   "files.manage.knowledgeSaved": "File changes are saved to the draft. Publish a new version to update Agent access and search indexing.",
   "files.manage.draft": "Draft",
   "files.manage.finishEditing": "Finish editing",
   "files.manage.historyStart": "Published history is retained from this update onward. Earlier unsaved versions cannot be reconstructed.",
   "files.manage.publishTitle": "Publish v{{version}}?",
   "files.manage.publish": "Publish",
-  "files.manage.publishKnowledgeHint": "Publish the draft as a new version for Agents. Search indexing runs in the background; previous versions stay read-only.",
-  "files.manage.publishSkillHint": "Publish all draft files as a new version. Agents can refresh their runtime copy; earlier versions stay read-only.",
+  "files.manage.publishKnowledgeHint": "Publish all saved draft changes as a new version and Git commit. Search indexing runs in the background.",
+  "files.manage.publishSkillHint": "Publish all saved draft changes as a new version and Git commit.",
   "execution.nodeRunTab": "Run info",
   "execution.snapshotNoRun": "This workflow version snapshot has no attached execution.",
   "knowledge.indexedFiles": "Indexed files · current publication",
@@ -4166,5 +4166,8 @@
   "canvasChat.resumeDraft": "Resume workflow draft",
   "canvasChat.discardDraftTitle": "Discard unsent draft?",
   "canvasChat.discardDraftDescription": "Switching conversations will discard this unsent text and locally staged attachments.",
-  "canvasChat.discardDraftConfirm": "Discard and continue"
+  "canvasChat.discardDraftConfirm": "Discard and continue",
+  "files.manage.discardDraft": "Discard draft",
+  "files.manage.discardDraftHint": "Discard all saved draft changes? Published versions and Git history will stay unchanged.",
+  "files.manage.draftDiscarded": "Draft discarded"
 }

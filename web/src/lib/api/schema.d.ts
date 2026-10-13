@@ -3851,7 +3851,8 @@ export interface paths {
         /** Save Custom Skill Draft */
         put: operations["save_custom_skill_draft_api_v1_skills__skill_id__draft_put"];
         post?: never;
-        delete?: never;
+        /** Discard Custom Skill Draft */
+        delete: operations["discard_custom_skill_draft_api_v1_skills__skill_id__draft_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4395,7 +4396,8 @@ export interface paths {
         get: operations["get_knowledge_draft_api_v1_kb__kb_id__draft_get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Discard Knowledge Draft */
+        delete: operations["discard_knowledge_draft_api_v1_kb__kb_id__draft_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -17319,6 +17321,39 @@ export interface operations {
             };
         };
     };
+    discard_custom_skill_draft_api_v1_skills__skill_id__draft_delete: {
+        parameters: {
+            query: {
+                expected_hash: string;
+            };
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDraftOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_skill_draft_file_api_v1_skills__skill_id__draft_files__path__get: {
         parameters: {
             query?: never;
@@ -18554,6 +18589,39 @@ export interface operations {
     get_knowledge_draft_api_v1_kb__kb_id__draft_get: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                kb_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_knowledge_draft_api_v1_kb__kb_id__draft_delete: {
+        parameters: {
+            query: {
+                expected_hash: string;
+            };
             header?: never;
             path: {
                 kb_id: string;

@@ -102,6 +102,229 @@
           "subsequentGetStatus": 404
         }
       ]
+    },
+    "shared_page_smoke": {
+      "checks": [
+        {
+          "route": "workspace",
+          "theme": "light",
+          "width": 1280,
+          "title": "工作流"
+        },
+        {
+          "route": "tasks",
+          "theme": "light",
+          "width": 1280,
+          "title": "任务"
+        },
+        {
+          "route": "deployments",
+          "theme": "light",
+          "width": 1280,
+          "title": "工作流部署"
+        },
+        {
+          "route": "credentials",
+          "theme": "light",
+          "width": 1280,
+          "title": "设置"
+        },
+        {
+          "route": "mcp-servers",
+          "theme": "light",
+          "width": 1280,
+          "title": "MCP 服务"
+        },
+        {
+          "route": "skills",
+          "theme": "light",
+          "width": 1280,
+          "title": "技能"
+        },
+        {
+          "route": "storage",
+          "theme": "light",
+          "width": 1280,
+          "title": "存储"
+        },
+        {
+          "route": "knowledge",
+          "theme": "light",
+          "width": 1280,
+          "title": "知识库"
+        },
+        {
+          "route": "settings",
+          "theme": "light",
+          "width": 1280,
+          "title": "设置"
+        },
+        {
+          "route": "workspace",
+          "theme": "light",
+          "width": 390,
+          "title": "工作流"
+        },
+        {
+          "route": "tasks",
+          "theme": "light",
+          "width": 390,
+          "title": "任务"
+        },
+        {
+          "route": "deployments",
+          "theme": "light",
+          "width": 390,
+          "title": "工作流部署"
+        },
+        {
+          "route": "credentials",
+          "theme": "light",
+          "width": 390,
+          "title": "设置"
+        },
+        {
+          "route": "mcp-servers",
+          "theme": "light",
+          "width": 390,
+          "title": "MCP 服务"
+        },
+        {
+          "route": "skills",
+          "theme": "light",
+          "width": 390,
+          "title": "技能"
+        },
+        {
+          "route": "storage",
+          "theme": "light",
+          "width": 390,
+          "title": "存储"
+        },
+        {
+          "route": "knowledge",
+          "theme": "light",
+          "width": 390,
+          "title": "知识库"
+        },
+        {
+          "route": "settings",
+          "theme": "light",
+          "width": 390,
+          "title": "设置"
+        },
+        {
+          "route": "workspace",
+          "theme": "dark",
+          "width": 1280,
+          "title": "工作流"
+        },
+        {
+          "route": "tasks",
+          "theme": "dark",
+          "width": 1280,
+          "title": "任务"
+        },
+        {
+          "route": "deployments",
+          "theme": "dark",
+          "width": 1280,
+          "title": "工作流部署"
+        },
+        {
+          "route": "credentials",
+          "theme": "dark",
+          "width": 1280,
+          "title": "设置"
+        },
+        {
+          "route": "mcp-servers",
+          "theme": "dark",
+          "width": 1280,
+          "title": "MCP 服务"
+        },
+        {
+          "route": "skills",
+          "theme": "dark",
+          "width": 1280,
+          "title": "技能"
+        },
+        {
+          "route": "storage",
+          "theme": "dark",
+          "width": 1280,
+          "title": "存储"
+        },
+        {
+          "route": "knowledge",
+          "theme": "dark",
+          "width": 1280,
+          "title": "知识库"
+        },
+        {
+          "route": "settings",
+          "theme": "dark",
+          "width": 1280,
+          "title": "设置"
+        },
+        {
+          "route": "workspace",
+          "theme": "dark",
+          "width": 390,
+          "title": "工作流"
+        },
+        {
+          "route": "tasks",
+          "theme": "dark",
+          "width": 390,
+          "title": "任务"
+        },
+        {
+          "route": "deployments",
+          "theme": "dark",
+          "width": 390,
+          "title": "工作流部署"
+        },
+        {
+          "route": "credentials",
+          "theme": "dark",
+          "width": 390,
+          "title": "设置"
+        },
+        {
+          "route": "mcp-servers",
+          "theme": "dark",
+          "width": 390,
+          "title": "MCP 服务"
+        },
+        {
+          "route": "skills",
+          "theme": "dark",
+          "width": 390,
+          "title": "技能"
+        },
+        {
+          "route": "storage",
+          "theme": "dark",
+          "width": 390,
+          "title": "存储"
+        },
+        {
+          "route": "knowledge",
+          "theme": "dark",
+          "width": 390,
+          "title": "知识库"
+        },
+        {
+          "route": "settings",
+          "theme": "dark",
+          "width": 390,
+          "title": "设置"
+        }
+      ],
+      "pageErrors": [],
+      "failedRequests": [],
+      "completed": true
     }
   },
   "automated_checks": {
@@ -109,7 +332,8 @@
     "related_api_suite": "48 passed (overlaps final suite; not summed)",
     "openapi": "8 passed",
     "frontend": "15 passed",
-    "static": "Ruff, ESLint, locale audits, TypeScript, Vite build, deployment paths and bundle audit passed"
+    "static": "Ruff, ESLint, locale audits, TypeScript, Vite build, deployment paths and bundle audit passed",
+    "skill_route_regression": "4 passed; old publication file-list assertion updated to require content files plus Git history"
   },
   "coverage": [
     "Legacy baseline and existing Git parent history",
@@ -127,5 +351,12 @@
     "API restarted preserving existing runtime environment and POSIX storage",
     "Static ownership issue during rollout corrected; subsequent publication sets flowork ownership before index swap",
     "No schema migration; temporary acceptance resources deleted"
-  ]
+  ],
+  "ci_followup": {
+    "initial_commit": "e0b0b98",
+    "web": "passed",
+    "extension": "passed",
+    "security": "passed",
+    "api": "4487 passed, 1 failed, 88 skipped; failure was obsolete content-only package assertion, corrected and locally verified"
+  }
 }

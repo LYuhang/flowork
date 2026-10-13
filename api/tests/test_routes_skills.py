@@ -159,7 +159,11 @@ async def test_custom_skill_draft_does_not_move_head_until_version_is_published(
     assert updated.json()["version"] == 2
     assert updated.json()["revision_hash"] != row["revision_hash"]
     detail = (await authed_client.get(f"/api/v1/skills/{row['id']}")).json()
-    assert detail["files"] == ["SKILL.md", "references/example.txt"]
+    assert [path for path in detail["files"] if not path.startswith(".git/")] == [
+        "SKILL.md", "references/example.txt",
+    ]
+    assert ".git/HEAD" in detail["files"]
+    assert any(path.startswith(".git/objects/") for path in detail["files"])
     assert detail["has_draft"] is False
     assert "say hello with the reference" in detail["skill_md"]
     assert "version: 2" in detail["skill_md"]

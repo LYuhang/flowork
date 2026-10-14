@@ -59,9 +59,9 @@ export function SteerInputControl({ chatId, runId, text, active, disabled, onSub
   const supported = controls.data?.supported_controls.includes('steer');
   if (!supported && !receipt && !submit.isError) return null;
   return (
-    <div className="flex max-w-full flex-wrap items-center gap-2 text-xs text-content-secondary" data-role="composer-steering">
+    <div className="contents text-xs text-content-secondary" data-role="composer-steering">
       {active && runId && supported && (
-        <Button type="button" size="sm" variant="outline"
+        <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 gap-1 px-2 text-xs"
           disabled={disabled || controls.isError || !text.trim() || submit.isPending || !controls.data?.available_controls.includes('steer')}
           onClick={() => submit.mutate({ input_id: crypto.randomUUID(), run_id: runId, text })} data-action="agent-composer-steer"
           title={t('composer.steer.hint')}>
@@ -69,7 +69,7 @@ export function SteerInputControl({ chatId, runId, text, active, disabled, onSub
           {t('composer.steer.action')}
         </Button>
       )}
-      {(receipt || submit.isError || statusUnavailable) && <span role="status">
+      {(receipt || submit.isError || statusUnavailable) && <span className="order-last basis-full" role="status">
         {statusUnavailable ? t('composer.steer.statusUnavailable') : unconfirmed ? t('composer.steer.checkStatus') : receiptLabel}
       </span>}
       {(statusUnavailable || submit.isError || receipt?.status === 'unknown' || receipt?.status === 'submitting') && (

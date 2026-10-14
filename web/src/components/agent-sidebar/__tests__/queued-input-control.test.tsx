@@ -33,7 +33,7 @@ it.each([false, true])('preserves the queued receipt and cancels once, lost resp
       surface: 'main', agent_surface: 'chat', attachments: [] } });
   const element = <QueryClientProvider client={client}><QueuedInputControl chatId="chat" active disabled={false} onQueue={onQueue} /></QueryClientProvider>;
   render(element);
-  const button = await screen.findByRole('button', { name: 'Queue next message' });
+  const button = await screen.findByRole('button', { name: 'Queue next' });
   await waitFor(() => expect(button).toBeEnabled());
   expect(posts).toBe(0);
   fireEvent.click(button);

@@ -35,11 +35,11 @@ function setup(options: { supported?: boolean; disabled?: boolean; fail?: boolea
 
 it('submits explicitly once and displays awaiting confirmation rather than accepted', async () => {
   const test = setup(); render(test.element);
-  fireEvent.click(await screen.findByRole('button', { name: 'Add to current response' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Add to turn' }));
   await waitFor(() => expect(test.submitted).toHaveBeenCalledWith('Additional instruction'));
   expect(await screen.findByText('Submitted, awaiting Agent confirmation')).toBeTruthy();
   expect(test.posts()).toBe(1);
-  expect(screen.getByRole('button', { name: 'Add to current response' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add to turn' })).toBeDisabled();
   cleanup(); render(test.element);
   expect(await screen.findByText('Submitted, awaiting Agent confirmation')).toBeTruthy();
   expect(test.posts()).toBe(1);
@@ -47,7 +47,7 @@ it('submits explicitly once and displays awaiting confirmation rather than accep
 
 it('keeps the draft and does not retry a failed submission', async () => {
   const test = setup({ fail: true }); render(test.element);
-  fireEvent.click(await screen.findByRole('button', { name: 'Add to current response' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Add to turn' }));
   expect(await screen.findByText(/Submission is unconfirmed/)).toBeTruthy();
   expect(test.submitted).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Check input status' }));
@@ -58,10 +58,10 @@ it('keeps the draft and does not retry a failed submission', async () => {
 it('does not offer steering for an old runtime and respects disabled draft inputs', async () => {
   const old = setup({ supported: false }); render(old.element);
   await waitFor(() => expect(old.client.getQueryData(['chat-input-controls', 'chat', 'run', true])).toBeTruthy());
-  expect(screen.queryByRole('button', { name: 'Add to current response' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Add to turn' })).toBeNull();
   cleanup();
   const disabled = setup({ disabled: true }); render(disabled.element);
-  expect(await screen.findByRole('button', { name: 'Add to current response' })).toBeDisabled();
+  expect(await screen.findByRole('button', { name: 'Add to turn' })).toBeDisabled();
 });
 
 it('settles a lost POST response only when its own receipt confirms acceptance', async () => {
@@ -79,7 +79,7 @@ it('settles a lost POST response only when its own receipt confirms acceptance',
     }),
   );
   render(test.element);
-  fireEvent.click(await screen.findByRole('button', { name: 'Add to current response' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Add to turn' }));
   expect(await screen.findByText(/Receipt is uncertain/)).toBeTruthy();
   expect(test.submitted).not.toHaveBeenCalled();
   receipt = { ...receipt!, status: 'accepted' };
@@ -118,7 +118,7 @@ it('restores an uncertain receipt after reopening a completed chat without an ac
   render(<QueryClientProvider client={client}><SteerInputControl chatId="chat" runId={null}
     text="" active={false} disabled={false} onSubmitted={vi.fn()} /></QueryClientProvider>);
   expect(await screen.findByText(/Receipt is uncertain/)).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Add to current response' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Add to turn' })).toBeNull();
 });
 
 it('does not downgrade an acknowledgment that arrives before the POST response', async () => {
@@ -137,7 +137,7 @@ it('does not downgrade an acknowledgment that arrives before the POST response',
     }),
   );
   render(test.element);
-  fireEvent.click(await screen.findByRole('button', { name: 'Add to current response' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Add to turn' }));
   await waitFor(() => expect(receipt).not.toBeNull());
   await test.client.invalidateQueries({ queryKey: ['chat-input-controls', 'chat', 'run'] });
   expect(await screen.findByText('Agent received the additional input')).toBeTruthy();
@@ -167,9 +167,9 @@ it('shows a query failure after durable submission without sending the input aga
     }),
   );
   render(test.element);
-  fireEvent.click(await screen.findByRole('button', { name: 'Add to current response' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Add to turn' }));
   expect(await screen.findByText(/receipt status is temporarily unavailable/)).toBeTruthy();
   expect(test.submitted).toHaveBeenCalledOnce();
-  expect(screen.getByRole('button', { name: 'Add to current response' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add to turn' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Check input status' })).toBeTruthy();
 });

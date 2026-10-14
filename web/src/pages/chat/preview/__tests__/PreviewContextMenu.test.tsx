@@ -22,3 +22,30 @@ it('freezes a content reference at right click and shows no permanent Quote butt
   expect(add.mock.calls[0][0]).toBe('source');
   expect(add.mock.calls[0][1][0].selector.pages).toEqual([2]);
 });
+
+it('prepares a reference when touch long-press opens without contextmenu', async () => {
+  get.mockResolvedValue({}); add.mockClear(); add.mockResolvedValue({});
+  let selected = 'before selection';
+  const outerBuild = vi.fn();
+  const build = vi.fn(() => ({
+    schema_version: 1 as const, id: 'touch', type: 'resource' as const, label: selected,
+    resource: { kind: 'file' as const, file_ref: { schemaVersion: 1 as const, scope: 'project' as const, projectId: 'p', path: '/data/a.pdf' } },
+    selector: { kind: 'pages' as const, pages: [2] },
+  }));
+  render(<QueryClientProvider client={new QueryClient()}><PreviewOriginProvider origin={{chatId:'source'}}>
+    <PreviewContextMenu label="Outer quote" build={outerBuild}>
+      <PreviewContextMenu label="Touch quote" build={build}><span>Touch page</span></PreviewContextMenu>
+    </PreviewContextMenu>
+  </PreviewOriginProvider></QueryClientProvider>);
+  fireEvent.pointerDown(screen.getByText('Touch page'), { pointerType: 'touch', clientX: 12, clientY: 24 });
+  expect(build).not.toHaveBeenCalled();
+  selected = 'selection after pointer down';
+  const item = await screen.findByRole('menuitem', { name: 'Touch quote' }, { timeout: 2000 });
+  await waitFor(() => expect(item).not.toHaveAttribute('aria-disabled', 'true'));
+  expect(build).toHaveBeenCalledOnce();
+  expect(outerBuild).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+  fireEvent.click(item);
+  await waitFor(() => expect(add).toHaveBeenCalledOnce());
+  expect(add.mock.calls[0][1][0].label).toBe('selection after pointer down');
+});

@@ -1330,15 +1330,15 @@ export function ChatComposer({
         </div>
       </div>
       {chatId && (chatPersisted || runtime?.turnId) && historyReady && (
-        <SteerInputControl key={`${chatId}:${runtime?.turnId ?? 'latest'}`} chatId={chatId} runId={runtime?.turnId ?? null}
-          text={value} active={isStreaming}
-          disabled={readOnly || externallyDisabled || !!runtime?.waitingForUser || !!contextDraft?.conflict || pendingAttachments.length > 0
-            || activeUploads.length > 0 || !!selectedSkill || value.trimStart().startsWith('/') || stoppingChatId === chatId}
-          onSubmitted={submitted => setValue(current => current === submitted ? '' : current)} />
-      )}
-      {chatId && (chatPersisted || runtime?.turnId) && historyReady && (
-        <QueuedInputControl key={`queue:${chatId}`} chatId={chatId} active={isStreaming}
-          disabled={!canQueue} onQueue={async inputId => (await handleSend(inputId)) ?? null} />
+        <div className="flex flex-wrap items-center justify-end gap-2" data-role="composer-live-actions">
+          <SteerInputControl key={`${chatId}:${runtime?.turnId ?? 'latest'}`} chatId={chatId} runId={runtime?.turnId ?? null}
+            text={value} active={isStreaming}
+            disabled={readOnly || externallyDisabled || !!runtime?.waitingForUser || !!contextDraft?.conflict || pendingAttachments.length > 0
+              || activeUploads.length > 0 || !!selectedSkill || value.trimStart().startsWith('/') || stoppingChatId === chatId}
+            onSubmitted={submitted => setValue(current => current === submitted ? '' : current)} />
+          <QueuedInputControl key={`queue:${chatId}`} chatId={chatId} active={isStreaming}
+            disabled={!canQueue} onQueue={async inputId => (await handleSend(inputId)) ?? null} />
+        </div>
       )}
       {isStreaming && (hasNewDraft || activeUploads.length > 0) && (
         <p className="text-xs text-content-secondary" role="status" data-role="composer-next-draft">

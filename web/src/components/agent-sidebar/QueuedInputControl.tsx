@@ -44,14 +44,14 @@ export function QueuedInputControl({ chatId, active, disabled, onQueue }: Props)
   const unconfirmed = submit.isError && attemptId !== receipt?.input_id;
   const pending = receipt && ['queued', 'claimed', 'blocked', 'unknown'].includes(receipt.status);
   const canCancel = receipt?.status === 'queued' || receipt?.status === 'blocked';
-  return <div className="flex flex-wrap items-center gap-2 text-xs text-content-secondary" data-role="composer-queue">
-    {active && <Button type="button" size="sm" variant="outline" data-action="agent-composer-queue"
+  return <div className="contents text-xs text-content-secondary" data-role="composer-queue">
+    {active && <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" data-action="agent-composer-queue"
       disabled={disabled || state.isPending || state.isError || !!pending || unconfirmed || submit.isPending}
       title={t('composer.queue.hint')} onClick={() => submit.mutate()}>
       {t('composer.queue.action')}
     </Button>}
-    {unconfirmed && <span role="status">{t('composer.queue.unconfirmed')}</span>}
-    {receipt && <div className="flex min-w-0 flex-1 items-start gap-1">
+    {unconfirmed && <span className="order-last basis-full" role="status">{t('composer.queue.unconfirmed')}</span>}
+    {receipt && <div className="order-last flex min-w-0 basis-full items-start gap-1">
       <details className="min-w-0 flex-1" data-role="queued-input-details">
         <summary className="cursor-pointer rounded py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <span role="status">{t(`composer.queue.status.${receipt.status}`)}</span>
@@ -70,6 +70,6 @@ export function QueuedInputControl({ chatId, active, disabled, onQueue }: Props)
       <Button type="button" size="sm" variant="ghost" disabled={state.isFetching}
         onClick={() => { void state.refetch(); }}>{t('composer.queue.check')}</Button>}
     {(state.error || cancel.error || (unconfirmed && submit.error)) &&
-      <span role="alert">{(state.error || cancel.error || submit.error)?.message}</span>}
+      <span className="order-last basis-full" role="alert">{(state.error || cancel.error || submit.error)?.message}</span>}
   </div>;
 }

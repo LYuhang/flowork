@@ -110,7 +110,7 @@ describe('ChatComposer Stop', () => {
     useChatStreamStore.getState().setComposerInput(key, 'Next instruction');
     useChatStreamStore.getState().addAttachment(key, { type: 'file', name: 'notes.txt', path: '/data/notes.txt', content_type: 'text/plain', size_bytes: 12 });
     renderComposer(chatId);
-    const queue = await screen.findByRole('button', { name: 'Queue next message' });
+    const queue = await screen.findByRole('button', { name: 'Queue next' });
     await waitFor(() => expect(queue).toBeEnabled());
     await userEvent.click(queue);
     await waitFor(() => expect(posts).toBe(1));

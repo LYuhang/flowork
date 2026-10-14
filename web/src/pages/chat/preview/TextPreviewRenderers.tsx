@@ -597,7 +597,9 @@ function TextDocumentRenderer({
           }
           if (!selected) {
             const block = (event.target as Element).closest('p,li,pre,h1,h2,h3,h4,h5,h6,blockquote,td,th');
-            if (block && event.currentTarget.contains(block)) selected = { text: block.textContent ?? '' };
+            if (block && !block.matches('[data-role="preview-source-text"]') && event.currentTarget.contains(block)) {
+              selected = { text: block.textContent ?? '' };
+            }
           }
         }
         if (selected?.text.trim()) return fileTextReference({ ...descriptor, revision: loadedRevision || descriptor.revision }, selected, dirty);

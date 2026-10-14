@@ -4,7 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import '@/lib/i18n';
 import type { ChatAttachment } from '@/components/agent-sidebar/chat-attachments';
 import type { PreviewDescriptorV1 } from '@/lib/preview/protocol';
-import { MarkdownPreviewRenderer } from '../TextPreviewRenderers';
+import { MarkdownPreviewRenderer, TextPreviewRenderer } from '../TextPreviewRenderers';
 import { StructuredTablePreview } from '../StructuredTablePreview';
 import { MediaPreviewRenderer } from '../MediaPreviewRenderer';
 
@@ -65,4 +65,11 @@ it('freezes media time on the media surface and quotes the whole file on surroun
   expect(capture.mock.lastCall![0].selector).toEqual({ kind: 'time', start_seconds: 12.75 });
   fireEvent.contextMenu(screen.getByTestId('quote-surface'));
   await waitFor(() => expect(capture.mock.lastCall![0].type).toBe('file'));
+});
+
+it('quotes the file on raw-text background instead of copying the whole document as an excerpt', async () => {
+  const { container } = render(<TextPreviewRenderer descriptor={{ ...descriptor, name: 'plain.txt', renderer: 'text', detectedType: 'text' }} loadAllowed onDirtyChange={() => undefined} />);
+  await waitFor(() => expect(container.querySelector('[data-role="preview-source-text"]')).toBeInTheDocument());
+  fireEvent.contextMenu(container.querySelector('[data-role="preview-source-text"]')!);
+  expect(capture.mock.lastCall![0].type).toBe('file');
 });

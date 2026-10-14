@@ -36,4 +36,19 @@ describe('workbook theme adapter', () => {
     expect(instance.setTheme).not.toHaveBeenCalled();
     next.unmount();
   });
+  it('reads only the workbook containing the original event and drops unmounted sources', async () => {
+    const root = document.createElement('div');
+    const reference = { sheet: 'Orders', firstRow: 2, lastRow: 4, firstColumn: 1, lastColumn: 3 };
+    const instance = { $el: root, setTheme: vi.fn(), unmount: vi.fn(), getReference: vi.fn(() => reference) };
+    renderWorkbook.mockResolvedValueOnce(instance);
+    const adapter = createWorkbookTheme('light');
+    const mounted = await adapter.renderer.handlers![0].handler(new ArrayBuffer(0), root);
+    const event = new MouseEvent('contextmenu');
+    vi.spyOn(event, 'composedPath').mockReturnValue([root]);
+    expect(adapter.getReference(event)).toEqual(reference);
+    expect(adapter.getReference(new MouseEvent('contextmenu'))).toBeNull();
+    mounted.unmount();
+    expect(adapter.getReference(event)).toBeNull();
+  });
+
 });

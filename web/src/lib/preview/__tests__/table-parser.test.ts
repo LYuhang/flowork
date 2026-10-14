@@ -28,6 +28,12 @@ describe('Preview table parser', () => {
     ]);
   });
 
+  it('retains original record positions after skipping blank records', () => {
+    const parsed = parsePreviewTable('name,value\nFirst,"line 1\nline 2"\n\nSecond,2', 'csv');
+    expect(parsed.recordRows).toEqual([1, 2, 4]);
+    expect(parsed.rows[1]).toEqual(['Second', '2']);
+  });
+
   it('rejects a table after the configured row limit', () => {
     const source = [
       'name',

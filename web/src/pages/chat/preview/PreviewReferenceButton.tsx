@@ -57,7 +57,10 @@ function AuthorizedReferenceButton({ build, disabledReason, label, menu }: Refer
       void access.refetch();
     } finally { setBusy(false); }
   };
-  if (menu) return <ContextMenuItem disabled={busy || !!reason} title={reason} onSelect={() => void add()}><Quote className="mr-2 h-4 w-4" />{label || t('composer.context.quote', 'Quote in conversation')}</ContextMenuItem>;
+  // A menu flipped above a bottom-edge right click can receive its pointer-up.
+  // Radix otherwise turns that release into a click without explicit selection.
+  if (menu) return <ContextMenuItem disabled={busy || !!reason} title={reason}
+    onPointerUp={event => { if (event.button !== 0) event.preventDefault(); }} onSelect={() => void add()}><Quote className="mr-2 h-4 w-4" />{label || t('composer.context.quote', 'Quote in conversation')}</ContextMenuItem>;
   return <span title={reason} className="inline-flex shrink-0">
     <Button type="button" size="sm" variant="ghost" disabled={busy || !!reason}
       aria-label={reason || label || t('composer.context.quote', 'Quote in conversation')}

@@ -15,6 +15,8 @@ it('freezes a content reference at right click and shows no permanent Quote butt
   fireEvent.contextMenu(screen.getByText('Actual page'));
   const item=await screen.findByRole('menuitem',{name:'Quote current page'});
   await waitFor(()=>expect(item).not.toHaveAttribute('aria-disabled','true'));
+  fireEvent.pointerUp(item, { button: 2 });
+  expect(add).not.toHaveBeenCalled();
   page=3;fireEvent.click(item);
   await waitFor(()=>expect(add).toHaveBeenCalledOnce());
   expect(add.mock.calls[0][0]).toBe('source');

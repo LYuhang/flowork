@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import { PreviewContextMenu } from './PreviewContextMenu';
+import { fileTimeReference } from '@/lib/preview/file-reference';
 
 import type { PreviewErrorInfo } from '@/lib/preview/protocol';
 import { MediaPreviewSurface } from './MediaPreviewSurface';
@@ -29,6 +31,16 @@ export function MediaPreviewRenderer({ descriptor, onReload }: PreviewRendererPr
       ? 'audio'
       : 'video';
   return (
+    <PreviewContextMenu className="h-full min-h-0" build={event => {
+      const media = event.currentTarget.querySelector<HTMLMediaElement>('audio,video');
+      if (media && (event.target === media || media.contains(event.target as Node))) {
+        if (!media.readyState) throw new Error('page_not_ready');
+        return fileTimeReference(descriptor, media.currentTime);
+      }
+      return { schema_version: 1, id: crypto.randomUUID(), type: 'file', label: descriptor.name,
+        resource: { kind: 'file', file_ref: descriptor.fileRef, revision: descriptor.revision },
+        content_type: descriptor.contentType, size_bytes: descriptor.sizeBytes };
+    }}>
     <MediaPreviewSurface
       key={resourceKey}
       url={url}
@@ -46,5 +58,6 @@ export function MediaPreviewRenderer({ descriptor, onReload }: PreviewRendererPr
         });
       }}
     />
+    </PreviewContextMenu>
   );
 }

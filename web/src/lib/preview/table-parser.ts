@@ -7,6 +7,8 @@ export const PREVIEW_WORKBOOK_MAX_SHEETS = 20;
 export interface ParsedPreviewTable {
   columns: string[];
   rows: string[][];
+  /** One-based source positions of retained CSV/TSV records, with the header first. */
+  recordRows?: number[];
 }
 
 export class PreviewTableError extends Error {
@@ -39,16 +41,20 @@ function checkRows(actual: number): void {
 
 function parseDelimited(data: string, delimiter: ',' | '\t'): ParsedPreviewTable {
   const records: string[][] = [];
+  const recordRows: number[] = [];
+  let recordNumber = 0;
   let row: string[] = [];
   let cell = '';
   let quoted = false;
 
   const finishRow = () => {
+    recordNumber += 1;
     row.push(cell);
     cell = '';
     if (row.length > 1 || row[0] !== '') {
       checkColumns(row.length);
       records.push(row);
+      recordRows.push(recordNumber);
       if (records.length > 1) checkRows(records.length - 1);
     }
     row = [];
@@ -91,6 +97,7 @@ function parseDelimited(data: string, delimiter: ',' | '\t'): ParsedPreviewTable
   checkColumns(columns.length);
   return {
     columns,
+    recordRows,
     rows: records.slice(1).map((record) =>
       columns.map((_column, index) => record[index] ?? ''),
     ),

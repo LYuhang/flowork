@@ -26,6 +26,12 @@ export function createWorkbookTheme(initialTheme: Theme) {
         },
       })),
     },
+    getReference(event: MouseEvent) {
+      for (const instance of instances) {
+        if (event.composedPath().includes(instance.$el)) return instance.getReference(event);
+      }
+      return null;
+    },
     setTheme(nextTheme: Theme) {
       theme = nextTheme;
       instances.forEach(instance => instance.setTheme(theme));

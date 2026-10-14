@@ -189,6 +189,7 @@
   "preview.reference.loadingPage": "Wait for the page to finish loading.",
   "preview.reference.currentTime": "Quote current time",
   "preview.reference.loadingMedia": "Wait for the media to finish loading.",
+  "preview.reference.location": "Quote {{location}}",
   "preview.reference.selectedText": "Quote selected text",
   "preview.reference.selectText": "Select text in this preview first.",
   "tool.choices.confirmed": "Selection confirmed",

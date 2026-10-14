@@ -1,3 +1,4 @@
+import { EditorView } from '@codemirror/view';
 import { PreviewToolbar } from './PreviewToolbar';
 import { PreviewContextMenu } from './PreviewContextMenu';
 import { fileTextReference, textSelectionFromOffsets, type PreviewTextSelection } from '@/lib/preview/text-reference';
@@ -390,20 +391,6 @@ function TextDocumentRenderer({
   const { t } = useTranslation();
   const write = useWritePreviewFile(descriptor.fileRef);
   const [source, setSource] = useState('');
-  const [quoteSelection, setQuoteSelection] = useState<PreviewTextSelection | null>(null);
-  const captureRenderedSelection = (root: HTMLElement) => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return;
-    // Rendered Markdown offsets are not source offsets.
-    setQuoteSelection({ text: selection.toString() });
-  };
-  const [quoteRevision, setQuoteRevision] = useState(descriptor.revision);
-  if (quoteRevision !== descriptor.revision) {
-    setQuoteRevision(descriptor.revision);
-    setQuoteSelection(null);
-  }
   const [savedSource, setSavedSource] = useState('');
   const [mode, setMode] = useState<DisplayMode>(kind === 'text' ? 'source' : 'preview');
   const [editing, setEditing] = useState(false);
@@ -519,7 +506,7 @@ function TextDocumentRenderer({
             title={label}
             aria-label={label}
             variant={mode === id ? 'secondary' : 'ghost'}
-            onClick={() => { setMode(id); setQuoteSelection(null); }}
+            onClick={() => setMode(id)}
           >
             <Icon className="h-3.5 w-3.5" />
           </Button>
@@ -573,12 +560,44 @@ function TextDocumentRenderer({
         </div>
       ) : null}
       <PreviewContextMenu build={event => {
-        let selected = (event.target as Element).closest('.cm-editor,textarea') ? quoteSelection : null;
-        const native = window.getSelection();
-        if (native && !native.isCollapsed && native.rangeCount) {
-          const range = native.getRangeAt(0);
-          if (event.currentTarget.contains(range.startContainer) && event.currentTarget.contains(range.endContainer)) {
-            selected = { text: native.toString() };
+        let selected: PreviewTextSelection | null = null;
+        const editor = (event.target as Element).closest('.cm-editor');
+        if (editor) {
+          const view = EditorView.findFromDOM(editor as HTMLElement);
+          const position = view?.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (view && position != null) {
+            const { from, to } = view.state.selection.main;
+            if (from !== to && position >= from && position < to) {
+              selected = textSelectionFromOffsets(view.state.doc.toString(), from, to);
+            } else {
+              const line = view.state.doc.lineAt(position);
+              selected = textSelectionFromOffsets(view.state.doc.toString(), line.from, line.to);
+            }
+          }
+        } else if ((event.target as Element).closest('textarea')) {
+          const textarea = (event.target as Element).closest('textarea')!;
+          selected = textSelectionFromOffsets(textarea.value, textarea.selectionStart, textarea.selectionEnd);
+        } else {
+          const native = window.getSelection();
+          if (native && !native.isCollapsed && native.rangeCount) {
+            const range = native.getRangeAt(0);
+            const hit = Array.from(range.getClientRects()).some(rect =>
+              event.clientX >= rect.left && event.clientX <= rect.right &&
+              event.clientY >= rect.top && event.clientY <= rect.bottom);
+            if (hit && event.currentTarget.contains(range.startContainer) && event.currentTarget.contains(range.endContainer)) {
+              selected = { text: native.toString() };
+              const raw = (event.target as Element).closest('[data-role="preview-source-text"]');
+              if (raw && raw.contains(range.startContainer) && raw.contains(range.endContainer)) {
+                const prefix = range.cloneRange();
+                prefix.selectNodeContents(raw);
+                prefix.setEnd(range.startContainer, range.startOffset);
+                selected = textSelectionFromOffsets(source, prefix.toString().length, prefix.toString().length + native.toString().length);
+              }
+            }
+          }
+          if (!selected) {
+            const block = (event.target as Element).closest('p,li,pre,h1,h2,h3,h4,h5,h6,blockquote,td,th');
+            if (block && event.currentTarget.contains(block)) selected = { text: block.textContent ?? '' };
           }
         }
         if (selected?.text.trim()) return fileTextReference({ ...descriptor, revision: loadedRevision || descriptor.revision }, selected, dirty);
@@ -604,26 +623,22 @@ function TextDocumentRenderer({
                 readOnly={!editing}
                 ariaLabel={`${descriptor.name} source`}
                 onChange={setSource}
-                onSelectionChange={setQuoteSelection}
               />
             </Suspense>
           ) : editing ? (
             <Textarea
               aria-label={`${descriptor.name} source`}
               value={source}
-              onChange={(event) => { setSource(event.target.value); setQuoteSelection(null); }}
-              onSelect={event => setQuoteSelection(textSelectionFromOffsets(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd))}
+              onChange={event => setSource(event.target.value)}
               className="h-full min-h-0 resize-none rounded-none border-0 font-mono text-xs focus-visible:ring-0"
             />
           ) : (
-            <pre onMouseUp={event => captureRenderedSelection(event.currentTarget)}
-              onKeyUp={event => { if (event.shiftKey) captureRenderedSelection(event.currentTarget); }}
+            <pre data-role="preview-source-text"
               className="h-full overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs">{source}</pre>
           )
         ) : null}
         {mode !== 'source' ? (
-          <div className="min-h-0 overflow-auto" onMouseUp={event => captureRenderedSelection(event.currentTarget)}
-            onKeyUp={event => { if (event.shiftKey) captureRenderedSelection(event.currentTarget); }}>
+          <div className="min-h-0 overflow-auto">
             <RenderedText
               unsaved={dirty}
               kind={kind}

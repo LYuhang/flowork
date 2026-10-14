@@ -1,3 +1,6 @@
+import { PreviewContextMenu } from './PreviewContextMenu';
+import { fileTextReference } from '@/lib/preview/text-reference';
+import { fileResourceReference } from '@/lib/preview/file-reference';
 import { applicationGridTheme } from '@/lib/presentation/grid-theme';
 import { PreviewToolbar } from './PreviewToolbar';
 import { useEffect, useMemo, useState } from 'react';
@@ -28,6 +31,8 @@ type GridRow = Record<string, string>;
 interface TableData {
   columns: string[];
   rows: GridRow[];
+  recordRows?: number[];
+  jsonLines?: { text: string; line: number }[];
 }
 
 type TableLoadState =
@@ -36,9 +41,10 @@ type TableLoadState =
   | { key: string; status: 'error'; error: PreviewErrorInfo };
 
 function rowsToGrid(columns: string[], rows: string[][]): GridRow[] {
-  return rows.map((row) => Object.fromEntries(
-    columns.map((_name, index) => [`c${index}`, row[index] ?? '']),
-  ));
+  return rows.map((row, index) => ({
+    ...Object.fromEntries(columns.map((_name, index) => [`c${index}`, row[index] ?? ''])),
+    sourceRow: String(index),
+  }));
 }
 
 async function loadStructuredTable(
@@ -59,6 +65,8 @@ async function loadStructuredTable(
   }
   const parsed = parsePreviewTable(content, source.detectedType);
   return {
+    ...(source.detectedType === 'jsonl' ? { jsonLines: content.split(/\r?\n/).map((text, index) => ({ text, line: index + 1 })).filter(item => item.text.trim()) } : {}),
+    recordRows: parsed.recordRows,
     columns: parsed.columns,
     rows: rowsToGrid(parsed.columns, parsed.rows),
   };
@@ -138,15 +146,39 @@ export function StructuredTablePreview({ descriptor, loadAllowed }: PreviewRende
           {t('preview.table.readOnly', 'Read only')}
         </span>
       </PreviewToolbar>
-      <div className="min-h-0 flex-1">
+      <PreviewContextMenu className="min-h-0 flex-1" build={event => {
+        const target = event.target as Element;
+        const cell = target.closest('[col-id]');
+        const columnId = cell?.getAttribute('col-id');
+        const rowId = target.closest('[row-id]')?.getAttribute('row-id');
+        if (table.jsonLines && rowId != null) {
+          const record = table.jsonLines[Number(rowId)];
+          return fileTextReference(descriptor, { text: record.text, startLine: record.line, endLine: record.line }, false);
+        }
+        if (!table.jsonLines && columnId && /^c[0-9]+$/.test(columnId)) {
+          const column = Number(columnId.slice(1)) + 1;
+          // IDs identify source records, not the sorted/filtered visual row index.
+          const row = rowId != null ? table.recordRows![Number(rowId) + 1] : 1;
+          const lastRow = rowId != null ? row : (table.recordRows?.at(-1) ?? 1);
+          return fileResourceReference(descriptor, {
+            kind: 'cells', sheet: descriptor.name,
+            first_row: row, last_row: lastRow,
+            first_column: column, last_column: column,
+          }, `${descriptor.name} · R${row}C${column}${rowId == null ? `:R${lastRow}C${column}` : ''}`);
+        }
+        return { schema_version: 1, id: crypto.randomUUID(), type: 'file', label: descriptor.name,
+          resource: { kind: 'file', file_ref: descriptor.fileRef, revision: descriptor.revision },
+          content_type: descriptor.contentType, size_bytes: descriptor.sizeBytes };
+      }}>
         <AgGridReact<GridRow>
           theme={applicationGridTheme}
           rowData={table.rows}
+          getRowId={({ data }) => data.sourceRow}
           columnDefs={columnDefs}
           defaultColDef={{ flex: 1 }}
           animateRows={false}
         />
-      </div>
+      </PreviewContextMenu>
     </div>
   );
 }

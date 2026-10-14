@@ -1,11 +1,11 @@
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 87e07c310490b9267fa0b5d280d8896c13593152..734bb845ae0b199e2199d01a4e33a553ce05d5bc 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
-@@ -1,6 +1,11 @@
+@@ -1,6 +1,12 @@
  import { type FileRenderHandler, type FileViewerRenderedInstance, type FileViewerRendererPlugin, type RendererDefinition } from '@file-viewer/core';
 +export type SpreadsheetInstance = {
 +    $el: HTMLElement;
++    getReference(event: MouseEvent): { sheet: string; firstRow: number; lastRow: number; firstColumn: number; lastColumn: number } | null;
 +    unmount(): void;
 +    setTheme(theme: 'light' | 'dark'): void;
 +};
@@ -17,10 +17,9 @@ index 87e07c310490b9267fa0b5d280d8896c13593152..734bb845ae0b199e2199d01a4e33a553
 +export declare const spreadsheetRenderer: FileViewerRendererPlugin<FileRenderHandler<SpreadsheetInstance, HTMLDivElement>>;
  export default spreadsheetRenderer;
 diff --git a/dist/spreadsheet.js b/dist/spreadsheet.js
-index cecb8def0f34d6679d4cb69b86559f3a7fcfd6ce..6920ef842c37ae6bc07a9c66bea29437a12dfe8b 100644
 --- a/dist/spreadsheet.js
 +++ b/dist/spreadsheet.js
-@@ -14,6 +14,12 @@ const E_VIRT_TABLE_STYLE_MARKERS = [
+@@ -14,6 +14,12 @@
  const SPREADSHEET_STYLE_SCOPE = '.excel-wrapper[data-file-viewer-spreadsheet-root]';
  const E_VIRT_TABLE_ROTATE_KEYFRAME = 'file-viewer-e-virt-table-rotate';
  export const enableEVirtTableShadowEventTargeting = (context) => {
@@ -33,7 +32,7 @@ index cecb8def0f34d6679d4cb69b86559f3a7fcfd6ce..6920ef842c37ae6bc07a9c66bea29437
      const isNativeTarget = context.isTarget.bind(context);
      context.isTarget = (event) => {
          if (isNativeTarget(event)) {
-@@ -551,7 +557,7 @@ const renderFileViewerSpreadsheet = async (buffer, target, type, context) => {
+@@ -551,7 +557,7 @@
      const t = createFileViewerTranslator(context === null || context === void 0 ? void 0 : context.options);
      const zoomEmitter = createZoomChangeEmitter();
      const systemDark = (_c = (_b = (_a = documentRef.defaultView) === null || _a === void 0 ? void 0 : _a.matchMedia) === null || _b === void 0 ? void 0 : _b.call(_a, '(prefers-color-scheme: dark)').matches) !== null && _c !== void 0 ? _c : false;
@@ -42,10 +41,38 @@ index cecb8def0f34d6679d4cb69b86559f3a7fcfd6ce..6920ef842c37ae6bc07a9c66bea29437
      const root = documentRef.createElement('div');
      root.className = 'excel-wrapper';
      root.dataset.fileViewerSpreadsheetRoot = 'true';
-@@ -1725,6 +1731,15 @@ const renderFileViewerSpreadsheet = async (buffer, target, type, context) => {
+@@ -1725,6 +1731,43 @@
      emitParseWorkbook();
      return {
          $el: root,
++        getReference(event) {
++            if (disposed || loadingState || !table || !totalRows || !totalCols) return null;
++            const path = event.composedPath();
++            const tab = path.find(element => element instanceof HTMLElement && element.classList.contains('sheet-tab'));
++            const sheet = tab ? sheets.find(item => item.name === tab.title) : getActiveSheet();
++            if (!sheet) return null;
++            const range = (firstRow, lastRow, firstColumn, lastColumn) => ({
++                sheet: sheet.name, firstRow, lastRow, firstColumn, lastColumn
++            });
++            if (tab) return range(1, sheet.rowCount, 1, sheet.colCount);
++            if (!path.some(element => element instanceof HTMLCanvasElement)) return null;
++            const { offsetX, offsetY } = table.ctx.getOffset(event);
++            const header = table.ctx.header.renderCellHeaders.find(cell => cell.isInside(offsetX, offsetY));
++            if (header) return range(1, totalRows, Math.max(1, header.colIndex), header.colIndex || totalCols);
++            const body = table.ctx.body;
++            if (offsetY < body.y || offsetY >= body.y + Math.min(body.height, body.visibleHeight)) return null;
++            const cell = body.renderRows.flatMap(row => row.fixedCells.concat(row.noFixedCells))
++                .find(item => item.isInside(offsetX, offsetY));
++            if (!cell) return null;
++            if (cell.type === 'index') return range(cell.rowIndex + 1, cell.rowIndex + 1, 1, totalCols);
++            const { xArr, yArr, enable } = table.ctx.selector;
++            if (enable && cell.colIndex >= xArr[0] && cell.colIndex <= xArr[1] &&
++                cell.rowIndex >= yArr[0] && cell.rowIndex <= yArr[1]) {
++                return range(yArr[0] + 1, Math.min(totalRows, yArr[1] + 1), Math.max(1, xArr[0]), Math.min(totalCols, xArr[1]));
++            }
++            return range(cell.rowIndex + 1, Math.min(totalRows, cell.rowIndex + cell.rowspan),
++                cell.colIndex, Math.min(totalCols, cell.colIndex + cell.colspan - 1));
++        },
 +        setTheme(theme) {
 +            if (disposed || darkMode === (theme === 'dark')) return;
 +            darkMode = theme === 'dark';

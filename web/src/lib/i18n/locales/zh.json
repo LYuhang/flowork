@@ -189,6 +189,7 @@
   "preview.reference.loadingPage": "请等待页面加载完成。",
   "preview.reference.currentTime": "引用当前时间点",
   "preview.reference.loadingMedia": "请等待媒体加载完成。",
+  "preview.reference.location": "引用 {{location}}",
   "preview.reference.selectedText": "引用选中文字",
   "preview.reference.selectText": "请先在预览中选择文字。",
   "tool.choices.confirmed": "已确认选择",

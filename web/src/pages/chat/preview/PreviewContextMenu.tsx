@@ -21,8 +21,8 @@ export function PreviewContextMenu({ children, build, label, className }: {
       catch (cause) { setSnapshot(null); setError(cause instanceof Error ? cause.message : 'unavailable'); }
     }}>{children}</div>
   </ContextMenuTrigger><ContextMenuContent>
-    <PreviewReferenceButton menu label={snapshot?.type === 'quote'
-      ? t('preview.reference.selectedText', 'Quote selected text') : label}
+    <PreviewReferenceButton menu label={label ?? (snapshot && 'label' in snapshot && snapshot.type !== 'file'
+      ? t('preview.reference.location', 'Quote {{location}}', { location: snapshot.label }) : undefined)}
       disabledReason={error === 'invalid_quote_size' ? t('composer.context.tooLarge', 'Select a smaller excerpt (up to 32,768 characters).') : error === 'page_not_ready' ? t('preview.reference.loadingPage', 'Wait for the page to finish loading.') : error || !snapshot ? t('preview.reference.unavailable', 'The source conversation is unavailable or you no longer have access.') : undefined}
       build={() => { if (!snapshot) throw new Error('no_context_snapshot'); return snapshot; }} />
   </ContextMenuContent></ContextMenu>;

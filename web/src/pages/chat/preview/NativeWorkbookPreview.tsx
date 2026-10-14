@@ -1,3 +1,6 @@
+import { PreviewContextMenu } from './PreviewContextMenu';
+import { fileResourceReference } from '@/lib/preview/file-reference';
+import type { ChatAttachment } from '@/components/agent-sidebar/chat-attachments';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PreviewToolbar } from './PreviewToolbar';
@@ -16,6 +19,7 @@ export function NativeWorkbookPreview({
   loadAllowed,
 }: PreviewRendererProps) {
   const { i18n, t } = useTranslation();
+  const reference = useRef<ChatAttachment | null>(null);
   const viewer = useRef<FileViewerHandle>(null);
   const [viewerState, setViewerState] = useState<ViewerState | null>(null);
   const { resolvedTheme } = useTheme();
@@ -77,8 +81,21 @@ export function NativeWorkbookPreview({
   }
 
   return (
-    <div className="relative h-full min-h-0" onContextMenuCapture={event => {
+    <PreviewContextMenu className="h-full min-h-0" build={() => {
+      const selected = reference.current;
+      reference.current = null;
+      return selected ?? {
+      schema_version: 1, id: crypto.randomUUID(), type: 'file', label: descriptor.name,
+      resource: { kind: 'file', file_ref: descriptor.fileRef, revision: descriptor.revision },
+      content_type: descriptor.contentType, size_bytes: descriptor.sizeBytes,
+    }; }}><div className="relative h-full min-h-0" onContextMenuCapture={event => {
       if (event.target === event.currentTarget || !(event.target as Element).closest('[data-role="native-workbook-preview"]')) return;
+      const selection = workbookTheme.getReference(event.nativeEvent);
+      reference.current = selection ? fileResourceReference(descriptor, {
+        kind: 'cells', sheet: selection.sheet,
+        first_row: selection.firstRow, last_row: selection.lastRow,
+        first_column: selection.firstColumn, last_column: selection.lastColumn,
+      }, `${descriptor.name} · ${selection.sheet} · R${selection.firstRow}C${selection.firstColumn}:R${selection.lastRow}C${selection.lastColumn}`) : null;
       event.preventDefault(); event.stopPropagation();
       event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,cancelable:true,clientX:event.clientX,clientY:event.clientY}));
     }}><PreviewToolbar>
@@ -98,6 +115,6 @@ export function NativeWorkbookPreview({
       options={options}
       onStateChange={handleStateChange}
       data-role="native-workbook-preview"
-    /></div>
+    /></div></PreviewContextMenu>
   );
 }

@@ -15,7 +15,7 @@ overrides:
 
 patchedDependencies:
   '@file-viewer/renderer-spreadsheet@2.3.2':
-    hash: 31c15bb1ffbce25026ea77113403be844f457f1a3d12993325ce914e3bdd82cb
+    hash: ec48c41b576ba6e3a5a08fd768c8406879ae24abae8a735bc8e6dc24231b2749
     path: patches/@file-viewer__renderer-spreadsheet@2.3.2.patch
 
 importers:
@@ -48,7 +48,7 @@ importers:
         version: 2.3.0(react@19.2.8)
       '@file-viewer/renderer-spreadsheet':
         specifier: 2.3.2
-        version: 2.3.2(patch_hash=31c15bb1ffbce25026ea77113403be844f457f1a3d12993325ce914e3bdd82cb)
+        version: 2.3.2(patch_hash=ec48c41b576ba6e3a5a08fd768c8406879ae24abae8a735bc8e6dc24231b2749)
       '@hookform/resolvers':
         specifier: 5.2.2
         version: 5.2.2(react-hook-form@7.75.0(react@19.2.8))
@@ -5245,7 +5245,7 @@ snapshots:
       '@file-viewer/core': 2.3.0
       react: 19.2.8
 
-  '@file-viewer/renderer-spreadsheet@2.3.2(patch_hash=31c15bb1ffbce25026ea77113403be844f457f1a3d12993325ce914e3bdd82cb)':
+  '@file-viewer/renderer-spreadsheet@2.3.2(patch_hash=ec48c41b576ba6e3a5a08fd768c8406879ae24abae8a735bc8e6dc24231b2749)':
     dependencies:
       '@file-viewer/core': 2.3.0
       '@xmldom/xmldom': 0.9.12

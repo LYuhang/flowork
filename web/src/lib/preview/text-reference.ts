@@ -9,7 +9,7 @@ export function textSelectionFromOffsets(text: string, from: number, to: number)
 }
 export function fileTextReference(descriptor: PreviewDescriptorV1, selection: PreviewTextSelection, unsaved: boolean): components['schemas']['QuoteContextAttachment'] {
   if (!selection.text.trim() || selection.text.length > 32768) throw new Error('invalid_quote_size');
-  return { schema_version: 1, id: crypto.randomUUID(), type: 'quote', label: descriptor.name,
+  return { schema_version: 1, id: crypto.randomUUID(), type: 'quote', label: selection.startLine != null ? `${descriptor.name} · L${selection.startLine}${selection.endLine !== selection.startLine ? `–${selection.endLine}` : ''}` : descriptor.name,
     source: { kind: 'file', file_ref: descriptor.fileRef, revision: descriptor.revision },
     selector: { kind: 'text', unsaved, ...(selection.startLine != null && selection.endLine != null
       ? { start_line: selection.startLine, end_line: selection.endLine } : {}) }, snapshot: { text: selection.text } };

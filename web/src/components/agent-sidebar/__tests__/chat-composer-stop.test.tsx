@@ -95,6 +95,31 @@ describe('ChatComposer Stop', () => {
     useChatAgentSettingsStore.setState({ entries: {} });
   });
 
+  it.each([
+    { surface: 'canvas', embedded: false, options: { quietFrame: true, compactAttachments: true } },
+    { surface: 'extension', embedded: true, options: { agentSurface: 'browser' as const } },
+  ])('shares compact live actions on the $surface composer', async ({ embedded, options }) => {
+    const chatId = 'compact-actions';
+    server.use(
+      http.get('*/api/v1/chats/:chatId/runs/:runId/input-controls', () => HttpResponse.json({
+        supported_controls: ['steer'], available_controls: ['steer'], latest_input: null,
+      })),
+    );
+    useChatStreamStore.getState().beginTurn(chatId, 'running-original');
+    const view = renderComposer(chatId, false, undefined, embedded, false, options);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Additional instruction' } });
+    const steer = await screen.findByRole('button', { name: 'Add to turn' });
+    const queue = await screen.findByRole('button', { name: 'Queue next' });
+    await waitFor(() => expect(steer).toBeEnabled());
+    await waitFor(() => expect(queue).toBeEnabled());
+    const actions = view.container.querySelector('[data-role="composer-live-actions"]');
+    expect(actions).toContainElement(steer);
+    expect(actions).toContainElement(queue);
+    expect(actions).toHaveClass('flex', 'justify-end');
+    expect(steer).toHaveClass('h-7');
+    expect(queue).toHaveClass('h-7');
+  });
+
   it('queues the next complete message without replacing the active turn', async () => {
     const chatId = 'queue-composer';
     const key = composerKey(chatId);

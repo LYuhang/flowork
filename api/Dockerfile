@@ -110,7 +110,7 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         bubblewrap=0.12.0-1~deb13u1 \
         ca-certificates=20250419 \
-        curl=8.14.1-2+deb13u5 \
+        curl=8.14.1-2+deb13u7 \
         file=1:5.46-5 \
         ffmpeg=7:7.1.5-0+deb13u1 \
         git=1:2.47.3-0+deb13u1 \

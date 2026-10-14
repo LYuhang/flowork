@@ -1,7 +1,7 @@
 import { watchChatActivity } from '@/lib/api/sse/chat-activity';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { CanvasChatContext, CanvasChatControlsContext, CanvasChatReferenceContext, type OpenCanvasChat, type CanvasChatPoint as Point } from './CanvasChatContext';
-import { MessageSquare, WandSparkles, X } from 'lucide-react';
+import { MessageSquare, Search, WandSparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
@@ -54,6 +54,7 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
 }) {
   const { t } = useTranslation();
   const account = useAuthStore(state => state.user);
+  const [searchChatId, setSearchChatId] = useState<string | null>(null);
   const [referencing, setReferencing] = useState(false);
   const referenceCommit = useCommitWorkflow(wfId);
   const sessions = useChatSessions(wfId, 'chat');
@@ -123,6 +124,7 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
   const dismiss = useCallback(() => {
     if (preparing.current) return;
     setOpen(false);
+    setSearchChatId(null);
   }, []);
   useEffect(() => {
     if (!open) return;
@@ -296,6 +298,13 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
         }}>
         <WandSparkles className="h-4 w-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium" title={title}>{title}</span>
+        <Button variant="ghost" size="icon" className="h-7 w-7"
+          aria-label={t('chat.search.open')} title={t('chat.search.open')}
+          aria-expanded={!!visibleChatId && searchChatId === visibleChatId}
+          disabled={!visibleChatId || !transcript.items?.length}
+          onClick={() => setSearchChatId(current => current === visibleChatId ? null : visibleChatId)}>
+          <Search className="h-4 w-4" />
+        </Button>
         <ChatHistoryMenu wfId={wfId} activeChatId={selectedId} onSelect={selectHistory} active={open} workflowContextOnly />
         <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={t('close', 'Close')} onClick={dismiss}><X className="h-4 w-4" /></Button>
       </div>
@@ -303,6 +312,8 @@ function CanvasChatScope({ wfId, readOnly, storageKey, children }: {
         {!readOnly && <SSEStatusBanner wfId={wfId} activeChatId={visibleChatId} />}
         <ChatMessageList wfId={wfId} vfsScopeId={workspace.data?.workspace_scope_id}
           activeChatId={visibleChatId} compact historyItems={transcript.items}
+          searchOpen={searchChatId === visibleChatId}
+          onSearchOpenChange={expanded => setSearchChatId(expanded ? visibleChatId : null)}
           historyLoading={transcript.query.isLoading} historyError={transcript.query.isError}
           hasOlderHistory={transcript.hasOlder} olderHistoryLoading={transcript.loadingOlder}
           onLoadOlderHistory={transcript.loadOlder} onOpenFilePreview={openFile}

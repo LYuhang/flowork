@@ -17,7 +17,7 @@ import { watchChatActivity } from '@/lib/api/sse/chat-activity';
  *     bottom-pinned `ChatComposer`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, FileText, MessageSquare, Plus, Settings2, X } from 'lucide-react';
+import { ExternalLink, FileText, MessageSquare, Plus, Search, Settings2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -179,6 +179,7 @@ export function AgentChatSidebar({
       selectedHistory.data !== undefined ||
       selectedHistory.isError;
   const [collapsed, setCollapsed] = useState(false);
+  const [searchChatId, setSearchChatId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeRunDiscoveryStatus, setActiveRunDiscoveryStatus] = useState<
     'pending' | 'ready' | 'error'
@@ -471,6 +472,13 @@ export function AgentChatSidebar({
           handleHistorySelect(action.chat_id);
           setAttentionFocus(previous => ({ chatId: action.chat_id, id: action.hitl_request_id, revision: (previous?.revision ?? 0) + 1 }));
         }} />
+        <Button variant="ghost" size="icon"
+          aria-label={t('chat.search.open')} title={t('chat.search.open')}
+          aria-expanded={!!activeChatId && searchChatId === activeChatId}
+          disabled={!activeChatId || !historyItems?.length}
+          onClick={() => setSearchChatId(current => current === activeChatId ? null : activeChatId)}>
+          <Search className="h-4 w-4" />
+        </Button>
         <ChatHistoryMenu
           wfId={lastWfId}
           activeChatId={activeChatId}
@@ -519,6 +527,8 @@ export function AgentChatSidebar({
             wfId={lastWfId}
             vfsScopeId={workspaceScopeId || undefined}
             activeChatId={activeChatId}
+            searchOpen={!!activeChatId && searchChatId === activeChatId}
+            onSearchOpenChange={expanded => setSearchChatId(expanded ? activeChatId : null)}
             surface={chatSurface}
             compact={embedded}
             historyItems={historyItems}

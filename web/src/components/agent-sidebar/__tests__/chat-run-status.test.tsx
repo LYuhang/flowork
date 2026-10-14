@@ -14,17 +14,17 @@ afterEach(cleanup);
 describe('ChatRunStatus', () => {
   it.each([
     ['running', 'Running'], ['waiting_approval', 'Needs your response'],
-    ['cancel_requested', 'Stopping'], ['completed', 'Completed'],
+    ['cancel_requested', 'Stopping'],
     ['cancelled', 'Stopped'], ['failed', 'Failed'],
   ] as const)('restores %s without a locally opened stream', (status, label) => {
     render(<ChatRunStatus chatId="chat" run={summary(status)} />);
     expect(screen.getByRole('img', { name: label })).toHaveAttribute('data-chat-run-status', status);
   });
-  it('distinguishes unread completion from an ordinary completed turn', () => {
+  it('does not decorate completed turns, whether read or unread', () => {
     const view = render(<ChatRunStatus chatId="chat" run={{ ...summary('completed'), unread: true }} />);
-    expect(screen.getByRole('img', { name: 'Completed · unread' })).toHaveAttribute('data-chat-unread', 'true');
+    expect(screen.queryByRole('img')).toBeNull();
     view.rerender(<ChatRunStatus chatId="chat" run={{ ...summary('completed'), unread: false }} />);
-    expect(screen.getByRole('img', { name: 'Completed' })).not.toHaveAttribute('data-chat-unread');
+    expect(screen.queryByRole('img')).toBeNull();
   });
   it('does not invent status for an empty conversation', () => {
     render(<ChatRunStatus chatId="chat" />);
@@ -40,7 +40,8 @@ describe('ChatRunStatus', () => {
   it.each(['cancel_requested', 'completed', 'cancelled', 'failed'] as const)('prefers server %s over a lingering stream for that turn', status => {
     useChatStreamStore.getState().beginTurn('chat', 'turn');
     render(<ChatRunStatus chatId="chat" run={summary(status)} />);
-    expect(screen.getByRole('img')).toHaveAttribute('data-chat-run-status', status);
+    if (status === 'completed') expect(screen.queryByRole('img')).toBeNull();
+    else expect(screen.getByRole('img')).toHaveAttribute('data-chat-run-status', status);
   });
   it('does not let an older failed local turn replace the current server turn', () => {
     useChatStreamStore.getState().beginTurn('chat', 'old');
@@ -48,10 +49,10 @@ describe('ChatRunStatus', () => {
     render(<ChatRunStatus chatId="chat" run={summary('running')} />);
     expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
   });
-  it('shows a live terminal result while its list snapshot catches up', () => {
+  it('removes the running indicator when the live turn completes', () => {
     useChatStreamStore.getState().beginTurn('chat', 'turn');
     render(<ChatRunStatus chatId="chat" run={summary('running')} />);
     act(() => useChatStreamStore.getState().setState('complete', 'chat'));
-    expect(screen.getByRole('img', { name: 'Completed' })).toBeInTheDocument();
+    expect(screen.queryByRole('img')).toBeNull();
   });
 });

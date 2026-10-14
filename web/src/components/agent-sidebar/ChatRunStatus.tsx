@@ -1,4 +1,4 @@
-import { CircleCheck, CirclePause, CircleX, LoaderCircle, MessageCircleQuestion } from 'lucide-react';
+import { CirclePause, CircleX, LoaderCircle, MessageCircleQuestion } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ChatListItem } from '@/lib/api/queries/chats';
 import { useChatStreamStore } from '@/stores/chat-stream';
@@ -9,10 +9,9 @@ const appearance = {
   running: { Icon: LoaderCircle, className: 'text-state-running motion-safe:animate-spin', label: 'Running' },
   waiting_approval: { Icon: MessageCircleQuestion, className: 'text-state-warning', label: 'Needs your response' },
   cancel_requested: { Icon: CirclePause, className: 'text-state-warning', label: 'Stopping' },
-  completed: { Icon: CircleCheck, className: 'text-content-tertiary', label: 'Completed' },
   cancelled: { Icon: CirclePause, className: 'text-content-tertiary', label: 'Stopped' },
   failed: { Icon: CircleX, className: 'text-state-danger', label: 'Failed' },
-} satisfies Record<RunStatus, { Icon: typeof CircleCheck; className: string; label: string }>;
+} satisfies Record<Exclude<RunStatus, 'completed'>, { Icon: typeof CirclePause; className: string; label: string }>;
 
 /** A row subscribes only to its status, not every token in every chat. */
 export function ChatRunStatus({ chatId, run }: { chatId: string; run?: ChatListItem['latest_run'] }) {
@@ -31,11 +30,10 @@ export function ChatRunStatus({ chatId, run }: { chatId: string; run?: ChatListI
     }
     return run?.status ?? null;
   });
-  if (!status) return null;
+  if (!status || status === 'completed') return null;
   const { Icon, className, label } = appearance[status];
-  const unread = status === 'completed' && run?.status === 'completed' && run.unread;
-  const title = unread ? t('chat.runStatus.unread', 'Completed · unread') : t(`chat.runStatus.${status}`, label);
-  return <span className="inline-flex shrink-0" title={title} role="img" aria-label={title} data-chat-run-status={status} data-chat-unread={unread || undefined}>
-    <Icon className={`size-3.5 ${unread ? 'text-state-info' : className}`} aria-hidden="true" />
+  const title = t(`chat.runStatus.${status}`, label);
+  return <span className="inline-flex shrink-0" title={title} role="img" aria-label={title} data-chat-run-status={status}>
+    <Icon className={`size-3.5 ${className}`} aria-hidden="true" />
   </span>;
 }

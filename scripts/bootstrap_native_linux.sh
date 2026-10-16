@@ -58,7 +58,7 @@ fi
 
 echo "[1/7] Installing host packages"
 sudo apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+sudo DEBIAN_FRONTEND=noninteractive bash -c 'umask 022; exec apt-get "$@"' bash install -y \
   binutils build-essential ca-certificates clang cmake curl file git gnupg jq libpq-dev libssl-dev patch pkg-config openssh-client \
   openssl patch postgresql postgresql-contrib procps redis-server ripgrep rsync \
   tar unzip util-linux zip \
@@ -93,7 +93,7 @@ if [[ "$installed_drawio_version" != "$DRAWIO_DESKTOP_VERSION" ]]; then
   [[ "$(dpkg-deb -f "$drawio_deb" Package)" == "draw.io" ]]
   [[ "$(dpkg-deb -f "$drawio_deb" Version)" == "$DRAWIO_DESKTOP_VERSION" ]]
   [[ "$(dpkg-deb -f "$drawio_deb" Architecture)" == "$drawio_arch" ]]
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$drawio_deb"
+  sudo DEBIAN_FRONTEND=noninteractive bash -c 'umask 022; exec apt-get "$@"' bash install -y "$drawio_deb"
   rm -f "$drawio_deb"
 fi
 command -v drawio >/dev/null || {
@@ -117,6 +117,9 @@ command -v pdftoppm >/dev/null || {
   echo "ERROR: Poppler pdftoppm was not installed" >&2
   exit 1
 }
+# LibreOffice reads this system component cache even with a fresh user profile.
+# A root-created 0700 directory makes non-root DOCX/PPTX conversion abort.
+sudo install -d -m 0755 /var/spool/libreoffice/uno_packages/cache/uno_packages
 "$office_command" --version
 pdftoppm -v
 ffmpeg -version
@@ -137,7 +140,7 @@ if ! node_is_compatible; then
   # Hosts may pin distribution packages above NodeSource's priority. Select
   # the exact reviewed release, never silently accept Debian's Node 18 or a
   # newer NodeSource package that appeared after this checkout was published.
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  sudo DEBIAN_FRONTEND=noninteractive bash -c 'umask 022; exec apt-get "$@"' bash install -y \
     "nodejs=${NODE_VERSION}-1nodesource1"
 else
   echo "[2/7] Reusing compatible Node.js $(node --version)"

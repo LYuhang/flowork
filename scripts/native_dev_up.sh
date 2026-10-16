@@ -466,7 +466,7 @@ start_openfga() {
   # Upgrade the launcher-managed binary; preserve explicitly supplied binaries.
   if [[ ! -x "$openfga_bin" ]] || {
     [[ -z "${OPENFGA_BIN:-}" ]] &&
-      ! "$openfga_bin" version | grep -Fq 'v1.20.0-flowork-pgx2675'
+      ! "$openfga_bin" version 2>&1 | grep -Fq 'v1.20.0-flowork-pgx2675'
   }; then
     "$REPO_ROOT/scripts/security/install_openfga_server.sh" "$openfga_bin"
   fi

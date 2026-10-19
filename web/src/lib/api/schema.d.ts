@@ -4819,6 +4819,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/previews/service/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop */
+        post: operations["stop_api_v1_previews_service_stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/previews/service/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve */
+        post: operations["resolve_api_v1_previews_service_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/preview/drawio-assets/{asset}": {
         parameters: {
             query?: never;
@@ -7700,6 +7734,13 @@ export interface components {
              */
             expires_at: string;
         };
+        /** OpenService */
+        OpenService: {
+            /** Chat Id */
+            chat_id: string;
+            /** Url */
+            url: string;
+        };
         /** OrganizationListOut */
         OrganizationListOut: {
             /** Items */
@@ -9086,6 +9127,19 @@ export interface components {
             run_id: string;
             /** Text */
             text: string;
+        };
+        /** StopService */
+        StopService: {
+            /** Chat Id */
+            chat_id: string;
+            /** Url */
+            url: string;
+            /** Runtime Id */
+            runtime_id: string;
+            /** Expected */
+            expected: {
+                [key: string]: unknown;
+            }[];
         };
         /** StorageDeleteOut */
         StorageDeleteOut: {
@@ -19441,6 +19495,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreviewFileWriteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_api_v1_previews_service_stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StopService"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_api_v1_previews_service_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenService"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

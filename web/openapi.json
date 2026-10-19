@@ -16578,6 +16578,94 @@
         ]
       }
     },
+    "/api/v1/previews/service/stop": {
+      "post": {
+        "tags": [
+          "previews"
+        ],
+        "summary": "Stop",
+        "operationId": "stop_api_v1_previews_service_stop_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopService"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/previews/service/resolve": {
+      "post": {
+        "tags": [
+          "previews"
+        ],
+        "summary": "Resolve",
+        "operationId": "resolve_api_v1_previews_service_resolve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenService"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/preview/drawio-assets/{asset}": {
       "get": {
         "tags": [
@@ -25089,6 +25177,28 @@
         ],
         "title": "OpenRouterStartOut"
       },
+      "OpenService": {
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Chat Id"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chat_id",
+          "url"
+        ],
+        "title": "OpenService"
+      },
       "OrganizationListOut": {
         "properties": {
           "items": {
@@ -28945,6 +29055,42 @@
           "text"
         ],
         "title": "SteerInputBody"
+      },
+      "StopService": {
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Chat Id"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Url"
+          },
+          "runtime_id": {
+            "type": "string",
+            "title": "Runtime Id"
+          },
+          "expected": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Expected"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chat_id",
+          "url",
+          "runtime_id",
+          "expected"
+        ],
+        "title": "StopService"
       },
       "StorageDeleteOut": {
         "properties": {

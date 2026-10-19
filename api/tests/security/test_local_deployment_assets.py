@@ -180,7 +180,10 @@ def test_nginx_refreshes_compose_service_dns() -> None:
 
     assert "resolver 127.0.0.11" in nginx
     assert "server api:8000 resolve;" in nginx
-    assert nginx.count("proxy_pass http://flowork_api;") == 3
+    for location in ("location ^~ /preview/", "location ^~ /api/v1/preview/drawio-assets/",
+                     "location /api/", "location /healthz"):
+        body = nginx.split(location, 1)[1].split("}", 1)[0]
+        assert "proxy_pass http://flowork_api;" in body
     assert "server browser_gateway:8001 resolve;" in nginx
     assert "proxy_pass http://flowork_browser_gateway;" in nginx
 

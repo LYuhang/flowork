@@ -122,3 +122,5 @@ API worker 不维护服务进程表，也不对本机 PID 发送信号。查询�
 现有 `SandboxRef` 已有 provider、endpoint、generation，可复用逻辑身份契约；`EmbeddedSandboxClient._specs` 和本地 Manager 的 `_sessions` 都是内存状态，不能作为上述持久化映射的替代。新增映射应遵循现有租户隔离/RLS 和数据库迁移规范。节点选择和远端实例恢复必须随资源适配器一起验收，不能仅建立表结构即宣称支持分布式。
 
 后续状态核对：17:47:27 的入口访问日志记录来自手机浏览器的 `POST /api/v1/previews/service/stop` 成功响应；此后原时钟端口消失、Project 恢复空闲计时，与手动停止一致。没有将该状态误当成后台服务自动退出，也没有自动重启已停止的服务。
+
+完整 CI 首轮：API 4514 项通过、88 项跳过，仅 OpenAPI 快照未更新和 Nginx 转发数量的旧断言失败。已重新生成 OpenAPI/TypeScript 类型，并将 Nginx 检查改为逐路由验证动态 DNS upstream；对应 OpenAPI、部署资源和 sandboxd RPC 回归共 37 项通过。Web 完整检查及全部安全检查通过。

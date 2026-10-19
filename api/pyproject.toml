@@ -67,6 +67,7 @@ dependencies = [
     # AuthzService contract and speaks OpenFGA's HTTP API through a narrow
     # adapter; product routes never import an OpenFGA SDK.
     "httpx>=0.27,<1",
+    "websockets>=15,<16",
     # Sandbox Service transport. The same protobuf/gRPC contract runs over a
     # Unix socket locally and mTLS TCP for a remote sandbox cluster.
     "grpcio>=1.82.1,<1.83",

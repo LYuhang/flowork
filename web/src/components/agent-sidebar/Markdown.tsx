@@ -1,4 +1,9 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
+import { useChatRenderIdentity } from './chat-render-context';
+import { isLocalServiceUrl } from '@/lib/preview/local-service-url';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import type { InteractiveArtifact } from './tool-render/interactive-artifact-contract';
+const ServicePreview = lazy(() => import('@/pages/chat/preview/ServicePreviewRenderer').then((module) => ({ default: module.ServicePreviewRenderer })));
 import { hasMarkdownMath, normalizeMathDelimiters } from './markdown-math';
 /**
  * Minimal Markdown renderer for chat-message bubbles.
@@ -40,6 +45,8 @@ export function Markdown({
   publicView = false,
   onOpenFilePreview,
 }: MarkdownProps) {
+  const identity = useChatRenderIdentity();
+  const [serviceUrl, setServiceUrl] = useState<string | null>(null);
   const math = hasMarkdownMath(children);
   const Renderer = math ? MathMarkdown : ReactMarkdown;
   return (
@@ -55,6 +62,16 @@ export function Markdown({
           p: ({ children }) => <p>{children}</p>,
           a: ({ children, href }) => {
             const filePath = agentFilePathFromHref(href);
+            const service = isLocalServiceUrl(href);
+            if (service && publicView) return <span>{children}</span>;
+            if (service && href && identity?.chatId) return <a href={href} data-action="open-service-preview" onClick={(event) => {
+              event.preventDefault();
+              const artifact: InteractiveArtifact = { kind: 'interactive_artifact', schema_version: 1,
+                artifact_id: `service:${identity.chatId}:${href}`, title: href, component_type: 'url_preview',
+                completion_mode: 'render_only', props: { url: href }, preview: { mode: 'preferred' } };
+              if (identity.onOpenInteractivePreview) identity.onOpenInteractivePreview(artifact);
+              else setServiceUrl(href);
+            }}>{children}</a>;
             if (publicView && (filePath !== null || !/^https?:\/\//i.test(href ?? ''))) {
               return <span>{children}</span>;
             }
@@ -127,6 +144,14 @@ export function Markdown({
         {math ? normalizeMathDelimiters(children) : children}
       </Renderer>
       </Suspense>
+      {serviceUrl && <Dialog open onOpenChange={(open) => { if (!open) setServiceUrl(null); }}>
+        <DialogContent className="flex h-[85dvh] max-w-5xl flex-col">
+          <DialogTitle>{serviceUrl}</DialogTitle>
+          <div className="min-h-0 flex-1">
+            {serviceUrl && <Suspense fallback={null}><ServicePreview url={serviceUrl} title={serviceUrl} /></Suspense>}
+          </div>
+        </DialogContent>
+      </Dialog>}
     </div>
   );
 }

@@ -26,7 +26,11 @@ async def render_preview(
 
     Use ``type="file", source="/data/report.pdf"`` for an existing absolute
     local file path, or ``type="url", source="https://example.com"`` for an
-    HTTP(S) web address. Save generated HTML to an .html file and use file mode.
+    HTTP(S) web address. For a running service inside this sandbox, pass its
+    loopback URL, e.g. type="url", source="http://localhost:3000/". Preview
+    connects to this conversation's sandbox, not the user's computer. Start the
+    service first and keep its process running; this tool does not start it.
+    Static HTML can instead be saved to an .html file and opened in file mode.
     HTML files are read-only previews: external images/media/scripts are blocked.
     Save images to the sandbox and use relative paths or absolute sandbox paths
     such as /data/photo.jpg; data: images also work. Keep website URLs as source

@@ -1,4 +1,9 @@
 {
+  "preview.service.noChat": "请从服务所属的原对话打开预览。",
+  "preview.service.notConfigured": "尚未配置服务预览域名。",
+  "preview.service.stopped": "沙盒服务已停止，请让 Agent 检查或启动服务。",
+  "preview.service.connecting": "正在连接沙盒服务…",
+  "preview.service.reload": "重新连接预览",
   "composer.queue.error.previous_turn_completed_pending_dispatch": "上一轮已结束，下一轮尚未确认启动。你可以取消这条排队消息。",
   "composer.queue.error.previous_turn_not_successful": "上一轮已停止或失败，这条排队消息不会发送。",
   "composer.queue.error.previous_turn_waiting_for_input": "上一轮请求了人工输入，这条排队消息不会发送。",

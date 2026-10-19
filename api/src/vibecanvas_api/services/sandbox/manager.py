@@ -18,6 +18,8 @@ Synchronous provider operations run through ``asyncio.to_thread``.
 """
 from __future__ import annotations
 
+from contextlib import suppress
+
 import asyncio
 import base64
 import difflib
@@ -1617,6 +1619,47 @@ class SandboxSession:
             await asyncio.to_thread(self.provider.stop_run, handle, kill=False)
         if persist_account_auth:
             self._persist_codex_account_auth()
+
+    async def service_forwarding_identity(self) -> dict:
+        # Host-network sandboxes share infrastructure ports; never proxy those.
+        if config.sandbox_egress_mode != "proxy":
+            raise RuntimeError("service_forwarding_requires_isolated_network")
+        handle = self._runtime_handle
+        if handle is None or handle.proc.poll() is not None or self._runtime_router is None:
+            raise RuntimeError("service_forwarding_sandbox_stopped")
+        return {"runtime_id": handle.container_id}
+
+    async def service_forwarding_control(self, identifier: str, message: dict) -> None:
+        if self._runtime_router is None:
+            return
+        turn = self._runtime_router.turns.get(identifier)
+        if turn is not None:
+            await turn.send({**message, "type": "service_forwarding_control"})
+
+    async def service_forwarding_stream(self, request: dict):
+        identity = await self.service_forwarding_identity()
+        if request["runtime_id"] != identity["runtime_id"]:
+            raise RuntimeError("service_forwarding_sandbox_changed")
+        self._begin_activity()
+        turn = None
+        try:
+            router = self._runtime_router
+            if router is None:
+                raise RuntimeError("service_forwarding_sandbox_stopped")
+            turn = router.attach(request["identifier"])
+            await turn.send({"type": "service_forwarding", "request": request})
+            async for message in turn.messages():
+                yield message
+                if message.get("type") in {"end", "error"}:
+                    break
+                if not request.get("websocket"):
+                    await turn.send({"type": "service_forwarding_control", "action": "ack"})
+        finally:
+            if turn is not None:
+                with suppress(Exception):
+                    await turn.send({"type": "service_forwarding_control", "action": "cancel"})
+                turn.detach()
+            self._end_activity()
 
     async def local_execution_process(self) -> dict:
         """Capture the existing Agent sandbox owner, never a caller-supplied PID."""

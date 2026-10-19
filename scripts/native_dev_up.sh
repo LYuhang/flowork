@@ -305,13 +305,14 @@ write_env() {
   if [[ -z "$signing_secret" ]]; then
     signing_secret="$(openssl rand -hex 32)"
   fi
-  local default_agent_api_q signing_secret_q codex_cli_path_q public_url_q
+  local default_agent_api_q signing_secret_q codex_cli_path_q public_url_q service_preview_domain_q
   local agent_runtime_types_q codex_auth_methods_q codex_managed_apis_q
   local codex_access_token_q codex_id_token_q mount_path_q
   printf -v default_agent_api_q '%q' "$default_agent_api"
   printf -v signing_secret_q '%q' "$signing_secret"
   printf -v codex_cli_path_q '%q' "${CODEX_CLI_PATH:-}"
   printf -v public_url_q '%q' "${VIBECANVAS_PUBLIC_URL:-}"
+  printf -v service_preview_domain_q '%q' "${FLOWORK_SERVICE_PREVIEW_DOMAIN:-}"
   printf -v codex_access_token_q '%q' "${CODEX_ACCESS_TOKEN:-}"
   printf -v codex_id_token_q '%q' "${CODEX_ID_TOKEN:-}"
   printf -v mount_path_q '%q' "${MOUNT_PATH:-}"
@@ -345,6 +346,7 @@ export KMS_LOCAL_MASTER_KEY_FILE="${KMS_LOCAL_MASTER_KEY_FILE}"
 export CONTENT_LOOKUP_HMAC_KEY_FILE="${CONTENT_LOOKUP_HMAC_KEY_FILE}"
 export VIBECANVAS_API_CORS_ORIGINS="${cors_origins}"
 export VIBECANVAS_PUBLIC_URL=${public_url_q}
+export FLOWORK_SERVICE_PREVIEW_DOMAIN=${service_preview_domain_q}
 export WEB_SESSION_COOKIE_ENABLED="${WEB_SESSION_COOKIE_ENABLED:-0}"
 export WEB_SESSION_COOKIE_SECURE="${WEB_SESSION_COOKIE_SECURE:-}"
 export EXTENSION_SCOPED_TOKEN_ENABLED="${EXTENSION_SCOPED_TOKEN_ENABLED:-0}"

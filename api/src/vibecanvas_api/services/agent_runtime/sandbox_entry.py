@@ -134,6 +134,19 @@ async def _run(channel, request: RuntimeTurnRequest) -> None:
 
 async def serve_turns(channel) -> None:
     turns: dict[str, tuple[TurnChannel, asyncio.Task]] = {}
+    forwardings: dict[str, tuple[TurnChannel, asyncio.Task]] = {}
+
+    async def forward(turn, request):
+        from vibecanvas_api.services.sandbox.service_forwarding import forward_service
+        try:
+            await forward_service(turn, request)
+            await turn.send({"type": "end"})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await turn.send({"type": "error", "message": str(exc) or type(exc).__name__})
+        finally:
+            forwardings.pop(turn.turn_id, None)
 
     async def execute(turn, request):
         try:
@@ -152,7 +165,21 @@ async def serve_turns(channel) -> None:
             if envelope is None:
                 return
             kind = envelope.get("type")
-            if kind == "runtime_execution_status":
+            if kind == "service_forwarding":
+                identifier = str(envelope["turn_id"])
+                if identifier in forwardings:
+                    raise ValueError("duplicate forwarding request")
+                turn = TurnChannel(channel, identifier)
+                forwardings[identifier] = (turn, asyncio.create_task(forward(turn, envelope["request"])))
+            elif kind == "service_forwarding_control":
+                target = forwardings.get(str(envelope.get("turn_id")))
+                if target:
+                    turn, task = target
+                    if envelope.get("action") == "cancel":
+                        task.cancel()
+                    else:
+                        turn.incoming.put_nowait(envelope)
+            elif kind == "runtime_execution_status":
                 from vibecanvas_api.services.sandbox.local_activity import execution_alive
                 try:
                     alive = execution_alive(envelope.get("run_id", ""))
@@ -192,7 +219,7 @@ async def serve_turns(channel) -> None:
             # before processing a disconnect/cancel immediately after request.
             await asyncio.sleep(0)
     finally:
-        tasks = [task for _, task in turns.values()]
+        tasks = [task for _, task in [*turns.values(), *forwardings.values()]]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

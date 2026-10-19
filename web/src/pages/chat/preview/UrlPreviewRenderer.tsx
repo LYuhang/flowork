@@ -1,3 +1,5 @@
+import { isLocalServiceUrl } from '@/lib/preview/local-service-url';
+import { ServicePreviewRenderer } from './ServicePreviewRenderer';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, Globe2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +18,13 @@ function normalizeWebUrl(value: string): string | null {
   }
 }
 
-export function UrlPreviewRenderer({
+export function UrlPreviewRenderer(props: { url: string; title: string; description?: string }) {
+  return isLocalServiceUrl(props.url)
+    ? <ServicePreviewRenderer url={props.url} title={props.title} />
+    : <RemoteUrlPreviewRenderer {...props} />;
+}
+
+function RemoteUrlPreviewRenderer({
   url,
   title,
   description,

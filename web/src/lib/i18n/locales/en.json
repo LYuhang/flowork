@@ -1,4 +1,9 @@
 {
+  "preview.service.noChat": "Open this service from its original conversation.",
+  "preview.service.notConfigured": "Service preview domain is not configured yet.",
+  "preview.service.stopped": "The sandbox service has stopped. Ask the Agent to check or start it.",
+  "preview.service.connecting": "Connecting to the sandbox service…",
+  "preview.service.reload": "Reconnect preview",
   "composer.queue.error.previous_turn_completed_pending_dispatch": "The previous turn has ended; the next turn has not been accepted yet. You can cancel this queued message.",
   "composer.queue.error.previous_turn_not_successful": "The previous turn stopped or failed. This queued message will not be sent.",
   "composer.queue.error.previous_turn_waiting_for_input": "The previous turn requested your input. This queued message will not be sent.",

@@ -435,6 +435,10 @@ def build_app() -> FastAPI:
     app.include_router(_audit_routes.router)
     app.include_router(_vfs_routes.router)
     app.include_router(_preview_routes.router)
+    from .routes.service_preview import router as service_preview_router
+    from .routes.sandbox_forwarding import SandboxForwardingHostMiddleware
+    app.include_router(service_preview_router)
+    app.add_middleware(SandboxForwardingHostMiddleware)
     from .routes.drawio_assets import router as drawio_assets_router
     app.include_router(drawio_assets_router)
     app.include_router(_resource_access_routes.router)

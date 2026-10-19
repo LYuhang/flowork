@@ -41,10 +41,13 @@ logger = structlog.get_logger(__name__)
 
 _MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 _STREAM_METHODS = {
+    "service_forwarding_stream",
     "run_agent_runtime_stream",
     "submit_workflow_stream",
 }
 _SESSION_METHODS = {
+    "service_forwarding_identity",
+    "service_forwarding_control",
     "prepare_workflow_skills",
     "refresh_chat_skill",
     "run_code",
@@ -229,6 +232,17 @@ class RemoteSandboxSession:
             args=list(args),
             kwargs=kwargs,
         )) as stream:
+            async for item in stream:
+                yield item
+
+    async def service_forwarding_identity(self) -> dict:
+        return await self._call("service_forwarding_identity")
+
+    async def service_forwarding_control(self, identifier: str, message: dict) -> None:
+        await self._call("service_forwarding_control", identifier, message)
+
+    async def service_forwarding_stream(self, request: dict):
+        async with contextlib.aclosing(self._stream("service_forwarding_stream", request)) as stream:
             async for item in stream:
                 yield item
 

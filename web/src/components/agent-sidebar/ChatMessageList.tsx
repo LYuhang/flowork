@@ -849,7 +849,7 @@ export function ChatMessageList({
   }, [focusMessageId, focusKind, focusKey, focusErrorKey, focusPageRevision, historyIsLoading, olderHistoryLoading, hasOlderHistory, onLoadOlderHistory, historyItems, renderItems, captureViewport]);
 
   return (
-    <ChatRenderProvider value={{ chatId: activeChatId, surface }}>
+    <ChatRenderProvider value={{ chatId: activeChatId, surface, onOpenInteractivePreview }}>
     <div className="relative flex min-h-0 flex-1 flex-col">
       {activeChatId && historyItems.length > 0 && <ChatMessageSearch key={activeChatId} open={searchOpen} onOpenChange={onSearchOpenChange} chatId={activeChatId} onLocate={id => {
         setSearchFocus(previous => ({ chatId: activeChatId, id, revision: (previous?.revision ?? 0) + 1, requestRevision: focusRequest?.revision }));

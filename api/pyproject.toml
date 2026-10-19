@@ -82,7 +82,7 @@ dependencies = [
     # conflicts with the current API service stack.
     # Third-party stdio MCP packages may still be installed through npx/uvx/pip
     # according to their own registration config.
-    "mcp>=1.24,<2",
+    "mcp>=1.30,<2",
     # Web search — DuckDuckGo HTML uses requests + BeautifulSoup below;
     # Tavily/Brave need WEB_SEARCH_API_KEY.
     # Agent-native Knowledge — file parsers and deterministic text chunking.

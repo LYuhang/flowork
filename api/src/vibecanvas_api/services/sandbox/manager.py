@@ -18,8 +18,6 @@ Synchronous provider operations run through ``asyncio.to_thread``.
 """
 from __future__ import annotations
 
-from contextlib import suppress
-
 import asyncio
 import base64
 import difflib

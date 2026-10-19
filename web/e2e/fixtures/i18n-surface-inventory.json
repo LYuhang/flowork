@@ -1000,6 +1000,20 @@
       ],
       "requiresFixture": true,
       "evidence": "focused-component"
+    },
+    {
+      "id": "chat-service-preview",
+      "routeIds": [
+        "chat",
+        "embed-chat"
+      ],
+      "source": "src/components/agent-sidebar/Markdown.tsx",
+      "dialogCount": 1,
+      "variants": [
+        "sandbox-service-preview"
+      ],
+      "requiresFixture": true,
+      "evidence": "focused-component"
     }
   ],
   "modalPrimitives": [

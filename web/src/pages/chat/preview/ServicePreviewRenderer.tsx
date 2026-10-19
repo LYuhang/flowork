@@ -12,20 +12,18 @@ export function ServicePreviewRenderer({ url, title }: { url: string; title: str
   const identity = useChatRenderIdentity();
   const chatId = origin?.chatId ?? identity?.chatId;
   const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<{ url?: string; error?: string }>({});
+  const requestKey = JSON.stringify([chatId, url, attempt]);
+  const [result, setState] = useState<{ key?: string; url?: string; error?: string }>({});
+  const state = result.key === requestKey ? result : {};
   useEffect(() => {
     const abort = new AbortController();
-    setState({});
-    if (!chatId) {
-      setState({ error: t('preview.service.noChat', 'Open this service from its original conversation.') });
-      return;
-    }
+    if (!chatId) return;
     void resolveServicePreview(chatId, url, abort.signal).then(
-      (value) => { if (!abort.signal.aborted) setState({ url: value.url }); },
+      (value) => { if (!abort.signal.aborted) setState({ key: requestKey, url: value.url }); },
       (error: unknown) => {
         if (abort.signal.aborted) return;
         const detail = error instanceof Error ? error.message : String(error);
-        setState({ error: detail.includes('domain_not_configured')
+        setState({ key: requestKey, error: detail.includes('domain_not_configured')
           ? t('preview.service.notConfigured', 'Service preview domain is not configured yet.')
           : detail.includes('stopped') || detail.includes('changed')
             ? t('preview.service.stopped', 'The sandbox service has stopped. Ask the Agent to check or start it.')
@@ -33,7 +31,7 @@ export function ServicePreviewRenderer({ url, title }: { url: string; title: str
       },
     );
     return () => abort.abort();
-  }, [chatId, url, attempt, t]);
+  }, [chatId, url, requestKey, t]);
   if (state.url) return <div className="flex h-full min-h-64 flex-col">
     <div className="flex items-center gap-2 border-b px-3 py-2">
       <span className="min-w-0 flex-1 truncate text-xs" title={url}>{url}</span>
@@ -43,7 +41,7 @@ export function ServicePreviewRenderer({ url, title }: { url: string; title: str
       sandbox="allow-scripts allow-same-origin allow-forms allow-downloads" referrerPolicy="no-referrer" />
   </div>;
   return <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 p-4 text-sm" role="status">
-    <p>{state.error ?? t('preview.service.connecting', 'Connecting to the sandbox service…')}</p>
+    <p>{!chatId ? t('preview.service.noChat', 'Open this service from its original conversation.') : state.error ?? t('preview.service.connecting', 'Connecting to the sandbox service…')}</p>
     {state.error && <Button size="sm" variant="outline" onClick={() => setAttempt((value) => value + 1)}>{t('common.retry', 'Retry')}</Button>}
   </div>;
 }

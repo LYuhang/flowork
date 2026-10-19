@@ -35,7 +35,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui';
-import { ChatRunStatus } from '@/components/agent-sidebar/ChatRunStatus';
+import { ChatRunStatus, ChatAliveIcon } from '@/components/agent-sidebar/ChatRunStatus';
 import type { ChatListItem } from '@/lib/api/queries/chats';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -641,7 +641,7 @@ export function AppSidebar({
                                     : 'text-muted-foreground hover:bg-surface-hover/70 hover:text-foreground',
                                 )}
                               >
-                                <ResourceIcon kind="chat" size="sm" variant="plain" className="size-5 rounded" />
+                                <ChatAliveIcon chatId={item.chat_id} run={item.latest_run} serving={sandboxStatusByProject.get(project.project_id)?.serving_chat_ids?.includes(item.chat_id) ?? false} />
                                 <span className="min-w-0 flex-1 truncate">{label}</span>
                                 {item.pinned_at && <Pin className="size-3 shrink-0" aria-label={t('chat.list.pinned', 'Pinned')} />}
                                 <ChatRunStatus chatId={item.chat_id} run={item.latest_run} />

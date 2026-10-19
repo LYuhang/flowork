@@ -135,6 +135,7 @@ async def _run(channel, request: RuntimeTurnRequest) -> None:
 async def serve_turns(channel) -> None:
     turns: dict[str, tuple[TurnChannel, asyncio.Task]] = {}
     forwardings: dict[str, tuple[TurnChannel, asyncio.Task]] = {}
+    service_queries: set[asyncio.Task] = set()
 
     async def forward(turn, request):
         from vibecanvas_api.services.sandbox.service_forwarding import forward_service
@@ -147,6 +148,16 @@ async def serve_turns(channel) -> None:
             await turn.send({"type": "error", "message": str(exc) or type(exc).__name__})
         finally:
             forwardings.pop(turn.turn_id, None)
+
+    async def manage_service(envelope):
+        from vibecanvas_api.services.sandbox.listening_services import listening_services, stop_service
+        try:
+            services = (await stop_service(envelope["port"], envelope["expected"])
+                        if envelope.get("action") == "stop" else listening_services())
+            reply = {"services": services}
+        except Exception as exc:
+            reply = {"error": str(exc) or type(exc).__name__}
+        await channel.send({"type": "service_inventory", "turn_id": envelope["turn_id"], **reply})
 
     async def execute(turn, request):
         try:
@@ -165,7 +176,11 @@ async def serve_turns(channel) -> None:
             if envelope is None:
                 return
             kind = envelope.get("type")
-            if kind == "service_forwarding":
+            if kind == "service_inventory":
+                task = asyncio.create_task(manage_service(envelope))
+                service_queries.add(task)
+                task.add_done_callback(service_queries.discard)
+            elif kind == "service_forwarding":
                 identifier = str(envelope["turn_id"])
                 if identifier in forwardings:
                     raise ValueError("duplicate forwarding request")
@@ -219,7 +234,7 @@ async def serve_turns(channel) -> None:
             # before processing a disconnect/cancel immediately after request.
             await asyncio.sleep(0)
     finally:
-        tasks = [task for _, task in [*turns.values(), *forwardings.values()]]
+        tasks = [task for _, task in [*turns.values(), *forwardings.values()]] + list(service_queries)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

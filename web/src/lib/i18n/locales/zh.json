@@ -4175,5 +4175,7 @@
   "canvasChat.discardDraftConfirm": "丢弃并继续",
   "files.manage.discardDraft": "放弃草稿",
   "files.manage.discardDraftHint": "放弃所有已保存的草稿修改？已发布版本和 Git 历史保持不变。",
-  "files.manage.draftDiscarded": "已放弃草稿"
+  "files.manage.draftDiscarded": "已放弃草稿",
+  "preview.service.stop": "停止服务",
+  "preview.service.stoppedByUser": "服务已停止。"
 }

@@ -209,6 +209,7 @@ export default defineConfig({
       // 127.0.0.1, which otherwise turns every browser API request into 502.
       '/api/v1/browser/ws': { target: browserGatewayTarget, changeOrigin: true, ws: true },
       '/api': { target: nativeApiTarget, changeOrigin: true, ws: true },
+      '/preview/': { target: nativeApiTarget, changeOrigin: true, ws: true },
       '/healthz': { target: nativeApiTarget, changeOrigin: true },
     },
   },
@@ -221,6 +222,7 @@ export default defineConfig({
     proxy: {
       '/api/v1/browser/ws': { target: browserGatewayTarget, changeOrigin: true, ws: true },
       '/api': { target: nativeApiTarget, changeOrigin: true, ws: true },
+      '/preview/': { target: nativeApiTarget, changeOrigin: true, ws: true },
       '/healthz': { target: nativeApiTarget, changeOrigin: true },
     },
   },

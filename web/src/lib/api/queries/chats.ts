@@ -80,6 +80,8 @@ export interface ProjectSandboxStatus {
   idle_for_s?: number | null;
   ttl_phase?: 'warm_idle' | 'idle_release' | 'snapshot_retention' | null;
   ttl_s?: number | null;
+  serving_chat_ids?: string[];
+  serving_ports?: number[];
   ttl_paused?: boolean;
   ttl_remaining_s?: number | null;
   next_transition?: 'hibernate' | 'warm' | 'release' | null;

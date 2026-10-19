@@ -275,6 +275,8 @@ def _codex_env(runtime_root: str, chat_id: str | None = None) -> dict[str, str]:
     # non-loopback destination on the fail-closed egress path. Do not inherit a
     # broader host NO_PROXY list into the sandbox.
     env["NO_PROXY"] = "127.0.0.1"
+    if chat_id is not None:
+        env["FLOWORK_SERVICE_CHAT_ID"] = chat_id
     env["CODEX_HOME"] = runtime_root
     env["CODEX_SQLITE_HOME"] = runtime_root
     # Codex discovers Agent Skills from $HOME/.agents/skills. CODEX_HOME stays

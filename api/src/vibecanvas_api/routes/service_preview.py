@@ -9,7 +9,7 @@ from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.storage.models import Chat, ChatProject
 
-from .sandbox_forwarding import issue_forwarding_target, local_service_url, preview_domain
+from .sandbox_forwarding import issue_forwarding_target, local_service_url
 
 router = APIRouter(prefix="/api/v1/previews/service", tags=["previews"])
 
@@ -19,10 +19,7 @@ class OpenService(BaseModel):
     url: str = Field(min_length=1, max_length=8192)
 
 
-@router.post("/resolve")
-async def resolve(body: OpenService, auth: AuthContext = Depends(current_user), db=Depends(tenant_db)):
-    if not preview_domain():
-        raise HTTPException(503, "service_preview_domain_not_configured")
+async def owned_service(body: OpenService, auth: AuthContext, db):
     try:
         parsed, port = local_service_url(body.url)
     except ValueError as exc:
@@ -45,6 +42,28 @@ async def resolve(body: OpenService, auth: AuthContext = Depends(current_user), 
     sandbox = await get_sandbox_manager().get_loaded_session(auth.tenant_id, scope)
     if sandbox is None:
         raise HTTPException(409, "service_preview_sandbox_stopped")
+    return sandbox, parsed, port, project_id, scope
+
+
+class StopService(OpenService):
+    runtime_id: str
+    expected: list[dict]
+
+
+@router.post("/stop")
+async def stop(body: StopService, auth: AuthContext = Depends(current_user), db=Depends(tenant_db)):
+    sandbox, _, port, _, _ = await owned_service(body, auth, db)
+    try:
+        await sandbox.service_inventory(action="stop", port=port, expected=body.expected,
+                                        runtime_id=body.runtime_id)
+    except (RuntimeError, TimeoutError) as exc:
+        raise HTTPException(409, str(exc) or "service_stop_timeout") from exc
+    return {"status": "stopped", "port": port}
+
+
+@router.post("/resolve")
+async def resolve(body: OpenService, auth: AuthContext = Depends(current_user), db=Depends(tenant_db)):
+    sandbox, parsed, port, project_id, scope = await owned_service(body, auth, db)
     try:
         identity = await sandbox.service_forwarding_identity()
     except RuntimeError as exc:
@@ -56,7 +75,7 @@ async def resolve(body: OpenService, auth: AuthContext = Depends(current_user), 
         path += "?" + parsed.query
     if parsed.fragment:
         path += "#" + parsed.fragment
-    return issue_forwarding_target(
+    result = issue_forwarding_target(
         tenant=str(auth.tenant_id),
         user=str(auth.user_id),
         project=project_id,
@@ -67,3 +86,12 @@ async def resolve(body: OpenService, auth: AuthContext = Depends(current_user), 
         loopback_host=parsed.hostname,
         path=path,
     )
+    try:
+        inventory = await sandbox.service_inventory()
+    except (RuntimeError, TimeoutError) as exc:
+        raise HTTPException(503, str(exc) or "service_inventory_timeout") from exc
+    result["service"] = {
+        "runtime_id": identity["runtime_id"],
+        "expected": [item for item in inventory["services"] if item["port"] == port],
+    }
+    return result

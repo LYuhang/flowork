@@ -153,6 +153,9 @@ async def test_resolve_preserves_path_query_fragment_and_uses_existing_sandbox(m
             return SimpleNamespace(scalar_one_or_none=lambda: self.project)
 
     class Sandbox:
+        async def service_inventory(self):
+            return {"services": []}
+
         async def service_forwarding_identity(self):
             return {"runtime_id": "generation-a"}
 

@@ -144,7 +144,16 @@ export function resolvePreviewResourceUrl(
   return `${root}${path.slice(mount.pathPrefix.length).replace(/^\/+/, '')}`;
 }
 
-export async function resolveServicePreview(chatId: string, url: string, signal?: AbortSignal): Promise<{url: string; expires_in: number}> {
+export type PreviewService = { runtime_id: string; expected: Array<{port: number; pid: number; start: string; chat_id: string}> };
+
+export async function stopPreviewService(chatId: string, url: string, service: PreviewService): Promise<{status: string}> {
+  return jsonOrThrow(await authedFetch('/api/v1/previews/service/stop', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, url, ...service }),
+  }), 'Stop service');
+}
+
+export async function resolveServicePreview(chatId: string, url: string, signal?: AbortSignal): Promise<{url: string; expires_in: number; service: PreviewService}> {
   return jsonOrThrow(await authedFetch('/api/v1/previews/service/resolve', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, url }), signal,

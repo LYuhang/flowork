@@ -1,4 +1,4 @@
-"""Authenticated loopback previews on a dedicated wildcard origin.
+"""Authenticated loopback previews through isolated path or domain gateways.
 
 The API never connects to a user-selected host. Requests traverse sandboxd and
 are executed inside the existing, network-isolated Agent runtime.
@@ -21,13 +21,15 @@ from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 
 from vibecanvas_api.config import config
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.models import ChatProject
+
+from .service_preview_paths import redirect_url, rewrite_document
 
 gateway = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -137,6 +139,18 @@ def issue_forwarding_target(
         exp=int(time.time()) + TTL,
     )
     token = codec().encrypt(json.dumps(claims).encode()).decode()
+    if not preview_domain():
+        # Signed sandbox identity carries the user, runtime generation and port.
+        # Path capabilities work in opaque-origin frames without login cookies.
+        prefix = f"/preview/{token}/{port}/"
+        origin = config.public_urls.public_url.rstrip("/")
+        return {
+            "url": origin + prefix + path.lstrip("/"),
+            "forwarding_url": origin + prefix,
+            "port": port,
+            "path": path,
+            "expires_in": TTL,
+        }
     origin = f"https://{hostname(token)}"
     return {
         "url": f"{origin}/_flowork_preview/open?token={token}",
@@ -145,6 +159,12 @@ def issue_forwarding_target(
         "path": path,
         "expires_in": TTL,
     }
+
+
+def connection_claims(connection):
+    if "service_preview_claims" in connection.scope:
+        return connection.scope["service_preview_claims"]
+    return claims_for(connection.cookies.get(COOKIE, ""), connection.url.hostname)
 
 
 async def authorized_session(claims):
@@ -175,6 +195,10 @@ def upstream_request(connection, claims, *, websocket=False):
     headers.pop("cookie", None)
     if cookies:
         headers["cookie"] = cookies
+    if connection.scope.get("service_preview_prefix"):
+        headers.pop("cookie", None)
+        headers.pop("authorization", None)
+        headers["accept-encoding"] = "identity"
     headers.pop("if-none-match", None)
     headers.pop("if-modified-since", None)
     headers.pop("forwarded", None)
@@ -212,12 +236,20 @@ async def bootstrap(request: Request, token: str):
 
 @gateway.api_route("/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy(request: Request, path: str):
-    claims = claims_for(request.cookies.get(COOKIE, ""), request.url.hostname)
-    if (
-        request.method not in {"GET", "HEAD", "OPTIONS"}
-        and request.headers.get("origin") != f"https://{request.url.netloc}"
+    claims = connection_claims(request)
+    prefix = request.scope.get("service_preview_prefix")
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and request.headers.get("origin") not in (
+        {"null"} if prefix else {f"https://{request.url.netloc}"}
     ):
         raise HTTPException(403, "invalid_forwarding_origin")
+    if prefix and request.method == "OPTIONS":
+        return Response(
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": request.headers.get("access-control-request-headers", "content-type"),
+            }
+        )
     session = await authorized_session(claims)
     payload = upstream_request(request, claims)
     body = bytearray()
@@ -251,7 +283,19 @@ async def proxy(request: Request, path: str):
                     elif item["type"] == "error":
                         raise ConnectionError(item["message"])
 
-    response = StreamingResponse(content(), status_code=first["status"])
+    content_type = next((v for k, v in first["headers"] if k.lower() == "content-type"), "")
+    if prefix and any(kind in content_type for kind in ("text/html", "text/css")):
+        document = bytearray()
+        async for chunk in content():
+            document.extend(chunk)
+            if len(document) > 8 * 1024 * 1024:
+                await stream.aclose()
+                raise HTTPException(502, "service_preview_document_too_large")
+        response = Response(
+            rewrite_document(bytes(document), content_type, prefix, payload["path"]), status_code=first["status"]
+        )
+    else:
+        response = StreamingResponse(content(), status_code=first["status"])
     response_hop = HOP | {
         part.strip().lower()
         for key, value in first["headers"]
@@ -261,6 +305,17 @@ async def proxy(request: Request, path: str):
     for key, value in first["headers"]:
         lower = key.lower()
         if lower in response_hop | {"x-frame-options", "cache-control"}:
+            continue
+        if prefix and lower in {
+            "set-cookie",
+            "access-control-allow-origin",
+            "access-control-allow-credentials",
+            "refresh",
+            "service-worker-allowed",
+        }:
+            continue
+        if prefix and lower == "location":
+            response.headers.append(key, redirect_url(value, prefix, claims["port"]))
             continue
         if lower == "set-cookie":
             cookies = SimpleCookie()
@@ -294,6 +349,21 @@ async def proxy(request: Request, path: str):
         ancestors.append(f"chrome-extension://{config.browser_extension_id}")
     frame_ancestors = " ".join(ancestors) or "'none'"
     response.headers.append("Content-Security-Policy", f"worker-src 'none'; frame-ancestors {frame_ancestors}")
+    if prefix:
+        origin = f"{public.scheme}://{public.netloc}"
+        resource = origin + prefix
+        websocket_resource = ("wss" if public.scheme == "https" else "ws") + "://" + public.netloc + prefix
+        response.headers.append(
+            "Content-Security-Policy",
+            (
+                "sandbox allow-scripts allow-forms allow-downloads; "
+                f"default-src {resource} data: blob:; script-src {resource} 'unsafe-inline'; "
+                f"style-src {resource} 'unsafe-inline'; connect-src {resource} {websocket_resource}; "
+                f"base-uri {resource}; form-action {resource}; object-src 'none'; worker-src 'none'"
+            ),
+        )
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Accel-Buffering"] = "no"
@@ -304,8 +374,9 @@ async def proxy(request: Request, path: str):
 async def websocket_proxy(ws: WebSocket, path: str):
     close_code = 1000
     try:
-        claims = claims_for(ws.cookies.get(COOKIE, ""), ws.url.hostname)
-        if ws.headers.get("origin") != f"https://{ws.url.netloc}":
+        claims = connection_claims(ws)
+        prefix = ws.scope.get("service_preview_prefix")
+        if ws.headers.get("origin") not in ({"null"} if prefix else {f"https://{ws.url.netloc}"}):
             raise HTTPException(403, "invalid_preview_origin")
         session = await authorized_session(claims)
         payload = upstream_request(ws, claims, websocket=True)
@@ -374,6 +445,33 @@ class SandboxForwardingHostMiddleware:
 
     async def __call__(self, scope, receive, send):
         domain = self.domain
+        if scope["type"] in {"http", "websocket"} and scope.get("path", "").startswith("/preview/"):
+            matched = re.fullmatch(r"/preview/([A-Za-z0-9_=-]+)/([0-9]+)/(.*)", scope["path"])
+            try:
+                if not matched:
+                    raise ValueError("invalid service path")
+                token, port, path = matched.groups()
+                claims = json.loads(codec().decrypt(token.encode(), ttl=TTL))
+                if claims["port"] != int(port) or claims["exp"] <= time.time():
+                    raise ValueError("expired service path")
+            except (InvalidToken, ValueError, KeyError, TypeError):
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1008})
+                else:
+                    await HTMLResponse("Service preview expired. Reopen it from the conversation.", status_code=401)(
+                        scope, receive, send
+                    )
+                return
+            prefix = f"/preview/{token}/{port}/"
+            forwarded = dict(
+                scope,
+                path="/" + path,
+                raw_path=b"/" + scope.get("raw_path", b"")[len(prefix) :],
+                service_preview_claims=claims,
+                service_preview_prefix=prefix,
+            )
+            await gateway(forwarded, receive, send)
+            return
         if domain and scope["type"] in {"http", "websocket"}:
             host = dict(scope.get("headers", [])).get(b"host", b"").decode().split(":", 1)[0].lower()
             if host == domain or host.endswith("." + domain):

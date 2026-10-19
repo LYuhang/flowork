@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ChatRunStatus } from '../ChatRunStatus';
+import { ChatRunStatus, ChatAliveIcon } from '../ChatRunStatus';
 import { useChatStreamStore } from '@/stores/chat-stream';
 import type { ChatListItem } from '@/lib/api/queries/chats';
 
@@ -54,5 +54,21 @@ describe('ChatRunStatus', () => {
     render(<ChatRunStatus chatId="chat" run={summary('running')} />);
     act(() => useChatStreamStore.getState().setState('complete', 'chat'));
     expect(screen.queryByRole('img')).toBeNull();
+  });
+});
+
+
+describe('chat alive outline', () => {
+  it('combines serving and live run state without coloring idle sibling chats', () => {
+    const view = render(<ChatAliveIcon chatId="chat" run={summary('completed')} serving />);
+    expect(view.container.querySelector('svg')).toHaveAttribute('data-chat-alive', 'true');
+    view.rerender(<ChatAliveIcon chatId="chat" run={summary('completed')} serving={false} />);
+    expect(view.container.querySelector('svg')).toHaveAttribute('data-chat-alive', 'false');
+    act(() => useChatStreamStore.getState().beginTurn('chat', 'new'));
+    expect(view.container.querySelector('svg')).toHaveAttribute('data-chat-alive', 'true');
+    act(() => useChatStreamStore.getState().setState('complete', 'chat'));
+    expect(view.container.querySelector('svg')).toHaveAttribute('data-chat-alive', 'false');
+    view.rerender(<ChatAliveIcon chatId="sibling" run={summary('completed')} serving={false} />);
+    expect(view.container.querySelector('svg')).toHaveClass('text-content-tertiary');
   });
 });

@@ -10,7 +10,7 @@ describe('loopback message links', () => {
       <Markdown>{'[Live page](http://localhost:3000/demo?q=2)'}</Markdown>
     </ChatRenderProvider>);
     fireEvent.click(screen.getByText('Live page'));
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({ component_type: 'url_preview', props: { url: 'http://localhost:3000/demo?q=2' } }));
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ component_type: 'url_preview', read_only: true, props: { url: 'http://localhost:3000/demo?q=2' } }));
   });
   it('recognizes a bare localhost URL in an Agent message', () => {
     const open = vi.fn();

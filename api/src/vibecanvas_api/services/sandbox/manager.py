@@ -441,6 +441,8 @@ class SandboxSession:
         self._serve_snapshot: ServeSnapshot | None = None
         self._snapshot_dir: str | None = None
         self._snapshot_error: str | None = None
+        self._listening_services: list[dict] = []
+        self._services_unknown = False
         self._last_activity_sequence: int | None = None
         self._activity_was_busy = False
 
@@ -531,7 +533,9 @@ class SandboxSession:
                 "abandoned_jobs",
             )
         )
-        busy = bool(inflight or broker_count or writeback_busy or guest_busy)
+        serving = getattr(self, "_listening_services", [])
+        busy = bool(inflight or broker_count or writeback_busy or guest_busy or serving
+                    or getattr(self, "_services_unknown", False))
         sequence_value = pool_state.get("activity_sequence")
         sequence = int(sequence_value) if isinstance(sequence_value, int) else None
         sequence_advanced = bool(
@@ -550,6 +554,8 @@ class SandboxSession:
             "broker_count": broker_count,
             "writeback_busy": writeback_busy,
             "sandbox": pool_state,
+            "serving_chat_ids": sorted({item["chat_id"] for item in serving}),
+            "serving_ports": sorted({item["port"] for item in serving}),
         }
 
     @staticmethod
@@ -1617,6 +1623,39 @@ class SandboxSession:
             await asyncio.to_thread(self.provider.stop_run, handle, kill=False)
         if persist_account_auth:
             self._persist_codex_account_auth()
+
+    async def service_inventory(self, *, action: str = "list", port: int = 0,
+                                expected: list | None = None, runtime_id: str | None = None) -> dict:
+        """Observe services through the existing runtime bus, without an activity lease."""
+        handle = self._runtime_handle
+        router = self._runtime_router
+        if handle is None or handle.proc.poll() is not None or router is None:
+            self._listening_services = []
+            self._services_unknown = False
+            if action == "stop":
+                raise RuntimeError("service_preview_sandbox_stopped")
+            return {"services": []}
+        if runtime_id is not None and runtime_id != handle.container_id:
+            raise RuntimeError("service_preview_sandbox_changed")
+        turn = None
+        try:
+            turn = router.attach("services-" + uuid.uuid4().hex)
+            async with asyncio.timeout(5):
+                await turn.send({"type": "service_inventory", "action": action,
+                                 "port": port, "expected": expected or []})
+                async for reply in turn.messages():
+                    if reply.get("error"):
+                        raise RuntimeError(reply["error"])
+                    self._listening_services = reply["services"]
+                    self._services_unknown = False
+                    return {"services": self._listening_services, "runtime_id": handle.container_id}
+            raise RuntimeError("service_inventory_disconnected")
+        except Exception:
+            self._services_unknown = True
+            raise
+        finally:
+            if turn is not None:
+                turn.detach()
 
     async def service_forwarding_identity(self) -> dict:
         # Host-network sandboxes share infrastructure ports; never proxy those.
@@ -3765,6 +3804,8 @@ class SandboxManager:
                     "lease": getattr(session, "lease", "interactive"),
                     "activity_state": "busy" if busy else "idle",
                     "inflight_operations": observation["inflight_operations"],
+                    "serving_chat_ids": observation["serving_chat_ids"],
+                    "serving_ports": observation["serving_ports"],
                     "idle_elapsed_s": idle_elapsed,
                     "idle_for_s": idle_elapsed,
                     "ttl_phase": (
@@ -4367,8 +4408,16 @@ class SandboxManager:
 
     async def sweep_idle(self) -> int:
         """Advance idle interactive sessions through hibernate and release."""
-        now = time.monotonic()
         reaped = 0
+        # One bounded observation per existing maintenance pass, outside the
+        # registry lock. Preview visibility does not determine service lifetime.
+        for session in list(self._sessions.values()):
+            if not session.closed and _session_lifecycle_state(session) == "warm":
+                try:
+                    await session.service_inventory()
+                except Exception:
+                    logger.warning("sandbox_service_inventory_failed", wf_id=session.wf_id, exc_info=True)
+        now = time.monotonic()
         victims: list[SandboxSession] = []
         hibernate: list[SandboxSession] = []
         async with self._lock:

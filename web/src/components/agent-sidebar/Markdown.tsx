@@ -67,7 +67,7 @@ export function Markdown({
             if (service && href && identity?.chatId) return <a href={href} data-action="open-service-preview" onClick={(event) => {
               event.preventDefault();
               const artifact: InteractiveArtifact = { kind: 'interactive_artifact', schema_version: 1,
-                artifact_id: `service:${identity.chatId}:${href}`, title: href, component_type: 'url_preview',
+                artifact_id: `service:${identity.chatId}:${href}`, title: href, component_type: 'url_preview', read_only: true,
                 completion_mode: 'render_only', props: { url: href }, preview: { mode: 'preferred' } };
               if (identity.onOpenInteractivePreview) identity.onOpenInteractivePreview(artifact);
               else setServiceUrl(href);

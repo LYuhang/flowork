@@ -4175,5 +4175,7 @@
   "canvasChat.discardDraftConfirm": "Discard and continue",
   "files.manage.discardDraft": "Discard draft",
   "files.manage.discardDraftHint": "Discard all saved draft changes? Published versions and Git history will stay unchanged.",
-  "files.manage.draftDiscarded": "Draft discarded"
+  "files.manage.draftDiscarded": "Draft discarded",
+  "preview.service.stop": "Stop service",
+  "preview.service.stoppedByUser": "Service stopped."
 }

@@ -118,7 +118,19 @@ class _FakeManager:
 
 
 @pytest_asyncio.fixture
-async def sandbox_service(tmp_path):
+async def sandbox_service(tmp_path, monkeypatch):
+    from vibecanvas_api.services.deployment_rollout import DeploymentRollouts
+
+    # This transport fixture has no deployment/database backend. Keep unrelated
+    # maintenance idle; its behavior is covered by the manager/rollout tests.
+    async def idle_rollouts(self, stop):
+        await stop.wait()
+
+    async def idle_reaper(self):
+        await self._stop.wait()
+
+    monkeypatch.setattr(DeploymentRollouts, "serve", idle_rollouts)
+    monkeypatch.setattr(SandboxDaemon, "_reap", idle_reaper)
     daemon = object.__new__(SandboxDaemon)
     daemon.socket_path = str(tmp_path / "sandboxd.sock")
     daemon.endpoint = f"unix://{daemon.socket_path}"
@@ -289,3 +301,35 @@ def test_workflow_run_source_rejects_paths_and_unknown_fields():
                    {'tenant_id':'owner','workflow_id':'workflow','directory':'/host/path'}):
         with pytest.raises(ValidationError):
             WorkflowRunSource(**values)
+
+
+@pytest.mark.asyncio
+async def test_service_stop_from_another_api_worker_keeps_project_identity(sandbox_service):
+    """Two independent API clients route to the same authoritative sandbox."""
+    from unittest.mock import AsyncMock
+
+    worker_a = RemoteSandboxManager(sandbox_service.socket_path)
+    worker_b = RemoteSandboxManager(sandbox_service.socket_path)
+    owners = [{"port": 8080, "pid": 7, "start": "123", "chat_id": "chat-a"}]
+    try:
+        first = await worker_a.get_session("tenant", "project-a")
+        await worker_a.get_session("tenant", "project-b")
+        owned = sandbox_service.manager.sessions[("tenant", "project-a")]
+        sibling = sandbox_service.manager.sessions[("tenant", "project-b")]
+        owned.service_inventory = AsyncMock(return_value={"services": owners, "runtime_id": "runtime-a"})
+        sibling.service_inventory = AsyncMock()
+        observed = await first.service_inventory()
+        resumed = await worker_b.get_loaded_session("tenant", "project-a")
+        assert resumed is not None
+        owned.service_inventory.return_value = {"services": [], "runtime_id": "runtime-a"}
+        result = await resumed.service_inventory(action="stop", port=8080,
+                                                 expected=observed["services"], runtime_id=observed["runtime_id"])
+        assert result["services"] == []
+        owned.service_inventory.assert_awaited_with(action="stop", port=8080,
+                                                    expected=owners, runtime_id="runtime-a")
+        sibling.service_inventory.assert_not_awaited()
+        assert (await first.service_inventory())["services"] == []
+        assert await worker_b.get_loaded_session("other-tenant", "project-a") is None
+    finally:
+        await worker_a.aclose()
+        await worker_b.aclose()

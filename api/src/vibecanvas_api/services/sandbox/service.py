@@ -46,6 +46,7 @@ _STREAM_METHODS = {
     "submit_workflow_stream",
 }
 _SESSION_METHODS = {
+    "service_inventory",
     "service_forwarding_identity",
     "service_forwarding_control",
     "prepare_workflow_skills",
@@ -234,6 +235,9 @@ class RemoteSandboxSession:
         )) as stream:
             async for item in stream:
                 yield item
+
+    async def service_inventory(self, **kwargs) -> dict:
+        return await self._call("service_inventory", **kwargs)
 
     async def service_forwarding_identity(self) -> dict:
         return await self._call("service_forwarding_identity")

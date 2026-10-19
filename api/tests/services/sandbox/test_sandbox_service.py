@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import socket
+import subprocess
 import time
 from types import SimpleNamespace
 
@@ -118,7 +120,7 @@ class _FakeManager:
 
 
 @pytest_asyncio.fixture
-async def sandbox_service(tmp_path, monkeypatch):
+async def sandbox_service(tmp_path, monkeypatch, request):
     from vibecanvas_api.services.deployment_rollout import DeploymentRollouts
 
     # This transport fixture has no deployment/database backend. Keep unrelated
@@ -134,6 +136,25 @@ async def sandbox_service(tmp_path, monkeypatch):
     daemon = object.__new__(SandboxDaemon)
     daemon.socket_path = str(tmp_path / "sandboxd.sock")
     daemon.endpoint = f"unix://{daemon.socket_path}"
+    if getattr(request, "param", "unix") == "tls":
+        from vibecanvas_api.config import config
+
+        cert, key = tmp_path / "test.crt", tmp_path / "test.key"
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(key), "-out", str(cert), "-days", "1",
+            "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1",
+        ], check=True, capture_output=True)
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            port = reservation.getsockname()[1]
+        daemon.socket_path = ""
+        daemon.endpoint = f"grpcs://127.0.0.1:{port}"
+        daemon.tls_cert_file = daemon.client_ca_file = str(cert)
+        daemon.tls_key_file = str(key)
+        monkeypatch.setattr(config, "sandbox_service_ca_file", str(cert))
+        monkeypatch.setattr(config, "sandbox_service_cert_file", str(cert))
+        monkeypatch.setattr(config, "sandbox_service_key_file", str(key))
     daemon.manager = _FakeManager()
     daemon.started_at = time.time()
     daemon.generation = 42
@@ -304,12 +325,13 @@ def test_workflow_run_source_rejects_paths_and_unknown_fields():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("sandbox_service", ["unix", "tls"], indirect=True)
 async def test_service_stop_from_another_api_worker_keeps_project_identity(sandbox_service):
     """Two independent API clients route to the same authoritative sandbox."""
     from unittest.mock import AsyncMock
 
-    worker_a = RemoteSandboxManager(sandbox_service.socket_path)
-    worker_b = RemoteSandboxManager(sandbox_service.socket_path)
+    worker_a = RemoteSandboxManager(sandbox_service.endpoint)
+    worker_b = RemoteSandboxManager(sandbox_service.endpoint)
     owners = [{"port": 8080, "pid": 7, "start": "123", "chat_id": "chat-a"}]
     try:
         first = await worker_a.get_session("tenant", "project-a")

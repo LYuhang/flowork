@@ -145,7 +145,7 @@ export function resolvePreviewResourceUrl(
 }
 
 export async function resolveServicePreview(chatId: string, url: string, signal?: AbortSignal): Promise<{url: string; expires_in: number}> {
-  return jsonOrThrow(await authedFetch('/previews/service/resolve', {
+  return jsonOrThrow(await authedFetch('/api/v1/previews/service/resolve', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, url }), signal,
   }), 'Service preview');

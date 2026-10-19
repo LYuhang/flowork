@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchPreviewRendition,
   resolvePreview,
+  resolveServicePreview,
   resolvePreviewResourceUrl,
 } from '@/lib/api/previews';
 import type { FileRefV1, PreviewResourceSessionV1 } from '@/lib/preview/protocol';
@@ -113,5 +114,18 @@ describe('fetchPreviewRendition', () => {
     expect(new Headers((init as RequestInit).headers).get('Authorization')).toBe(
       'Bearer preview-token',
     );
+  });
+});
+
+
+describe('resolveServicePreview', () => {
+  it('uses the versioned API route and preserves the sandbox URL', async () => {
+    const target = { url: 'https://service.preview.test/', expires_in: 3600 };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json(target));
+    expect(await resolveServicePreview('clock-chat', 'http://localhost:8080/')).toEqual(target);
+    const [path, init] = fetchSpy.mock.calls[0];
+    expect(String(path)).toMatch(/\/api\/v1\/previews\/service\/resolve$/);
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ chat_id: 'clock-chat', url: 'http://localhost:8080/' });
   });
 });

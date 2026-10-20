@@ -81,3 +81,9 @@ def test_core_build_node_types_are_expected_flow_nodes():
         "LoopBeginNode",
         "LoopEndNode",
     )
+
+
+def test_code_spec_uses_workflow_settings_timeout_only():
+    spec = build_node_spec("CodeNode", {})
+    assert "timeout" not in spec["config_schema"]["properties"]
+    assert "__meta__.settings.timeouts.code" in format_node_spec(spec)

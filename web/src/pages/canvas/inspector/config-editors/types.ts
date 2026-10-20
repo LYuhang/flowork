@@ -13,6 +13,7 @@
  */
 export interface NodeConfigEditorProps {
   config: Record<string, unknown>;
+  workflowSettings?: { timeouts?: { http?: number; code?: number } };
   readOnly?: boolean;
   onChange: (next: Record<string, unknown>) => void;
   /**

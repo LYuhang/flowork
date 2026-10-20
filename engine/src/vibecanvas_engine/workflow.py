@@ -44,18 +44,14 @@ class Workflow:
         #    ``__meta__.settings`` and apply them to the freshly-built node
         #    instances + the workflow execution timeout. Absent/empty settings
         #    → today's behavior, byte-identical (default libs + default
-        #    timeouts). A per-node ``node_config`` value still WINS over any
-        #    settings-supplied default (the node reads node_config first,
-        #    falling back to the instance default we set here).
+        #    timeouts). HTTP supports a per-node override; Code uses only settings.
         self._apply_settings(workflow_dict)
 
     def _apply_settings(self, workflow_dict: dict) -> None:
         """Apply ``__meta__.settings`` timeouts to nodes + self.
 
-        Resolution order (highest first): per-node ``node_config`` >
-        ``__meta__.settings`` > engine hard-coded default. This method only
-        fills the per-instance *default* (the settings tier); node_config is
-        consulted at call time and therefore always wins.
+        Workflow settings override engine defaults. HTTP additionally supports
+        a per-node timeout override; Code deliberately does not.
 
         CodeNode third-party libraries are NOT applied here: they come from the
         content-addressed dependency overlay (built from

@@ -3,7 +3,7 @@
 Verifies the engine reads ``__meta__.settings`` in ``Workflow.__init__`` and
 applies the TIMEOUTS to the freshly-built node instances + the execution
 timeout, with:
-  * resolution order: per-node node_config > settings > engine default
+  * Code: settings > engine default; HTTP also supports per-node override
   * absent-settings back-compat that is byte-identical to today's behavior
 
 CodeNode third-party libraries are not applied directly through settings:
@@ -143,17 +143,20 @@ def test_settings_timeouts_override_defaults():
     assert wf.id2node["node_3"]._default_timeout == 5.0
 
 
-def test_per_node_config_timeout_beats_settings_for_code():
-    # node_config.timeout=99 must win over settings.timeouts.code=10.
-    wf = Workflow(
-        _wf(settings={"timeouts": {"code": 10}}, code_node_config={"timeout": 99}),
-    )
-    code = wf.id2node["node_2"]
-    # the settings tier sets the instance DEFAULT...
-    assert code._default_timeout == 10.0
-    # ...but the value actually used reads node_config first (node_config wins).
-    used = float(code.node_config.get("timeout", code._default_timeout))
-    assert used == 99.0
+def test_legacy_code_timeout_does_not_override_settings(monkeypatch):
+    from unittest.mock import Mock
+    from vibecanvas_engine.nodes.code import CodeNode
+
+    graph = _wf(settings={"timeouts": {"code": 10}}, code_node_config={"timeout": 2})
+    assert "timeout" not in CodeNode.CONFIG_SCHEMA["properties"]
+    assert CodeNode.check(graph["node_2"])["status"] == "success"
+    code = Workflow(graph).id2node["node_2"]
+    pool = Mock()
+    pool.run.return_value = {"status": "success", "output": {}}
+    monkeypatch.setattr(code, "_get_run_pool", lambda extra: pool)
+    assert code({}, {}, {})["status"] == "success"
+    assert pool.run.call_args.args[2] == 10
+    assert graph["node_2"]["node_config"]["timeout"] == 2  # history unchanged
 
 
 def test_per_node_config_timeout_beats_settings_for_http():
@@ -164,3 +167,11 @@ def test_per_node_config_timeout_beats_settings_for_http():
     assert http._default_timeout == 5.0
     used = float(http.node_config.get("timeout", http._default_timeout))
     assert used == 77.0
+
+
+def test_code_default_reads_current_engine_configuration(monkeypatch):
+    from vibecanvas_engine.nodes import config
+
+    monkeypatch.setattr(config, "_CODE_TIMEOUT", 75.0)
+    workflow = Workflow(_wf())
+    assert workflow.id2node["node_2"]._default_timeout == 75.0

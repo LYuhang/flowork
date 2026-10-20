@@ -1760,7 +1760,7 @@
   "inspector.config.table.filePathPlaceholderRead": "/run/{{date}}/input.csv",
   "inspector.config.table.filePathPlaceholderWrite": "/run/{{date}}/output.csv",
   "inspector.config.table.formatLabel": "file_format",
-  "inspector.config.table.formatAuto": "根据文件后缀自动识别（.csv / .jsonl / .xlsx）。仅当后缀无法识别时才需手动指定。",
+  "inspector.config.table.formatAuto": "自动模式按扩展名识别；显式选择的格式优先。",
   "inspector.config.table.formatDerived": "已根据路径识别：{{format}}",
   "inspector.config.table.modeLabel": "mode",
   "inspector.config.table.modeBatch": "batch",
@@ -4177,5 +4177,9 @@
   "files.manage.discardDraftHint": "放弃所有已保存的草稿修改？已发布版本和 Git 历史保持不变。",
   "files.manage.draftDiscarded": "已放弃草稿",
   "preview.service.stop": "停止服务",
-  "preview.service.stoppedByUser": "服务已停止。"
+  "preview.service.stoppedByUser": "服务已停止。",
+  "inspector.config.http.inheritTimeout": "继承工作流设置",
+  "inspector.config.http.timeoutOverride": "节点覆盖：{{seconds}} 秒；清空后继承工作流设置。",
+  "inspector.config.http.timeoutInherited": "继承超时：{{seconds}} 秒（{{source}}）。",
+  "inspector.config.engineDefault": "引擎默认值"
 }

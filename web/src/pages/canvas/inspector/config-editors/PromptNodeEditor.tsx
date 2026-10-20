@@ -110,7 +110,9 @@ export function PromptNodeEditor({
   // extra_body: an optional JSON object string merged into the model request
   // body (OpenAI-compatible). Stored raw; soft-validated (non-blocking).
   const extraBody =
-    typeof inference.extra_body === 'string' ? (inference.extra_body as string) : '';
+    typeof inference.extra_body === 'string' ? inference.extra_body
+      : inference.extra_body && typeof inference.extra_body === 'object'
+        ? JSON.stringify(inference.extra_body, null, 2) : '';
   const extraBodyInvalid =
     extraBody.trim() !== '' &&
     (() => {
@@ -217,7 +219,6 @@ export function PromptNodeEditor({
             kind="float"
             step="0.1"
             min={0}
-            max={2}
             value={temperature}
             onCommit={(next) =>
               updateInference({ ...inference, temperature: next })
@@ -264,7 +265,7 @@ export function PromptNodeEditor({
           />
         </div>
 
-        {extraBodySupported && (
+        {(extraBodySupported || inference.extra_body !== undefined) && (
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">extra_body</Label>
             <CommitOnBlurTextarea

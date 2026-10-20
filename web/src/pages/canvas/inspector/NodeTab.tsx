@@ -34,6 +34,7 @@ import {
   FieldsEditor,
   type FieldsMap,
 } from '@/pages/canvas/inspector/FieldsEditor';
+import type { NodeConfigEditorProps } from './config-editors/types';
 import { NodeConfigEditor } from '@/pages/canvas/inspector/NodeConfigEditor';
 import {
   mirrorOutputsFromInputs,
@@ -206,7 +207,9 @@ function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) 
 
   const onConfigChange = (next: Record<string, unknown>) =>
     editNode((entry) => {
-      entry.node_config = next;
+      const config = { ...next };
+      if (nodeType === 'CodeNode') delete config.timeout;
+      entry.node_config = config;
     });
 
   // Output VIEW:
@@ -351,6 +354,7 @@ function NodeTabEditor({ wfId, nodeId, payload, readOnly }: NodeTabEditorProps) 
         <NodeConfigEditor
           nodeType={nodeType}
           config={payload.node_config ?? {}}
+          workflowSettings={(draft?.__meta__ as { settings?: NodeConfigEditorProps['workflowSettings'] } | undefined)?.settings}
           inputFieldNames={Object.keys(inputFields)}
           inputFields={inputFields}
           outputFieldNames={Object.keys(outputFields)}

@@ -13,15 +13,9 @@ addressed dependency overlay built from
 overlay first and the base third-party paths second, both after stdlib
 bootstrap. Only the CodeNode *timeout* default still lives here.
 
-Timeout tiers (highest precedence first):
-
-  1. Per-node ``node_config["timeout"]`` — consulted at call time, always wins.
-  2. Per-workflow ``__meta__.settings.timeouts.code`` — applied to each
-     CodeNode instance's ``_default_timeout`` by ``Workflow._apply_settings``.
-  3. App-wide default — the ``_CODE_TIMEOUT`` global, seeded from config.yaml
-     at startup via ``set_code_timeout`` (api ``enums.load_config_and_sync``)
-     and surfaced to the agent docs via ``get_code_timeout``
-     (``enums.build_runtime_vars``).
+Code timeout comes from Workflow Settings (`__meta__.settings.timeouts.code`),
+falling back to the app-wide default configured through `set_code_timeout`.
+Legacy per-node timeout values are ignored.
 """
 
 _CODE_LANGUAGES: list[str] = ["python"]

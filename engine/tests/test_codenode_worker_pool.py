@@ -24,10 +24,8 @@ from vibecanvas_engine.nodes.code import CodeNode
 
 def _node(process_fn: str, timeout: float | None = None) -> CodeNode:
     n = CodeNode.__new__(CodeNode)
-    n._default_timeout = 60.0
+    n._default_timeout = timeout if timeout is not None else 60.0
     cfg = {"programming_language": "python", "process_fn": process_fn}
-    if timeout is not None:
-        cfg["timeout"] = timeout
     n.node_config = cfg
     return n
 

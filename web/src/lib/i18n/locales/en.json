@@ -1760,7 +1760,7 @@
   "inspector.config.table.filePathPlaceholderRead": "/run/{{date}}/input.csv",
   "inspector.config.table.filePathPlaceholderWrite": "/run/{{date}}/output.csv",
   "inspector.config.table.formatLabel": "file_format",
-  "inspector.config.table.formatAuto": "Auto-detected from the file extension (.csv / .jsonl / .xlsx). Override only if the extension is unknown.",
+  "inspector.config.table.formatAuto": "Auto detects the file extension. An explicit format takes precedence.",
   "inspector.config.table.formatDerived": "Detected from path: {{format}}",
   "inspector.config.table.modeLabel": "mode",
   "inspector.config.table.modeBatch": "batch",
@@ -4177,5 +4177,9 @@
   "files.manage.discardDraftHint": "Discard all saved draft changes? Published versions and Git history will stay unchanged.",
   "files.manage.draftDiscarded": "Draft discarded",
   "preview.service.stop": "Stop service",
-  "preview.service.stoppedByUser": "Service stopped."
+  "preview.service.stoppedByUser": "Service stopped.",
+  "inspector.config.http.inheritTimeout": "Inherit workflow settings",
+  "inspector.config.http.timeoutOverride": "Node override: {{seconds}} s. Clear to inherit.",
+  "inspector.config.http.timeoutInherited": "Inherited timeout: {{seconds}} s ({{source}}).",
+  "inspector.config.engineDefault": "Engine default"
 }

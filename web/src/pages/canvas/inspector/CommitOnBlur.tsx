@@ -88,10 +88,12 @@ type NumberInputProps = Omit<
 >;
 
 export interface CommitOnBlurNumberProps extends NumberInputProps {
-  value: number;
+  value: number | undefined;
   onCommit: (next: number) => void;
+  /** Optional fields may clear their override and inherit a default. */
+  onClear?: () => void;
   /**
-   * `'int'` uses `parseInt(_, 10)`, `'float'` uses `parseFloat`. Default
+   * `'int'` requires an integer; `'float'` accepts fractional numbers. Default
    * `'float'`. Step / min / max props still flow to the underlying input
    * so the spinner UX matches.
    */
@@ -104,16 +106,15 @@ export interface CommitOnBlurNumberProps extends NumberInputProps {
  * Enter). Same prop-resync pattern as the text variants — when the
  * upstream `value` changes, the buffer follows.
  *
- * Invalid / empty commits revert the local buffer to the current
- * `value` rather than calling `onCommit` with NaN. This matches the
- * fall-back-to-current semantics of the original per-keystroke
- * `parseNumberOrUndefined` ?? current pattern, but consolidates the
- * undo-stack push to one entry per committed value instead of one per
- * keystroke.
+ * Invalid values revert to the current value. Empty input clears an optional
+ * setting when `onClear` is provided; otherwise it also reverts.
  */
 export function CommitOnBlurNumber({
   value,
   onCommit,
+  onClear,
+  min,
+  max,
   onKeyDown,
   kind = 'float',
   ...rest
@@ -128,12 +129,18 @@ export function CommitOnBlurNumber({
 
   const commit = () => {
     const trimmed = local.trim();
-    const parsed = kind === 'int' ? parseInt(trimmed, 10) : parseFloat(trimmed);
-    if (Number.isFinite(parsed) && parsed !== value) {
-      onCommit(parsed);
-    } else if (!Number.isFinite(parsed)) {
-      // Invalid / empty — silently revert the buffer rather than emit
-      // NaN. This also covers the "user cleared the field" case.
+    if (trimmed === '' && onClear) {
+      if (value !== undefined) onClear();
+      return;
+    }
+    const parsed = trimmed === '' ? NaN : Number(trimmed);
+    const valid = Number.isFinite(parsed)
+      && (kind !== 'int' || Number.isInteger(parsed))
+      && (min === undefined || parsed >= Number(min))
+      && (max === undefined || parsed <= Number(max));
+    if (valid) {
+      if (parsed !== value) onCommit(parsed);
+    } else {
       setLocal(Number.isFinite(value) ? String(value) : '');
     }
   };
@@ -157,6 +164,8 @@ export function CommitOnBlurNumber({
     <Input
       {...rest}
       type="number"
+      min={min}
+      max={max}
       value={local}
       onChange={(e) => setLocal(e.target.value)}
       onBlur={commit}

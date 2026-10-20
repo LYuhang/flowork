@@ -41,13 +41,14 @@ export function HTTPRequestNodeEditor({
   config,
   readOnly,
   onChange,
+  workflowSettings,
 }: NodeConfigEditorProps) {
   const { t } = useTranslation();
   const method =
     typeof config.method === 'string' ? (config.method as string) : 'GET';
   const url = typeof config.url === 'string' ? (config.url as string) : '';
   const timeout =
-    typeof config.timeout === 'number' ? (config.timeout as number) : 30;
+    typeof config.timeout === 'number' ? (config.timeout as number) : undefined;
 
   const auth = (config.auth as Dict | undefined) ?? {};
   const authType = typeof auth.type === 'string' ? (auth.type as string) : NONE;
@@ -55,7 +56,7 @@ export function HTTPRequestNodeEditor({
 
   const body = (config.body as Dict | undefined) ?? {};
   const bodyFormat =
-    typeof body.format === 'string' ? (body.format as string) : NONE;
+    typeof body.format === 'string' ? (body.format as string) : config.body ? 'json' : NONE;
 
   const setAuthType = (next: string) => {
     const cfg = { ...config };
@@ -87,7 +88,11 @@ export function HTTPRequestNodeEditor({
           <Label className="text-xs">method</Label>
           <Select
             value={method}
-            onValueChange={(next) => onChange({ ...config, method: next })}
+            onValueChange={(next) => {
+              const updated: Dict = { ...config, method: next };
+              if (!BODY_METHODS.has(next)) delete updated.body;
+              onChange(updated);
+            }}
             disabled={readOnly}
           >
             <SelectTrigger className="h-8 text-xs">
@@ -249,13 +254,30 @@ export function HTTPRequestNodeEditor({
           {t('inspector.config.http.timeoutLabel', 'timeout (seconds)')}
         </Label>
         <CommitOnBlurNumber
-          kind="int"
+          kind="float"
+          step="any"
           min={1}
           value={timeout}
+          placeholder={t('inspector.config.http.inheritTimeout', 'Inherit workflow settings')}
+          data-testid="cfg-http-timeout"
+          onClear={() => {
+            const updated = { ...config };
+            delete updated.timeout;
+            onChange(updated);
+          }}
           onCommit={(next) => onChange({ ...config, timeout: next })}
           disabled={readOnly}
           className="h-8 text-xs"
         />
+        <p className="text-xs text-muted-foreground">
+          {timeout !== undefined
+            ? t('inspector.config.http.timeoutOverride', 'Node override: {{seconds}} s. Clear to inherit.', { seconds: timeout })
+            : t('inspector.config.http.timeoutInherited', 'Inherited timeout: {{seconds}} s ({{source}}).', {
+                seconds: workflowSettings?.timeouts?.http && workflowSettings.timeouts.http > 0 ? workflowSettings.timeouts.http : 30,
+                source: workflowSettings?.timeouts?.http && workflowSettings.timeouts.http > 0
+                  ? t('settings.workflow.title', 'Workflow settings') : t('inspector.config.engineDefault', 'Engine default'),
+              })}
+        </p>
       </div>
     </div>
   );

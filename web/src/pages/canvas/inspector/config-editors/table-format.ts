@@ -1,10 +1,8 @@
 /**
  * Shared table-format helpers for the Table Read/Write config editors.
  *
- * Mirrors the engine's extension→format map (`table_io.py::_EXT_FORMAT`) so the
- * UI can auto-derive `file_format` from the `file_path` suffix and only ever
- * emit values the engine's enum (`auto | csv | jsonl | excel`) accepts. There
- * only supports local structured files.
+ * Mirrors the engine's extension-to-format map for local structured files.
+ * Explicit formats take precedence; only `auto` uses the path suffix.
  */
 
 /** Engine `file_format` enum (table_read.py / table_write.py CONFIG_SCHEMA). */
@@ -14,7 +12,7 @@ export type TableFormat = (typeof TABLE_FORMATS)[number];
 /** Default when nothing is stored and the suffix is unknown. */
 export const FALLBACK_FORMAT: TableFormat = 'auto';
 
-/** Choices offered in the manual override dropdown (shown only on unknown suffix). */
+/** Choices offered for explicit format selection, regardless of path suffix. */
 export const MANUAL_FORMATS: TableFormat[] = ['auto', 'csv', 'jsonl', 'excel'];
 
 /** Extension → concrete format (matches engine `_EXT_FORMAT`). */

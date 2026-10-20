@@ -10,7 +10,7 @@ from ..utils import safe_call_with_args
 from ..code_runner import CodeWorkerPool
 from ..register import node_registry
 from .base import BaseNode
-from .config import _CODE_LANGUAGES, _CODE_TIMEOUT
+from .config import _CODE_LANGUAGES, get_code_timeout
 
 
 @node_registry.register()
@@ -22,7 +22,7 @@ class CodeNode(BaseNode):
     # Class-level fallback so ``__new__``-constructed instances (used in some
     # tests) still resolve a timeout. ``__init__`` shadows it per-instance and
     # ``Workflow.__init__`` may override that from ``__meta__.settings``.
-    _default_timeout: float = _CODE_TIMEOUT
+    _default_timeout: float = get_code_timeout()
 
     # CodeNode runs user code in a per-run subprocess pool, which blocks the
     # calling thread on a pipe read. The engine dispatcher
@@ -55,17 +55,12 @@ class CodeNode(BaseNode):
                     "currently declared available for this workflow."
                 )
             },
-            "timeout": {
-                "type": "number",
-                "minimum": 0,
-                "description": "Optional hard wall-clock limit (seconds) for a single execution. Omit to use the default."
-            }
         },
         "additionalProperties": False
     }
 
     AGENT_SPEC = {
-        "summary": "Execute custom code that takes an inputs dict and returns an output dict.",
+        "summary": "Execute custom code that takes an inputs dict and returns an output dict. Set Code timeout in Workflow Settings (__meta__.settings.timeouts.code), not node_config.",
         "when_to_use": (
             "Use for deterministic transformation, parsing, validation, scoring, "
             "filtering, merging, formatting, or adapting complex inputs for "
@@ -87,7 +82,6 @@ class CodeNode(BaseNode):
                 "returning a dict whose keys match output_fields. See constraints "
                 "for the import model."
             ),
-            "timeout": "(Optional) Per-execution wall-clock limit in seconds. Omit to use the default."
         },
         "examples": [
             {
@@ -131,13 +125,17 @@ class CodeNode(BaseNode):
         # injects nothing.
         # Workflow Settings v1 (#484): the per-workflow default CodeNode timeout.
         # ``Workflow.__init__`` overrides this from ``__meta__.settings.timeouts.code``.
-        # A per-node ``node_config["timeout"]`` still WINS over this default
-        # (see ``__call__`` / ``call_async``). Absent settings → engine default.
-        self._default_timeout: float = _CODE_TIMEOUT
+        # Legacy node-level timeout values no longer override Workflow Settings.
+        self._default_timeout: float = get_code_timeout()
 
     @staticmethod
     @safe_call_with_args(prefix="[CodeNode Check]: ")
     def check(node_dict: dict) -> bool:
+        # Old saved graphs may carry the retired override. Accept them without
+        # mutating history; execution uses Workflow Settings exclusively.
+        node_dict = deepcopy(node_dict)
+        if isinstance(node_dict.get("node_config"), dict):
+            node_dict["node_config"].pop("timeout", None)
         jsonschema.validate(
             instance=node_dict,
             schema=BaseNode.GENERAL_NODE_SCHEMA
@@ -248,7 +246,7 @@ class CodeNode(BaseNode):
         """
         extra = extra or {}
         code_str = self.node_config["process_fn"]
-        timeout = float(self.node_config.get("timeout", self._default_timeout))
+        timeout = float(self._default_timeout)
 
         pool = self._get_run_pool(extra)
         envelope = pool.run(code_str, inputs, timeout)

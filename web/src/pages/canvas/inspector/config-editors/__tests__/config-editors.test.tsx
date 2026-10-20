@@ -16,6 +16,7 @@
  * Stream-5 test, and pass `nodeId` to every editor so the xyflow selection
  * is irrelevant. The edit store is the REAL store (seeded via setState).
  */
+import { CodeNodeEditor } from '../CodeNodeEditor';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -1138,9 +1139,9 @@ describe('TableReadNodeEditor', () => {
     render(
       <TableReadNodeEditor config={{ file_path: '/run/data.xlsx' }} onChange={() => {}} />,
     );
-    // Format is auto-derived (the derived hint is shown, manual dropdown hidden).
+    // Automatic detection is a hint; explicit overrides remain editable.
     expect(screen.getByTestId('cfg-table-format-derived')).toBeInTheDocument();
-    expect(screen.queryByTestId('cfg-table-format-select')).not.toBeInTheDocument();
+    expect(screen.getByTestId('cfg-table-format-select')).toBeInTheDocument();
     // sheet_name field appears for excel, with the {{}} variable hint.
     expect(screen.getByTestId('cfg-table-sheet-name')).toBeInTheDocument();
     expect(screen.getByTestId('cfg-table-sheet-hint').textContent).toMatch(/\{\{\}\}/);
@@ -1154,7 +1155,7 @@ describe('TableReadNodeEditor', () => {
     expect(screen.queryByTestId('cfg-table-sheet-name')).not.toBeInTheDocument();
   });
 
-  it('writes the derived file_format and strips sheet_name on non-excel paths', () => {
+  it('preserves format and sheet settings while editing the path', () => {
     const onChange = vi.fn();
     render(
       <TableReadNodeEditor
@@ -1162,13 +1163,13 @@ describe('TableReadNodeEditor', () => {
         onChange={onChange}
       />,
     );
-    // Edit the path to a csv → commit should set file_format=csv and clear sheet_name.
+    // Changing the path must not silently rewrite other settings.
     const input = screen.getByTestId('cfg-table-file-path') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '/run/new.csv' } });
     fireEvent.blur(input);
     const last = onChange.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    expect(last.file_format).toBe('csv');
-    expect(last.sheet_name).toBe('');
+    expect(last.file_format).toBeUndefined();
+    expect(last.sheet_name).toBe('Sheet1');
   });
 
   it('shows a mode helper that reflects the selected mode', () => {
@@ -1268,4 +1269,67 @@ describe('nodeTypeHasConfig (Change 3 — hide empty config section)', () => {
     expect(nodeTypeHasConfig('PromptNode')).toBe(true);
     expect(nodeTypeHasConfig('ConditionNode')).toBe(true);
   });
+});
+
+describe('engine and editor configuration alignment', () => {
+  it('Code timeout 2 is absent from controls', () => {
+  render(<CodeNodeEditor config={{programming_language:'python',process_fn:'def process_fn(inputs): return inputs',timeout:2}} onChange={vi.fn()} />, {wrapper:QcWrapper});
+  expect(screen.queryByRole('spinbutton')).toBeNull();
+  });
+  it('HTTP absence remains inheritance; clearing removes an explicit override', () => {
+  useWorkflowEditStore.getState().setDraft({__meta__:{settings:{timeouts:{http:90}}}});
+  const change = vi.fn();
+
+  render(<HTTPRequestNodeEditor config={{method:'GET',url:'https://example.com',timeout:8}} workflowSettings={{timeouts:{http:90}}} onChange={change}/>);
+  const input=screen.getByRole('spinbutton');
+  expect(input).toHaveValue(8);
+  fireEvent.change(input,{target:{value:''}});
+  fireEvent.blur(input);
+  expect(change).toHaveBeenCalledWith({method:'GET',url:'https://example.com'});
+  });
+  it('object extra_body remains visible', () => {
+  savedCredentials=[{id:'qa',name:'qa',provider:'openai'}];
+  render(<PromptNodeEditor config={{model_name:'qa',prompt_template:'test',inference_config:{temperature:1,max_tokens:512,top_k:-1,top_p:0.9,extra_body:{reasoning_effort:'high'}}}} onChange={vi.fn()}/>,{wrapper:QcWrapper});
+  expect(JSON.parse((screen.getByTestId('cfg-prompt-extra-body') as HTMLTextAreaElement).value)).toEqual({reasoning_effort:'high'});
+  });
+  it('HTTP body without optional format displays the implicit JSON body', () => {
+  render(<HTTPRequestNodeEditor config={{method:'POST',url:'https://example.com',body:{content:{a:1}}}} onChange={vi.fn()}/>);
+  expect(screen.getByTestId('cfg-http-body-format')).toHaveTextContent('json');
+  expect(screen.getAllByRole('textbox').some((input) =>
+    (input as HTMLTextAreaElement).value === JSON.stringify({ a: 1 }, null, 2),
+  )).toBe(true);
+  });
+ for(const [name,Editor] of [['read',TableReadNodeEditor],['write',TableWriteNodeEditor]] as const) {
+  it(name+' explicit format remains visible and is preserved on path edit', () => {
+   const change = vi.fn();
+
+  render(<Editor config={{file_path:'/run/data.csv',file_format:'jsonl',write_mode:'overwrite'}} onChange={change}/>);
+   expect(screen.getByTestId('cfg-table-format-select')).toHaveTextContent('jsonl');
+   const input=screen.getByTestId('cfg-table-file-path');
+  fireEvent.change(input,{target:{value:'/run/other.csv'}});
+  fireEvent.blur(input);
+   expect(change).toHaveBeenCalledWith(expect.objectContaining({file_format:'jsonl'}));
+  });
+ }
+});
+it('HTTP timeout rejects invalid zero and preserves fractional values', () => {
+ const change = vi.fn();
+
+  render(<HTTPRequestNodeEditor config={{method:'GET',url:'https://example.com',timeout:8}} onChange={change}/>);
+ const input=screen.getByRole('spinbutton');
+  fireEvent.change(input,{target:{value:'0'}});
+  fireEvent.blur(input);
+ expect(change).not.toHaveBeenCalled();
+ expect(input).toHaveValue(8);
+ fireEvent.change(input,{target:{value:'2.5'}});
+  fireEvent.blur(input);
+ expect(change).toHaveBeenLastCalledWith(expect.objectContaining({timeout:2.5}));
+});
+it('switching POST to GET removes the unsupported body', async () => {
+ const change = vi.fn();
+
+  render(<HTTPRequestNodeEditor config={{method:'POST',url:'https://example.com',body:{format:'json',content:{a:1}}}} onChange={change}/>);
+ await userEvent.click(screen.getAllByRole('combobox')[0]);
+  await userEvent.click(screen.getByRole('option',{name:/^GET$/}));
+ expect(change).toHaveBeenLastCalledWith({method:'GET',url:'https://example.com'});
 });

@@ -1,14 +1,4 @@
-/**
- * TableWriteNode config editor.
- *
- * Engine schema: `{ file_path, file_format?, sheet_name?, write_mode }`. The
- * engine's `file_format` enum is `auto | csv | jsonl | excel`; this editor
- * exposes local files exclusively.
- *
- * Mirrors `TableReadNodeEditor`'s UX (format auto-derive from path suffix,
- * excel-only sheet_name, `{{}}` placeholder hint on file_path AND sheet_name)
- * but with a `write_mode` enum (`overwrite | append`) instead of `mode`.
- */
+/** TableWriteNode config: explicit formats override automatic extension detection. */
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import {
@@ -55,25 +45,11 @@ export function TableWriteNodeEditor({
       : 'overwrite';
 
   const derived = deriveTableFormat(filePath);
-  const effectiveFormat = derived ?? storedFormat;
+  const effectiveFormat = storedFormat === 'auto' ? derived : storedFormat;
   const isExcel = effectiveFormat === 'excel';
 
   function commit(patch: Record<string, unknown>) {
     const next: Record<string, unknown> = { ...config, ...patch };
-    const nextPath =
-      typeof next.file_path === 'string' ? (next.file_path as string) : '';
-    const nextDerived = deriveTableFormat(nextPath);
-    if (nextDerived) {
-      next.file_format = nextDerived;
-    }
-    const fmt =
-      nextDerived ??
-      (typeof next.file_format === 'string'
-        ? (next.file_format as string)
-        : FALLBACK_FORMAT);
-    if (fmt !== 'excel') {
-      next.sheet_name = '';
-    }
     onChange(next);
   }
 
@@ -114,41 +90,34 @@ export function TableWriteNodeEditor({
         <Label className="text-xs">
           {t('inspector.config.table.formatLabel', 'Format')}
         </Label>
-        {derived ? (
-          <p className="text-xs text-muted-foreground" data-testid="cfg-table-format-derived">
-            {t('inspector.config.table.formatDerived', 'Detected from path: {{format}}', {
-              format: derived,
-            })}
-          </p>
-        ) : (
-          <Select
-            value={storedFormat}
-            onValueChange={(next) => commit({ file_format: next })}
-            disabled={readOnly}
-          >
-            <SelectTrigger className="h-8 text-xs" data-testid="cfg-table-format-select">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MANUAL_FORMATS.map((f) => (
-                <SelectItem key={f} value={f} className="text-xs">
-                  {f}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <Select
+          value={storedFormat}
+          onValueChange={(next) => commit({ file_format: next })}
+          disabled={readOnly}
+        >
+          <SelectTrigger className="h-8 text-xs" data-testid="cfg-table-format-select">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {MANUAL_FORMATS.map((f) => (
+              <SelectItem key={f} value={f} className="text-xs">
+                {f}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {storedFormat === 'auto' && derived && (
+          <p className="text-xs text-muted-foreground" data-testid="cfg-table-format-derived">{derived}</p>
         )}
-        {derived ? null : (
-          <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
             {t(
               'inspector.config.table.formatAuto',
-              'Auto-detected from the file extension (.csv / .jsonl / .xlsx). Override only if the extension is unknown.',
+              'Auto detects the file extension. An explicit format takes precedence.',
             )}
-          </p>
-        )}
+        </p>
       </div>
 
-      {isExcel ? (
+      {isExcel || sheetName ? (
         <div className="space-y-1">
           <Label className="text-xs">
             {t('inspector.config.table.sheetLabel', 'sheet_name')}{' '}

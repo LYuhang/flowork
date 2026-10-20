@@ -1,19 +1,4 @@
-/**
- * TableReadNode config editor.
- *
- * Engine schema: `{ file_path, file_format?, mode?, sheet_name?, offset?, limit? }`.
- * The engine's `file_format` enum is `auto | csv | jsonl | excel`; this editor
- * therefore exposes local files exclusively.
- *
- * UX:
- *  - file_format is AUTO-DERIVED from the file_path extension and written back
- *    into node_config.file_format so the backend still receives it. If the
- *    suffix is unrecognised we fall back to `auto` and let the user pick.
- *  - sheet_name is only shown when the derived format is `excel`; for other
- *    formats we strip it from node_config (pass empty/absent to the backend).
- *  - file_path AND sheet_name both support `{{field}}` interpolation at runtime
- *    (table_read.py `_interpolate`), so both get the same `{{}}` label hint.
- */
+/** TableReadNode config: explicit formats override automatic extension detection. */
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import {
@@ -50,30 +35,14 @@ export function TableReadNodeEditor({
   const limit =
     typeof config.limit === 'number' ? (config.limit as number) : 0;
 
-  // Derive the effective format from the path suffix; fall back to whatever is
-  // stored (or `auto`) when the suffix is unknown.
+  // Only automatic format selection follows the file extension.
   const derived = deriveTableFormat(filePath);
-  const effectiveFormat = derived ?? storedFormat;
+  const effectiveFormat = storedFormat === 'auto' ? derived : storedFormat;
   const isExcel = effectiveFormat === 'excel';
 
-  // Commit a config patch, keeping file_format in sync with the derived format
-  // and dropping sheet_name when the format isn't excel.
+  // Editing one field preserves other authored settings.
   function commit(patch: Record<string, unknown>) {
     const next: Record<string, unknown> = { ...config, ...patch };
-    const nextPath =
-      typeof next.file_path === 'string' ? (next.file_path as string) : '';
-    const nextDerived = deriveTableFormat(nextPath);
-    if (nextDerived) {
-      next.file_format = nextDerived;
-    }
-    const fmt =
-      nextDerived ??
-      (typeof next.file_format === 'string'
-        ? (next.file_format as string)
-        : FALLBACK_FORMAT);
-    if (fmt !== 'excel') {
-      next.sheet_name = '';
-    }
     onChange(next);
   }
 
@@ -128,38 +97,31 @@ export function TableReadNodeEditor({
         <Label className="text-xs">
           {t('inspector.config.table.formatLabel', 'Format')}
         </Label>
-        {derived ? (
-          <p className="text-xs text-muted-foreground" data-testid="cfg-table-format-derived">
-            {t('inspector.config.table.formatDerived', 'Detected from path: {{format}}', {
-              format: derived,
-            })}
-          </p>
-        ) : (
-          <Select
-            value={storedFormat}
-            onValueChange={(next) => commit({ file_format: next })}
-            disabled={readOnly}
-          >
-            <SelectTrigger className="h-8 text-xs" data-testid="cfg-table-format-select">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MANUAL_FORMATS.map((f) => (
-                <SelectItem key={f} value={f} className="text-xs">
-                  {f}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <Select
+          value={storedFormat}
+          onValueChange={(next) => commit({ file_format: next })}
+          disabled={readOnly}
+        >
+          <SelectTrigger className="h-8 text-xs" data-testid="cfg-table-format-select">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {MANUAL_FORMATS.map((f) => (
+              <SelectItem key={f} value={f} className="text-xs">
+                {f}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {storedFormat === 'auto' && derived && (
+          <p className="text-xs text-muted-foreground" data-testid="cfg-table-format-derived">{derived}</p>
         )}
-        {derived ? null : (
-          <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
             {t(
               'inspector.config.table.formatAuto',
-              'Auto-detected from the file extension (.csv / .jsonl / .xlsx). Override only if the extension is unknown.',
+              'Auto detects the file extension. An explicit format takes precedence.',
             )}
-          </p>
-        )}
+        </p>
       </div>
 
       <div className="space-y-1">
@@ -231,7 +193,7 @@ export function TableReadNodeEditor({
         </div>
       </div>
 
-      {isExcel ? (
+      {isExcel || sheetName ? (
         <div className="space-y-1">
           <Label className="text-xs">
             {t('inspector.config.table.sheetLabel', 'sheet_name')}{' '}

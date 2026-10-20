@@ -194,12 +194,15 @@ export function fileRefFromAgentPath(
  * Resolve a Markdown href emitted by an Agent back to its private workspace
  * path. These paths are VFS references, not browser routes: navigating to
  * `/data/report.pdf` would incorrectly leave the app (and also drop a dynamic
- * deployment prefix). HTTP(S), mail, anchors, and arbitrary relative links are
- * deliberately left to the browser.
+ * deployment prefix). Accept the sandbox scheme and the virtual file+workspace
+ * hostname emitted by some Agents. Real web URLs remain browser links.
  */
 export function agentFilePathFromHref(href: string | undefined): string | null {
   if (!href) return null;
-  const value = href.trim();
+  let value = href.trim().replace(/^sandbox:(?=\/(?!\/))/, '');
+  if (value.startsWith('https://file+workspace/')) {
+    value = value.slice('https://file+workspace'.length);
+  }
   if (!value.startsWith('/')) return null;
 
   // Query/fragment syntax belongs to the Markdown link, not the VFS path.

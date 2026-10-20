@@ -23,7 +23,7 @@ import { hasMarkdownMath, normalizeMathDelimiters } from './markdown-math';
  * untrusted). Code blocks scroll horizontally rather than wrapping so code
  * stays readable in the narrow sidebar.
  */
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { agentFilePathFromHref } from '@/lib/preview/protocol';
 import { cn } from '@/lib/utils';
@@ -58,6 +58,12 @@ export function Markdown({
       <Suspense fallback={<span className="whitespace-pre-wrap">{children}</span>}>
       <Renderer
         remarkPlugins={[remarkGfm]}
+        urlTransform={(url, key) => {
+          const path = key === 'href' ? agentFilePathFromHref(url) : null;
+          return path
+            ? path.split('/').map(encodeURIComponent).join('/')
+            : defaultUrlTransform(url);
+        }}
         components={{
           p: ({ children }) => <p>{children}</p>,
           a: ({ children, href }) => {

@@ -24,6 +24,8 @@ describe('Agent file preview protocol', () => {
     expect(agentFilePathFromHref('/run/output.csv?download=1')).toBe('/run/output.csv');
     expect(agentFilePathFromHref('/memory/state.md')).toBe('/memory/state.md');
     expect(agentFilePathFromHref('/logs/runtime.log')).toBe('/logs/runtime.log');
+    expect(agentFilePathFromHref('sandbox:/chats/chat-1/My%20Report.pptx')).toBe('/chats/chat-1/My Report.pptx');
+    expect(agentFilePathFromHref('https://file+workspace/chats/chat-1/report.docx')).toBe('/chats/chat-1/report.docx');
   });
 
   it('does not reinterpret web URLs, routes, or traversal as VFS files', () => {
@@ -31,6 +33,11 @@ describe('Agent file preview protocol', () => {
     expect(agentFilePathFromHref('/settings')).toBeNull();
     expect(agentFilePathFromHref('workflow.json')).toBeNull();
     expect(agentFilePathFromHref('/data/%2e%2e/secrets.txt')).toBeNull();
+    expect(agentFilePathFromHref('sandbox://example.com/data/report.pdf')).toBeNull();
+    expect(agentFilePathFromHref('sandbox:/data/%2e%2e/secrets.txt')).toBeNull();
+    expect(agentFilePathFromHref('sandbox:/etc/passwd')).toBeNull();
+    expect(agentFilePathFromHref('https://file+workspace.example.com/data/report.pdf')).toBeNull();
+    expect(agentFilePathFromHref('https://file+workspace/data/%2e%2e/secrets.txt')).toBeNull();
   });
 
   it('turns a recognized chat path into a scoped FileRef', () => {

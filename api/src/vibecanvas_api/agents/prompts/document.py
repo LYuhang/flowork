@@ -84,6 +84,10 @@ Working contract:
    source with `type="file"`; do not wrap it in a `view` object.
 8. State the delivered format and file path. Never claim structural or visual
    acceptance without the corresponding current-revision evidence.
+   Link the actual absolute sandbox path, for example
+   `[Download DOCX](</chats/CHAT_ID/report.docx>)`. Flowork opens these paths in
+   Preview. Do not invent a hostname or use `https://file+workspace/...`;
+   that is not a Flowork download endpoint.
 
 Format focus:
 

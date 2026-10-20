@@ -141,3 +141,46 @@ public assets, outside authenticated responses and SSE. The preview permits
 60 seconds for renderer initialization, then 30 seconds for export; both phases
 are bounded and clean up their iframe when they finish or fail. No automatic
 retry or external renderer fallback is performed.
+
+## Example-driven live acceptance (2026-10-20)
+
+On `flowork.top`, each of the 18 visible example cards was selected in a real
+Chromium session and submitted to GPT-5.6-Terra in a dedicated QA project.
+Tables received a synthetic workbook; the weekly report received synthetic
+notes. Knowledge examples received an actual source attachment, and skill
+updates used a new QA-only package. No existing user skill was updated.
+
+| Examples | Preview checks |
+| --- | --- |
+| Sequence, architecture, process diagrams | Three generated Draw.io files; decoded diagram image, not just a successful resource request |
+| Decision brief, presentation | Generated DOCX and PPTX, all three pages of each |
+| Sales workbook | Data and Summary worksheets, including rendered charts |
+| Table cleanup, amount audit | Five worksheets in each generated workbook, individually selected |
+| Weekly report | Generated one-page DOCX |
+| Knowledge create, explore, update | Downloaded README/source files; updated package version 2 and its README |
+| Skill template, download, update | Actual SKILL.md files; QA-only update published as version 2 |
+| Workflow automation | Saved-version preview with 11 rendered nodes and its Markdown evidence file |
+| Scheduled task, API deployment | Actual detail pages; deployment's local JSON file in the code viewer |
+
+Conversations were reopened before final card/link checks. The two document
+link forms emitted by the Agent, `sandbox:/…` and `https://file+workspace/…`,
+now resolve through the same authorized file preview path. Public views and
+unsafe URL/path rejection retain their existing restrictions. Prompts request
+actual absolute file links; skill directory paths are shown as code because a
+directory is not a file preview target. An older directory link in the download
+conversation remains unsupported; its actual SKILL.md link was verified.
+
+The originally reported Draw.io file also passed a cold-cache desktop check
+with approximately 2 Mbps download bandwidth and 100 ms latency: the diagram
+appeared in about 60 seconds. A separate 390×844 Chromium viewport check passed
+in about 18 seconds. This is not a physical iOS/Safari test. Large renderer
+bundles still make first-load latency noticeable; the change fixes compression
+and separates initialization/export deadlines, rather than promising instant
+loading or unbounded waits.
+
+The workflow example was explicitly restricted to building, validating and
+previewing for this acceptance. Its full execution/approval and ten-minute
+load-test instructions were not rerun here. The QA schedule was paused in its
+page, and the QA deployment was disabled in Settings; the API subsequently
+reported `stopped` with no runtime instances. Generated files and conversations
+were retained. Credentials and private screenshots are not committed.

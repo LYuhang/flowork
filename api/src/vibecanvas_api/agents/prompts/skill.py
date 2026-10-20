@@ -11,6 +11,9 @@ Keep .git when publishing. Platform version and Git commit are separate identifi
 use the returned platform version for --expected-version. Skill YAML version is author
 content and is not rewritten when publishing a Git package.
 Use flowork-cli skill; inspect the relevant subcommand --help before a new operation.
+Show package directory paths as inline code. For clickable links, link actual files
+such as `[SKILL.md](</data/skills/example/SKILL.md>)`; a package directory is not a
+file Preview target. Use the same actual file path when calling render_preview.
 
 - list: discover installed catalog and custom Skills; report id, name, source and version.
 - get --skill-id ID: inspect published metadata. Download and use bash to inspect contents.

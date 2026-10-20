@@ -188,6 +188,17 @@ def test_nginx_refreshes_compose_service_dns() -> None:
     assert "proxy_pass http://flowork_browser_gateway;" in nginx
 
 
+def test_nginx_compresses_installed_drawio_assets_separately_from_api_streams() -> None:
+    nginx = (REPO_ROOT / "web/nginx.conf").read_text(encoding="utf-8")
+    renderer = nginx.split("location ^~ /api/v1/preview/drawio-assets/", 1)[1].split("}", 1)[0]
+    assert "gzip on;" in renderer
+    assert "gzip_vary on;" in renderer
+    assert "text/javascript" in renderer
+    assert "application/javascript" in renderer
+    api = nginx.split("location /api/", 1)[1].split("}", 1)[0]
+    assert "gzip on;" not in api
+
+
 def test_nginx_preserves_browser_authority_for_origin_validation() -> None:
     nginx = (REPO_ROOT / "web/nginx.conf").read_text(encoding="utf-8")
 

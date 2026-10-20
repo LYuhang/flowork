@@ -105,8 +105,9 @@ All 27 sample formats completed acceptance after these corrections:
   Native bootstrap and the API image now install FFmpeg/FFprobe. The same Agent
   conversation then generated genuine MP3/H.264 MP4/WebM files for playback checks.
 
-Draw.io uses the external diagrams.net renderer and needs its network access;
-wait for the diagram to appear rather than accepting a loading state. This
+Draw.io uses the installed renderer served at `/api/v1/preview/drawio-assets/`;
+ordinary previews do not send documents to diagrams.net. Wait for the diagram
+to appear rather than accepting a loading state. This
 matrix covers representative supported formats, not every possible encoding,
 codec, malformed file or legacy Office extension. Legacy DOC/XLS/PPT and archive
 preview support is unchanged.
@@ -116,3 +117,27 @@ production Vite build, deployment-path guard and native bootstrap shell syntax
 passed. Targeted ESLint still reports the pre-existing synchronous
 `setQuoteSelection(null)` effect; running ESLint against the original HEAD file
 reproduced the same finding. The new asset plugin and PDF renderer passed lint.
+
+### Draw.io cold-cache loading
+
+The installed renderer includes large JavaScript bundles. Compress its public
+static assets at the reverse proxy; compressing only Vite's `/assets/` does not
+cover this route. Docker's `web/nginx.conf` includes this configuration. Native
+TLS proxies that forward `/api/` directly to the API need an equivalent location:
+
+```nginx
+location ^~ /api/v1/preview/drawio-assets/ {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_set_header Host $http_host;
+    gzip on;
+    gzip_vary on;
+    gzip_types text/javascript application/javascript text/css application/json image/svg+xml;
+}
+```
+
+Preserve the API's renderer-specific CSP and SAMEORIGIN headers; do not apply
+the main application's frame prohibition. Keep compression scoped to these
+public assets, outside authenticated responses and SSE. The preview permits
+60 seconds for renderer initialization, then 30 seconds for export; both phases
+are bounded and clean up their iframe when they finish or fail. No automatic
+retry or external renderer fallback is performed.

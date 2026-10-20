@@ -30,11 +30,55 @@ function descriptor(): PreviewDescriptorV1 {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('DrawioPreviewRenderer', () => {
+  it('gives a cold renderer its own loading budget before timing document export', async () => {
+    vi.useFakeTimers();
+    const result = renderDrawioXml(XML, 'svg');
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]')!;
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(frame.isConnected).toBe(true);
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: drawioEmbedUrl().origin, source: frame.contentWindow,
+      data: JSON.stringify({ event: 'init' }),
+    }));
+    await vi.advanceTimersByTimeAsync(20_000);
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: drawioEmbedUrl().origin, source: frame.contentWindow,
+      data: JSON.stringify({ event: 'export', data: 'data:image/svg+xml;base64,PHN2Zy8+' }),
+    }));
+    expect((await result).type).toBe('image/svg+xml');
+    expect(frame.isConnected).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cleans up when renderer initialization never finishes', async () => {
+    vi.useFakeTimers();
+    const result = renderDrawioXml(XML, 'svg');
+    const rejected = expect(result).rejects.toThrow('renderer loading timed out');
+    await vi.advanceTimersByTimeAsync(60_000);
+    await rejected;
+    expect(document.querySelector('iframe[title="draw.io export"]')).toBeNull();
+  });
+
+  it('bounds document export after successful initialization', async () => {
+    vi.useFakeTimers();
+    const result = renderDrawioXml(XML, 'svg');
+    const rejected = expect(result).rejects.toThrow('export timed out');
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="draw.io export"]')!;
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: drawioEmbedUrl().origin, source: frame.contentWindow,
+      data: JSON.stringify({ event: 'init' }),
+    }));
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejected;
+    expect(frame.isConnected).toBe(false);
+  });
+
   it('hands native XML to the full official draw.io editor without a callback URL', async () => {
     const editor = {
       postMessage: vi.fn(),

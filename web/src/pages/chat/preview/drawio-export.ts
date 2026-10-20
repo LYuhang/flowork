@@ -158,6 +158,13 @@ async function renderNativeDrawioXml(
 
   return await new Promise<Blob>((resolve, reject) => {
     let settled = false;
+    let exporting = false;
+    // Loading the installed editor's assets and rendering the document are
+    // separate phases; a cold cache must not consume the rendering budget.
+    let timeout = window.setTimeout(
+      () => finish(undefined, new Error('draw.io renderer loading timed out')),
+      60_000,
+    );
     const cleanup = () => {
       window.removeEventListener('message', receive);
       frame.remove();
@@ -179,7 +186,13 @@ async function renderNativeDrawioXml(
       } catch {
         return;
       }
-      if (message.event === 'init') {
+      if (message.event === 'init' && !exporting) {
+        exporting = true;
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(
+          () => finish(undefined, new Error('draw.io export timed out')),
+          30_000,
+        );
         frame.contentWindow?.postMessage(JSON.stringify({
           action: 'export',
           format: officialFormat,
@@ -197,10 +210,6 @@ async function renderNativeDrawioXml(
         }
       }
     };
-    const timeout = window.setTimeout(
-      () => finish(undefined, new Error('draw.io export timed out')),
-      30_000,
-    );
     window.addEventListener('message', receive);
     document.body.append(frame);
   });

@@ -3370,6 +3370,7 @@
   ,"chat.notifications.jobCancelled": "Background task cancelled"
   ,"chat.notifications.jobCompleted": "Background task completed"
   ,"chat.notifications.jobFailed": "Background task needs attention"
+  ,"chat.preview.tools": "Preview tools"
   ,"chat.preview.closeItem": "Close preview item"
   ,"chat.preview.closePane": "Close preview"
   ,"chat.preview.empty": "Open a workflow, artifact, or sandbox file to preview it here."

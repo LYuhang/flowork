@@ -109,7 +109,7 @@ function RemoteUrlPreviewRenderer({
   return (
     <div className="flex h-full min-h-[360px] flex-col bg-surface-work" data-role="url-preview">
       <form
-        className="flex shrink-0 items-center gap-2 border-b border-edge-subtle bg-surface-raised px-2 py-2"
+        className="preview-content-toolbar flex shrink-0 items-center gap-2 border-b border-edge-subtle bg-surface-raised px-2 py-2"
         onSubmit={(event) => {
           event.preventDefault();
           navigate();

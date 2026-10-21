@@ -158,7 +158,7 @@ export function WorkflowPreviewRenderer({ workflowId, version, source, focus, al
   }));
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col" data-role="workflow-preview">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge-subtle px-3 py-2 text-sm">
+      <div className="preview-content-toolbar flex shrink-0 flex-wrap items-center gap-2 border-b border-edge-subtle px-3 py-2 text-sm">
         <span className="min-w-0 flex-1 truncate">{String(query.data?.meta?.workflow_name || workflowId)}</span>
         <span className="shrink-0 text-muted-foreground">{version} · {t('preview.workflow.readOnly', 'Read only')}</span>
 

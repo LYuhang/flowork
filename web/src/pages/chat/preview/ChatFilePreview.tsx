@@ -169,7 +169,7 @@ export const ChatFilePreview = forwardRef<ChatFilePreviewHandle, {
   const Renderer = rendererRegistry[descriptor.renderer];
   return (
     <PreviewToolbarHost.Provider value={toolbarHost}><div className="preview-file-container flex h-full min-h-0 flex-col bg-surface-work">
-      <div data-role="preview-file-toolbar" className="flex h-10 shrink-0 items-center gap-1 border-b border-edge-subtle px-2">
+      <div data-role="preview-file-toolbar" className="preview-content-toolbar flex h-10 shrink-0 items-center gap-1 border-b border-edge-subtle px-2">
         <div ref={setToolbarHost} className="min-w-0 flex-1 overflow-x-auto" />
         <span className="preview-file-metadata max-w-36 truncate text-xs text-muted-foreground">
           {descriptor.contentType} · {formatBytes(descriptor.sizeBytes)}

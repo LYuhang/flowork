@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 import { PreviewContextMenu } from './preview/PreviewContextMenu';
 import { PreviewOriginProvider } from '@/lib/preview/PreviewOriginProvider';
 import { lazy, Suspense, useCallback, useState } from 'react';
-import { ChevronDown, MessageSquare, PanelRightClose, X } from 'lucide-react';
+import { ChevronDown, Menu, MessageSquare, PanelRightClose, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -61,6 +61,7 @@ export function ChatPreviewPane({
 }: ChatPreviewPaneProps) {
   const { t } = useTranslation();
   const [resourcesOpen, setResourcesOpen] = useState(false);
+  const [toolbarOpen, setToolbarOpen] = useState(false);
   const selectableResources = [...items, ...resources.filter(resource => !items.some(item => item.id === resource.id))];
   const active = items.find((item) => item.id === activeId) ?? items[0] ?? null;
   const activeInteractive = active?.resource.kind === 'interactive'
@@ -101,7 +102,8 @@ export function ChatPreviewPane({
   return (
     <PreviewOriginProvider origin={originChatId ? { chatId: originChatId } : null}>
     <aside
-      className="chat-preview-pane flex h-full w-full min-w-0 flex-col bg-surface-work"
+      className={cn('chat-preview-pane flex h-full w-full min-w-0 flex-col bg-surface-work',
+        !toolbarOpen && '[&_.preview-content-toolbar]:hidden')}
       data-role="chat-preview-pane"
       aria-label={t('chat.preview.paneLabel', 'Preview')}
     >
@@ -150,6 +152,15 @@ export function ChatPreviewPane({
             </span>
           </button>
         </div>
+
+        {active ? <Button
+          variant="ghost"
+          size="icon-sm"
+          title={t('chat.preview.tools', 'Preview tools')}
+          aria-label={t('chat.preview.tools', 'Preview tools')}
+          aria-expanded={toolbarOpen}
+          onClick={() => setToolbarOpen(value => !value)}
+        ><Menu className="h-4 w-4" /></Button> : null}
 
         {active ? <Button variant="ghost" size="icon-sm"
           title={t('chat.preview.closeItem', 'Close preview item')}

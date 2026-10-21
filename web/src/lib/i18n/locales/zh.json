@@ -3370,6 +3370,7 @@
   ,"chat.notifications.jobCancelled": "后台任务已取消"
   ,"chat.notifications.jobCompleted": "后台任务已完成"
   ,"chat.notifications.jobFailed": "后台任务需要处理"
+  ,"chat.preview.tools": "预览工具栏"
   ,"chat.preview.closeItem": "关闭预览项目"
   ,"chat.preview.closePane": "关闭预览"
   ,"chat.preview.empty": "打开工作流、产物或沙盒文件后，可在此处预览。"

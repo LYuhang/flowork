@@ -48,7 +48,7 @@ export function ServicePreviewRenderer({ url, title }: { url: string; title: str
     }
   }
   if (state.url) return <div className="flex h-full min-h-64 flex-col">
-    <div className="flex items-center gap-2 border-b px-3 py-2">
+    <div className="preview-content-toolbar flex items-center gap-2 border-b px-3 py-2">
       <span className="min-w-0 flex-1 truncate text-xs" title={url}>{url}</span>
       <Button size="icon" variant="ghost" className="text-state-danger hover:text-state-danger" disabled={stopping || !state.service?.expected.length}
         title={t('preview.service.stop', 'Stop service')} aria-label={t('preview.service.stop', 'Stop service')} onClick={() => void stopService()}><Square className="size-4 fill-current" /></Button>

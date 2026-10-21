@@ -124,6 +124,7 @@ def issue_forwarding_target(
     scheme: str,
     loopback_host: str,
     path: str,
+    browser_origin: str | None = None,
 ) -> dict:
     """Issue a port-specific URL for an already-authorized sandbox generation."""
     claims = dict(
@@ -136,6 +137,7 @@ def issue_forwarding_target(
         scheme=scheme,
         loopback_host=loopback_host,
         path=path,
+        browser_origin=browser_origin or config.public_urls.public_url.rstrip("/"),
         exp=int(time.time()) + TTL,
     )
     token = codec().encrypt(json.dumps(claims).encode()).decode()
@@ -143,7 +145,7 @@ def issue_forwarding_target(
         # Signed sandbox identity carries the user, runtime generation and port.
         # Path capabilities work in opaque-origin frames without login cookies.
         prefix = f"/preview/{token}/{port}/"
-        origin = config.public_urls.public_url.rstrip("/")
+        origin = claims["browser_origin"]
         return {
             "url": origin + prefix + path.lstrip("/"),
             "forwarding_url": origin + prefix,
@@ -343,7 +345,7 @@ async def proxy(request: Request, path: str):
         response.headers.append(key, value)
     # Never let generated code install persistent interceptors or embed itself
     # into arbitrary sites. It runs on its own origin, not the platform origin.
-    public = urlsplit(config.public_urls.public_url)
+    public = urlsplit(claims.get("browser_origin") or config.public_urls.public_url)
     ancestors = [f"{public.scheme}://{public.netloc}"] if public.netloc else []
     if re.fullmatch(r"[a-p]{32}", config.browser_extension_id):
         ancestors.append(f"chrome-extension://{config.browser_extension_id}")

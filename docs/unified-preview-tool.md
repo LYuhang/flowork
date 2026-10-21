@@ -184,3 +184,26 @@ load-test instructions were not rerun here. The QA schedule was paused in its
 page, and the QA deployment was disabled in Settings; the API subsequently
 reported `stopped` with no runtime instances. Generated files and conversations
 were retained. Credentials and private screenshots are not committed.
+
+### Service preview through an alternate application entry (2026-10-21)
+
+Service resolution binds the browser's validated HTTP(S) Origin into the
+existing encrypted forwarding capability. Both the path-mode preview URL and
+its CSP use that origin, including its scheme and port. Internal proxy Host or
+X-Forwarded-Host values do not choose the public entry. Non-browser callers and
+older capabilities retain the configured public URL fallback.
+
+In production, register each jump-host origin in the application's existing
+CORS origin allowlist (`VIBECANVAS_API_CORS_ORIGINS`), or configure it as the
+public URL. The entry must forward `/preview/` and support WebSocket upgrades.
+The sandbox still requires `SANDBOX_EGRESS_MODE=proxy`; no additional sandbox
+service port needs public exposure. Credential stripping and opaque iframe
+isolation remain enabled. Reopen an existing preview to obtain a new capability.
+
+Validation: 26 forwarding tests passed, including approved/rejected origins,
+non-default ports, credential filtering and WebSocket traffic. A Chromium
+acceptance run used HTTPS entry → HTTP proxy B → HTTP application A → an
+isolated Bubblewrap sandbox listening on port 3100. Both proxies rewrote Host.
+HTML, CSS, JS, images, GET/POST, SSE and WebSocket all worked, and all browser
+requests used only the HTTPS entry. This simulates the topology locally; it
+is not a test inside the user's corporate jump-host network.

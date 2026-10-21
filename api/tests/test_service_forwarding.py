@@ -140,7 +140,7 @@ def test_capability_is_bound_to_port_runtime_and_origin(monkeypatch):
 async def test_resolve_preserves_path_query_fragment_and_uses_existing_sandbox(monkeypatch):
     from types import SimpleNamespace
 
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Request
     from vibecanvas_api.auth.deps import AuthContext
     from vibecanvas_api.routes import service_preview as preview
 
@@ -169,8 +169,9 @@ async def test_resolve_preserves_path_query_fragment_and_uses_existing_sandbox(m
     monkeypatch.setattr(preview, "get_sandbox_manager", Manager)
     db = DB()
     auth = AuthContext(user_id="user", tenant_id="tenant", email="qa@example.test")
+    request = Request({"type": "http", "method": "POST", "headers": []})
     result = await preview.resolve(
-        preview.OpenService(chat_id="chat-a", url="http://localhost:3100/demo?a=1#part"), auth, db
+        preview.OpenService(chat_id="chat-a", url="http://localhost:3100/demo?a=1#part"), request, auth, db
     )
     assert result["port"] == 3100
     assert result["path"] == "/demo?a=1#part"
@@ -181,7 +182,7 @@ async def test_resolve_preserves_path_query_fragment_and_uses_existing_sandbox(m
     assert claims["runtime_id"] == "generation-a"
     db.project = None
     with pytest.raises(HTTPException) as error:
-        await preview.resolve(preview.OpenService(chat_id="other", url="http://localhost:3100/"), auth, db)
+        await preview.resolve(preview.OpenService(chat_id="other", url="http://localhost:3100/"), request, auth, db)
     assert error.value.status_code == 404
     assert len(calls) == 1  # unauthorized callers never reach sandboxd
 

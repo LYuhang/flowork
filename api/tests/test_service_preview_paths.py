@@ -7,7 +7,7 @@ from vibecanvas_api.routes import sandbox_forwarding as gateway
 from vibecanvas_api.routes.service_preview_paths import rewrite_document
 
 
-def target(monkeypatch):
+def target(monkeypatch, browser_origin=None):
     monkeypatch.delenv("FLOWORK_SERVICE_PREVIEW_DOMAIN", raising=False)
     return gateway.issue_forwarding_target(
         tenant="tenant",
@@ -19,12 +19,15 @@ def target(monkeypatch):
         scheme="http",
         loopback_host="localhost",
         path="/clock/index.html?x=1",
+        browser_origin=browser_origin,
     )
 
 
 @pytest.mark.asyncio
-async def test_path_proxy_isolates_credentials_and_rewrites_resources(monkeypatch):
-    entry = target(monkeypatch)
+@pytest.mark.parametrize("origin", ["https://jump.example.test", "http://127.0.0.1:9001"])
+async def test_path_proxy_isolates_credentials_and_rewrites_resources(monkeypatch, origin):
+    entry = target(monkeypatch, origin)
+    assert entry["url"].startswith(origin + "/preview/")
     observed = []
 
     class Session:
@@ -59,6 +62,8 @@ async def test_path_proxy_isolates_credentials_and_rewrites_resources(monkeypatc
         assert response.status_code == 200
         assert not response.headers.get("set-cookie")
         policy = response.headers["content-security-policy"]
+        assert f"frame-ancestors {origin}" in policy
+        assert f"connect-src {entry['forwarding_url']}" in policy
         assert "sandbox allow-scripts" in policy and "allow-same-origin" not in policy
         assert response.headers["access-control-allow-origin"] == "*"
         assert entry["forwarding_url"].split("/preview/")[1] in response.text
@@ -100,7 +105,7 @@ def test_path_websocket_roundtrip_uses_same_sandbox(monkeypatch):
 
     from fastapi.testclient import TestClient
 
-    entry = target(monkeypatch)
+    entry = target(monkeypatch, "http://jump.example.test:9001")
     observed = []
 
     class Session:
@@ -125,7 +130,7 @@ def test_path_websocket_roundtrip_uses_same_sandbox(monkeypatch):
     app = gateway.SandboxForwardingHostMiddleware(FastAPI())
     with TestClient(app) as client:
         with client.websocket_connect(
-            entry["forwarding_url"] + "echo", headers={"Origin": "null", "Cookie": "login=private"}
+            entry["forwarding_url"].replace("http://", "ws://", 1) + "echo", headers={"Origin": "null", "Cookie": "login=private"}
         ) as ws:
             ws.send_text("hello")
             assert ws.receive_text() == "hello"
@@ -134,3 +139,47 @@ def test_path_websocket_roundtrip_uses_same_sandbox(monkeypatch):
     assert observed[0]["path"] == "/echo"
     assert observed[0]["port"] == 8080
     assert "cookie" not in observed[0]["headers"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin, allowed", [
+    ("https://jump.example.test:9443", True),
+    ("https://unapproved.example.test", False),
+])
+async def test_resolve_binds_only_approved_browser_origin(monkeypatch, origin, allowed):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from urllib.parse import urlsplit
+    from fastapi import HTTPException, Request
+    from vibecanvas_api.auth import session_security
+    from vibecanvas_api.routes import service_preview
+
+    monkeypatch.delenv("FLOWORK_SERVICE_PREVIEW_DOMAIN", raising=False)
+    monkeypatch.setattr(session_security, "config", SimpleNamespace(
+        environment="production",
+        public_urls=SimpleNamespace(public_url="https://primary.example.test"),
+    ))
+    monkeypatch.setattr(session_security, "configured_cors_origins", lambda: ["https://jump.example.test:9443"])
+    sandbox = SimpleNamespace(
+        service_forwarding_identity=AsyncMock(return_value={"runtime_id": "runtime"}),
+        service_inventory=AsyncMock(return_value={"services": []}),
+    )
+    owned = AsyncMock(return_value=(sandbox, urlsplit("http://localhost:8080/clock/"), 8080, "project", "scope"))
+    monkeypatch.setattr(service_preview, "owned_service", owned)
+    request = Request({"type": "http", "method": "POST", "path": "/resolve", "headers": [
+        (b"origin", origin.encode()), (b"host", b"internal-api:8000"),
+        (b"x-forwarded-host", b"untrusted.example.test"),
+    ]})
+    body = service_preview.OpenService(chat_id="chat", url="http://localhost:8080/clock/")
+    auth = SimpleNamespace(tenant_id="tenant", user_id="user")
+    if not allowed:
+        with pytest.raises(HTTPException) as error:
+            await service_preview.resolve(body, request, auth, None)
+        assert error.value.status_code == 403
+        owned.assert_not_awaited()
+        return
+    result = await service_preview.resolve(body, request, auth, None)
+    assert result["url"].startswith(origin + "/preview/")
+    token = result["forwarding_url"].split("/preview/")[1].split("/")[0]
+    import json
+    assert json.loads(gateway.codec().decrypt(token.encode()))["browser_origin"] == origin

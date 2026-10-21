@@ -1,10 +1,13 @@
 """Map a conversation's loopback URL onto the independent sandbox gateway."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from urllib.parse import urlsplit
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from vibecanvas_api.auth.deps import AuthContext, current_user, tenant_db
+from vibecanvas_api.auth.session_security import validate_browser_origin
 from vibecanvas_api.services.chat_workspace import project_workspace_scope_id
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.storage.models import Chat, ChatProject
@@ -62,7 +65,15 @@ async def stop(body: StopService, auth: AuthContext = Depends(current_user), db=
 
 
 @router.post("/resolve")
-async def resolve(body: OpenService, auth: AuthContext = Depends(current_user), db=Depends(tenant_db)):
+async def resolve(body: OpenService, request: Request, auth: AuthContext = Depends(current_user), db=Depends(tenant_db)):
+    # Bind the preview to the approved browser-facing origin, not the internal
+    # reverse-proxy Host. Non-browser clients retain the configured public URL.
+    browser_origin = None
+    origin_header = request.headers.get("origin", "")
+    if origin_header.startswith(("http://", "https://")):
+        validate_browser_origin(request)
+        origin = urlsplit(origin_header)
+        browser_origin = f"{origin.scheme.lower()}://{origin.netloc.lower()}"
     sandbox, parsed, port, project_id, scope = await owned_service(body, auth, db)
     try:
         identity = await sandbox.service_forwarding_identity()
@@ -85,6 +96,7 @@ async def resolve(body: OpenService, auth: AuthContext = Depends(current_user), 
         scheme=parsed.scheme,
         loopback_host=parsed.hostname,
         path=path,
+        browser_origin=browser_origin,
     )
     try:
         inventory = await sandbox.service_inventory()

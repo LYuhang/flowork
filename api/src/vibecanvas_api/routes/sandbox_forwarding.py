@@ -144,7 +144,7 @@ def issue_forwarding_target(
     if not preview_domain():
         # Signed sandbox identity carries the user, runtime generation and port.
         # Path capabilities work in opaque-origin frames without login cookies.
-        prefix = f"/preview/{token}/{port}/"
+        prefix = f"/api/v1/previews/service/content/{token}/"
         origin = claims["browser_origin"]
         return {
             "url": origin + prefix + path.lstrip("/"),
@@ -447,14 +447,25 @@ class SandboxForwardingHostMiddleware:
 
     async def __call__(self, scope, receive, send):
         domain = self.domain
-        if scope["type"] in {"http", "websocket"} and scope.get("path", "").startswith("/preview/"):
-            matched = re.fullmatch(r"/preview/([A-Za-z0-9_=-]+)/([0-9]+)/(.*)", scope["path"])
+        request_path = scope.get("path", "")
+        content_root = "/api/v1/previews/service/content/"
+        if scope["type"] in {"http", "websocket"} and request_path.startswith((content_root, "/preview/")):
+            legacy = request_path.startswith("/preview/")
+            pattern = (
+                r"/preview/([A-Za-z0-9_=-]+)/([0-9]+)/(.*)"
+                if legacy else content_root + r"([A-Za-z0-9_=-]+)/(.*)"
+            )
+            matched = re.fullmatch(pattern, request_path)
             try:
                 if not matched:
                     raise ValueError("invalid service path")
-                token, port, path = matched.groups()
+                if legacy:
+                    token, port, path = matched.groups()
+                else:
+                    token, path = matched.groups()
+                    port = None
                 claims = json.loads(codec().decrypt(token.encode(), ttl=TTL))
-                if claims["port"] != int(port) or claims["exp"] <= time.time():
+                if (legacy and claims["port"] != int(port)) or claims["exp"] <= time.time():
                     raise ValueError("expired service path")
             except (InvalidToken, ValueError, KeyError, TypeError):
                 if scope["type"] == "websocket":
@@ -464,7 +475,7 @@ class SandboxForwardingHostMiddleware:
                         scope, receive, send
                     )
                 return
-            prefix = f"/preview/{token}/{port}/"
+            prefix = f"/preview/{token}/{port}/" if legacy else f"{content_root}{token}/"
             forwarded = dict(
                 scope,
                 path="/" + path,

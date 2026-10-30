@@ -27,7 +27,7 @@ def target(monkeypatch, browser_origin=None):
 @pytest.mark.parametrize("origin", ["https://jump.example.test", "http://127.0.0.1:9001"])
 async def test_path_proxy_isolates_credentials_and_rewrites_resources(monkeypatch, origin):
     entry = target(monkeypatch, origin)
-    assert entry["url"].startswith(origin + "/preview/")
+    assert entry["url"].startswith(origin + "/api/v1/previews/service/content/")
     observed = []
 
     class Session:
@@ -66,14 +66,21 @@ async def test_path_proxy_isolates_credentials_and_rewrites_resources(monkeypatc
         assert f"connect-src {entry['forwarding_url']}" in policy
         assert "sandbox allow-scripts" in policy and "allow-same-origin" not in policy
         assert response.headers["access-control-allow-origin"] == "*"
-        assert entry["forwarding_url"].split("/preview/")[1] in response.text
+        assert entry["forwarding_url"].split("/api/v1/previews/service/content/")[1] in response.text
         assert observed[0]["path"] == "/clock/index.html?x=1"
         assert "cookie" not in observed[0]["headers"]
         assert "authorization" not in observed[0]["headers"]
         assert observed[0]["headers"]["accept-encoding"] == "identity"
-        denied = await client.get(entry["url"].replace("/8080/", "/8081/"))
+        token = entry["forwarding_url"].rstrip("/").rsplit("/", 1)[1]
+        assert "/8080/" not in entry["forwarding_url"]
+        assert observed[0]["port"] == 8080
+        legacy_url = f"/preview/{token}/8080/clock/index.html?x=1"
+        legacy = await client.get(legacy_url)
+        assert legacy.status_code == 200
+        assert observed[1]["path"] == "/clock/index.html?x=1"
+        denied = await client.get(legacy_url.replace("/8080/", "/8081/"))
         assert denied.status_code == 401
-        assert len(observed) == 1
+        assert len(observed) == 2
 
 
 def test_prefix_handles_html_relative_and_absolute_resources():
@@ -179,7 +186,24 @@ async def test_resolve_binds_only_approved_browser_origin(monkeypatch, origin, a
         owned.assert_not_awaited()
         return
     result = await service_preview.resolve(body, request, auth, None)
-    assert result["url"].startswith(origin + "/preview/")
-    token = result["forwarding_url"].split("/preview/")[1].split("/")[0]
+    assert result["url"].startswith(origin + "/api/v1/previews/service/content/")
+    token = result["forwarding_url"].split("/api/v1/previews/service/content/")[1].split("/")[0]
     import json
     assert json.loads(gateway.codec().decrypt(token.encode()))["browser_origin"] == origin
+
+
+@pytest.mark.asyncio
+async def test_content_route_does_not_capture_application_routes():
+    app = FastAPI()
+
+    @app.get("/{path:path}")
+    async def page(path: str):
+        return {"path": path}
+
+    transport = httpx.ASGITransport(app=gateway.SandboxForwardingHostMiddleware(app))
+    async with httpx.AsyncClient(transport=transport, base_url="https://app.example.test") as client:
+        for path in ("chat", "workflows", "api/v1/previews/service/resolve", "healthz"):
+            response = await client.get("/" + path)
+            assert response.json() == {"path": path}
+        response = await client.get("/api/v1/previews/service/content/invalid-token/")
+        assert response.status_code == 401

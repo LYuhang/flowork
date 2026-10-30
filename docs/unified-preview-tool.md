@@ -207,3 +207,24 @@ isolated Bubblewrap sandbox listening on port 3100. Both proxies rewrote Host.
 HTML, CSS, JS, images, GET/POST, SSE and WebSocket all worked, and all browser
 requests used only the HTTPS entry. This simulates the topology locally; it
 is not a test inside the user's corporate jump-host network.
+
+
+### Service previews use the API entry (2026-10-30)
+
+New path-mode URLs use `/api/v1/previews/service/content/<encrypted-capability>/`.
+The sandbox port and runtime generation remain inside the encrypted capability;
+there is no separate port segment or browser connection to a sandbox port.
+Existing `/preview/<capability>/<port>/` links remain supported until expiry.
+Vite reuses its existing `/api` proxy. Nginx routes the content prefix to the same
+API upstream, preserving WebSocket upgrades and the gateway's iframe-specific
+CSP instead of applying the application shell's framing prohibition.
+This changes routing, not the authorization or sandbox transport model. It adds
+no mapping database or retry mechanism. Reopen a preview to obtain the new URL.
+A company jump proxy returning its own 502 must still be verified in that
+environment; changing the path alone does not prove its upstream routing works.
+
+Validation: 27 forwarding tests passed (including invalid capabilities, ordinary
+application routes, old links and WebSocket). Chromium acceptance through two
+local proxy hops passed for HTML/CSS/JS/images, GET/POST, SSE, WebSocket and live
+updates against an isolated sandbox on port 3100. This is a simulated jump-host
+topology, not verification inside the user's company network.

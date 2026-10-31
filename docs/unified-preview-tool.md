@@ -228,3 +228,39 @@ application routes, old links and WebSocket). Chromium acceptance through two
 local proxy hops passed for HTML/CSS/JS/images, GET/POST, SSE, WebSocket and live
 updates against an isolated sandbox on port 3100. This is a simulated jump-host
 topology, not verification inside the user's company network.
+
+
+### Short service preview links (2026-10-31)
+
+New path-mode previews use `/preview/<24-character-random-ID>/`. The ID is a
+144-bit bearer capability, not a sequential project or port identifier. Redis
+stores its encrypted forwarding capability for the existing one-hour lifetime.
+All API workers must share Redis and the application signing secret. No new
+public port, DNS mapping or browser-to-sandbox connection is required. Redis
+errors return an explicit 503; there is no process-local fallback or retry.
+
+Resolution follows the authorized chat's project workspace scope to its sandbox
+session. The stored capability carries tenant/user/project/scope, runtime ID,
+loopback host, scheme and port. The manager checks the runtime ID before sending
+the request over the sandbox bus; the guest connects to its own loopback with
+HTTP environment proxies disabled. A replaced sandbox cannot inherit an old
+link. Project access checks and credential stripping remain in force.
+
+Opening a valid short link without the trailing slash redirects to its canonical
+root, preserving the query. A missing/expired mapping returns 410, malformed
+paths return 400, invalid encrypted capabilities return 401, and store outages
+return 503. Previous long links continue to work until their expiry. New HTTP
+responses identify the Flowork hop with `X-Flowork-Preview: sandbox` (upstream
+service response) or `error` (Flowork gateway error), useful when separating a
+company proxy's error page from a service response.
+
+Validation: 29 tests cover forwarding, authorization, runtime replacement,
+WebSocket, short links, redirects, expiry, store failure and old-link compatibility.
+Chromium loaded a real isolated sandbox service through two local proxy hops,
+including CSS/JS/images, GET/POST, SSE and WebSocket. Standalone opening without
+trailing slash also passed. A second process read the same mapping from a real
+isolated Redis instance. The entry path is 34 characters. Company jump-host
+routing is not accessible from this test environment and still needs confirmation.
+The browser fixture explicitly loaded the candidate sources from an accessible
+staging directory; the earlier fixture could silently import the installed copy
+when run as the service user under an inaccessible `/root` checkout.

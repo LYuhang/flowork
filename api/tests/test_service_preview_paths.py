@@ -1,4 +1,5 @@
 import base64
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -7,9 +8,34 @@ from vibecanvas_api.routes import sandbox_forwarding as gateway
 from vibecanvas_api.routes.service_preview_paths import rewrite_document
 
 
-def target(monkeypatch, browser_origin=None):
+@pytest.fixture(autouse=True)
+def link_store(monkeypatch):
+    values = {}
+
+    class Store:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def set(self, key, value, *, ex, nx):
+            assert ex == gateway.TTL and nx
+            if key in values:
+                return False
+            values[key] = value
+            return True
+
+        async def get(self, key):
+            return values.get(key)
+
+    monkeypatch.setattr(gateway.preview_links, "client", Store)
+    return values
+
+
+async def target(monkeypatch, browser_origin=None):
     monkeypatch.delenv("FLOWORK_SERVICE_PREVIEW_DOMAIN", raising=False)
-    return gateway.issue_forwarding_target(
+    return await gateway.issue_forwarding_target(
         tenant="tenant",
         user="user",
         project="project",
@@ -26,8 +52,8 @@ def target(monkeypatch, browser_origin=None):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("origin", ["https://jump.example.test", "http://127.0.0.1:9001"])
 async def test_path_proxy_isolates_credentials_and_rewrites_resources(monkeypatch, origin):
-    entry = target(monkeypatch, origin)
-    assert entry["url"].startswith(origin + "/api/v1/previews/service/content/")
+    entry = await target(monkeypatch, origin)
+    assert entry["url"].startswith(origin + "/preview/")
     observed = []
 
     class Session:
@@ -60,18 +86,20 @@ async def test_path_proxy_isolates_credentials_and_rewrites_resources(monkeypatc
             entry["url"], headers={"Cookie": "login=private", "Authorization": "Bearer private"}
         )
         assert response.status_code == 200
+        assert response.headers["x-flowork-preview"] == "sandbox"
         assert not response.headers.get("set-cookie")
         policy = response.headers["content-security-policy"]
         assert f"frame-ancestors {origin}" in policy
         assert f"connect-src {entry['forwarding_url']}" in policy
         assert "sandbox allow-scripts" in policy and "allow-same-origin" not in policy
         assert response.headers["access-control-allow-origin"] == "*"
-        assert entry["forwarding_url"].split("/api/v1/previews/service/content/")[1] in response.text
+        assert entry["forwarding_url"].split("/preview/")[1] in response.text
         assert observed[0]["path"] == "/clock/index.html?x=1"
         assert "cookie" not in observed[0]["headers"]
         assert "authorization" not in observed[0]["headers"]
         assert observed[0]["headers"]["accept-encoding"] == "identity"
-        token = entry["forwarding_url"].rstrip("/").rsplit("/", 1)[1]
+        identifier = entry["forwarding_url"].rstrip("/").rsplit("/", 1)[1]
+        token = await gateway.preview_links.get(identifier)
         assert "/8080/" not in entry["forwarding_url"]
         assert observed[0]["port"] == 8080
         legacy_url = f"/preview/{token}/8080/clock/index.html?x=1"
@@ -107,12 +135,13 @@ def test_css_paths_are_prefixed_without_rewriting_remote_urls():
     assert "url(https://example.com/img.png)" in result
 
 
-def test_path_websocket_roundtrip_uses_same_sandbox(monkeypatch):
+@pytest.mark.asyncio
+async def test_path_websocket_roundtrip_uses_same_sandbox(monkeypatch):
     import asyncio
 
     from fastapi.testclient import TestClient
 
-    entry = target(monkeypatch, "http://jump.example.test:9001")
+    entry = await target(monkeypatch, "http://jump.example.test:9001")
     observed = []
 
     class Session:
@@ -186,8 +215,10 @@ async def test_resolve_binds_only_approved_browser_origin(monkeypatch, origin, a
         owned.assert_not_awaited()
         return
     result = await service_preview.resolve(body, request, auth, None)
-    assert result["url"].startswith(origin + "/api/v1/previews/service/content/")
-    token = result["forwarding_url"].split("/api/v1/previews/service/content/")[1].split("/")[0]
+    assert result["url"].startswith(origin + "/preview/")
+    identifier = result["forwarding_url"].split("/preview/")[1].split("/")[0]
+    assert len(identifier) == 24
+    token = await gateway.preview_links.get(identifier)
     import json
     assert json.loads(gateway.codec().decrypt(token.encode()))["browser_origin"] == origin
 
@@ -205,5 +236,65 @@ async def test_content_route_does_not_capture_application_routes():
         for path in ("chat", "workflows", "api/v1/previews/service/resolve", "healthz"):
             response = await client.get("/" + path)
             assert response.json() == {"path": path}
-        response = await client.get("/api/v1/previews/service/content/invalid-token/")
-        assert response.status_code == 401
+        response = await client.get("/preview/invalid-token/")
+        assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_short_link_root_and_shared_mapping(monkeypatch, link_store):
+    entry = await target(monkeypatch, "https://jump.example.test")
+    url = entry["forwarding_url"]
+    claims_seen = []
+
+    class Session:
+        async def service_forwarding_stream(self, payload):
+            assert payload["port"] == 8080
+            assert payload["runtime_id"] == "runtime"
+            assert payload["path"] == "/?x=1"
+            yield {"type": "headers", "status": 200, "headers": [("content-type", "text/plain")]}
+            yield {"type": "data", "data": base64.b64encode(b"correct service").decode()}
+            yield {"type": "end"}
+
+    async def authorize(claims):
+        claims_seen.append(claims)
+        return Session()
+
+    monkeypatch.setattr(gateway, "authorized_session", authorize)
+    # A separately constructed API instance resolves the shared link.
+    app = gateway.SandboxForwardingHostMiddleware(FastAPI())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+        response = await client.get(url.rstrip("/") + "?x=1")
+        assert response.status_code == 307
+        assert response.headers["location"] == urlsplit(url).path + "?x=1"
+        response = await client.get(url + "?x=1")
+        assert response.text == "correct service"
+        assert claims_seen[0]["scope"] == "scope"
+        assert claims_seen[0]["project"] == "project"
+        link_store.clear()
+        response = await client.get(url)
+        assert response.status_code == 410
+        assert response.headers["x-flowork-preview"] == "error"
+        assert "link_expired" in response.text
+
+
+@pytest.mark.asyncio
+async def test_short_link_store_failure_is_503(monkeypatch):
+    from redis.exceptions import ConnectionError
+    from fastapi import HTTPException
+
+    class Unavailable:
+        async def __aenter__(self):
+            raise ConnectionError("offline")
+
+        async def __aexit__(self, *args):
+            pass
+
+    monkeypatch.setattr(gateway.preview_links, "client", Unavailable)
+    with pytest.raises(HTTPException) as error:
+        await target(monkeypatch)
+    assert error.value.status_code == 503
+    app = gateway.SandboxForwardingHostMiddleware(FastAPI())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://app.test") as client:
+        response = await client.get("/preview/" + "a" * 24 + "/")
+        assert response.status_code == 503
+        assert "link_store_unavailable" in response.text

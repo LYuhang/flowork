@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from sqlalchemy import select
 
 from vibecanvas_api.config import config
+from vibecanvas_api.services import preview_links
 from vibecanvas_api.services.sandbox.manager import get_sandbox_manager
 from vibecanvas_api.storage.db import session_scope
 from vibecanvas_api.storage.models import ChatProject
@@ -39,14 +40,14 @@ async def preview_error(request: Request, exc: HTTPException):
     title = "Service preview unavailable"
     explanation = (
         "Reopen the preview from the conversation to renew access."
-        if exc.status_code == 401
+        if exc.status_code in {401, 410}
         else "Check that the sandbox and its web service are still running."
     )
     return HTMLResponse(
         f'<!doctype html><meta charset="utf-8"><title>{title}</title>'
         f"<h2>{title}</h2><p>{explanation}</p><pre>{html.escape(str(exc.detail))}</pre>",
         status_code=exc.status_code,
-        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Flowork-Preview": "error"},
     )
 
 
@@ -113,7 +114,7 @@ def claims_for(token: str, host: str) -> dict:
         raise HTTPException(401, "service_preview_expired_reopen_from_chat") from None
 
 
-def issue_forwarding_target(
+async def issue_forwarding_target(
     *,
     tenant: str,
     user: str,
@@ -144,7 +145,8 @@ def issue_forwarding_target(
     if not preview_domain():
         # Signed sandbox identity carries the user, runtime generation and port.
         # Path capabilities work in opaque-origin frames without login cookies.
-        prefix = f"/api/v1/previews/service/content/{token}/"
+        identifier = await preview_links.put(token, TTL)
+        prefix = f"/preview/{identifier}/"
         origin = claims["browser_origin"]
         return {
             "url": origin + prefix + path.lstrip("/"),
@@ -369,6 +371,7 @@ async def proxy(request: Request, path: str):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Accel-Buffering"] = "no"
+    response.headers["X-Flowork-Preview"] = "sandbox"
     return response
 
 
@@ -450,6 +453,7 @@ class SandboxForwardingHostMiddleware:
         request_path = scope.get("path", "")
         content_root = "/api/v1/previews/service/content/"
         if scope["type"] in {"http", "websocket"} and request_path.startswith((content_root, "/preview/")):
+            short = re.fullmatch(r"/preview/([A-Za-z0-9_-]{24})(?:/(.*))?", request_path)
             legacy = request_path.startswith("/preview/")
             pattern = (
                 r"/preview/([A-Za-z0-9_=-]+)/([0-9]+)/(.*)"
@@ -457,25 +461,43 @@ class SandboxForwardingHostMiddleware:
             )
             matched = re.fullmatch(pattern, request_path)
             try:
-                if not matched:
-                    raise ValueError("invalid service path")
-                if legacy:
-                    token, port, path = matched.groups()
-                else:
-                    token, path = matched.groups()
+                if short:
+                    identifier, path = short.groups()
+                    path = path or ""
+                    token = await preview_links.get(identifier)
+                    prefix = f"/preview/{identifier}/"
                     port = None
-                claims = json.loads(codec().decrypt(token.encode(), ttl=TTL))
-                if (legacy and claims["port"] != int(port)) or claims["exp"] <= time.time():
-                    raise ValueError("expired service path")
-            except (InvalidToken, ValueError, KeyError, TypeError):
-                if scope["type"] == "websocket":
-                    await send({"type": "websocket.close", "code": 1008})
+                elif matched:
+                    if legacy:
+                        token, port, path = matched.groups()
+                        prefix = f"/preview/{token}/{port}/"
+                    else:
+                        token, path = matched.groups()
+                        port = None
+                        prefix = f"{content_root}{token}/"
                 else:
-                    await HTMLResponse("Service preview expired. Reopen it from the conversation.", status_code=401)(
-                        scope, receive, send
-                    )
+                    raise HTTPException(400, "service_preview_invalid_path")
+                try:
+                    claims = json.loads(codec().decrypt(token.encode(), ttl=TTL))
+                    if (port is not None and claims["port"] != int(port)) or claims["exp"] <= time.time():
+                        raise ValueError("expired service path")
+                except (InvalidToken, ValueError, KeyError, TypeError) as exc:
+                    raise HTTPException(401, "service_preview_capability_invalid_or_expired") from exc
+            except HTTPException as exc:
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1013 if exc.status_code == 503 else 1008})
+                else:
+                    response = await preview_error(Request(scope), exc)
+                    await response(scope, receive, send)
                 return
-            prefix = f"/preview/{token}/{port}/" if legacy else f"{content_root}{token}/"
+            # Canonicalize the service root so relative links stay under its ID.
+            # Validate first: a missing link must not become a redirect loop.
+            if short and request_path == prefix.rstrip("/") and scope["type"] == "http":
+                query = scope.get("query_string", b"").decode("ascii")
+                response = RedirectResponse(prefix + ("?" + query if query else ""), status_code=307,
+                                            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+                await response(scope, receive, send)
+                return
             forwarded = dict(
                 scope,
                 path="/" + path,

@@ -86,7 +86,7 @@ async def resolve(body: OpenService, request: Request, auth: AuthContext = Depen
         path += "?" + parsed.query
     if parsed.fragment:
         path += "#" + parsed.fragment
-    result = issue_forwarding_target(
+    result = await issue_forwarding_target(
         tenant=str(auth.tenant_id),
         user=str(auth.user_id),
         project=project_id,
